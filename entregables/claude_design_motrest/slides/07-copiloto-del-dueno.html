@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="es"><head>
+<meta charset="utf-8">
+<title>07 · Copiloto del Dueño — MotRest</title>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+:root{--verde:#F2853A;--naranja:#F2853A;--rojo:#E0392B;--pizarra:#2D3A42;--negro:#14181A;--claro:#FDEBD7;--gris:#8A969C}
+html,body{width:1920px;height:1080px;overflow:hidden}
+body{font-family:'Inter','Segoe UI',Arial,sans-serif;background:#fff;color:var(--pizarra);position:relative}
+h2,h3,.sg{font-family:'Space Grotesk','Segoe UI',Arial,sans-serif}
+.slide{width:1920px;height:1080px;padding:88px 128px 110px;display:grid;grid-template-columns:1.1fr .9fr;gap:72px;position:relative}
+.topbar{position:absolute;top:88px;left:128px;right:128px;display:flex;justify-content:space-between;align-items:baseline}
+.eyebrow{font-family:'Space Grotesk',sans-serif;font-size:22px;font-weight:600;letter-spacing:.22em;text-transform:uppercase;color:var(--verde)}
+.num{font-size:22px;color:var(--gris);font-weight:500}
+.left{display:flex;flex-direction:column;justify-content:center;padding-top:60px}
+h2{font-size:64px;font-weight:700;letter-spacing:-.01em;line-height:1.12}
+h2 em{font-style:normal;color:var(--verde)}
+.points{margin-top:40px;display:flex;flex-direction:column;gap:22px}
+.pt{display:flex;gap:18px;align-items:flex-start;font-size:26px;line-height:1.45}
+.pt .d{flex:none;width:14px;height:14px;border-radius:50%;background:var(--verde);margin-top:12px}
+.closing{margin-top:44px;font-family:'Space Grotesk',sans-serif;font-size:30px;font-weight:600;color:var(--pizarra);border-left:8px solid var(--verde);padding-left:24px}
+.right{display:flex;align-items:center;justify-content:center;padding-top:60px}
+.chat{width:100%;max-width:640px;background:var(--negro);border-radius:32px;padding:40px;display:flex;flex-direction:column;gap:20px;box-shadow:0 30px 60px rgba(20,24,26,.25)}
+.chat .head{display:flex;align-items:center;gap:14px;color:#fff;font-family:'Space Grotesk',sans-serif;font-size:22px;font-weight:600;padding-bottom:18px;border-bottom:1px solid rgba(255,255,255,.12)}
+.chat .head .av{width:44px;height:44px;border-radius:50%;background:var(--verde);display:flex;align-items:center;justify-content:center;color:#fff;font-size:20px}
+.chat .head small{display:block;font-family:'Inter',sans-serif;font-size:16px;font-weight:400;color:var(--verde)}
+.b{max-width:82%;padding:18px 24px;border-radius:20px;font-size:22px;line-height:1.4}
+.b.user{align-self:flex-end;background:var(--verde);color:#fff;border-bottom-right-radius:6px}
+.b.bot{align-self:flex-start;background:#222A2E;color:#fff;border-bottom-left-radius:6px}
+.b.bot b{color:var(--verde)}
+.b.bot small{display:block;margin-top:10px;color:var(--gris);font-size:17px}
+.baseline{position:absolute;left:0;right:0;bottom:0;height:8px;background:var(--verde)}
+</style><!-- rebrand-naranja -->
+</head>
+<body>
+<div class="topbar"><div class="eyebrow">Copiloto del Dueño</div><div class="num">07 / 14</div></div>
+<div class="slide">
+  <div class="left">
+    <h2>Pregúntale a tu restaurante: <em>“¿cómo va el día?”</em></h2>
+    <div class="points">
+      <div class="pt"><span class="d"></span><div>Un copiloto conversacional por <b>chat, voz o WhatsApp</b>, disponible para cada rol.</div></div>
+      <div class="pt"><span class="d"></span><div><i>“¿Qué platillo dejó más margen esta semana?”</i> — respuesta en segundos, con datos reales.</div></div>
+      <div class="pt"><span class="d"></span><div>Responde <b>solo con la información que ese rol tiene permitido ver</b>.</div></div>
+    </div>
+    <div class="closing">El ERP más fácil de adoptar: si sabes preguntar, sabes usarlo.</div>
+  </div>
+  <div class="right">
+    <div class="chat">
+      <div class="head"><span class="av">M</span><div>Copiloto MotRest<small>WhatsApp · en línea</small></div></div>
+      <div class="b user">¿Cómo va el día?</div>
+      <div class="b bot">Van <b>128 cuentas cobradas</b> y el ticket promedio subió frente al viernes pasado. La estación de horno está al 90&nbsp;% en hora pico.<small>Visto con permisos de: Dirección</small></div>
+      <div class="b user">¿Qué platillo dejó más margen esta semana?</div>
+      <div class="b bot">Tu <b>pizza mitad-y-mitad</b> lidera el margen de la semana. ¿Te muestro el detalle por ingrediente?</div>
+    </div>
+  </div>
+</div>
+<div class="baseline"></div>
+<script id="fit">(function(){function f(){var s=Math.min(innerWidth/1920,innerHeight/1080);document.body.style.transform="scale("+s+")";}document.body.style.transformOrigin="top left";document.documentElement.style.overflow="hidden";document.documentElement.style.background=getComputedStyle(document.body).backgroundColor;window.addEventListener("resize",f);f();})();</script>
+</body></html>

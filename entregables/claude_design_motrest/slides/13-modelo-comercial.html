@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="es"><head>
+<meta charset="utf-8">
+<title>13 · Modelo comercial — MotRest</title>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+:root{--verde:#F2853A;--naranja:#F2853A;--rojo:#E0392B;--pizarra:#2D3A42;--negro:#14181A;--claro:#FDEBD7;--gris:#8A969C}
+html,body{width:1920px;height:1080px;overflow:hidden}
+body{font-family:'Inter','Segoe UI',Arial,sans-serif;background:#fff;color:var(--pizarra);position:relative}
+h2,h3,.sg{font-family:'Space Grotesk','Segoe UI',Arial,sans-serif}
+.slide{width:1920px;height:1080px;padding:88px 128px 110px;display:flex;flex-direction:column;position:relative}
+.topbar{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:34px}
+.eyebrow{font-family:'Space Grotesk',sans-serif;font-size:22px;font-weight:600;letter-spacing:.22em;text-transform:uppercase;color:var(--verde)}
+.num{font-size:22px;color:var(--gris);font-weight:500}
+h2{font-size:66px;font-weight:700;letter-spacing:-.015em;line-height:1.12}
+h2 em{font-style:normal;color:var(--verde)}
+.blocks{display:grid;grid-template-columns:repeat(3,1fr);gap:28px;margin-top:46px}
+.blk{border:2px solid var(--claro);border-radius:22px;padding:38px 40px}
+.blk .k{font-family:'Space Grotesk',sans-serif;font-size:20px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;color:var(--verde);margin-bottom:14px}
+.blk h3{font-size:29px;font-weight:600;line-height:1.2;margin-bottom:12px}
+.blk p{font-size:22px;line-height:1.45;color:var(--gris)}
+.blk p b{color:var(--pizarra)}
+.report{margin-top:auto;background:var(--claro);border-radius:22px;padding:36px 46px;display:flex;align-items:center;gap:36px}
+.report .ic{flex:none;width:84px;height:84px;border-radius:20px;background:var(--verde);color:#fff;display:flex;align-items:center;justify-content:center;font-family:'Space Grotesk',sans-serif;font-size:34px;font-weight:700}
+.report h3{font-size:29px;font-weight:600;margin-bottom:6px}
+.report p{font-size:23px;line-height:1.4;color:var(--pizarra);opacity:.8}
+.baseline{position:absolute;left:0;right:0;bottom:0;height:8px;background:var(--verde)}
+</style><!-- rebrand-naranja -->
+</head>
+<body>
+<div class="slide">
+  <div class="topbar"><div class="eyebrow">Modelo comercial</div><div class="num">13 / 14</div></div>
+  <h2>No cobramos por licencia.<br>Cobramos por <em>resultado</em>.</h2>
+  <div class="blocks">
+    <div class="blk"><div class="k">Base</div><h3>Suscripción por local</h3><p>Planes escalonados que crecen con tu negocio, desde el núcleo operativo hasta el ERP completo con IA.</p></div>
+    <div class="blk"><div class="k">Variable</div><h3>Cobro por resultado</h3><p>Una parte del precio se liga al <b>ahorro verificado</b> —merma y food cost— medido contra la línea base de tu diagnóstico.</p></div>
+    <div class="blk"><div class="k">Compromiso</div><h3>Garantía de resultado</h3><p>Si no se cumple la meta de ahorro acordada, <b>el componente variable no se cobra</b>. El riesgo lo compartimos.</p></div>
+  </div>
+  <div class="report">
+    <div class="ic">IA</div>
+    <div>
+      <h3>Reporte de Rentabilidad Mensual con IA</h3>
+      <p>Cada mes, por WhatsApp o correo: P&amp;L, food cost, mermas evitadas y recomendaciones. Ves exactamente lo que MotRest te hizo ganar.</p>
+    </div>
+  </div>
+</div>
+<div class="baseline"></div>
+<script id="fit">(function(){function f(){var s=Math.min(innerWidth/1920,innerHeight/1080);document.body.style.transform="scale("+s+")";}document.body.style.transformOrigin="top left";document.documentElement.style.overflow="hidden";document.documentElement.style.background=getComputedStyle(document.body).backgroundColor;window.addEventListener("resize",f);f();})();</script>
+</body></html>

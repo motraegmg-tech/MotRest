@@ -1,0 +1,142 @@
+<!doctype html>
+<html lang="es"><head>
+<meta charset="utf-8">
+<title>Render · Centinela de mermas — MotRest</title>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+html,body{width:1920px;height:1080px;overflow:hidden}
+body{font-family:'Inter','Segoe UI',Arial,sans-serif;background:#14181A;color:#fff;position:relative}
+.hw-glow{position:absolute;width:1200px;height:1200px;border-radius:50%;background:radial-gradient(circle,rgba(242,133,58,.17) 0%,rgba(242,133,58,0) 62%);right:-320px;top:-380px}
+.hw-glow2{position:absolute;width:900px;height:900px;border-radius:50%;background:radial-gradient(circle,rgba(242,133,58,.10) 0%,rgba(242,133,58,0) 60%);left:-260px;bottom:-380px}
+.hw-stage{position:relative;z-index:1;width:1920px;height:1080px;display:flex;align-items:center;gap:80px;padding:0 110px}
+.hw-text{width:520px;flex:none}
+.hw-eyebrow{font-family:'Space Grotesk','Segoe UI',sans-serif;font-size:20px;font-weight:600;letter-spacing:.22em;text-transform:uppercase;color:#F2853A}
+.hw-mod{display:inline-block;margin-top:22px;border:2px solid rgba(242,133,58,.55);border-radius:999px;padding:9px 20px;font-size:17px;font-weight:600;color:#FDEBD7}
+.hw-title{font-family:'Space Grotesk','Segoe UI',sans-serif;font-size:58px;font-weight:700;line-height:1.1;letter-spacing:-.01em;margin-top:22px}
+.hw-cap{font-size:23px;line-height:1.5;color:#B9C2BC;margin-top:20px}
+.hw-brand{position:absolute;left:110px;bottom:52px;font-size:20px;color:#8A969C;font-style:italic}
+.hw-brand b{color:#F2853A;font-style:normal;font-family:'Space Grotesk','Segoe UI',sans-serif;margin-right:12px}
+.hw-dev-area{flex:1;display:flex;align-items:center;justify-content:center}
+.hw-devwrap{display:flex;flex-direction:column;align-items:center}
+.hw-dev{background:#0B0D0E;border:2px solid #2A3237;box-shadow:0 40px 90px rgba(0,0,0,.55)}
+.hw-tablet{padding:26px;border-radius:38px}
+.hw-monitor{padding:20px;border-radius:22px}
+.hw-laptop{padding:18px 18px 22px;border-radius:24px 24px 0 0;border-bottom:0}
+.hw-phone{padding:14px;border-radius:52px;position:relative}
+.hw-notch{position:absolute;top:26px;left:50%;transform:translateX(-50%);width:120px;height:26px;background:#0B0D0E;border-radius:14px;z-index:2}
+.hw-neck{width:110px;height:64px;background:#0B0D0E;border:2px solid #2A3237;border-top:0}
+.hw-base{width:340px;height:18px;background:#0B0D0E;border:2px solid #2A3237;border-radius:10px}
+.hw-lapbase{height:26px;background:#171D21;border:2px solid #2A3237;border-radius:0 0 22px 22px}
+.hw-screen{overflow:hidden;border-radius:14px;background:#000}
+.hw-phone .hw-screen{border-radius:38px}
+.hw-fit{transform-origin:top left}
+#r5, #r5 *{margin:0;padding:0;box-sizing:border-box}#r5{--verde:#F2853A;--naranja:#E6B23A;--rojo:#E0392B;--pizarra:#2D3A42;--negro:#14181A;--claro:#FDEBD7;--gris:#8A969C;--fondo:#F4F6F3;--borde:#E3E9E0}#r5{width:1920px;height:1080px;overflow:hidden}#r5{font-family:'Inter','Segoe UI',Arial,sans-serif;background:var(--fondo);color:var(--pizarra);display:flex}#r5 h1,#r5 h2,#r5 h3,#r5 .sg{font-family:'Space Grotesk','Segoe UI',Arial,sans-serif}#r5 .sb{width:250px;background:var(--negro);color:#fff;display:flex;flex-direction:column;padding:28px 16px;flex:none}#r5 .sb .logo{font-family:'Space Grotesk',sans-serif;font-size:45px;font-weight:700;padding:0 14px 26px}#r5 .sb .logo span{color:var(--verde)}#r5 .sb nav{display:flex;flex-direction:column;gap:4px}#r5 .sb nav div{display:flex;align-items:center;gap:12px;padding:12px 14px;border-radius:12px;color:#B9C2BC;font-size:27.5px;font-weight:500}#r5 .sb nav div.on{background:var(--verde);color:#fff;font-weight:600}#r5 .sb nav div i{width:10px;height:10px;border-radius:3px;background:currentColor;opacity:.55;font-style:normal}#r5 .sb .foot{margin-top:auto;padding:12px 14px;font-size:21.5px;color:var(--gris)}#r5 .main{flex:1;display:flex;flex-direction:column;min-width:0}#r5 .hd{height:84px;background:#fff;border-bottom:1px solid var(--borde);display:flex;align-items:center;gap:16px;padding:0 30px;flex:none}#r5 .hd h1{font-size:40px;font-weight:600}#r5 .chip{display:inline-flex;align-items:center;gap:8px;background:var(--claro);border-radius:999px;padding:8px 16px;font-size:22.5px;font-weight:600}#r5 .chip.gray{background:#EEF1ED;color:var(--gris)}#r5 .hd .sp{flex:1}#r5 .avatar{display:flex;align-items:center;gap:10px;font-size:24.5px;font-weight:600}#r5 .avatar .av{width:40px;height:40px;border-radius:50%;background:var(--negro);color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700}#r5 .content{flex:1;padding:26px 30px;display:flex;flex-direction:column;gap:20px;min-height:0}#r5 .stats{display:grid;grid-template-columns:repeat(4,1fr);gap:20px}#r5 .st{background:#fff;border:1px solid var(--borde);border-radius:16px;padding:18px 24px;display:flex;align-items:center;gap:16px}#r5 .st i{width:14px;height:14px;border-radius:50%;font-style:normal;flex:none}#r5 .st .l{font-size:22.5px;color:var(--gris)}#r5 .st b{font-family:'Space Grotesk',sans-serif;font-size:45px;display:block}#r5 .cols{flex:1;display:grid;grid-template-columns:1.6fr 1fr;gap:20px;min-height:0}#r5 .card{background:#fff;border:1px solid var(--borde);border-radius:18px;padding:18px 24px;display:flex;flex-direction:column;min-height:0}#r5 .card h2{font-size:30.5px;font-weight:600}#r5 .card .sub{font-size:22.5px;color:var(--gris);margin-top:4px}#r5 .feed{margin-top:10px;display:flex;flex-direction:column;gap:8px;overflow:hidden}#r5 .alerta{border:1px solid var(--borde);border-left:6px solid var(--verde);border-radius:14px;padding:10px 16px;display:flex;gap:14px;align-items:flex-start}#r5 .alerta.crit{border-left-color:var(--rojo);background:rgba(224,57,43,.03)}#r5 .alerta.warn{border-left-color:var(--naranja)}#r5 .alerta .sev{flex:none;font-size:20px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;border-radius:999px;padding:5px 12px;color:#fff;background:var(--verde);margin-top:2px}#r5 .alerta.crit .sev{background:var(--rojo)}#r5 .alerta.warn .sev{background:var(--naranja)}#r5 .alerta .tx{flex:1;min-width:0}#r5 .alerta h3{font-size:28px;font-weight:600}#r5 .alerta p{font-size:24.5px;color:var(--gris);line-height:1.28;margin-top:3px}#r5 .alerta p b{color:var(--pizarra)}#r5 .alerta .meta{display:flex;gap:14px;margin-top:4px;font-size:21.5px;color:var(--gris)}#r5 .alerta .acts{display:flex;flex-direction:column;gap:8px}#r5 .ba{border-radius:10px;padding:9px 18px;font-size:22.5px;font-weight:600;text-align:center}#r5 .ba.p{background:var(--pizarra);color:#fff}#r5 .ba.s{border:2px solid var(--borde);color:var(--pizarra)}#r5 .merma{margin-top:12px;display:flex;flex-direction:column;gap:12px}#r5 .mrow .mh{display:flex;justify-content:space-between;font-size:24.5px;margin-bottom:7px}#r5 .mrow .mh b{font-weight:600}#r5 .mrow .mh span{color:var(--gris)}#r5 .track{position:relative;height:16px;background:#EEF1ED;border-radius:8px}#r5 .fill{position:absolute;left:0;top:0;bottom:0;border-radius:8px;background:var(--claro);border:1px solid rgba(242,133,58,.4)}#r5 .fill.over{background:#FBF0D9;border-color:rgba(230,178,61,.55)}#r5 .base{position:absolute;top:-5px;bottom:-5px;width:3px;background:var(--pizarra);border-radius:2px}#r5 .blegend{display:flex;gap:18px;font-size:21.5px;color:var(--gris);margin-top:2px}#r5 .blegend span{display:flex;align-items:center;gap:7px}#r5 .blegend i{width:12px;height:12px;border-radius:4px;font-style:normal}#r5 .blegend i.bl{width:3px;height:14px;border-radius:2px;background:var(--pizarra)}#r5 .saving{margin-top:auto;background:var(--negro);border-radius:16px;padding:20px 24px;color:#fff}#r5 .saving h3{font-size:25.5px;font-weight:600;color:var(--verde)}#r5 .saving b{font-family:'Space Grotesk',sans-serif;font-size:54.5px;display:block;margin-top:6px}#r5 .saving p{font-size:22.5px;color:#B9C2BC;margin-top:6px;line-height:1.4}
+
+</style></head><body>
+<div class="hw-glow"></div><div class="hw-glow2"></div>
+<div class="hw-stage">
+<div class="hw-text">
+<div class="hw-eyebrow">MOTRAE · MotRest</div>
+<div class="hw-title">Centinela de mermas</div>
+<div class="hw-cap">Anomalías detectadas en tiempo real, correlacionadas con turno, estación y usuario.</div>
+<span class="hw-mod">Capacidad AI-first 05 · Centinela</span>
+</div>
+<div class="hw-dev-area"><div class="hw-devwrap"><div class="hw-dev hw-laptop"><div class="hw-screen" style="width:987px;height:555px"><div class="hw-fit" style="width:1920px;height:1080px;transform:scale(0.514)"><div id="r5">
+<aside class="sb">
+  <div class="logo">MotRest<span>.</span></div>
+  <nav>
+    <div><i></i>Venta</div>
+    <div><i></i>Cocina</div>
+    <div class="on"><i></i>Inventario</div>
+    <div><i></i>Compras</div>
+    <div><i></i>Finanzas</div>
+    <div><i></i>Personal</div>
+    <div><i></i>Clientes</div>
+    <div><i></i>Inteligencia</div>
+    <div><i></i>Ajustes</div>
+  </nav>
+  <div class="foot">MOTRAE · Innovation already in motion</div>
+</aside>
+<div class="main">
+  <header class="hd">
+    <h1>Centinela de mermas y anomalías</h1>
+    <span class="chip">Rodizio · Centro ▾</span>
+    <span class="chip gray">Vigilancia en tiempo real</span>
+    <span class="chip gray">Datos de demostración</span>
+    <span class="sp"></span>
+    <span class="avatar"><span class="av">G</span>Gonzalo · Dirección</span>
+  </header>
+  <div class="content">
+    <div class="stats">
+      <div class="st"><i style="background:var(--pizarra)"></i><span><span class="l">Alertas de hoy</span><b>6</b></span></div>
+      <div class="st"><i style="background:var(--rojo)"></i><span><span class="l">Críticas abiertas</span><b>1</b></span></div>
+      <div class="st"><i style="background:var(--naranja)"></i><span><span class="l">Advertencias abiertas</span><b>2</b></span></div>
+      <div class="st"><i style="background:var(--verde)"></i><span><span class="l">Resueltas esta semana</span><b>11</b></span></div>
+    </div>
+    <div class="cols">
+      <div class="card">
+        <h2>Feed de anomalías</h2>
+        <div class="sub">Cancelaciones, cortesías, descuentos, cortes y consumos correlacionados con turno, estación y usuario.</div>
+        <div class="feed">
+          <div class="alerta crit">
+            <span class="sev">Crítica</span>
+            <div class="tx">
+              <h3>Cancelaciones inusuales después del cobro · Caja 2</h3>
+              <p><b>5 cancelaciones post-cobro en 40 min</b> (patrón normal: 0–1 por turno). Correlación: mismo usuario en 4 de 5 · turno noche.</p>
+              <div class="meta"><span>Hace 12 min</span><span>Turno: noche</span><span>Impacto estimado: $740</span></div>
+            </div>
+            <div class="acts"><span class="ba p">Revisar tickets</span><span class="ba s">Marcar visto</span></div>
+          </div>
+          <div class="alerta warn">
+            <span class="sev">Alerta</span>
+            <div class="tx">
+              <h3>Merma de masa +32% sobre línea base · Horno</h3>
+              <p>Consumo de masa por pizza <b>arriba del estándar de receta</b>. Sugerencia del agente: revisar porcionado; el pronóstico indica sobre-preparación del turno tarde.</p>
+              <div class="meta"><span>Hace 41 min</span><span>Estación: horno</span><span>Ingrediente: masa madre</span></div>
+            </div>
+            <div class="acts"><span class="ba p">Ver detalle</span><span class="ba s">Marcar visto</span></div>
+          </div>
+          <div class="alerta warn">
+            <span class="sev">Alerta</span>
+            <div class="tx">
+              <h3>Descuento fuera de patrón · Punto de venta</h3>
+              <p>Descuento del <b>18% aplicado 6 veces en 2 horas</b> por el mismo usuario. Límite configurado para el rol: 10% con autorización.</p>
+              <div class="meta"><span>Hace 1 h 05 min</span><span>Rol: cajero</span><span>Requiere: autorización de gerente</span></div>
+            </div>
+            <div class="acts"><span class="ba p">Revisar</span><span class="ba s">Marcar visto</span></div>
+          </div>
+          <div class="alerta">
+            <span class="sev">Resuelta</span>
+            <div class="tx">
+              <h3>Compra autónoma ajustada por pronóstico · Mozzarella</h3>
+              <p>Pedido reducido <b>−12 kg</b>: lluvia prevista el sábado baja la demanda proyectada. Orden enviada al proveedor con confirmación.</p>
+              <div class="meta"><span>Hoy 18:20</span><span>Módulo: compras autónomas</span><span>Ahorro: $1,080</span></div>
+            </div>
+            <div class="acts"><span class="ba s">Ver orden</span></div>
+          </div>
+        </div>
+      </div>
+      <div class="card">
+        <h2>Merma de la semana vs línea base</h2>
+        <div class="sub">Consumo real por insumo sensible; la marca vertical es la línea base del diagnóstico (Fase 0).</div>
+        <div class="merma">
+          <div class="mrow"><div class="mh"><b>Masa madre</b><span>$1,860 · base $1,410</span></div><div class="track"><div class="fill over" style="width:86%"></div><div class="base" style="left:65%"></div></div></div>
+          <div class="mrow"><div class="mh"><b>Quesos</b><span>$1,120 · base $1,240</span></div><div class="track"><div class="fill" style="width:52%"></div><div class="base" style="left:57%"></div></div></div>
+          <div class="mrow"><div class="mh"><b>Salsas</b><span>$610 · base $700</span></div><div class="track"><div class="fill" style="width:28%"></div><div class="base" style="left:32%"></div></div></div>
+          <div class="blegend"><span><i style="background:var(--claro);border:1px solid rgba(242,133,58,.4)"></i>Dentro de la base</span><span><i style="background:#FBF0D9;border:1px solid rgba(230,178,61,.55)"></i>Sobre la base</span><span><i class="bl"></i>Línea base</span></div>
+        </div>
+        <div class="saving">
+          <h3>Pérdidas evitadas este mes</h3>
+          <b>$18,400</b>
+          <p>Suma verificada de anomalías atendidas y compras ajustadas — la cifra que sustenta el cobro por resultado.</p>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+</div></div></div></div><div class="hw-lapbase" style="width:1137px"></div></div></div>
+</div>
+<div class="hw-brand"><b>MOTRAE</b>Innovation already in motion</div>
+<script id="fit">(function(){function f(){var s=Math.min(innerWidth/1920,innerHeight/1080);document.body.style.transform="scale("+s+")";}document.body.style.transformOrigin="top left";document.documentElement.style.overflow="hidden";document.documentElement.style.background="#14181A";window.addEventListener("resize",f);f();})();</script>
+</body></html>

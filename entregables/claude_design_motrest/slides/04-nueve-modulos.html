@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="es"><head>
+<meta charset="utf-8">
+<title>04 · 9 módulos — MotRest</title>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+:root{--verde:#F2853A;--naranja:#F2853A;--rojo:#E0392B;--pizarra:#2D3A42;--negro:#14181A;--claro:#FDEBD7;--gris:#8A969C}
+html,body{width:1920px;height:1080px;overflow:hidden}
+body{font-family:'Inter','Segoe UI',Arial,sans-serif;background:#fff;color:var(--pizarra);position:relative}
+h2,h3,.sg{font-family:'Space Grotesk','Segoe UI',Arial,sans-serif}
+.slide{width:1920px;height:1080px;padding:88px 128px 110px;display:flex;flex-direction:column;position:relative}
+.topbar{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:32px}
+.eyebrow{font-family:'Space Grotesk',sans-serif;font-size:22px;font-weight:600;letter-spacing:.22em;text-transform:uppercase;color:var(--verde)}
+.num{font-size:22px;color:var(--gris);font-weight:500}
+h2{font-size:58px;font-weight:700;letter-spacing:-.01em;line-height:1.15}
+h2 em{font-style:normal;color:var(--verde)}
+.grid{flex:1;display:grid;grid-template-columns:repeat(3,1fr);grid-template-rows:repeat(3,1fr);gap:24px;margin-top:40px}
+.mod{border:2px solid var(--claro);border-radius:18px;padding:26px 30px;display:flex;flex-direction:column;gap:8px;background:#fff}
+.mod .tag{font-family:'Space Grotesk',sans-serif;font-size:20px;font-weight:700;color:#fff;background:var(--verde);border-radius:8px;padding:3px 12px;width:max-content}
+.mod h3{font-size:26px;font-weight:600;line-height:1.15}
+.mod p{font-size:20px;color:var(--gris);line-height:1.35}
+.baseline{position:absolute;left:0;right:0;bottom:0;height:8px;background:var(--verde)}
+</style><!-- rebrand-naranja -->
+</head>
+<body>
+<div class="slide">
+  <div class="topbar"><div class="eyebrow">Qué incluye</div><div class="num">04 / 14</div></div>
+  <h2>Todo tu negocio, en <em>nueve módulos</em> que se hablan entre sí</h2>
+  <div class="grid">
+    <div class="mod"><span class="tag">M1</span><h3>Punto de Venta y Servicio</h3><p>Mesas, comandas, cuentas, delivery y productos configurables — incluye pizzas mitad-y-mitad.</p></div>
+    <div class="mod"><span class="tag">M2</span><h3>Cocina (KDS) y Recetas</h3><p>Pantalla por estación, recetas vivas y costeo por ingrediente.</p></div>
+    <div class="mod"><span class="tag">M3</span><h3>Inventario y Almacén</h3><p>Stock en tiempo real, caducidades, merma y conteos cíclicos.</p></div>
+    <div class="mod"><span class="tag">M4</span><h3>Compras y Proveedores</h3><p>Órdenes de compra, recepción y evaluación de proveedores.</p></div>
+    <div class="mod"><span class="tag">M5</span><h3>Finanzas y Contabilidad</h3><p>Estado de resultados, flujo de caja y facturación CFDI nativa.</p></div>
+    <div class="mod"><span class="tag">M6</span><h3>RR. HH. y Nómina</h3><p>Turnos, asistencia, propinas y costo laboral por hora y estación.</p></div>
+    <div class="mod"><span class="tag">M7</span><h3>CRM y Fidelización</h3><p>Ficha de cliente, programa de puntos, campañas y reservas.</p></div>
+    <div class="mod"><span class="tag">M8</span><h3>Inteligencia de Negocio</h3><p>Tableros por rol, pronóstico, simulación y alertas.</p></div>
+    <div class="mod"><span class="tag">M9</span><h3>Administración y Roles</h3><p>Seguridad, auditoría y panel por jerarquía de puestos.</p></div>
+  </div>
+</div>
+<div class="baseline"></div>
+<script id="fit">(function(){function f(){var s=Math.min(innerWidth/1920,innerHeight/1080);document.body.style.transform="scale("+s+")";}document.body.style.transformOrigin="top left";document.documentElement.style.overflow="hidden";document.documentElement.style.background=getComputedStyle(document.body).backgroundColor;window.addEventListener("resize",f);f();})();</script>
+</body></html>

@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="es"><head>
+<meta charset="utf-8">
+<title>08 · Capacidades AI-first — MotRest</title>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+:root{--verde:#F2853A;--naranja:#F2853A;--rojo:#E0392B;--pizarra:#2D3A42;--negro:#14181A;--claro:#FDEBD7;--gris:#8A969C}
+html,body{width:1920px;height:1080px;overflow:hidden}
+body{font-family:'Inter','Segoe UI',Arial,sans-serif;background:var(--negro);color:#fff;position:relative}
+h2,h3,.sg{font-family:'Space Grotesk','Segoe UI',Arial,sans-serif}
+.glow{position:absolute;width:1200px;height:1200px;border-radius:50%;background:radial-gradient(circle,rgba(242,133,58,.18) 0%,rgba(242,133,58,0) 62%);right:-380px;bottom:-460px}
+.beam{position:absolute;top:-200px;left:-120px;width:420px;height:1500px;transform:rotate(-24deg);background:linear-gradient(180deg,var(--naranja),var(--rojo));opacity:.14;border-radius:60px}
+.slide{width:1920px;height:1080px;padding:96px 128px;display:flex;flex-direction:column;position:relative;z-index:1}
+.topbar{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:52px}
+.eyebrow{font-family:'Space Grotesk',sans-serif;font-size:22px;font-weight:600;letter-spacing:.24em;text-transform:uppercase;color:var(--verde)}
+.num{font-size:22px;color:var(--gris);font-weight:500}
+h2{font-size:84px;font-weight:700;letter-spacing:-.015em;line-height:1.1;max-width:1500px}
+h2 em{font-style:normal;background:linear-gradient(90deg,var(--naranja),var(--rojo));-webkit-background-clip:text;background-clip:text;color:transparent}
+.sub{font-size:28px;color:var(--gris);margin-top:20px}
+.list{flex:1;display:flex;flex-direction:column;justify-content:flex-end;gap:0;margin-top:36px}
+.item{display:flex;align-items:center;gap:34px;padding:22px 0;border-top:1px solid rgba(255,255,255,.12)}
+.item .n{font-family:'Space Grotesk',sans-serif;font-size:40px;font-weight:700;color:var(--verde);width:70px}
+.item .t{font-family:'Space Grotesk',sans-serif;font-size:34px;font-weight:600}
+.item .d{margin-left:auto;font-size:22px;color:var(--gris);max-width:640px;text-align:right}
+</style><!-- rebrand-naranja -->
+</head>
+<body>
+<div class="glow"></div><div class="beam"></div>
+<div class="slide">
+  <div class="topbar"><div class="eyebrow">Capacidades exclusivas · AI-first</div><div class="num">08 / 14</div></div>
+  <h2><em>Cinco capacidades</em> que hoy ningún software restaurantero ofrece</h2>
+  <p class="sub">Agentes de inteligencia artificial especializados, nativos de MotRest.</p>
+  <div class="list">
+    <div class="item"><span class="n">01</span><span class="t">Gemelo Digital Operativo</span><span class="d">Simula tu operación antes de decidir</span></div>
+    <div class="item"><span class="n">02</span><span class="t">Menu Engineering con IA</span><span class="d">Tu carta como herramienta de rentabilidad</span></div>
+    <div class="item"><span class="n">03</span><span class="t">Compras y turnos autónomos</span><span class="d">Pronóstico de demanda que ejecuta</span></div>
+    <div class="item"><span class="n">04</span><span class="t">Voz del Cliente omnicanal</span><span class="d">Reseñas convertidas en mejora continua</span></div>
+    <div class="item"><span class="n">05</span><span class="t">Centinela de mermas y anomalías</span><span class="d">Prevención de pérdidas en tiempo real</span></div>
+  </div>
+</div>
+<script id="fit">(function(){function f(){var s=Math.min(innerWidth/1920,innerHeight/1080);document.body.style.transform="scale("+s+")";}document.body.style.transformOrigin="top left";document.documentElement.style.overflow="hidden";document.documentElement.style.background=getComputedStyle(document.body).backgroundColor;window.addEventListener("resize",f);f();})();</script>
+</body></html>

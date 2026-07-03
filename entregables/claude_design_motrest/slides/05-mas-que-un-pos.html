@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="es"><head>
+<meta charset="utf-8">
+<title>05 · Más que un POS — MotRest</title>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+:root{--verde:#F2853A;--naranja:#F2853A;--rojo:#E0392B;--pizarra:#2D3A42;--negro:#14181A;--claro:#FDEBD7;--gris:#8A969C}
+html,body{width:1920px;height:1080px;overflow:hidden}
+body{font-family:'Inter','Segoe UI',Arial,sans-serif;background:#fff;color:var(--pizarra);position:relative}
+h2,h3,.sg{font-family:'Space Grotesk','Segoe UI',Arial,sans-serif}
+.slide{width:1920px;height:1080px;padding:88px 128px 110px;display:flex;flex-direction:column;position:relative}
+.topbar{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:30px}
+.eyebrow{font-family:'Space Grotesk',sans-serif;font-size:22px;font-weight:600;letter-spacing:.22em;text-transform:uppercase;color:var(--verde)}
+.num{font-size:22px;color:var(--gris);font-weight:500}
+h2{font-size:46px;font-weight:700;letter-spacing:-.01em;line-height:1.2;max-width:1620px}
+h2 em{font-style:normal;color:var(--verde)}
+.table{flex:1;display:flex;flex-direction:column;margin-top:36px;border-radius:20px;overflow:hidden;border:2px solid var(--claro)}
+.thead{display:grid;grid-template-columns:1fr 1.15fr}
+.thead div{padding:20px 36px;font-family:'Space Grotesk',sans-serif;font-size:26px;font-weight:600}
+.thead .l{background:#F4F6F5;color:var(--gris)}
+.thead .r{background:var(--verde);color:#fff}
+.row{display:grid;grid-template-columns:1fr 1.15fr;flex:1;border-top:1px solid var(--claro)}
+.row .l{padding:14px 36px;font-size:22px;color:var(--gris);display:flex;align-items:center}
+.row .r{padding:14px 36px;font-size:22px;font-weight:600;display:flex;align-items:center;gap:14px;background:rgba(232,243,225,.35)}
+.check{flex:none;width:26px;height:26px;border-radius:50%;background:var(--verde);color:#fff;font-size:16px;font-weight:700;display:flex;align-items:center;justify-content:center}
+.baseline{position:absolute;left:0;right:0;bottom:0;height:8px;background:var(--verde)}
+</style><!-- rebrand-naranja -->
+</head>
+<body>
+<div class="slide">
+  <div class="topbar"><div class="eyebrow">La diferencia MotRest</div><div class="num">05 / 14</div></div>
+  <h2>El POS responde “¿cuánto vendí?”. MotRest responde además <em>“¿cuánto gané, qué va a pasar mañana y qué debo hacer hoy?”</em></h2>
+  <div class="table">
+    <div class="thead"><div class="l">Software restaurantero común (POS)</div><div class="r">MotRest — ERP AI-first</div></div>
+    <div class="row"><div class="l">Vende alimentos y bebidas</div><div class="r"><span class="check">✓</span>Vende y administra todo el negocio</div></div>
+    <div class="row"><div class="l">Costeo por receta, básico</div><div class="r"><span class="check">✓</span>Costeo en tiempo real a nivel ingrediente + merma predictiva</div></div>
+    <div class="row"><div class="l">Contabilidad por enlace a sistema externo</div><div class="r"><span class="check">✓</span>Finanzas nativas: P&amp;L, flujo de caja y CFDI integrados</div></div>
+    <div class="row"><div class="l">RR. HH. limitado o ausente</div><div class="r"><span class="check">✓</span>Módulo nativo: turnos, asistencia, propinas, costo laboral</div></div>
+    <div class="row"><div class="l">Alertas de stock mínimo</div><div class="r"><span class="check">✓</span>Compras autónomas por pronóstico de demanda</div></div>
+    <div class="row"><div class="l">Analítica descriptiva (qué pasó)</div><div class="r"><span class="check">✓</span>Predictiva y prescriptiva: qué pasará y qué hacer</div></div>
+    <div class="row"><div class="l">Reportes de pérdidas a fin de mes</div><div class="r"><span class="check">✓</span>Centinela con detección de anomalías en tiempo real</div></div>
+  </div>
+</div>
+<div class="baseline"></div>
+<script id="fit">(function(){function f(){var s=Math.min(innerWidth/1920,innerHeight/1080);document.body.style.transform="scale("+s+")";}document.body.style.transformOrigin="top left";document.documentElement.style.overflow="hidden";document.documentElement.style.background=getComputedStyle(document.body).backgroundColor;window.addEventListener("resize",f);f();})();</script>
+</body></html>

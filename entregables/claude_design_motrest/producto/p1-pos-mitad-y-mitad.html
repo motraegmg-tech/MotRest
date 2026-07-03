@@ -1,0 +1,185 @@
+<!doctype html>
+<html lang="es"><head>
+<meta charset="utf-8">
+<title>P1 · POS mitad-y-mitad — MotRest</title>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+:root{--verde:#F2853A;--naranja:#E6B23A;--rojo:#E0392B;--pizarra:#2D3A42;--negro:#14181A;--claro:#FDEBD7;--gris:#8A969C;--fondo:#F4F6F3;--borde:#E3E9E0}
+html,body{width:1920px;height:1080px;overflow:hidden}
+body{font-family:'Inter','Segoe UI',Arial,sans-serif;background:var(--fondo);color:var(--pizarra);display:flex}
+h1,h2,h3,.sg{font-family:'Space Grotesk','Segoe UI',Arial,sans-serif}
+.sb{width:250px;background:var(--negro);color:#fff;display:flex;flex-direction:column;padding:28px 16px;flex:none}
+.sb .logo{font-family:'Space Grotesk',sans-serif;font-size:45px;font-weight:700;padding:0 14px 26px}
+.sb .logo span{color:var(--verde)}
+.sb nav{display:flex;flex-direction:column;gap:4px}
+.sb nav div{display:flex;align-items:center;gap:12px;padding:12px 14px;border-radius:12px;color:#B9C2BC;font-size:27.5px;font-weight:500}
+.sb nav div.on{background:var(--verde);color:#fff;font-weight:600}
+.sb nav div i{width:10px;height:10px;border-radius:3px;background:currentColor;opacity:.55;font-style:normal}
+.sb .foot{margin-top:auto;padding:12px 14px;font-size:21.5px;color:var(--gris)}
+.main{flex:1;display:flex;flex-direction:column;min-width:0}
+.hd{height:84px;background:#fff;border-bottom:1px solid var(--borde);display:flex;align-items:center;gap:16px;padding:0 30px;flex:none}
+.hd h1{font-size:40px;font-weight:600}
+.chip{display:inline-flex;align-items:center;gap:8px;background:var(--claro);border-radius:999px;padding:8px 16px;font-size:22.5px;font-weight:600}
+.chip.gray{background:#EEF1ED;color:var(--gris)}
+.hd .sp{flex:1}
+.avatar{display:flex;align-items:center;gap:10px;font-size:24.5px;font-weight:600}
+.avatar .av{width:40px;height:40px;border-radius:50%;background:var(--verde);color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700}
+.content{flex:1;display:grid;grid-template-columns:290px 1fr 430px;min-height:0}
+.mesas{background:#fff;border-right:1px solid var(--borde);padding:24px;overflow:hidden}
+.mesas h2{font-size:30.5px;font-weight:600;margin-bottom:16px}
+.mgrid{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}
+.mesa{border-radius:14px;padding:14px 8px;text-align:center;font-weight:600;font-size:25.5px;border:2px solid var(--borde);color:var(--gris)}
+.mesa small{display:block;font-size:17.5px;font-weight:500;margin-top:3px}
+.mesa.oc{background:var(--claro);border-color:var(--verde);color:var(--pizarra)}
+.mesa.ct{background:#FBF0D9;border-color:var(--naranja);color:var(--pizarra)}
+.mesa.sel{background:var(--verde);border-color:var(--verde);color:#fff;box-shadow:0 6px 16px rgba(242,133,58,.35)}
+.leg{margin-top:20px;font-size:21.5px;color:var(--gris);display:flex;flex-direction:column;gap:8px}
+.leg span{display:flex;align-items:center;gap:8px}
+.leg i{width:12px;height:12px;border-radius:4px;font-style:normal}
+.conf{padding:28px 34px;display:flex;flex-direction:column;min-width:0}
+.conf .top{display:flex;align-items:center;gap:14px;margin-bottom:20px}
+.conf h2{font-size:39px;font-weight:600;flex:1}
+.tabs{display:flex;background:#fff;border:1px solid var(--borde);border-radius:12px;padding:4px;gap:4px}
+.tabs div{padding:9px 20px;border-radius:9px;font-size:24.5px;font-weight:600;color:var(--gris)}
+.tabs div.on{background:var(--verde);color:#fff}
+.stage{flex:1;display:grid;grid-template-columns:auto 1fr;gap:34px;background:#fff;border:1px solid var(--borde);border-radius:20px;padding:32px;min-height:0}
+.pz{width:350px;height:350px;border-radius:50%;position:relative;overflow:hidden;border:10px solid #F3D9A6;align-self:center;box-shadow:0 18px 40px rgba(20,24,26,.12)}
+.pz .h1,.pz .h2{position:absolute;top:0;bottom:0;width:50%}
+.pz .h1{left:0;background:radial-gradient(circle at 70% 50%,#F7E9C9 0%,#EFD9A8 100%)}
+.pz .h2{right:0;background:radial-gradient(circle at 30% 50%,#F2C9AE 0%,#E8B08B 100%)}
+.pz .div{position:absolute;left:50%;top:0;bottom:0;width:3px;background:#fff;transform:translateX(-50%)}
+.pz .lb{position:absolute;bottom:22px;font-family:'Space Grotesk',sans-serif;font-size:22px;font-weight:600;background:rgba(20,24,26,.78);color:#fff;border-radius:999px;padding:6px 14px}
+.pz .lb.l{left:14px}.pz .lb.r{right:14px}
+.halfs{display:flex;flex-direction:column;gap:18px;min-width:0}
+.half{border:2px solid var(--borde);border-radius:16px;padding:14px 20px}
+.half h3{font-size:32.5px;font-weight:600;display:flex;align-items:center;gap:10px}
+.half h3 .mg{margin-left:auto;font-size:22.5px;background:var(--claro);color:var(--verde);border-radius:999px;padding:5px 12px;font-family:'Inter',sans-serif}
+.ing{display:flex;flex-wrap:wrap;gap:8px;margin-top:12px}
+.ing span{background:var(--fondo);border:1px solid var(--borde);border-radius:999px;padding:6px 14px;font-size:22.5px;color:var(--pizarra)}
+.ing span b{color:var(--gris);font-weight:500;margin-left:6px;font-size:21.5px}
+.live{margin-top:auto;display:flex;align-items:center;gap:26px;background:var(--negro);border-radius:16px;padding:18px 26px;color:#fff}
+.live .t{font-family:'Space Grotesk',sans-serif;font-size:25.5px;font-weight:600;color:var(--verde);text-transform:uppercase;letter-spacing:.08em}
+.live .kv{font-size:25.5px;color:#B9C2BC}
+.live .kv b{display:block;font-family:'Space Grotesk',sans-serif;font-size:35.5px;color:#fff}
+.live .kv.gain b{color:var(--verde)}
+.cuenta{background:#fff;border-left:1px solid var(--borde);display:flex;flex-direction:column;padding:26px 28px}
+.cuenta .ch{display:flex;align-items:baseline;gap:12px;margin-bottom:6px}
+.cuenta h2{font-size:37px;font-weight:600}
+.cuenta .sub{font-size:22.5px;color:var(--gris);margin-bottom:18px}
+.item{display:flex;gap:12px;padding:10px 0;border-bottom:1px solid var(--borde);font-size:25.5px}
+.item .q{font-weight:700;color:var(--verde);width:32px}
+.item .n{flex:1}
+.item .n small{display:block;color:var(--gris);font-size:21.5px;margin-top:2px}
+.item .p{font-weight:600}
+.tot{margin-top:14px;display:flex;flex-direction:column;gap:8px;font-size:25.5px}
+.tot div{display:flex;justify-content:space-between;color:var(--gris)}
+.tot .gt{font-family:'Space Grotesk',sans-serif;font-size:39px;font-weight:700;color:var(--pizarra);border-top:2px solid var(--borde);padding-top:12px;margin-top:4px}
+.est{font-size:19.5px;color:var(--gris);font-style:italic}
+.btns{margin-top:auto;display:flex;flex-direction:column;gap:10px}
+.b1{background:var(--verde);color:#fff;border-radius:14px;padding:18px;text-align:center;font-family:'Space Grotesk',sans-serif;font-size:32.5px;font-weight:600}
+.brow{display:flex;gap:10px}
+.b2{flex:1;border:2px solid var(--borde);border-radius:12px;padding:13px;text-align:center;font-size:24.5px;font-weight:600;color:var(--pizarra)}
+</style><!-- fonts-bumped -->
+<!-- rebrand-naranja -->
+<!-- fonts-bumped-2 -->
+<!-- fonts-bumped-3 -->
+</head>
+<body>
+<aside class="sb">
+  <div class="logo">MotRest<span>.</span></div>
+  <nav>
+    <div class="on"><i></i>Venta</div>
+    <div><i></i>Cocina</div>
+    <div><i></i>Inventario</div>
+    <div><i></i>Compras</div>
+    <div><i></i>Finanzas</div>
+    <div><i></i>Personal</div>
+    <div><i></i>Clientes</div>
+    <div><i></i>Inteligencia</div>
+    <div><i></i>Ajustes</div>
+  </nav>
+  <div class="foot">MOTRAE · Innovation already in motion</div>
+</aside>
+<div class="main">
+  <header class="hd">
+    <h1>Punto de venta</h1>
+    <span class="chip">Rodizio · Centro ▾</span>
+    <span class="chip gray">Viernes · 20:41</span>
+    <span class="chip gray">Datos de demostración</span>
+    <span class="sp"></span>
+    <span class="avatar"><span class="av">L</span>Lucía · Mesera</span>
+  </header>
+  <div class="content">
+    <section class="mesas">
+      <h2>Salón</h2>
+      <div class="mgrid">
+        <div class="mesa oc">1<small>2 pers</small></div>
+        <div class="mesa">2<small>libre</small></div>
+        <div class="mesa oc">3<small>4 pers</small></div>
+        <div class="mesa ct">4<small>cuenta</small></div>
+        <div class="mesa oc">5<small>3 pers</small></div>
+        <div class="mesa">6<small>libre</small></div>
+        <div class="mesa oc">7<small>6 pers</small></div>
+        <div class="mesa oc">8<small>2 pers</small></div>
+        <div class="mesa">9<small>libre</small></div>
+        <div class="mesa ct">10<small>cuenta</small></div>
+        <div class="mesa oc">11<small>5 pers</small></div>
+        <div class="mesa sel">12<small>4 pers</small></div>
+      </div>
+      <div class="leg">
+        <span><i style="background:var(--verde)"></i>Ocupada · en servicio</span>
+        <span><i style="background:var(--naranja)"></i>Cuenta solicitada</span>
+        <span><i style="background:#DDE3DA"></i>Libre</span>
+      </div>
+    </section>
+    <section class="conf">
+      <div class="top">
+        <h2>Pizza mitad y mitad</h2>
+        <div class="tabs"><div>Chica</div><div>Mediana</div><div class="on">Familiar</div></div>
+      </div>
+      <div class="stage">
+        <div class="pz">
+          <div class="h1"></div><div class="h2"></div><div class="div"></div>
+          <span class="lb l">½ Margherita</span><span class="lb r">½ Pepperoni</span>
+        </div>
+        <div class="halfs">
+          <div class="half">
+            <h3>Mitad izquierda · Margherita <span class="mg">costo $21.10 · margen 71%</span></h3>
+            <div class="ing"><span>Masa madre <b>$6.20</b></span><span>Salsa pomodoro <b>$3.40</b></span><span>Mozzarella fior di latte <b>$8.90</b></span><span>Albahaca fresca <b>$1.30</b></span><span>Aceite de oliva <b>$1.30</b></span></div>
+          </div>
+          <div class="half">
+            <h3>Mitad derecha · Pepperoni <span class="mg">costo $24.60 · margen 66%</span></h3>
+            <div class="ing"><span>Masa madre <b>$6.20</b></span><span>Salsa pomodoro <b>$3.40</b></span><span>Mozzarella <b>$7.10</b></span><span>Pepperoni artesanal <b>$7.90</b></span></div>
+          </div>
+          <div class="live">
+            <span class="t">Costeo en vivo</span>
+            <span class="kv">Costo del platillo<b>$45.70</b></span>
+            <span class="kv">Precio de carta<b>$249.00</b></span>
+            <span class="kv gain">Margen<b>68.2%</b></span>
+          </div>
+        </div>
+      </div>
+    </section>
+    <aside class="cuenta">
+      <div class="ch"><h2>Mesa 12</h2><span class="chip gray">Cuenta 0231</span></div>
+      <div class="sub">4 personas · Lucía · abierta 20:12</div>
+      <div class="item"><span class="q">1×</span><span class="n">Pizza familiar mitad y mitad<small>½ Margherita · ½ Pepperoni · orilla tradicional</small></span><span class="p">$249.00</span></div>
+      <div class="item"><span class="q">1×</span><span class="n">Pasta al pesto<small>Sin nuez · término al dente</small></span><span class="p">$139.00</span></div>
+      <div class="item"><span class="q">2×</span><span class="n">Limonada de la casa</span><span class="p">$90.00</span></div>
+      <div class="item"><span class="q">1×</span><span class="n">Agua mineral</span><span class="p">$38.00</span></div>
+      <div class="tot">
+        <div><span>Subtotal</span><span>$516.00</span></div>
+        <div><span>IVA (16%)</span><span>$82.56</span></div>
+        <div class="gt"><span>Total</span><span>$598.56</span></div>
+        <div class="est">*Precios estimados, sujetos a la realidad de cada restaurante</div>
+      </div>
+      <div class="btns">
+        <div class="b1">Enviar a cocina</div>
+        <div class="brow"><div class="b2">Dividir</div><div class="b2">Cortesía</div><div class="b2">Cobrar</div></div>
+      </div>
+    </aside>
+  </div>
+</div>
+<script id="fit">(function(){function f(){var s=Math.min(innerWidth/1920,innerHeight/1080);document.body.style.transform="scale("+s+")";}document.body.style.transformOrigin="top left";document.documentElement.style.overflow="hidden";document.documentElement.style.background=getComputedStyle(document.body).backgroundColor;window.addEventListener("resize",f);f();})();</script>
+</body></html>

@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="es"><head>
+<meta charset="utf-8">
+<title>06 · Panel por roles — MotRest</title>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+:root{--verde:#F2853A;--naranja:#F2853A;--rojo:#E0392B;--pizarra:#2D3A42;--negro:#14181A;--claro:#FDEBD7;--gris:#8A969C}
+html,body{width:1920px;height:1080px;overflow:hidden}
+body{font-family:'Inter','Segoe UI',Arial,sans-serif;background:#fff;color:var(--pizarra);position:relative}
+h2,h3,.sg{font-family:'Space Grotesk','Segoe UI',Arial,sans-serif}
+.slide{width:1920px;height:1080px;padding:88px 128px 110px;display:flex;flex-direction:column;position:relative}
+.topbar{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:28px}
+.eyebrow{font-family:'Space Grotesk',sans-serif;font-size:22px;font-weight:600;letter-spacing:.22em;text-transform:uppercase;color:var(--verde)}
+.num{font-size:22px;color:var(--gris);font-weight:500}
+h2{font-size:54px;font-weight:700;letter-spacing:-.01em;line-height:1.15}
+h2 em{font-style:normal;color:var(--verde)}
+.intro{font-size:26px;color:var(--gris);margin-top:16px;max-width:1560px;line-height:1.45}
+.intro b{color:var(--pizarra)}
+.body{flex:1;display:grid;grid-template-columns:1.35fr 1fr;gap:56px;margin-top:38px}
+.org{display:flex;flex-direction:column;align-items:center}
+.node{border-radius:14px;padding:16px 26px;text-align:center;font-family:'Space Grotesk',sans-serif;font-weight:600}
+.n-top{background:var(--negro);color:#fff;font-size:26px;padding:20px 46px}
+.n-top small{display:block;font-family:'Inter',sans-serif;font-weight:500;font-size:18px;color:var(--verde);margin-top:4px}
+.n-mid{background:var(--verde);color:#fff;font-size:22px}
+.n-mid small,.n-low small{display:block;font-family:'Inter',sans-serif;font-weight:500;font-size:17px;opacity:.85;margin-top:3px}
+.n-low{background:var(--claro);color:var(--pizarra);font-size:22px}
+.vline{width:3px;height:26px;background:var(--claro)}
+.rowline{width:72%;height:3px;background:var(--claro)}
+.orgrow{display:flex;gap:22px;justify-content:center;margin-top:24px;width:100%}
+.orgrow .node{flex:1}
+.side{display:flex;flex-direction:column;gap:24px}
+.dual{background:var(--claro);border-radius:20px;padding:32px 36px}
+.dual h3{font-size:28px;font-weight:600;margin-bottom:8px}
+.dual h3 span{color:var(--verde)}
+.dual p{font-size:22px;line-height:1.45;color:var(--pizarra);opacity:.8}
+.ex{border:2px solid var(--claro);border-radius:20px;padding:28px 36px}
+.ex h3{font-size:24px;font-weight:600;color:var(--verde);margin-bottom:12px;text-transform:uppercase;letter-spacing:.08em;font-size:20px}
+.ex li{font-size:22px;line-height:1.5;margin-left:26px;color:var(--pizarra)}
+.baseline{position:absolute;left:0;right:0;bottom:0;height:8px;background:var(--verde)}
+</style><!-- rebrand-naranja -->
+</head>
+<body>
+<div class="slide">
+  <div class="topbar"><div class="eyebrow">Panel por roles</div><div class="num">06 / 14</div></div>
+  <h2>Cada persona ve y administra <em>exactamente lo que su puesto requiere</em></h2>
+  <p class="intro">No son “permisos de usuario”: es una jerarquía de <b>visión</b> (qué información ve) y <b>administración</b> (qué puede modificar o autorizar) que refleja el organigrama real del restaurante.</p>
+  <div class="body">
+    <div class="org">
+      <div class="node n-top">Dirección / Propietario<small>Visión total · Administración total</small></div>
+      <div class="vline"></div><div class="rowline"></div>
+      <div class="orgrow">
+        <div class="node n-mid">Gerente de sucursal<small>Su sucursal</small></div>
+        <div class="node n-mid">Administración / Contabilidad<small>Finanzas y CFDI</small></div>
+        <div class="node n-mid">Compras / Almacén<small>Inventario y proveedores</small></div>
+      </div>
+      <div class="vline"></div><div class="rowline"></div>
+      <div class="orgrow">
+        <div class="node n-low">Chef / Cocina<small>Recetas, KDS y merma</small></div>
+        <div class="node n-low">Cajero<small>Su caja y su corte</small></div>
+        <div class="node n-low">Mesero / Servicio<small>Sus mesas y ventas</small></div>
+      </div>
+    </div>
+    <div class="side">
+      <div class="dual"><h3><span>Visión</span> + <span>Administración</span></h3><p>Dos dimensiones separadas por rol: lo que cada quien puede ver (su mesa, su estación, su sucursal o toda la empresa) y lo que puede autorizar (un descuento, un precio, el cierre del mes).</p></div>
+      <div class="ex"><h3>En la práctica</h3><ul>
+        <li>El cajero cobra y hace su corte; las cancelaciones requieren autorización.</li>
+        <li>El chef edita recetas y controla la merma de su área; no ve la nómina.</li>
+      </ul></div>
+    </div>
+  </div>
+</div>
+<div class="baseline"></div>
+<script id="fit">(function(){function f(){var s=Math.min(innerWidth/1920,innerHeight/1080);document.body.style.transform="scale("+s+")";}document.body.style.transformOrigin="top left";document.documentElement.style.overflow="hidden";document.documentElement.style.background=getComputedStyle(document.body).backgroundColor;window.addEventListener("resize",f);f();})();</script>
+</body></html>

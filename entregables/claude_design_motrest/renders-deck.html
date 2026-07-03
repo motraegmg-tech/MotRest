@@ -1,0 +1,586 @@
+<!doctype html>
+<html lang="es"><head>
+<meta charset="utf-8">
+<title>MotRest — Renders del producto</title>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+html,body{margin:0;padding:0;width:100%;height:100%;overflow:hidden;background:#0B0D0E}
+#stage{position:absolute;left:50%;top:50%;width:1920px;height:1080px;transform-origin:center center;box-shadow:0 24px 80px rgba(0,0,0,.5)}
+#stage>section{display:none}
+#stage>section.active{display:block}
+#hud{position:fixed;right:28px;bottom:24px;display:flex;gap:10px;align-items:center;z-index:99}
+#hud button{border:0;border-radius:12px;padding:10px 18px;background:rgba(45,58,66,.9);color:#fff;font:600 16px 'Space Grotesk','Segoe UI',Arial,sans-serif;cursor:pointer}
+#hud button:hover{background:#F2853A}
+#count{color:#fff;background:rgba(45,58,66,.9);border-radius:12px;padding:10px 16px;font:600 15px 'Space Grotesk','Segoe UI',Arial,sans-serif}
+#bar{position:fixed;left:0;bottom:0;height:5px;background:#F2853A;width:0;transition:width .25s;z-index:99}
+#d1, #d1 *{margin:0;padding:0;box-sizing:border-box}#d1{width:1920px;height:1080px;overflow:hidden}#d1{font-family:'Inter','Segoe UI',Arial,sans-serif;background:#14181A;color:#fff;position:relative}#d1 .hw-glow{position:absolute;width:1200px;height:1200px;border-radius:50%;background:radial-gradient(circle,rgba(242,133,58,.17) 0%,rgba(242,133,58,0) 62%);right:-320px;top:-380px}#d1 .hw-glow2{position:absolute;width:900px;height:900px;border-radius:50%;background:radial-gradient(circle,rgba(242,133,58,.10) 0%,rgba(242,133,58,0) 60%);left:-260px;bottom:-380px}#d1 .hw-stage{position:relative;z-index:1;width:1920px;height:1080px;display:flex;align-items:center;gap:80px;padding:0 110px}#d1 .hw-text{width:520px;flex:none}#d1 .hw-eyebrow{font-family:'Space Grotesk','Segoe UI',sans-serif;font-size:20px;font-weight:600;letter-spacing:.22em;text-transform:uppercase;color:#F2853A}#d1 .hw-mod{display:inline-block;margin-top:22px;border:2px solid rgba(242,133,58,.55);border-radius:999px;padding:9px 20px;font-size:17px;font-weight:600;color:#FDEBD7}#d1 .hw-title{font-family:'Space Grotesk','Segoe UI',sans-serif;font-size:58px;font-weight:700;line-height:1.1;letter-spacing:-.01em;margin-top:22px}#d1 .hw-cap{font-size:23px;line-height:1.5;color:#B9C2BC;margin-top:20px}#d1 .hw-brand{position:absolute;left:110px;bottom:52px;font-size:20px;color:#8A969C;font-style:italic}#d1 .hw-brand b{color:#F2853A;font-style:normal;font-family:'Space Grotesk','Segoe UI',sans-serif;margin-right:12px}#d1 .hw-dev-area{flex:1;display:flex;align-items:center;justify-content:center}#d1 .hw-devwrap{display:flex;flex-direction:column;align-items:center}#d1 .hw-dev{background:#0B0D0E;border:2px solid #2A3237;box-shadow:0 40px 90px rgba(0,0,0,.55)}#d1 .hw-tablet{padding:26px;border-radius:38px}#d1 .hw-monitor{padding:20px;border-radius:22px}#d1 .hw-laptop{padding:18px 18px 22px;border-radius:24px 24px 0 0;border-bottom:0}#d1 .hw-phone{padding:14px;border-radius:52px;position:relative}#d1 .hw-notch{position:absolute;top:26px;left:50%;transform:translateX(-50%);width:120px;height:26px;background:#0B0D0E;border-radius:14px;z-index:2}#d1 .hw-neck{width:110px;height:64px;background:#0B0D0E;border:2px solid #2A3237;border-top:0}#d1 .hw-base{width:340px;height:18px;background:#0B0D0E;border:2px solid #2A3237;border-radius:10px}#d1 .hw-lapbase{height:26px;background:#171D21;border:2px solid #2A3237;border-radius:0 0 22px 22px}#d1 .hw-screen{overflow:hidden;border-radius:14px;background:#000}#d1 .hw-phone .hw-screen{border-radius:38px}#d1 .hw-fit{transform-origin:top left}#d1 #r1,#d1 #r1 *{margin:0;padding:0;box-sizing:border-box}#d1 #r1{--verde:#F2853A;--naranja:#E6B23A;--rojo:#E0392B;--pizarra:#2D3A42;--negro:#14181A;--claro:#FDEBD7;--gris:#8A969C;--fondo:#F4F6F3;--borde:#E3E9E0}#d1 #r1{width:1920px;height:1080px;overflow:hidden}#d1 #r1{font-family:'Inter','Segoe UI',Arial,sans-serif;background:var(--fondo);color:var(--pizarra);display:flex}#d1 #r1 h1,#d1 #r1 h2,#d1 #r1 h3,#d1 #r1 .sg{font-family:'Space Grotesk','Segoe UI',Arial,sans-serif}#d1 #r1 .sb{width:250px;background:var(--negro);color:#fff;display:flex;flex-direction:column;padding:28px 16px;flex:none}#d1 #r1 .sb .logo{font-family:'Space Grotesk',sans-serif;font-size:45px;font-weight:700;padding:0 14px 26px}#d1 #r1 .sb .logo span{color:var(--verde)}#d1 #r1 .sb nav{display:flex;flex-direction:column;gap:4px}#d1 #r1 .sb nav div{display:flex;align-items:center;gap:12px;padding:12px 14px;border-radius:12px;color:#B9C2BC;font-size:27.5px;font-weight:500}#d1 #r1 .sb nav div.on{background:var(--verde);color:#fff;font-weight:600}#d1 #r1 .sb nav div i{width:10px;height:10px;border-radius:3px;background:currentColor;opacity:.55;font-style:normal}#d1 #r1 .sb .foot{margin-top:auto;padding:12px 14px;font-size:21.5px;color:var(--gris)}#d1 #r1 .main{flex:1;display:flex;flex-direction:column;min-width:0}#d1 #r1 .hd{height:84px;background:#fff;border-bottom:1px solid var(--borde);display:flex;align-items:center;gap:16px;padding:0 30px;flex:none}#d1 #r1 .hd h1{font-size:40px;font-weight:600}#d1 #r1 .chip{display:inline-flex;align-items:center;gap:8px;background:var(--claro);border-radius:999px;padding:8px 16px;font-size:22.5px;font-weight:600}#d1 #r1 .chip.gray{background:#EEF1ED;color:var(--gris)}#d1 #r1 .hd .sp{flex:1}#d1 #r1 .avatar{display:flex;align-items:center;gap:10px;font-size:24.5px;font-weight:600}#d1 #r1 .avatar .av{width:40px;height:40px;border-radius:50%;background:var(--verde);color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700}#d1 #r1 .content{flex:1;display:grid;grid-template-columns:290px 1fr 430px;min-height:0}#d1 #r1 .mesas{background:#fff;border-right:1px solid var(--borde);padding:24px;overflow:hidden}#d1 #r1 .mesas h2{font-size:30.5px;font-weight:600;margin-bottom:16px}#d1 #r1 .mgrid{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}#d1 #r1 .mesa{border-radius:14px;padding:14px 8px;text-align:center;font-weight:600;font-size:25.5px;border:2px solid var(--borde);color:var(--gris)}#d1 #r1 .mesa small{display:block;font-size:17.5px;font-weight:500;margin-top:3px}#d1 #r1 .mesa.oc{background:var(--claro);border-color:var(--verde);color:var(--pizarra)}#d1 #r1 .mesa.ct{background:#FBF0D9;border-color:var(--naranja);color:var(--pizarra)}#d1 #r1 .mesa.sel{background:var(--verde);border-color:var(--verde);color:#fff;box-shadow:0 6px 16px rgba(242,133,58,.35)}#d1 #r1 .leg{margin-top:20px;font-size:21.5px;color:var(--gris);display:flex;flex-direction:column;gap:8px}#d1 #r1 .leg span{display:flex;align-items:center;gap:8px}#d1 #r1 .leg i{width:12px;height:12px;border-radius:4px;font-style:normal}#d1 #r1 .conf{padding:28px 34px;display:flex;flex-direction:column;min-width:0}#d1 #r1 .conf .top{display:flex;align-items:center;gap:14px;margin-bottom:20px}#d1 #r1 .conf h2{font-size:39px;font-weight:600;flex:1}#d1 #r1 .tabs{display:flex;background:#fff;border:1px solid var(--borde);border-radius:12px;padding:4px;gap:4px}#d1 #r1 .tabs div{padding:9px 20px;border-radius:9px;font-size:24.5px;font-weight:600;color:var(--gris)}#d1 #r1 .tabs div.on{background:var(--verde);color:#fff}#d1 #r1 .stage{flex:1;display:grid;grid-template-columns:auto 1fr;gap:34px;background:#fff;border:1px solid var(--borde);border-radius:20px;padding:32px;min-height:0}#d1 #r1 .pz{width:350px;height:350px;border-radius:50%;position:relative;overflow:hidden;border:10px solid #F3D9A6;align-self:center;box-shadow:0 18px 40px rgba(20,24,26,.12)}#d1 #r1 .pz .h1,#d1 #r1 .pz .h2{position:absolute;top:0;bottom:0;width:50%}#d1 #r1 .pz .h1{left:0;background:radial-gradient(circle at 70% 50%,#F7E9C9 0%,#EFD9A8 100%)}#d1 #r1 .pz .h2{right:0;background:radial-gradient(circle at 30% 50%,#F2C9AE 0%,#E8B08B 100%)}#d1 #r1 .pz .div{position:absolute;left:50%;top:0;bottom:0;width:3px;background:#fff;transform:translateX(-50%)}#d1 #r1 .pz .lb{position:absolute;bottom:22px;font-family:'Space Grotesk',sans-serif;font-size:22px;font-weight:600;background:rgba(20,24,26,.78);color:#fff;border-radius:999px;padding:6px 14px}#d1 #r1 .pz .lb.l{left:14px}#d1 #r1 .pz .lb.r{right:14px}#d1 #r1 .halfs{display:flex;flex-direction:column;gap:18px;min-width:0}#d1 #r1 .half{border:2px solid var(--borde);border-radius:16px;padding:14px 20px}#d1 #r1 .half h3{font-size:32.5px;font-weight:600;display:flex;align-items:center;gap:10px}#d1 #r1 .half h3 .mg{margin-left:auto;font-size:22.5px;background:var(--claro);color:var(--verde);border-radius:999px;padding:5px 12px;font-family:'Inter',sans-serif}#d1 #r1 .ing{display:flex;flex-wrap:wrap;gap:8px;margin-top:12px}#d1 #r1 .ing span{background:var(--fondo);border:1px solid var(--borde);border-radius:999px;padding:6px 14px;font-size:22.5px;color:var(--pizarra)}#d1 #r1 .ing span b{color:var(--gris);font-weight:500;margin-left:6px;font-size:21.5px}#d1 #r1 .live{margin-top:auto;display:flex;align-items:center;gap:26px;background:var(--negro);border-radius:16px;padding:18px 26px;color:#fff}#d1 #r1 .live .t{font-family:'Space Grotesk',sans-serif;font-size:25.5px;font-weight:600;color:var(--verde);text-transform:uppercase;letter-spacing:.08em}#d1 #r1 .live .kv{font-size:25.5px;color:#B9C2BC}#d1 #r1 .live .kv b{display:block;font-family:'Space Grotesk',sans-serif;font-size:35.5px;color:#fff}#d1 #r1 .live .kv.gain b{color:var(--verde)}#d1 #r1 .cuenta{background:#fff;border-left:1px solid var(--borde);display:flex;flex-direction:column;padding:26px 28px}#d1 #r1 .cuenta .ch{display:flex;align-items:baseline;gap:12px;margin-bottom:6px}#d1 #r1 .cuenta h2{font-size:37px;font-weight:600}#d1 #r1 .cuenta .sub{font-size:22.5px;color:var(--gris);margin-bottom:18px}#d1 #r1 .item{display:flex;gap:12px;padding:10px 0;border-bottom:1px solid var(--borde);font-size:25.5px}#d1 #r1 .item .q{font-weight:700;color:var(--verde);width:32px}#d1 #r1 .item .n{flex:1}#d1 #r1 .item .n small{display:block;color:var(--gris);font-size:21.5px;margin-top:2px}#d1 #r1 .item .p{font-weight:600}#d1 #r1 .tot{margin-top:14px;display:flex;flex-direction:column;gap:8px;font-size:25.5px}#d1 #r1 .tot div{display:flex;justify-content:space-between;color:var(--gris)}#d1 #r1 .tot .gt{font-family:'Space Grotesk',sans-serif;font-size:39px;font-weight:700;color:var(--pizarra);border-top:2px solid var(--borde);padding-top:12px;margin-top:4px}#d1 #r1 .est{font-size:19.5px;color:var(--gris);font-style:italic}#d1 #r1 .btns{margin-top:auto;display:flex;flex-direction:column;gap:10px}#d1 #r1 .b1{background:var(--verde);color:#fff;border-radius:14px;padding:18px;text-align:center;font-family:'Space Grotesk',sans-serif;font-size:32.5px;font-weight:600}#d1 #r1 .brow{display:flex;gap:10px}#d1 #r1 .b2{flex:1;border:2px solid var(--borde);border-radius:12px;padding:13px;text-align:center;font-size:24.5px;font-weight:600;color:var(--pizarra)}
+
+
+#d2, #d2 *{margin:0;padding:0;box-sizing:border-box}#d2{width:1920px;height:1080px;overflow:hidden}#d2{font-family:'Inter','Segoe UI',Arial,sans-serif;background:#14181A;color:#fff;position:relative}#d2 .hw-glow{position:absolute;width:1200px;height:1200px;border-radius:50%;background:radial-gradient(circle,rgba(242,133,58,.17) 0%,rgba(242,133,58,0) 62%);right:-320px;top:-380px}#d2 .hw-glow2{position:absolute;width:900px;height:900px;border-radius:50%;background:radial-gradient(circle,rgba(242,133,58,.10) 0%,rgba(242,133,58,0) 60%);left:-260px;bottom:-380px}#d2 .hw-stage{position:relative;z-index:1;width:1920px;height:1080px;display:flex;align-items:center;gap:80px;padding:0 110px}#d2 .hw-text{width:520px;flex:none}#d2 .hw-eyebrow{font-family:'Space Grotesk','Segoe UI',sans-serif;font-size:20px;font-weight:600;letter-spacing:.22em;text-transform:uppercase;color:#F2853A}#d2 .hw-mod{display:inline-block;margin-top:22px;border:2px solid rgba(242,133,58,.55);border-radius:999px;padding:9px 20px;font-size:17px;font-weight:600;color:#FDEBD7}#d2 .hw-title{font-family:'Space Grotesk','Segoe UI',sans-serif;font-size:58px;font-weight:700;line-height:1.1;letter-spacing:-.01em;margin-top:22px}#d2 .hw-cap{font-size:23px;line-height:1.5;color:#B9C2BC;margin-top:20px}#d2 .hw-brand{position:absolute;left:110px;bottom:52px;font-size:20px;color:#8A969C;font-style:italic}#d2 .hw-brand b{color:#F2853A;font-style:normal;font-family:'Space Grotesk','Segoe UI',sans-serif;margin-right:12px}#d2 .hw-dev-area{flex:1;display:flex;align-items:center;justify-content:center}#d2 .hw-devwrap{display:flex;flex-direction:column;align-items:center}#d2 .hw-dev{background:#0B0D0E;border:2px solid #2A3237;box-shadow:0 40px 90px rgba(0,0,0,.55)}#d2 .hw-tablet{padding:26px;border-radius:38px}#d2 .hw-monitor{padding:20px;border-radius:22px}#d2 .hw-laptop{padding:18px 18px 22px;border-radius:24px 24px 0 0;border-bottom:0}#d2 .hw-phone{padding:14px;border-radius:52px;position:relative}#d2 .hw-notch{position:absolute;top:26px;left:50%;transform:translateX(-50%);width:120px;height:26px;background:#0B0D0E;border-radius:14px;z-index:2}#d2 .hw-neck{width:110px;height:64px;background:#0B0D0E;border:2px solid #2A3237;border-top:0}#d2 .hw-base{width:340px;height:18px;background:#0B0D0E;border:2px solid #2A3237;border-radius:10px}#d2 .hw-lapbase{height:26px;background:#171D21;border:2px solid #2A3237;border-radius:0 0 22px 22px}#d2 .hw-screen{overflow:hidden;border-radius:14px;background:#000}#d2 .hw-phone .hw-screen{border-radius:38px}#d2 .hw-fit{transform-origin:top left}#d2 #r2,#d2 #r2 *{margin:0;padding:0;box-sizing:border-box}#d2 #r2{--verde:#F2853A;--naranja:#E6B23A;--rojo:#E0392B;--pizarra:#2D3A42;--negro:#14181A;--claro:#FDEBD7;--gris:#8A969C;--panel:#1C2226;--linea:#2A3237}#d2 #r2{width:1920px;height:1080px;overflow:hidden}#d2 #r2{font-family:'Inter','Segoe UI',Arial,sans-serif;background:var(--negro);color:#fff;display:flex;flex-direction:column}#d2 #r2 h1,#d2 #r2 h2,#d2 #r2 h3,#d2 #r2 .sg{font-family:'Space Grotesk','Segoe UI',Arial,sans-serif}#d2 #r2 .hd{height:88px;display:flex;align-items:center;gap:18px;padding:0 36px;border-bottom:1px solid var(--linea);flex:none}#d2 #r2 .hd .logo{font-family:'Space Grotesk',sans-serif;font-size:42px;font-weight:700}#d2 #r2 .hd .logo span{color:var(--verde)}#d2 #r2 .hd .mode{font-size:27.5px;color:var(--gris)}#d2 #r2 .hd .sp{flex:1}#d2 #r2 .stat{display:flex;align-items:center;gap:10px;background:var(--panel);border-radius:999px;padding:10px 20px;font-size:24.5px;color:var(--gris)}#d2 #r2 .stat b{color:#fff;font-family:'Space Grotesk',sans-serif;font-size:29px}#d2 #r2 .stat.warn b{color:var(--naranja)}#d2 #r2 .board{flex:1;display:grid;grid-template-columns:repeat(4,1fr);gap:20px;padding:24px 36px 30px;min-height:0}#d2 #r2 .col{display:flex;flex-direction:column;min-height:0}#d2 #r2 .col .ch{display:flex;align-items:center;gap:12px;padding:0 4px 14px}#d2 #r2 .col .ch h2{font-size:35.5px;font-weight:600;flex:1}#d2 #r2 .col .ch .n{background:var(--panel);border-radius:999px;padding:5px 14px;font-size:24.5px;font-weight:600;color:var(--gris)}#d2 #r2 .col .ch i{width:12px;height:12px;border-radius:50%;font-style:normal}#d2 #r2 .tickets{display:flex;flex-direction:column;gap:10px;min-height:0;overflow:hidden}#d2 #r2 .tk{background:var(--panel);border-radius:16px;padding:12px 16px;border-left:6px solid var(--verde)}#d2 #r2 .tk .th{display:flex;align-items:center;gap:10px;margin-bottom:12px}#d2 #r2 .tk .oid{font-family:'Space Grotesk',sans-serif;font-size:30.5px;font-weight:700}#d2 #r2 .tk .mesa{font-size:22.5px;color:var(--gris)}#d2 #r2 .tk .tm{margin-left:auto;font-family:'Space Grotesk',sans-serif;font-size:25.5px;font-weight:700;border-radius:999px;padding:5px 13px;background:rgba(242,133,58,.16);color:var(--verde)}#d2 #r2 .tk.w{border-left-color:var(--naranja)}#d2 #r2 .tk.w .tm{background:rgba(230,178,61,.16);color:var(--naranja)}#d2 #r2 .tk.late{border-left-color:var(--rojo);box-shadow:0 0 0 2px rgba(224,57,43,.45)}#d2 #r2 .tk.late .tm{background:rgba(224,57,43,.18);color:var(--rojo)}#d2 #r2 .tk ul{list-style:none}#d2 #r2 .tk li{font-size:27px;padding:5px 0;display:flex;gap:10px}#d2 #r2 .tk li b{color:var(--verde);font-weight:700;min-width:26px}#d2 #r2 .tk li small{display:block;color:var(--gris);font-size:22px;margin-top:2px}#d2 #r2 .tk .alert{margin-top:10px;font-size:22.5px;font-weight:600;color:var(--rojo)}#d2 #r2 .tk .done{margin-top:12px;text-align:center;background:var(--verde);border-radius:10px;padding:10px;font-family:'Space Grotesk',sans-serif;font-size:25.5px;font-weight:600}#d2 #r2 .tk.ready{border-left-color:var(--verde);background:rgba(242,133,58,.10)}#d2 #r2 .tk.ready .done{background:transparent;border:2px solid var(--verde);color:var(--verde)}#d2 #r2 .ft{height:56px;display:flex;align-items:center;gap:26px;padding:0 36px;border-top:1px solid var(--linea);font-size:22.5px;color:var(--gris);flex:none}#d2 #r2 .ft b{color:#fff}#d2 #r2 .ft .dot{width:8px;height:8px;border-radius:50%;background:var(--verde)}
+
+
+#d3, #d3 *{margin:0;padding:0;box-sizing:border-box}#d3{width:1920px;height:1080px;overflow:hidden}#d3{font-family:'Inter','Segoe UI',Arial,sans-serif;background:#14181A;color:#fff;position:relative}#d3 .hw-glow{position:absolute;width:1200px;height:1200px;border-radius:50%;background:radial-gradient(circle,rgba(242,133,58,.17) 0%,rgba(242,133,58,0) 62%);right:-320px;top:-380px}#d3 .hw-glow2{position:absolute;width:900px;height:900px;border-radius:50%;background:radial-gradient(circle,rgba(242,133,58,.10) 0%,rgba(242,133,58,0) 60%);left:-260px;bottom:-380px}#d3 .hw-stage{position:relative;z-index:1;width:1920px;height:1080px;display:flex;align-items:center;gap:80px;padding:0 110px}#d3 .hw-text{width:520px;flex:none}#d3 .hw-eyebrow{font-family:'Space Grotesk','Segoe UI',sans-serif;font-size:20px;font-weight:600;letter-spacing:.22em;text-transform:uppercase;color:#F2853A}#d3 .hw-mod{display:inline-block;margin-top:22px;border:2px solid rgba(242,133,58,.55);border-radius:999px;padding:9px 20px;font-size:17px;font-weight:600;color:#FDEBD7}#d3 .hw-title{font-family:'Space Grotesk','Segoe UI',sans-serif;font-size:58px;font-weight:700;line-height:1.1;letter-spacing:-.01em;margin-top:22px}#d3 .hw-cap{font-size:23px;line-height:1.5;color:#B9C2BC;margin-top:20px}#d3 .hw-brand{position:absolute;left:110px;bottom:52px;font-size:20px;color:#8A969C;font-style:italic}#d3 .hw-brand b{color:#F2853A;font-style:normal;font-family:'Space Grotesk','Segoe UI',sans-serif;margin-right:12px}#d3 .hw-dev-area{flex:1;display:flex;align-items:center;justify-content:center}#d3 .hw-devwrap{display:flex;flex-direction:column;align-items:center}#d3 .hw-dev{background:#0B0D0E;border:2px solid #2A3237;box-shadow:0 40px 90px rgba(0,0,0,.55)}#d3 .hw-tablet{padding:26px;border-radius:38px}#d3 .hw-monitor{padding:20px;border-radius:22px}#d3 .hw-laptop{padding:18px 18px 22px;border-radius:24px 24px 0 0;border-bottom:0}#d3 .hw-phone{padding:14px;border-radius:52px;position:relative}#d3 .hw-notch{position:absolute;top:26px;left:50%;transform:translateX(-50%);width:120px;height:26px;background:#0B0D0E;border-radius:14px;z-index:2}#d3 .hw-neck{width:110px;height:64px;background:#0B0D0E;border:2px solid #2A3237;border-top:0}#d3 .hw-base{width:340px;height:18px;background:#0B0D0E;border:2px solid #2A3237;border-radius:10px}#d3 .hw-lapbase{height:26px;background:#171D21;border:2px solid #2A3237;border-radius:0 0 22px 22px}#d3 .hw-screen{overflow:hidden;border-radius:14px;background:#000}#d3 .hw-phone .hw-screen{border-radius:38px}#d3 .hw-fit{transform-origin:top left}#d3 #r3,#d3 #r3 *{margin:0;padding:0;box-sizing:border-box}#d3 #r3{--verde:#F2853A;--naranja:#E6B23A;--rojo:#E0392B;--pizarra:#2D3A42;--negro:#14181A;--claro:#FDEBD7;--gris:#8A969C;--fondo:#F4F6F3;--borde:#E3E9E0}#d3 #r3{width:1920px;height:1080px;overflow:hidden}#d3 #r3{font-family:'Inter','Segoe UI',Arial,sans-serif;background:var(--fondo);color:var(--pizarra);display:flex}#d3 #r3 h1,#d3 #r3 h2,#d3 #r3 h3,#d3 #r3 .sg{font-family:'Space Grotesk','Segoe UI',Arial,sans-serif}#d3 #r3 .sb{width:250px;background:var(--negro);color:#fff;display:flex;flex-direction:column;padding:28px 16px;flex:none}#d3 #r3 .sb .logo{font-family:'Space Grotesk',sans-serif;font-size:45px;font-weight:700;padding:0 14px 26px}#d3 #r3 .sb .logo span{color:var(--verde)}#d3 #r3 .sb nav{display:flex;flex-direction:column;gap:4px}#d3 #r3 .sb nav div{display:flex;align-items:center;gap:12px;padding:12px 14px;border-radius:12px;color:#B9C2BC;font-size:27.5px;font-weight:500}#d3 #r3 .sb nav div.on{background:var(--verde);color:#fff;font-weight:600}#d3 #r3 .sb nav div i{width:10px;height:10px;border-radius:3px;background:currentColor;opacity:.55;font-style:normal}#d3 #r3 .sb .foot{margin-top:auto;padding:12px 14px;font-size:21.5px;color:var(--gris)}#d3 #r3 .main{flex:1;display:flex;flex-direction:column;min-width:0}#d3 #r3 .hd{height:84px;background:#fff;border-bottom:1px solid var(--borde);display:flex;align-items:center;gap:16px;padding:0 30px;flex:none}#d3 #r3 .hd h1{font-size:40px;font-weight:600}#d3 #r3 .chip{display:inline-flex;align-items:center;gap:8px;background:var(--claro);border-radius:999px;padding:8px 16px;font-size:22.5px;font-weight:600}#d3 #r3 .chip.gray{background:#EEF1ED;color:var(--gris)}#d3 #r3 .hd .sp{flex:1}#d3 #r3 .avatar{display:flex;align-items:center;gap:10px;font-size:24.5px;font-weight:600}#d3 #r3 .avatar .av{width:40px;height:40px;border-radius:50%;background:var(--negro);color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700}#d3 #r3 .content{flex:1;padding:22px 30px;display:flex;flex-direction:column;gap:18px;min-height:0}#d3 #r3 .kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:20px}#d3 #r3 .kpi{background:#fff;border:1px solid var(--borde);border-radius:18px;padding:15px 22px}#d3 #r3 .kpi .l{font-size:24.5px;color:var(--gris);font-weight:500}#d3 #r3 .kpi .v{font-family:'Space Grotesk',sans-serif;font-size:64.5px;font-weight:700;margin-top:6px}#d3 #r3 .kpi .d{display:inline-flex;align-items:center;gap:6px;margin-top:8px;font-size:22.5px;font-weight:600;border-radius:999px;padding:4px 12px}#d3 #r3 .kpi .d.up{background:var(--claro);color:#B4591A}#d3 #r3 .kpi .d.down{background:#FBE4E1;color:#B02A20}#d3 #r3 .grid{flex:1;display:grid;grid-template-columns:1.55fr 1fr;gap:20px;min-height:0}#d3 #r3 .card{background:#fff;border:1px solid var(--borde);border-radius:18px;padding:24px 28px;display:flex;flex-direction:column;min-height:0}#d3 #r3 .card h2{font-size:30.5px;font-weight:600;display:flex;align-items:center;gap:14px}#d3 #r3 .legend{margin-left:auto;display:flex;gap:18px;font-size:22px;color:var(--gris);font-family:'Inter',sans-serif;font-weight:500}#d3 #r3 .legend span{display:flex;align-items:center;gap:7px}#d3 #r3 .legend i{width:16px;height:0;border-top:3px solid var(--verde);font-style:normal;border-radius:2px}#d3 #r3 .legend i.fc{border-top-style:dashed;border-top-color:var(--gris)}#d3 #r3 .chart{flex:1;margin-top:10px;min-height:0}#d3 #r3 .chart svg{width:100%;height:100%}#d3 #r3 .right{display:flex;flex-direction:column;gap:20px;min-height:0}#d3 #r3 .pl{display:flex;flex-direction:column;gap:0;margin-top:12px}#d3 #r3 .pl div{display:flex;justify-content:space-between;font-size:25.5px;padding:8px 0;border-bottom:1px solid var(--borde);color:var(--gris)}#d3 #r3 .pl div b{color:var(--pizarra);font-weight:600}#d3 #r3 .pl div.tot{border-bottom:0;padding-top:12px}#d3 #r3 .pl div.tot span:first-child{font-weight:700;color:var(--pizarra)}#d3 #r3 .pl div.tot b{font-family:'Space Grotesk',sans-serif;font-size:32.5px;color:var(--verde)}#d3 #r3 .al{display:flex;gap:12px;align-items:flex-start;padding:9px 0;border-bottom:1px solid var(--borde);font-size:23px;line-height:1.35}#d3 #r3 .al:last-child{border-bottom:0}#d3 #r3 .al i{flex:none;width:11px;height:11px;border-radius:50%;margin-top:4px;font-style:normal}#d3 #r3 .al small{display:block;color:var(--gris);margin-top:3px}#d3 #r3 .ask{display:flex;align-items:center;gap:12px;background:var(--negro);border-radius:14px;padding:14px 18px;color:var(--gris);font-size:24.5px}#d3 #r3 .ask .av{width:34px;height:34px;border-radius:50%;background:var(--verde);color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700;font-family:'Space Grotesk',sans-serif}#d3 #r3 .ask b{color:#fff;font-weight:500}
+
+
+#d4, #d4 *{margin:0;padding:0;box-sizing:border-box}#d4{width:1920px;height:1080px;overflow:hidden}#d4{font-family:'Inter','Segoe UI',Arial,sans-serif;background:#14181A;color:#fff;position:relative}#d4 .hw-glow{position:absolute;width:1200px;height:1200px;border-radius:50%;background:radial-gradient(circle,rgba(242,133,58,.17) 0%,rgba(242,133,58,0) 62%);right:-320px;top:-380px}#d4 .hw-glow2{position:absolute;width:900px;height:900px;border-radius:50%;background:radial-gradient(circle,rgba(242,133,58,.10) 0%,rgba(242,133,58,0) 60%);left:-260px;bottom:-380px}#d4 .hw-stage{position:relative;z-index:1;width:1920px;height:1080px;display:flex;align-items:center;gap:80px;padding:0 110px}#d4 .hw-text{width:520px;flex:none}#d4 .hw-eyebrow{font-family:'Space Grotesk','Segoe UI',sans-serif;font-size:20px;font-weight:600;letter-spacing:.22em;text-transform:uppercase;color:#F2853A}#d4 .hw-mod{display:inline-block;margin-top:22px;border:2px solid rgba(242,133,58,.55);border-radius:999px;padding:9px 20px;font-size:17px;font-weight:600;color:#FDEBD7}#d4 .hw-title{font-family:'Space Grotesk','Segoe UI',sans-serif;font-size:58px;font-weight:700;line-height:1.1;letter-spacing:-.01em;margin-top:22px}#d4 .hw-cap{font-size:23px;line-height:1.5;color:#B9C2BC;margin-top:20px}#d4 .hw-brand{position:absolute;left:110px;bottom:52px;font-size:20px;color:#8A969C;font-style:italic}#d4 .hw-brand b{color:#F2853A;font-style:normal;font-family:'Space Grotesk','Segoe UI',sans-serif;margin-right:12px}#d4 .hw-dev-area{flex:1;display:flex;align-items:center;justify-content:center}#d4 .hw-devwrap{display:flex;flex-direction:column;align-items:center}#d4 .hw-dev{background:#0B0D0E;border:2px solid #2A3237;box-shadow:0 40px 90px rgba(0,0,0,.55)}#d4 .hw-tablet{padding:26px;border-radius:38px}#d4 .hw-monitor{padding:20px;border-radius:22px}#d4 .hw-laptop{padding:18px 18px 22px;border-radius:24px 24px 0 0;border-bottom:0}#d4 .hw-phone{padding:14px;border-radius:52px;position:relative}#d4 .hw-notch{position:absolute;top:26px;left:50%;transform:translateX(-50%);width:120px;height:26px;background:#0B0D0E;border-radius:14px;z-index:2}#d4 .hw-neck{width:110px;height:64px;background:#0B0D0E;border:2px solid #2A3237;border-top:0}#d4 .hw-base{width:340px;height:18px;background:#0B0D0E;border:2px solid #2A3237;border-radius:10px}#d4 .hw-lapbase{height:26px;background:#171D21;border:2px solid #2A3237;border-radius:0 0 22px 22px}#d4 .hw-screen{overflow:hidden;border-radius:14px;background:#000}#d4 .hw-phone .hw-screen{border-radius:38px}#d4 .hw-fit{transform-origin:top left}#d4 #r4,#d4 #r4 *{margin:0;padding:0;box-sizing:border-box}#d4 #r4{--verde:#F2853A;--naranja:#E6B23A;--rojo:#E0392B;--pizarra:#2D3A42;--negro:#14181A;--claro:#FDEBD7;--gris:#8A969C;--fondo:#F4F6F3;--borde:#E3E9E0}#d4 #r4{width:1920px;height:1080px;overflow:hidden}#d4 #r4{font-family:'Inter','Segoe UI',Arial,sans-serif;background:var(--fondo);color:var(--pizarra);display:flex}#d4 #r4 h1,#d4 #r4 h2,#d4 #r4 h3,#d4 #r4 .sg{font-family:'Space Grotesk','Segoe UI',Arial,sans-serif}#d4 #r4 .sb{width:250px;background:var(--negro);color:#fff;display:flex;flex-direction:column;padding:28px 16px;flex:none}#d4 #r4 .sb .logo{font-family:'Space Grotesk',sans-serif;font-size:45px;font-weight:700;padding:0 14px 26px}#d4 #r4 .sb .logo span{color:var(--verde)}#d4 #r4 .sb nav{display:flex;flex-direction:column;gap:4px}#d4 #r4 .sb nav div{display:flex;align-items:center;gap:12px;padding:12px 14px;border-radius:12px;color:#B9C2BC;font-size:27.5px;font-weight:500}#d4 #r4 .sb nav div.on{background:var(--verde);color:#fff;font-weight:600}#d4 #r4 .sb nav div i{width:10px;height:10px;border-radius:3px;background:currentColor;opacity:.55;font-style:normal}#d4 #r4 .sb .foot{margin-top:auto;padding:12px 14px;font-size:21.5px;color:var(--gris)}#d4 #r4 .main{flex:1;display:flex;flex-direction:column;min-width:0}#d4 #r4 .hd{height:84px;background:#fff;border-bottom:1px solid var(--borde);display:flex;align-items:center;gap:16px;padding:0 30px;flex:none}#d4 #r4 .hd h1{font-size:40px;font-weight:600}#d4 #r4 .chip{display:inline-flex;align-items:center;gap:8px;background:var(--claro);border-radius:999px;padding:8px 16px;font-size:22.5px;font-weight:600}#d4 #r4 .chip.gray{background:#EEF1ED;color:var(--gris)}#d4 #r4 .hd .sp{flex:1}#d4 #r4 .avatar{display:flex;align-items:center;gap:10px;font-size:24.5px;font-weight:600}#d4 #r4 .avatar .av{width:40px;height:40px;border-radius:50%;background:var(--negro);color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700}#d4 #r4 .content{flex:1;padding:26px 30px;display:grid;grid-template-columns:1.5fr 1fr;gap:22px;min-height:0}#d4 #r4 .card{background:#fff;border:1px solid var(--borde);border-radius:18px;padding:24px 28px;display:flex;flex-direction:column;min-height:0}#d4 #r4 .card h2{font-size:30.5px;font-weight:600}#d4 #r4 .card .sub{font-size:22.5px;color:var(--gris);margin-top:4px}#d4 #r4 .matrix{flex:1;position:relative;margin:34px 16px 44px 58px}#d4 #r4 .q{position:absolute;width:50%;height:50%}#d4 #r4 .q.ne{right:0;top:0;background:rgba(242,133,58,.07)}#d4 #r4 .q.nw{left:0;top:0;background:rgba(230,178,61,.06)}#d4 #r4 .q.se{right:0;bottom:0;background:rgba(45,58,66,.05)}#d4 #r4 .q.sw{left:0;bottom:0;background:rgba(224,57,43,.06)}#d4 #r4 .qlab{position:absolute;font-family:'Space Grotesk',sans-serif;font-size:24.5px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;padding:5px 14px;border-radius:999px;color:#fff}#d4 #r4 .qlab.ne{top:14px;right:14px;background:var(--verde)}#d4 #r4 .qlab.nw{top:14px;left:14px;background:var(--naranja)}#d4 #r4 .qlab.se{bottom:14px;right:14px;background:var(--pizarra)}#d4 #r4 .qlab.sw{bottom:14px;left:14px;background:var(--rojo)}#d4 #r4 .axx{position:absolute;left:0;right:0;top:50%;height:2px;background:var(--borde)}#d4 #r4 .axy{position:absolute;top:0;bottom:0;left:50%;width:2px;background:var(--borde)}#d4 #r4 .matrix .frame{position:absolute;inset:0;border:2px solid var(--borde);border-radius:14px}#d4 #r4 .alx{position:absolute;bottom:-38px;left:50%;transform:translateX(-50%);font-size:22.5px;color:var(--gris);font-weight:600}#d4 #r4 .aly{position:absolute;left:-46px;top:50%;transform:translateY(-50%) rotate(-90deg);font-size:22.5px;color:var(--gris);font-weight:600;white-space:nowrap}#d4 #r4 .dot{position:absolute;transform:translate(-50%,-50%);display:flex;flex-direction:column;align-items:center;gap:5px}#d4 #r4 .dot i{width:18px;height:18px;border-radius:50%;border:3px solid #fff;box-shadow:0 2px 8px rgba(20,24,26,.25);font-style:normal}#d4 #r4 .dot span{font-size:22px;font-weight:600;background:#fff;border:1px solid var(--borde);border-radius:8px;padding:3px 9px;white-space:nowrap}#d4 #r4 .dot span b{color:var(--gris);font-weight:500;margin-left:5px}#d4 #r4 .right{display:flex;flex-direction:column;gap:20px;min-height:0}#d4 #r4 .rec{border:2px solid var(--borde);border-radius:16px;padding:18px 22px;display:flex;gap:16px;align-items:flex-start}#d4 #r4 .rec i{flex:none;width:44px;height:44px;border-radius:12px;color:#fff;display:flex;align-items:center;justify-content:center;font-style:normal;font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:30.5px}#d4 #r4 .rec h3{font-size:28px;font-weight:600}#d4 #r4 .rec p{font-size:24.5px;color:var(--gris);line-height:1.4;margin-top:4px}#d4 #r4 .rec p b{color:var(--pizarra)}#d4 #r4 .price{margin-top:auto;background:var(--negro);border-radius:16px;padding:20px 24px;color:#fff}#d4 #r4 .price h3{font-size:27.5px;font-weight:600;color:var(--verde);display:flex;align-items:center;gap:10px}#d4 #r4 .price p{font-size:24.5px;color:#B9C2BC;line-height:1.45;margin-top:8px}#d4 #r4 .price p b{color:#fff}
+
+
+#d5, #d5 *{margin:0;padding:0;box-sizing:border-box}#d5{width:1920px;height:1080px;overflow:hidden}#d5{font-family:'Inter','Segoe UI',Arial,sans-serif;background:#14181A;color:#fff;position:relative}#d5 .hw-glow{position:absolute;width:1200px;height:1200px;border-radius:50%;background:radial-gradient(circle,rgba(242,133,58,.17) 0%,rgba(242,133,58,0) 62%);right:-320px;top:-380px}#d5 .hw-glow2{position:absolute;width:900px;height:900px;border-radius:50%;background:radial-gradient(circle,rgba(242,133,58,.10) 0%,rgba(242,133,58,0) 60%);left:-260px;bottom:-380px}#d5 .hw-stage{position:relative;z-index:1;width:1920px;height:1080px;display:flex;align-items:center;gap:80px;padding:0 110px}#d5 .hw-text{width:520px;flex:none}#d5 .hw-eyebrow{font-family:'Space Grotesk','Segoe UI',sans-serif;font-size:20px;font-weight:600;letter-spacing:.22em;text-transform:uppercase;color:#F2853A}#d5 .hw-mod{display:inline-block;margin-top:22px;border:2px solid rgba(242,133,58,.55);border-radius:999px;padding:9px 20px;font-size:17px;font-weight:600;color:#FDEBD7}#d5 .hw-title{font-family:'Space Grotesk','Segoe UI',sans-serif;font-size:58px;font-weight:700;line-height:1.1;letter-spacing:-.01em;margin-top:22px}#d5 .hw-cap{font-size:23px;line-height:1.5;color:#B9C2BC;margin-top:20px}#d5 .hw-brand{position:absolute;left:110px;bottom:52px;font-size:20px;color:#8A969C;font-style:italic}#d5 .hw-brand b{color:#F2853A;font-style:normal;font-family:'Space Grotesk','Segoe UI',sans-serif;margin-right:12px}#d5 .hw-dev-area{flex:1;display:flex;align-items:center;justify-content:center}#d5 .hw-devwrap{display:flex;flex-direction:column;align-items:center}#d5 .hw-dev{background:#0B0D0E;border:2px solid #2A3237;box-shadow:0 40px 90px rgba(0,0,0,.55)}#d5 .hw-tablet{padding:26px;border-radius:38px}#d5 .hw-monitor{padding:20px;border-radius:22px}#d5 .hw-laptop{padding:18px 18px 22px;border-radius:24px 24px 0 0;border-bottom:0}#d5 .hw-phone{padding:14px;border-radius:52px;position:relative}#d5 .hw-notch{position:absolute;top:26px;left:50%;transform:translateX(-50%);width:120px;height:26px;background:#0B0D0E;border-radius:14px;z-index:2}#d5 .hw-neck{width:110px;height:64px;background:#0B0D0E;border:2px solid #2A3237;border-top:0}#d5 .hw-base{width:340px;height:18px;background:#0B0D0E;border:2px solid #2A3237;border-radius:10px}#d5 .hw-lapbase{height:26px;background:#171D21;border:2px solid #2A3237;border-radius:0 0 22px 22px}#d5 .hw-screen{overflow:hidden;border-radius:14px;background:#000}#d5 .hw-phone .hw-screen{border-radius:38px}#d5 .hw-fit{transform-origin:top left}#d5 #r5,#d5 #r5 *{margin:0;padding:0;box-sizing:border-box}#d5 #r5{--verde:#F2853A;--naranja:#E6B23A;--rojo:#E0392B;--pizarra:#2D3A42;--negro:#14181A;--claro:#FDEBD7;--gris:#8A969C;--fondo:#F4F6F3;--borde:#E3E9E0}#d5 #r5{width:1920px;height:1080px;overflow:hidden}#d5 #r5{font-family:'Inter','Segoe UI',Arial,sans-serif;background:var(--fondo);color:var(--pizarra);display:flex}#d5 #r5 h1,#d5 #r5 h2,#d5 #r5 h3,#d5 #r5 .sg{font-family:'Space Grotesk','Segoe UI',Arial,sans-serif}#d5 #r5 .sb{width:250px;background:var(--negro);color:#fff;display:flex;flex-direction:column;padding:28px 16px;flex:none}#d5 #r5 .sb .logo{font-family:'Space Grotesk',sans-serif;font-size:45px;font-weight:700;padding:0 14px 26px}#d5 #r5 .sb .logo span{color:var(--verde)}#d5 #r5 .sb nav{display:flex;flex-direction:column;gap:4px}#d5 #r5 .sb nav div{display:flex;align-items:center;gap:12px;padding:12px 14px;border-radius:12px;color:#B9C2BC;font-size:27.5px;font-weight:500}#d5 #r5 .sb nav div.on{background:var(--verde);color:#fff;font-weight:600}#d5 #r5 .sb nav div i{width:10px;height:10px;border-radius:3px;background:currentColor;opacity:.55;font-style:normal}#d5 #r5 .sb .foot{margin-top:auto;padding:12px 14px;font-size:21.5px;color:var(--gris)}#d5 #r5 .main{flex:1;display:flex;flex-direction:column;min-width:0}#d5 #r5 .hd{height:84px;background:#fff;border-bottom:1px solid var(--borde);display:flex;align-items:center;gap:16px;padding:0 30px;flex:none}#d5 #r5 .hd h1{font-size:40px;font-weight:600}#d5 #r5 .chip{display:inline-flex;align-items:center;gap:8px;background:var(--claro);border-radius:999px;padding:8px 16px;font-size:22.5px;font-weight:600}#d5 #r5 .chip.gray{background:#EEF1ED;color:var(--gris)}#d5 #r5 .hd .sp{flex:1}#d5 #r5 .avatar{display:flex;align-items:center;gap:10px;font-size:24.5px;font-weight:600}#d5 #r5 .avatar .av{width:40px;height:40px;border-radius:50%;background:var(--negro);color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700}#d5 #r5 .content{flex:1;padding:26px 30px;display:flex;flex-direction:column;gap:20px;min-height:0}#d5 #r5 .stats{display:grid;grid-template-columns:repeat(4,1fr);gap:20px}#d5 #r5 .st{background:#fff;border:1px solid var(--borde);border-radius:16px;padding:18px 24px;display:flex;align-items:center;gap:16px}#d5 #r5 .st i{width:14px;height:14px;border-radius:50%;font-style:normal;flex:none}#d5 #r5 .st .l{font-size:22.5px;color:var(--gris)}#d5 #r5 .st b{font-family:'Space Grotesk',sans-serif;font-size:45px;display:block}#d5 #r5 .cols{flex:1;display:grid;grid-template-columns:1.6fr 1fr;gap:20px;min-height:0}#d5 #r5 .card{background:#fff;border:1px solid var(--borde);border-radius:18px;padding:18px 24px;display:flex;flex-direction:column;min-height:0}#d5 #r5 .card h2{font-size:30.5px;font-weight:600}#d5 #r5 .card .sub{font-size:22.5px;color:var(--gris);margin-top:4px}#d5 #r5 .feed{margin-top:10px;display:flex;flex-direction:column;gap:8px;overflow:hidden}#d5 #r5 .alerta{border:1px solid var(--borde);border-left:6px solid var(--verde);border-radius:14px;padding:10px 16px;display:flex;gap:14px;align-items:flex-start}#d5 #r5 .alerta.crit{border-left-color:var(--rojo);background:rgba(224,57,43,.03)}#d5 #r5 .alerta.warn{border-left-color:var(--naranja)}#d5 #r5 .alerta .sev{flex:none;font-size:20px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;border-radius:999px;padding:5px 12px;color:#fff;background:var(--verde);margin-top:2px}#d5 #r5 .alerta.crit .sev{background:var(--rojo)}#d5 #r5 .alerta.warn .sev{background:var(--naranja)}#d5 #r5 .alerta .tx{flex:1;min-width:0}#d5 #r5 .alerta h3{font-size:28px;font-weight:600}#d5 #r5 .alerta p{font-size:24.5px;color:var(--gris);line-height:1.28;margin-top:3px}#d5 #r5 .alerta p b{color:var(--pizarra)}#d5 #r5 .alerta .meta{display:flex;gap:14px;margin-top:4px;font-size:21.5px;color:var(--gris)}#d5 #r5 .alerta .acts{display:flex;flex-direction:column;gap:8px}#d5 #r5 .ba{border-radius:10px;padding:9px 18px;font-size:22.5px;font-weight:600;text-align:center}#d5 #r5 .ba.p{background:var(--pizarra);color:#fff}#d5 #r5 .ba.s{border:2px solid var(--borde);color:var(--pizarra)}#d5 #r5 .merma{margin-top:12px;display:flex;flex-direction:column;gap:12px}#d5 #r5 .mrow .mh{display:flex;justify-content:space-between;font-size:24.5px;margin-bottom:7px}#d5 #r5 .mrow .mh b{font-weight:600}#d5 #r5 .mrow .mh span{color:var(--gris)}#d5 #r5 .track{position:relative;height:16px;background:#EEF1ED;border-radius:8px}#d5 #r5 .fill{position:absolute;left:0;top:0;bottom:0;border-radius:8px;background:var(--claro);border:1px solid rgba(242,133,58,.4)}#d5 #r5 .fill.over{background:#FBF0D9;border-color:rgba(230,178,61,.55)}#d5 #r5 .base{position:absolute;top:-5px;bottom:-5px;width:3px;background:var(--pizarra);border-radius:2px}#d5 #r5 .blegend{display:flex;gap:18px;font-size:21.5px;color:var(--gris);margin-top:2px}#d5 #r5 .blegend span{display:flex;align-items:center;gap:7px}#d5 #r5 .blegend i{width:12px;height:12px;border-radius:4px;font-style:normal}#d5 #r5 .blegend i.bl{width:3px;height:14px;border-radius:2px;background:var(--pizarra)}#d5 #r5 .saving{margin-top:auto;background:var(--negro);border-radius:16px;padding:20px 24px;color:#fff}#d5 #r5 .saving h3{font-size:25.5px;font-weight:600;color:var(--verde)}#d5 #r5 .saving b{font-family:'Space Grotesk',sans-serif;font-size:54.5px;display:block;margin-top:6px}#d5 #r5 .saving p{font-size:22.5px;color:#B9C2BC;margin-top:6px;line-height:1.4}
+
+
+#d6, #d6 *{margin:0;padding:0;box-sizing:border-box}#d6{width:1920px;height:1080px;overflow:hidden}#d6{font-family:'Inter','Segoe UI',Arial,sans-serif;background:#14181A;color:#fff;position:relative}#d6 .hw-glow{position:absolute;width:1200px;height:1200px;border-radius:50%;background:radial-gradient(circle,rgba(242,133,58,.17) 0%,rgba(242,133,58,0) 62%);right:-320px;top:-380px}#d6 .hw-glow2{position:absolute;width:900px;height:900px;border-radius:50%;background:radial-gradient(circle,rgba(242,133,58,.10) 0%,rgba(242,133,58,0) 60%);left:-260px;bottom:-380px}#d6 .hw-stage{position:relative;z-index:1;width:1920px;height:1080px;display:flex;align-items:center;gap:80px;padding:0 110px}#d6 .hw-text{width:520px;flex:none}#d6 .hw-eyebrow{font-family:'Space Grotesk','Segoe UI',sans-serif;font-size:20px;font-weight:600;letter-spacing:.22em;text-transform:uppercase;color:#F2853A}#d6 .hw-mod{display:inline-block;margin-top:22px;border:2px solid rgba(242,133,58,.55);border-radius:999px;padding:9px 20px;font-size:17px;font-weight:600;color:#FDEBD7}#d6 .hw-title{font-family:'Space Grotesk','Segoe UI',sans-serif;font-size:58px;font-weight:700;line-height:1.1;letter-spacing:-.01em;margin-top:22px}#d6 .hw-cap{font-size:23px;line-height:1.5;color:#B9C2BC;margin-top:20px}#d6 .hw-brand{position:absolute;left:110px;bottom:52px;font-size:20px;color:#8A969C;font-style:italic}#d6 .hw-brand b{color:#F2853A;font-style:normal;font-family:'Space Grotesk','Segoe UI',sans-serif;margin-right:12px}#d6 .hw-dev-area{flex:1;display:flex;align-items:center;justify-content:center}#d6 .hw-devwrap{display:flex;flex-direction:column;align-items:center}#d6 .hw-dev{background:#0B0D0E;border:2px solid #2A3237;box-shadow:0 40px 90px rgba(0,0,0,.55)}#d6 .hw-tablet{padding:26px;border-radius:38px}#d6 .hw-monitor{padding:20px;border-radius:22px}#d6 .hw-laptop{padding:18px 18px 22px;border-radius:24px 24px 0 0;border-bottom:0}#d6 .hw-phone{padding:14px;border-radius:52px;position:relative}#d6 .hw-notch{position:absolute;top:26px;left:50%;transform:translateX(-50%);width:120px;height:26px;background:#0B0D0E;border-radius:14px;z-index:2}#d6 .hw-neck{width:110px;height:64px;background:#0B0D0E;border:2px solid #2A3237;border-top:0}#d6 .hw-base{width:340px;height:18px;background:#0B0D0E;border:2px solid #2A3237;border-radius:10px}#d6 .hw-lapbase{height:26px;background:#171D21;border:2px solid #2A3237;border-radius:0 0 22px 22px}#d6 .hw-screen{overflow:hidden;border-radius:14px;background:#000}#d6 .hw-phone .hw-screen{border-radius:38px}#d6 .hw-fit{transform-origin:top left}#d6 #r6,#d6 #r6 *{margin:0;padding:0;box-sizing:border-box}#d6 #r6{--verde:#F2853A;--naranja:#E6B23A;--rojo:#E0392B;--pizarra:#2D3A42;--negro:#14181A;--claro:#FDEBD7;--gris:#8A969C;--chatbg:#EFF3EC;--borde:#E3E9E0}#d6 #r6{width:430px;height:932px;overflow:hidden}#d6 #r6{font-family:'Inter','Segoe UI',Arial,sans-serif;background:var(--chatbg);color:var(--pizarra);display:flex;flex-direction:column}#d6 #r6 h1,#d6 #r6 h2,#d6 #r6 h3,#d6 #r6 .sg{font-family:'Space Grotesk','Segoe UI',Arial,sans-serif}#d6 #r6 .top{background:var(--negro);color:#fff;padding:14px 16px 12px;display:flex;align-items:center;gap:12px;flex:none}#d6 #r6 .top .back{font-size:32.5px;color:var(--gris)}#d6 #r6 .top .av{width:42px;height:42px;border-radius:50%;background:var(--verde);display:flex;align-items:center;justify-content:center;font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:30.5px}#d6 #r6 .top .who{flex:1;min-width:0}#d6 #r6 .top .who b{display:block;font-family:'Space Grotesk',sans-serif;font-size:27.5px;font-weight:600}#d6 #r6 .top .who small{font-size:20px;color:var(--verde)}#d6 #r6 .top .ic{font-size:27.5px;color:var(--gris);margin-left:10px}#d6 #r6 .perm{background:rgba(242,133,58,.12);color:#B4591A;font-size:19.5px;font-weight:600;text-align:center;padding:7px 12px;flex:none}#d6 #r6 .chat{flex:1;padding:10px 12px;display:flex;flex-direction:column;gap:8px;overflow:hidden}#d6 #r6 .day{align-self:center;background:#fff;border-radius:999px;padding:4px 14px;font-size:18px;color:var(--gris);font-weight:600}#d6 #r6 .b{max-width:88%;border-radius:16px;padding:9px 12px;font-size:23px;line-height:1.35;position:relative;box-shadow:0 1px 2px rgba(20,24,26,.08)}#d6 #r6 .b .t{display:block;text-align:right;font-size:17px;color:var(--gris);margin-top:5px}#d6 #r6 .user{align-self:flex-end;background:var(--claro);border-bottom-right-radius:5px}#d6 #r6 .bot{align-self:flex-start;background:#fff;border-bottom-left-radius:5px}#d6 #r6 .bot b{color:var(--pizarra)}#d6 #r6 .kpis{display:flex;gap:8px;margin:10px 0 4px}#d6 #r6 .k{flex:1;background:var(--chatbg);border:1px solid var(--borde);border-radius:12px;padding:9px 10px}#d6 #r6 .k .l{font-size:17px;color:var(--gris);font-weight:600}#d6 #r6 .k b{font-family:'Space Grotesk',sans-serif;font-size:27px;display:block;margin-top:2px}#d6 #r6 .k .d{font-size:17px;font-weight:700;color:#B4591A}#d6 #r6 .k .d.bad{color:#B02A20}#d6 #r6 .cta{display:block;margin-top:10px;border:2px solid var(--verde);color:var(--verde);border-radius:11px;padding:9px;text-align:center;font-weight:700;font-size:22px}#d6 #r6 .foot{background:#fff;border-top:1px solid var(--borde);padding:12px 14px;display:flex;align-items:center;gap:10px;flex:none}#d6 #r6 .foot .in{flex:1;background:var(--chatbg);border-radius:999px;padding:11px 18px;font-size:22.5px;color:var(--gris)}#d6 #r6 .foot .mic{width:44px;height:44px;border-radius:50%;background:var(--verde);color:#fff;display:flex;align-items:center;justify-content:center;font-size:29px}
+
+
+</style></head><body>
+<div id="stage">
+<section id="d1">
+<div class="hw-glow"></div><div class="hw-glow2"></div>
+<div class="hw-stage">
+<div class="hw-text">
+<div class="hw-eyebrow">MOTRAE · MotRest</div>
+<div class="hw-title">Punto de venta — mitad y mitad</div>
+<div class="hw-cap">Costeo por ingrediente en vivo mientras se toma la comanda: cada mitad de la pizza con su costo y su margen. Precios estimados, sujetos a la realidad de cada restaurante.</div>
+<span class="hw-mod">Módulo M1 · Punto de Venta y Servicio</span>
+</div>
+<div class="hw-dev-area"><div class="hw-dev hw-tablet"><div class="hw-screen" style="width:1027px;height:578px"><div class="hw-fit" style="width:1920px;height:1080px;transform:scale(0.535)"><div id="r1">
+<aside class="sb">
+  <div class="logo">MotRest<span>.</span></div>
+  <nav>
+    <div class="on"><i></i>Venta</div>
+    <div><i></i>Cocina</div>
+    <div><i></i>Inventario</div>
+    <div><i></i>Compras</div>
+    <div><i></i>Finanzas</div>
+    <div><i></i>Personal</div>
+    <div><i></i>Clientes</div>
+    <div><i></i>Inteligencia</div>
+    <div><i></i>Ajustes</div>
+  </nav>
+  <div class="foot">MOTRAE · Innovation already in motion</div>
+</aside>
+<div class="main">
+  <header class="hd">
+    <h1>Punto de venta</h1>
+    <span class="chip">Rodizio · Centro ▾</span>
+    <span class="chip gray">Viernes · 20:41</span>
+    <span class="chip gray">Datos de demostración</span>
+    <span class="sp"></span>
+    <span class="avatar"><span class="av">L</span>Lucía · Mesera</span>
+  </header>
+  <div class="content">
+    <section class="mesas">
+      <h2>Salón</h2>
+      <div class="mgrid">
+        <div class="mesa oc">1<small>2 pers</small></div>
+        <div class="mesa">2<small>libre</small></div>
+        <div class="mesa oc">3<small>4 pers</small></div>
+        <div class="mesa ct">4<small>cuenta</small></div>
+        <div class="mesa oc">5<small>3 pers</small></div>
+        <div class="mesa">6<small>libre</small></div>
+        <div class="mesa oc">7<small>6 pers</small></div>
+        <div class="mesa oc">8<small>2 pers</small></div>
+        <div class="mesa">9<small>libre</small></div>
+        <div class="mesa ct">10<small>cuenta</small></div>
+        <div class="mesa oc">11<small>5 pers</small></div>
+        <div class="mesa sel">12<small>4 pers</small></div>
+      </div>
+      <div class="leg">
+        <span><i style="background:var(--verde)"></i>Ocupada · en servicio</span>
+        <span><i style="background:var(--naranja)"></i>Cuenta solicitada</span>
+        <span><i style="background:#DDE3DA"></i>Libre</span>
+      </div>
+    </section>
+    <section class="conf">
+      <div class="top">
+        <h2>Pizza mitad y mitad</h2>
+        <div class="tabs"><div>Chica</div><div>Mediana</div><div class="on">Familiar</div></div>
+      </div>
+      <div class="stage">
+        <div class="pz">
+          <div class="h1"></div><div class="h2"></div><div class="div"></div>
+          <span class="lb l">½ Margherita</span><span class="lb r">½ Pepperoni</span>
+        </div>
+        <div class="halfs">
+          <div class="half">
+            <h3>Mitad izquierda · Margherita <span class="mg">costo $21.10 · margen 71%</span></h3>
+            <div class="ing"><span>Masa madre <b>$6.20</b></span><span>Salsa pomodoro <b>$3.40</b></span><span>Mozzarella fior di latte <b>$8.90</b></span><span>Albahaca fresca <b>$1.30</b></span><span>Aceite de oliva <b>$1.30</b></span></div>
+          </div>
+          <div class="half">
+            <h3>Mitad derecha · Pepperoni <span class="mg">costo $24.60 · margen 66%</span></h3>
+            <div class="ing"><span>Masa madre <b>$6.20</b></span><span>Salsa pomodoro <b>$3.40</b></span><span>Mozzarella <b>$7.10</b></span><span>Pepperoni artesanal <b>$7.90</b></span></div>
+          </div>
+          <div class="live">
+            <span class="t">Costeo en vivo</span>
+            <span class="kv">Costo del platillo<b>$45.70</b></span>
+            <span class="kv">Precio de carta<b>$249.00</b></span>
+            <span class="kv gain">Margen<b>68.2%</b></span>
+          </div>
+        </div>
+      </div>
+    </section>
+    <aside class="cuenta">
+      <div class="ch"><h2>Mesa 12</h2><span class="chip gray">Cuenta 0231</span></div>
+      <div class="sub">4 personas · Lucía · abierta 20:12</div>
+      <div class="item"><span class="q">1×</span><span class="n">Pizza familiar mitad y mitad<small>½ Margherita · ½ Pepperoni · orilla tradicional</small></span><span class="p">$249.00</span></div>
+      <div class="item"><span class="q">1×</span><span class="n">Pasta al pesto<small>Sin nuez · término al dente</small></span><span class="p">$139.00</span></div>
+      <div class="item"><span class="q">2×</span><span class="n">Limonada de la casa</span><span class="p">$90.00</span></div>
+      <div class="item"><span class="q">1×</span><span class="n">Agua mineral</span><span class="p">$38.00</span></div>
+      <div class="tot">
+        <div><span>Subtotal</span><span>$516.00</span></div>
+        <div><span>IVA (16%)</span><span>$82.56</span></div>
+        <div class="gt"><span>Total</span><span>$598.56</span></div>
+        <div class="est">*Precios estimados, sujetos a la realidad de cada restaurante</div>
+      </div>
+      <div class="btns">
+        <div class="b1">Enviar a cocina</div>
+        <div class="brow"><div class="b2">Dividir</div><div class="b2">Cortesía</div><div class="b2">Cobrar</div></div>
+      </div>
+    </aside>
+  </div>
+</div>
+</div></div></div></div></div>
+</div>
+<div class="hw-brand"><b>MOTRAE</b>Innovation already in motion</div>
+</section>
+<section id="d2">
+<div class="hw-glow"></div><div class="hw-glow2"></div>
+<div class="hw-stage">
+<div class="hw-text">
+<div class="hw-eyebrow">MOTRAE · MotRest</div>
+<div class="hw-title">Cocina orquestada</div>
+<div class="hw-cap">Cada estación sabe qué hacer y cuándo; los retrasos se ven antes de que duelan.</div>
+<span class="hw-mod">Módulo M2 · Cocina (KDS) y Recetas</span>
+</div>
+<div class="hw-dev-area"><div class="hw-devwrap"><div class="hw-dev hw-monitor"><div class="hw-screen" style="width:1048px;height:590px"><div class="hw-fit" style="width:1920px;height:1080px;transform:scale(0.546)"><div id="r2">
+<header class="hd">
+  <span class="logo">MotRest<span>.</span> KDS</span>
+  <span class="mode">Todas las estaciones</span>
+  <span class="sp"></span>
+  <span class="stat">En cola <b>14</b></span>
+  <span class="stat">Prom. <b>9:12</b></span>
+  <span class="stat warn">Pico <b>Vie 20:41</b></span>
+  <span class="stat">Rodizio · Centro</span>
+</header>
+<main class="board">
+  <section class="col">
+    <div class="ch"><i style="background:var(--verde)"></i><h2>Horno</h2><span class="n">5</span></div>
+    <div class="tickets">
+      <div class="tk late">
+        <div class="th"><span class="oid">#0226</span><span class="mesa">Mesa 7 · Lucía</span><span class="tm">13:22</span></div>
+        <ul>
+          <li><b>1×</b><span>Pizza fam. mitad y mitad<small>½ Cuatro quesos · ½ Margherita</small></span></li>
+          <li><b>1×</b><span>Pizza med. Pepperoni</span></li>
+        </ul>
+        <div class="alert">⚠ Demorado · prioridad del horno</div>
+        <div class="done">Marcar listo</div>
+      </div>
+      <div class="tk">
+        <div class="th"><span class="oid">#0231</span><span class="mesa">Mesa 12 · Lucía</span><span class="tm">02:10</span></div>
+        <ul><li><b>1×</b><span>Pizza fam. mitad y mitad<small>½ Margherita · ½ Pepperoni</small></span></li></ul>
+        <div class="done">Marcar listo</div>
+      </div>
+      <div class="tk w">
+        <div class="th"><span class="oid">#0228</span><span class="mesa">Delivery · Rappi</span><span class="tm">09:47</span></div>
+        <ul><li><b>2×</b><span>Pizza med. Margherita</span></li></ul>
+        <div class="done">Marcar listo</div>
+      </div>
+    </div>
+  </section>
+  <section class="col">
+    <div class="ch"><i style="background:var(--verde)"></i><h2>Línea de pasta</h2><span class="n">4</span></div>
+    <div class="tickets">
+      <div class="tk">
+        <div class="th"><span class="oid">#0231</span><span class="mesa">Mesa 12</span><span class="tm">02:10</span></div>
+        <ul><li><b>1×</b><span>Pasta al pesto<small>Sin nuez · al dente</small></span></li></ul>
+        <div class="done">Marcar listo</div>
+      </div>
+      <div class="tk w">
+        <div class="th"><span class="oid">#0227</span><span class="mesa">Mesa 3</span><span class="tm">08:31</span></div>
+        <ul><li><b>1×</b><span>Lasaña de la casa</span></li><li><b>1×</b><span>Fettuccine Alfredo<small>Extra parmesano</small></span></li></ul>
+        <div class="done">Marcar listo</div>
+      </div>
+      <div class="tk">
+        <div class="th"><span class="oid">#0233</span><span class="mesa">Mesa 5</span><span class="tm">00:54</span></div>
+        <ul><li><b>2×</b><span>Spaghetti pomodoro</span></li></ul>
+        <div class="done">Marcar listo</div>
+      </div>
+    </div>
+  </section>
+  <section class="col">
+    <div class="ch"><i style="background:var(--naranja)"></i><h2>Ensamble</h2><span class="n">3</span></div>
+    <div class="tickets">
+      <div class="tk">
+        <div class="th"><span class="oid">#0230</span><span class="mesa">Mesa 11</span><span class="tm">03:05</span></div>
+        <ul><li><b>1×</b><span>Ensalada caprese</span></li><li><b>1×</b><span>Pan de ajo gratinado</span></li></ul>
+        <div class="done">Marcar listo</div>
+      </div>
+      <div class="tk w">
+        <div class="th"><span class="oid">#0225</span><span class="mesa">Mesa 8</span><span class="tm">10:02</span></div>
+        <ul><li><b>1×</b><span>Tabla de antipasti<small>Compartir · 2 pers</small></span></li></ul>
+        <div class="done">Marcar listo</div>
+      </div>
+    </div>
+  </section>
+  <section class="col">
+    <div class="ch"><i style="background:var(--verde)"></i><h2>Despacho</h2><span class="n">2</span></div>
+    <div class="tickets">
+      <div class="tk ready">
+        <div class="th"><span class="oid">#0224</span><span class="mesa">Mesa 1 · Lucía</span><span class="tm">listo</span></div>
+        <ul><li><b>1×</b><span>Pizza med. Margherita</span></li><li><b>2×</b><span>Limonada de la casa</span></li></ul>
+        <div class="done">Entregar en mesa</div>
+      </div>
+      <div class="tk ready">
+        <div class="th"><span class="oid">#0222</span><span class="mesa">Delivery · Uber Eats</span><span class="tm">listo</span></div>
+        <ul><li><b>1×</b><span>Pizza fam. Pepperoni</span></li></ul>
+        <div class="done">Entregar a repartidor</div>
+      </div>
+    </div>
+  </section>
+</main>
+<footer class="ft">
+  <span class="dot"></span><span>Sincronizado con Punto de venta e Inventario · descuento de ingredientes en tiempo real</span>
+  <span style="margin-left:auto">Tiempo objetivo por platillo: <b>12:00</b> · Datos de demostración</span>
+</footer>
+</div></div></div></div><div class="hw-neck"></div><div class="hw-base"></div></div></div>
+</div>
+<div class="hw-brand"><b>MOTRAE</b>Innovation already in motion</div>
+</section>
+<section id="d3">
+<div class="hw-glow"></div><div class="hw-glow2"></div>
+<div class="hw-stage">
+<div class="hw-text">
+<div class="hw-eyebrow">MOTRAE · MotRest</div>
+<div class="hw-title">Dirección — visión total</div>
+<div class="hw-cap">Ventas, costos, margen y alertas del día en una sola pantalla, con el pronóstico al lado del dato real.</div>
+<span class="hw-mod">Módulos M8–M9 · Inteligencia y Roles</span>
+</div>
+<div class="hw-dev-area"><div class="hw-devwrap"><div class="hw-dev hw-laptop"><div class="hw-screen" style="width:987px;height:555px"><div class="hw-fit" style="width:1920px;height:1080px;transform:scale(0.514)"><div id="r3">
+<aside class="sb">
+  <div class="logo">MotRest<span>.</span></div>
+  <nav>
+    <div><i></i>Venta</div>
+    <div><i></i>Cocina</div>
+    <div><i></i>Inventario</div>
+    <div><i></i>Compras</div>
+    <div><i></i>Finanzas</div>
+    <div><i></i>Personal</div>
+    <div><i></i>Clientes</div>
+    <div class="on"><i></i>Inteligencia</div>
+    <div><i></i>Ajustes</div>
+  </nav>
+  <div class="foot">MOTRAE · Innovation already in motion</div>
+</aside>
+<div class="main">
+  <header class="hd">
+    <h1>Panel de Dirección</h1>
+    <span class="chip">Todas las sucursales ▾</span>
+    <span class="chip gray">Hoy · Viernes</span>
+    <span class="chip gray">Datos de demostración</span>
+    <span class="sp"></span>
+    <span class="avatar"><span class="av">G</span>Gonzalo · Dirección</span>
+  </header>
+  <div class="content">
+    <div class="kpis">
+      <div class="kpi"><div class="l">Ventas del día</div><div class="v">$84,320</div><span class="d up">▲ 12% vs pronóstico</span></div>
+      <div class="kpi"><div class="l">Food cost</div><div class="v">31.2%</div><span class="d up">▼ 0.8 pt vs semana previa</span></div>
+      <div class="kpi"><div class="l">Margen bruto</div><div class="v">63.4%</div><span class="d up">▲ 1.5 pt vs mes previo</span></div>
+      <div class="kpi"><div class="l">Merma del día</div><div class="v">$1,240</div><span class="d up">▼ 18% vs línea base</span></div>
+    </div>
+    <div class="grid">
+      <div class="card">
+        <h2>Ventas por hora — real vs pronóstico
+          <span class="legend"><span><i></i>Real</span><span><i class="fc"></i>Pronóstico</span></span>
+        </h2>
+        <div class="chart">
+          <svg viewBox="0 0 940 340" preserveAspectRatio="none" aria-label="Ventas por hora, real contra pronóstico">
+            <g stroke="#E3E9E0" stroke-width="1">
+              <line x1="60" y1="300" x2="900" y2="300"/><line x1="60" y1="220" x2="900" y2="220"/>
+              <line x1="60" y1="140" x2="900" y2="140"/><line x1="60" y1="60" x2="900" y2="60"/>
+            </g>
+            <g fill="#8A969C" font-size="21" font-family="Inter,Segoe UI,sans-serif">
+              <text x="52" y="304" text-anchor="end">$0</text><text x="52" y="224" text-anchor="end">$4k</text>
+              <text x="52" y="144" text-anchor="end">$8k</text><text x="52" y="64" text-anchor="end">$12k</text>
+              <text x="60" y="326" text-anchor="middle">12:00</text><text x="209" y="326" text-anchor="middle">14:00</text>
+              <text x="358" y="326" text-anchor="middle">16:00</text><text x="507" y="326" text-anchor="middle">18:00</text>
+              <text x="656" y="326" text-anchor="middle">20:00</text><text x="805" y="326" text-anchor="middle">22:00</text>
+            </g>
+            <path d="M60,258 L135,232 L209,216 L284,244 L358,256 L433,240 L507,192 L582,122 L656,50 L731,76 L805,152 L880,222 L880,300 L60,300 Z" fill="rgba(242,133,58,.12)"/>
+            <path d="M60,252 L135,238 L209,222 L284,240 L358,252 L433,236 L507,200 L582,136 L656,62 L731,84 L805,144 L880,216" fill="none" stroke="#8A969C" stroke-width="2" stroke-dasharray="7 6"/>
+            <path d="M60,258 L135,232 L209,216 L284,244 L358,256 L433,240 L507,192 L582,122 L656,50 L731,76 L805,152 L880,222" fill="none" stroke="#F2853A" stroke-width="2.5"/>
+            <line x1="656" y1="36" x2="656" y2="300" stroke="#2D3A42" stroke-width="1" stroke-dasharray="3 4"/>
+            <circle cx="656" cy="50" r="6" fill="#F2853A" stroke="#fff" stroke-width="2"/>
+            <circle cx="656" cy="62" r="5" fill="#8A969C" stroke="#fff" stroke-width="2"/>
+            <g font-family="Inter,Segoe UI,sans-serif">
+              <rect x="672" y="30" width="196" height="74" rx="12" fill="#14181A"/>
+              <text x="688" y="54" fill="#8A969C" font-size="21">20:00 · hora pico</text>
+              <text x="688" y="74" fill="#fff" font-size="23" font-weight="600">Real&#160;&#160;$12,480</text>
+              <text x="688" y="93" fill="#B9C2BC" font-size="23">Pronóstico&#160;&#160;$11,900</text>
+            </g>
+          </svg>
+        </div>
+      </div>
+      <div class="right">
+        <div class="card">
+          <h2>P&amp;L del mes (corte al día 3)</h2>
+          <div class="pl">
+            <div><span>Ingresos</span><b>$412,800</b></div>
+            <div><span>Costo de venta</span><b>$128,790</b></div>
+            <div><span>Gastos operativos</span><b>$96,410</b></div>
+            <div class="tot"><span>Utilidad operativa</span><b>$187,600</b></div>
+          </div>
+        </div>
+        <div class="card" style="flex:1">
+          <h2>Alertas del Centinela</h2>
+          <div style="margin-top:8px">
+            <div class="al"><i style="background:var(--rojo)"></i><span><b>Crítica:</b> cancelaciones inusuales en Caja 2, turno noche.<small>Hace 12 min · ver correlación</small></span></div>
+            <div class="al"><i style="background:var(--naranja)"></i><span><b>Advertencia:</b> merma de masa +32% sobre línea base.<small>Hace 41 min · estación horno</small></span></div>
+            <div class="al"><i style="background:var(--verde)"></i><span><b>Resuelta:</b> compra de mozzarella ajustada por pronóstico.<small>Hoy 18:20 · compras autónomas</small></span></div>
+          </div>
+        </div>
+        <div class="ask"><span class="av">M</span><span><b>Pregúntale al Copiloto…</b> “¿cómo cerramos la semana?”</span></div>
+      </div>
+    </div>
+  </div>
+</div>
+</div></div></div></div><div class="hw-lapbase" style="width:1137px"></div></div></div>
+</div>
+<div class="hw-brand"><b>MOTRAE</b>Innovation already in motion</div>
+</section>
+<section id="d4">
+<div class="hw-glow"></div><div class="hw-glow2"></div>
+<div class="hw-stage">
+<div class="hw-text">
+<div class="hw-eyebrow">MOTRAE · MotRest</div>
+<div class="hw-title">Menu engineering con IA</div>
+<div class="hw-cap">La carta clasificada por margen y popularidad, con recomendaciones accionables del agente.</div>
+<span class="hw-mod">Capacidad AI-first 02 · Menu Engineering</span>
+</div>
+<div class="hw-dev-area"><div class="hw-devwrap"><div class="hw-dev hw-laptop"><div class="hw-screen" style="width:987px;height:555px"><div class="hw-fit" style="width:1920px;height:1080px;transform:scale(0.514)"><div id="r4">
+<aside class="sb">
+  <div class="logo">MotRest<span>.</span></div>
+  <nav>
+    <div><i></i>Venta</div>
+    <div><i></i>Cocina</div>
+    <div><i></i>Inventario</div>
+    <div><i></i>Compras</div>
+    <div><i></i>Finanzas</div>
+    <div><i></i>Personal</div>
+    <div><i></i>Clientes</div>
+    <div class="on"><i></i>Inteligencia</div>
+    <div><i></i>Ajustes</div>
+  </nav>
+  <div class="foot">MOTRAE · Innovation already in motion</div>
+</aside>
+<div class="main">
+  <header class="hd">
+    <h1>Menu engineering · IA</h1>
+    <span class="chip">Últimos 30 días ▾</span>
+    <span class="chip gray">Carta: 24 platillos</span>
+    <span class="chip gray">Datos de demostración</span>
+    <span class="sp"></span>
+    <span class="avatar"><span class="av">G</span>Gonzalo · Dirección</span>
+  </header>
+  <div class="content">
+    <div class="card">
+      <h2>Matriz margen × popularidad</h2>
+      <div class="sub">Cada platillo clasificado por el agente con ventas y costeo reales del periodo. Etiqueta: nombre · margen.</div>
+      <div class="matrix">
+        <div class="frame"></div>
+        <div class="q ne"></div><div class="q nw"></div><div class="q se"></div><div class="q sw"></div>
+        <div class="axx"></div><div class="axy"></div>
+        <span class="qlab ne">★ Estrellas</span><span class="qlab nw">? Enigmas</span>
+        <span class="qlab se">▸ Vacas</span><span class="qlab sw">✕ Perros</span>
+        <span class="alx">Popularidad (ventas del periodo) →</span>
+        <span class="aly">Margen de contribución →</span>
+        <div class="dot" style="left:82%;top:18%"><i style="background:var(--verde)"></i><span>Mitad y mitad<b>68%</b></span></div>
+        <div class="dot" style="left:70%;top:30%"><i style="background:var(--verde)"></i><span>Margherita<b>71%</b></span></div>
+        <div class="dot" style="left:24%;top:14%"><i style="background:var(--naranja)"></i><span>Cuatro quesos<b>74%</b></span></div>
+        <div class="dot" style="left:34%;top:34%"><i style="background:var(--naranja)"></i><span>Lasaña trufada<b>69%</b></span></div>
+        <div class="dot" style="left:84%;top:66%"><i style="background:var(--pizarra)"></i><span>Pepperoni<b>58%</b></span></div>
+        <div class="dot" style="left:64%;top:78%"><i style="background:var(--pizarra)"></i><span>Spaghetti pomodoro<b>54%</b></span></div>
+        <div class="dot" style="left:26%;top:70%"><i style="background:var(--rojo)"></i><span>Ensalada césar<b>48%</b></span></div>
+        <div class="dot" style="left:16%;top:86%"><i style="background:var(--rojo)"></i><span>Calzone clásico<b>41%</b></span></div>
+      </div>
+    </div>
+    <div class="right">
+      <div class="card" style="flex:1;gap:14px">
+        <h2>Recomendaciones del agente</h2>
+        <div class="rec"><i style="background:var(--verde)">↑</i><div><h3>Impulsar · Cuatro quesos</h3><p>Margen <b>74%</b> con baja visibilidad. Súbela al inicio de la carta y al combo del viernes; potencial de <b>+$6,800/mes</b>.</p></div></div>
+        <div class="rec"><i style="background:var(--naranja)">✎</i><div><h3>Rediseñar · Pepperoni</h3><p>Muy popular pero margen <b>58%</b>. Renegociar pepperoni con proveedor B o ajustar gramaje <b>−8%</b> sin afectar percepción.</p></div></div>
+        <div class="rec"><i style="background:var(--rojo)">✕</i><div><h3>Retirar o reinventar · Calzone clásico</h3><p><b>9 ventas</b> en 30 días y margen <b>41%</b>. Sugerencia: fusionarlo con la línea de promociones de hora valle.</p></div></div>
+        <div class="price">
+          <h3>◎ Precio inteligente · hora valle</h3>
+          <p>Martes a jueves <b>16:00–18:00</b>: −12% en pastas seleccionadas. Margen protegido por costeo en vivo; demanda proyectada <b>+22%</b> en ese bloque.</p>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+</div></div></div></div><div class="hw-lapbase" style="width:1137px"></div></div></div>
+</div>
+<div class="hw-brand"><b>MOTRAE</b>Innovation already in motion</div>
+</section>
+<section id="d5">
+<div class="hw-glow"></div><div class="hw-glow2"></div>
+<div class="hw-stage">
+<div class="hw-text">
+<div class="hw-eyebrow">MOTRAE · MotRest</div>
+<div class="hw-title">Centinela de mermas</div>
+<div class="hw-cap">Anomalías detectadas en tiempo real, correlacionadas con turno, estación y usuario.</div>
+<span class="hw-mod">Capacidad AI-first 05 · Centinela</span>
+</div>
+<div class="hw-dev-area"><div class="hw-devwrap"><div class="hw-dev hw-laptop"><div class="hw-screen" style="width:987px;height:555px"><div class="hw-fit" style="width:1920px;height:1080px;transform:scale(0.514)"><div id="r5">
+<aside class="sb">
+  <div class="logo">MotRest<span>.</span></div>
+  <nav>
+    <div><i></i>Venta</div>
+    <div><i></i>Cocina</div>
+    <div class="on"><i></i>Inventario</div>
+    <div><i></i>Compras</div>
+    <div><i></i>Finanzas</div>
+    <div><i></i>Personal</div>
+    <div><i></i>Clientes</div>
+    <div><i></i>Inteligencia</div>
+    <div><i></i>Ajustes</div>
+  </nav>
+  <div class="foot">MOTRAE · Innovation already in motion</div>
+</aside>
+<div class="main">
+  <header class="hd">
+    <h1>Centinela de mermas y anomalías</h1>
+    <span class="chip">Rodizio · Centro ▾</span>
+    <span class="chip gray">Vigilancia en tiempo real</span>
+    <span class="chip gray">Datos de demostración</span>
+    <span class="sp"></span>
+    <span class="avatar"><span class="av">G</span>Gonzalo · Dirección</span>
+  </header>
+  <div class="content">
+    <div class="stats">
+      <div class="st"><i style="background:var(--pizarra)"></i><span><span class="l">Alertas de hoy</span><b>6</b></span></div>
+      <div class="st"><i style="background:var(--rojo)"></i><span><span class="l">Críticas abiertas</span><b>1</b></span></div>
+      <div class="st"><i style="background:var(--naranja)"></i><span><span class="l">Advertencias abiertas</span><b>2</b></span></div>
+      <div class="st"><i style="background:var(--verde)"></i><span><span class="l">Resueltas esta semana</span><b>11</b></span></div>
+    </div>
+    <div class="cols">
+      <div class="card">
+        <h2>Feed de anomalías</h2>
+        <div class="sub">Cancelaciones, cortesías, descuentos, cortes y consumos correlacionados con turno, estación y usuario.</div>
+        <div class="feed">
+          <div class="alerta crit">
+            <span class="sev">Crítica</span>
+            <div class="tx">
+              <h3>Cancelaciones inusuales después del cobro · Caja 2</h3>
+              <p><b>5 cancelaciones post-cobro en 40 min</b> (patrón normal: 0–1 por turno). Correlación: mismo usuario en 4 de 5 · turno noche.</p>
+              <div class="meta"><span>Hace 12 min</span><span>Turno: noche</span><span>Impacto estimado: $740</span></div>
+            </div>
+            <div class="acts"><span class="ba p">Revisar tickets</span><span class="ba s">Marcar visto</span></div>
+          </div>
+          <div class="alerta warn">
+            <span class="sev">Alerta</span>
+            <div class="tx">
+              <h3>Merma de masa +32% sobre línea base · Horno</h3>
+              <p>Consumo de masa por pizza <b>arriba del estándar de receta</b>. Sugerencia del agente: revisar porcionado; el pronóstico indica sobre-preparación del turno tarde.</p>
+              <div class="meta"><span>Hace 41 min</span><span>Estación: horno</span><span>Ingrediente: masa madre</span></div>
+            </div>
+            <div class="acts"><span class="ba p">Ver detalle</span><span class="ba s">Marcar visto</span></div>
+          </div>
+          <div class="alerta warn">
+            <span class="sev">Alerta</span>
+            <div class="tx">
+              <h3>Descuento fuera de patrón · Punto de venta</h3>
+              <p>Descuento del <b>18% aplicado 6 veces en 2 horas</b> por el mismo usuario. Límite configurado para el rol: 10% con autorización.</p>
+              <div class="meta"><span>Hace 1 h 05 min</span><span>Rol: cajero</span><span>Requiere: autorización de gerente</span></div>
+            </div>
+            <div class="acts"><span class="ba p">Revisar</span><span class="ba s">Marcar visto</span></div>
+          </div>
+          <div class="alerta">
+            <span class="sev">Resuelta</span>
+            <div class="tx">
+              <h3>Compra autónoma ajustada por pronóstico · Mozzarella</h3>
+              <p>Pedido reducido <b>−12 kg</b>: lluvia prevista el sábado baja la demanda proyectada. Orden enviada al proveedor con confirmación.</p>
+              <div class="meta"><span>Hoy 18:20</span><span>Módulo: compras autónomas</span><span>Ahorro: $1,080</span></div>
+            </div>
+            <div class="acts"><span class="ba s">Ver orden</span></div>
+          </div>
+        </div>
+      </div>
+      <div class="card">
+        <h2>Merma de la semana vs línea base</h2>
+        <div class="sub">Consumo real por insumo sensible; la marca vertical es la línea base del diagnóstico (Fase 0).</div>
+        <div class="merma">
+          <div class="mrow"><div class="mh"><b>Masa madre</b><span>$1,860 · base $1,410</span></div><div class="track"><div class="fill over" style="width:86%"></div><div class="base" style="left:65%"></div></div></div>
+          <div class="mrow"><div class="mh"><b>Quesos</b><span>$1,120 · base $1,240</span></div><div class="track"><div class="fill" style="width:52%"></div><div class="base" style="left:57%"></div></div></div>
+          <div class="mrow"><div class="mh"><b>Salsas</b><span>$610 · base $700</span></div><div class="track"><div class="fill" style="width:28%"></div><div class="base" style="left:32%"></div></div></div>
+          <div class="blegend"><span><i style="background:var(--claro);border:1px solid rgba(242,133,58,.4)"></i>Dentro de la base</span><span><i style="background:#FBF0D9;border:1px solid rgba(230,178,61,.55)"></i>Sobre la base</span><span><i class="bl"></i>Línea base</span></div>
+        </div>
+        <div class="saving">
+          <h3>Pérdidas evitadas este mes</h3>
+          <b>$18,400</b>
+          <p>Suma verificada de anomalías atendidas y compras ajustadas — la cifra que sustenta el cobro por resultado.</p>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+</div></div></div></div><div class="hw-lapbase" style="width:1137px"></div></div></div>
+</div>
+<div class="hw-brand"><b>MOTRAE</b>Innovation already in motion</div>
+</section>
+<section id="d6">
+<div class="hw-glow"></div><div class="hw-glow2"></div>
+<div class="hw-stage">
+<div class="hw-text">
+<div class="hw-eyebrow">MOTRAE · MotRest</div>
+<div class="hw-title">Copiloto del Dueño</div>
+<div class="hw-cap">Tu restaurante responde por WhatsApp — solo con lo que tu rol puede ver.</div>
+<span class="hw-mod">Orquestación agéntica · Copiloto del Dueño</span>
+</div>
+<div class="hw-dev-area"><div class="hw-dev hw-phone"><div class="hw-notch"></div><div class="hw-screen" style="width:359px;height:778px"><div class="hw-fit" style="width:430px;height:932px;transform:scale(0.835)"><div id="r6">
+<header class="top">
+  <span class="back">‹</span>
+  <span class="av">M</span>
+  <span class="who"><b>Copiloto MotRest</b><small>en línea · responde en segundos</small></span>
+  <span class="ic">✆</span><span class="ic">⋮</span>
+</header>
+<div class="perm">Rol: Dirección · el Copiloto solo responde con lo que tu rol puede ver</div>
+<main class="chat">
+  <span class="day">Hoy · Viernes</span>
+  <div class="b user">¿Cómo va el día?<span class="t">20:41 ✓✓</span></div>
+  <div class="b bot">
+    Muy buen viernes, Gonzalo. Vamos <b>12% arriba del pronóstico</b>:
+    <div class="kpis">
+      <div class="k"><span class="l">Ventas</span><b>$84,320</b><span class="d">▲ 12%</span></div>
+      <div class="k"><span class="l">Mesas activas</span><b>9 / 12</b><span class="d">pico</span></div>
+      <div class="k"><span class="l">Food cost</span><b>31.2%</b><span class="d">▼ 0.8 pt</span></div>
+    </div>
+    El horno está al 90%; el Centinela tiene <b>1 alerta crítica</b> en Caja 2 que te recomiendo revisar.
+    <span class="t">20:41</span>
+  </div>
+  <div class="b user">¿Qué platillo dejó más margen esta semana?<span class="t">20:43 ✓✓</span></div>
+  <div class="b bot">
+    Tu <b>pizza familiar mitad y mitad</b>: margen de <b>68.2%</b> con 214 unidades — es la estrella de la carta según el análisis de menú.
+    <span class="cta">Ver detalle por ingrediente</span>
+    <span class="t">20:43</span>
+  </div>
+</main>
+<footer class="foot">
+  <span class="in">Escribe o dicta tu pregunta…</span>
+  <span class="mic">🎤</span>
+</footer>
+</div></div></div></div></div>
+</div>
+<div class="hw-brand"><b>MOTRAE</b>Innovation already in motion</div>
+</section>
+</div>
+<div id="hud"><button id="prev" title="Anterior">&#8592;</button><span id="count"></span><button id="next" title="Siguiente">&#8594;</button><button id="fs" title="Pantalla completa">&#x26F6;</button></div>
+<div id="bar"></div>
+<script>
+var secs=[].slice.call(document.querySelectorAll('#stage>section')),i=0;
+function show(n){i=Math.max(0,Math.min(secs.length-1,n));secs.forEach(function(s,k){s.classList.toggle('active',k===i);});document.getElementById('count').textContent=(i+1)+' / '+secs.length;document.getElementById('bar').style.width=((i+1)/secs.length*100)+'%';}
+function fit(){var s=Math.min(innerWidth/1920,innerHeight/1080);document.getElementById('stage').style.transform='translate(-50%,-50%) scale('+s+')';}
+document.getElementById('next').onclick=function(){show(i+1);};
+document.getElementById('prev').onclick=function(){show(i-1);};
+document.getElementById('fs').onclick=function(){try{document.fullscreenElement?document.exitFullscreen():document.documentElement.requestFullscreen();}catch(e){}};
+addEventListener('keydown',function(e){if(e.key==='ArrowRight'||e.key==='PageDown'||e.key===' ')show(i+1);else if(e.key==='ArrowLeft'||e.key==='PageUp')show(i-1);else if(e.key==='Home')show(0);else if(e.key==='End')show(secs.length-1);});
+addEventListener('resize',fit);fit();show(0);
+</script></body></html>

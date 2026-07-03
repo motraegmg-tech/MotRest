@@ -1,0 +1,81 @@
+<!doctype html>
+<html lang="es"><head>
+<meta charset="utf-8">
+<title>Render · Copiloto del Dueño — MotRest</title>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+html,body{width:1920px;height:1080px;overflow:hidden}
+body{font-family:'Inter','Segoe UI',Arial,sans-serif;background:#14181A;color:#fff;position:relative}
+.hw-glow{position:absolute;width:1200px;height:1200px;border-radius:50%;background:radial-gradient(circle,rgba(242,133,58,.17) 0%,rgba(242,133,58,0) 62%);right:-320px;top:-380px}
+.hw-glow2{position:absolute;width:900px;height:900px;border-radius:50%;background:radial-gradient(circle,rgba(242,133,58,.10) 0%,rgba(242,133,58,0) 60%);left:-260px;bottom:-380px}
+.hw-stage{position:relative;z-index:1;width:1920px;height:1080px;display:flex;align-items:center;gap:80px;padding:0 110px}
+.hw-text{width:520px;flex:none}
+.hw-eyebrow{font-family:'Space Grotesk','Segoe UI',sans-serif;font-size:20px;font-weight:600;letter-spacing:.22em;text-transform:uppercase;color:#F2853A}
+.hw-mod{display:inline-block;margin-top:22px;border:2px solid rgba(242,133,58,.55);border-radius:999px;padding:9px 20px;font-size:17px;font-weight:600;color:#FDEBD7}
+.hw-title{font-family:'Space Grotesk','Segoe UI',sans-serif;font-size:58px;font-weight:700;line-height:1.1;letter-spacing:-.01em;margin-top:22px}
+.hw-cap{font-size:23px;line-height:1.5;color:#B9C2BC;margin-top:20px}
+.hw-brand{position:absolute;left:110px;bottom:52px;font-size:20px;color:#8A969C;font-style:italic}
+.hw-brand b{color:#F2853A;font-style:normal;font-family:'Space Grotesk','Segoe UI',sans-serif;margin-right:12px}
+.hw-dev-area{flex:1;display:flex;align-items:center;justify-content:center}
+.hw-devwrap{display:flex;flex-direction:column;align-items:center}
+.hw-dev{background:#0B0D0E;border:2px solid #2A3237;box-shadow:0 40px 90px rgba(0,0,0,.55)}
+.hw-tablet{padding:26px;border-radius:38px}
+.hw-monitor{padding:20px;border-radius:22px}
+.hw-laptop{padding:18px 18px 22px;border-radius:24px 24px 0 0;border-bottom:0}
+.hw-phone{padding:14px;border-radius:52px;position:relative}
+.hw-notch{position:absolute;top:26px;left:50%;transform:translateX(-50%);width:120px;height:26px;background:#0B0D0E;border-radius:14px;z-index:2}
+.hw-neck{width:110px;height:64px;background:#0B0D0E;border:2px solid #2A3237;border-top:0}
+.hw-base{width:340px;height:18px;background:#0B0D0E;border:2px solid #2A3237;border-radius:10px}
+.hw-lapbase{height:26px;background:#171D21;border:2px solid #2A3237;border-radius:0 0 22px 22px}
+.hw-screen{overflow:hidden;border-radius:14px;background:#000}
+.hw-phone .hw-screen{border-radius:38px}
+.hw-fit{transform-origin:top left}
+#r6, #r6 *{margin:0;padding:0;box-sizing:border-box}#r6{--verde:#F2853A;--naranja:#E6B23A;--rojo:#E0392B;--pizarra:#2D3A42;--negro:#14181A;--claro:#FDEBD7;--gris:#8A969C;--chatbg:#EFF3EC;--borde:#E3E9E0}#r6{width:430px;height:932px;overflow:hidden}#r6{font-family:'Inter','Segoe UI',Arial,sans-serif;background:var(--chatbg);color:var(--pizarra);display:flex;flex-direction:column}#r6 h1,#r6 h2,#r6 h3,#r6 .sg{font-family:'Space Grotesk','Segoe UI',Arial,sans-serif}#r6 .top{background:var(--negro);color:#fff;padding:14px 16px 12px;display:flex;align-items:center;gap:12px;flex:none}#r6 .top .back{font-size:32.5px;color:var(--gris)}#r6 .top .av{width:42px;height:42px;border-radius:50%;background:var(--verde);display:flex;align-items:center;justify-content:center;font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:30.5px}#r6 .top .who{flex:1;min-width:0}#r6 .top .who b{display:block;font-family:'Space Grotesk',sans-serif;font-size:27.5px;font-weight:600}#r6 .top .who small{font-size:20px;color:var(--verde)}#r6 .top .ic{font-size:27.5px;color:var(--gris);margin-left:10px}#r6 .perm{background:rgba(242,133,58,.12);color:#B4591A;font-size:19.5px;font-weight:600;text-align:center;padding:7px 12px;flex:none}#r6 .chat{flex:1;padding:10px 12px;display:flex;flex-direction:column;gap:8px;overflow:hidden}#r6 .day{align-self:center;background:#fff;border-radius:999px;padding:4px 14px;font-size:18px;color:var(--gris);font-weight:600}#r6 .b{max-width:88%;border-radius:16px;padding:9px 12px;font-size:23px;line-height:1.35;position:relative;box-shadow:0 1px 2px rgba(20,24,26,.08)}#r6 .b .t{display:block;text-align:right;font-size:17px;color:var(--gris);margin-top:5px}#r6 .user{align-self:flex-end;background:var(--claro);border-bottom-right-radius:5px}#r6 .bot{align-self:flex-start;background:#fff;border-bottom-left-radius:5px}#r6 .bot b{color:var(--pizarra)}#r6 .kpis{display:flex;gap:8px;margin:10px 0 4px}#r6 .k{flex:1;background:var(--chatbg);border:1px solid var(--borde);border-radius:12px;padding:9px 10px}#r6 .k .l{font-size:17px;color:var(--gris);font-weight:600}#r6 .k b{font-family:'Space Grotesk',sans-serif;font-size:27px;display:block;margin-top:2px}#r6 .k .d{font-size:17px;font-weight:700;color:#B4591A}#r6 .k .d.bad{color:#B02A20}#r6 .cta{display:block;margin-top:10px;border:2px solid var(--verde);color:var(--verde);border-radius:11px;padding:9px;text-align:center;font-weight:700;font-size:22px}#r6 .foot{background:#fff;border-top:1px solid var(--borde);padding:12px 14px;display:flex;align-items:center;gap:10px;flex:none}#r6 .foot .in{flex:1;background:var(--chatbg);border-radius:999px;padding:11px 18px;font-size:22.5px;color:var(--gris)}#r6 .foot .mic{width:44px;height:44px;border-radius:50%;background:var(--verde);color:#fff;display:flex;align-items:center;justify-content:center;font-size:29px}
+
+</style></head><body>
+<div class="hw-glow"></div><div class="hw-glow2"></div>
+<div class="hw-stage">
+<div class="hw-text">
+<div class="hw-eyebrow">MOTRAE · MotRest</div>
+<div class="hw-title">Copiloto del Dueño</div>
+<div class="hw-cap">Tu restaurante responde por WhatsApp — solo con lo que tu rol puede ver.</div>
+<span class="hw-mod">Orquestación agéntica · Copiloto del Dueño</span>
+</div>
+<div class="hw-dev-area"><div class="hw-dev hw-phone"><div class="hw-notch"></div><div class="hw-screen" style="width:359px;height:778px"><div class="hw-fit" style="width:430px;height:932px;transform:scale(0.835)"><div id="r6">
+<header class="top">
+  <span class="back">‹</span>
+  <span class="av">M</span>
+  <span class="who"><b>Copiloto MotRest</b><small>en línea · responde en segundos</small></span>
+  <span class="ic">✆</span><span class="ic">⋮</span>
+</header>
+<div class="perm">Rol: Dirección · el Copiloto solo responde con lo que tu rol puede ver</div>
+<main class="chat">
+  <span class="day">Hoy · Viernes</span>
+  <div class="b user">¿Cómo va el día?<span class="t">20:41 ✓✓</span></div>
+  <div class="b bot">
+    Muy buen viernes, Gonzalo. Vamos <b>12% arriba del pronóstico</b>:
+    <div class="kpis">
+      <div class="k"><span class="l">Ventas</span><b>$84,320</b><span class="d">▲ 12%</span></div>
+      <div class="k"><span class="l">Mesas activas</span><b>9 / 12</b><span class="d">pico</span></div>
+      <div class="k"><span class="l">Food cost</span><b>31.2%</b><span class="d">▼ 0.8 pt</span></div>
+    </div>
+    El horno está al 90%; el Centinela tiene <b>1 alerta crítica</b> en Caja 2 que te recomiendo revisar.
+    <span class="t">20:41</span>
+  </div>
+  <div class="b user">¿Qué platillo dejó más margen esta semana?<span class="t">20:43 ✓✓</span></div>
+  <div class="b bot">
+    Tu <b>pizza familiar mitad y mitad</b>: margen de <b>68.2%</b> con 214 unidades — es la estrella de la carta según el análisis de menú.
+    <span class="cta">Ver detalle por ingrediente</span>
+    <span class="t">20:43</span>
+  </div>
+</main>
+<footer class="foot">
+  <span class="in">Escribe o dicta tu pregunta…</span>
+  <span class="mic">🎤</span>
+</footer>
+</div></div></div></div></div>
+</div>
+<div class="hw-brand"><b>MOTRAE</b>Innovation already in motion</div>
+<script id="fit">(function(){function f(){var s=Math.min(innerWidth/1920,innerHeight/1080);document.body.style.transform="scale("+s+")";}document.body.style.transformOrigin="top left";document.documentElement.style.overflow="hidden";document.documentElement.style.background="#14181A";window.addEventListener("resize",f);f();})();</script>
+</body></html>

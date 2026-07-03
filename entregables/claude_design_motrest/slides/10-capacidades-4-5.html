@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="es"><head>
+<meta charset="utf-8">
+<title>10 · Capacidades 4–5 — MotRest</title>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+:root{--verde:#F2853A;--naranja:#F2853A;--rojo:#E0392B;--pizarra:#2D3A42;--negro:#14181A;--claro:#FDEBD7;--gris:#8A969C}
+html,body{width:1920px;height:1080px;overflow:hidden}
+body{font-family:'Inter','Segoe UI',Arial,sans-serif;background:#fff;color:var(--pizarra);position:relative}
+h2,h3,.sg{font-family:'Space Grotesk','Segoe UI',Arial,sans-serif}
+.slide{width:1920px;height:1080px;padding:88px 128px 110px;display:flex;flex-direction:column;position:relative}
+.topbar{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:34px}
+.eyebrow{font-family:'Space Grotesk',sans-serif;font-size:22px;font-weight:600;letter-spacing:.22em;text-transform:uppercase;color:var(--verde)}
+.num{font-size:22px;color:var(--gris);font-weight:500}
+h2{font-size:56px;font-weight:700;letter-spacing:-.01em}
+.cards{flex:1;display:grid;grid-template-columns:1fr 1fr;gap:34px;margin-top:42px}
+.card{border:2px solid var(--claro);border-radius:24px;padding:52px 56px;display:flex;flex-direction:column}
+.card .n{font-family:'Space Grotesk',sans-serif;font-size:26px;font-weight:700;color:#fff;background:var(--verde);border-radius:12px;width:64px;height:64px;display:flex;align-items:center;justify-content:center;margin-bottom:28px}
+.card h3{font-size:38px;font-weight:600;line-height:1.15;margin-bottom:20px}
+.card p{font-size:26px;line-height:1.55;color:var(--gris)}
+.chips{display:flex;gap:12px;flex-wrap:wrap;margin-top:24px}
+.chip{background:var(--claro);border-radius:999px;padding:8px 20px;font-size:20px;font-weight:600;color:var(--pizarra)}
+.valor{margin-top:auto;padding-top:32px}
+.valor div{border-left:6px solid var(--verde);padding:8px 0 8px 22px;font-size:25px;line-height:1.4;font-weight:600}
+.valor b{color:var(--verde)}
+.baseline{position:absolute;left:0;right:0;bottom:0;height:8px;background:var(--verde)}
+</style><!-- rebrand-naranja -->
+</head>
+<body>
+<div class="slide">
+  <div class="topbar"><div class="eyebrow">Capacidades AI-first · 4–5</div><div class="num">10 / 14</div></div>
+  <h2>Oídos en la calle, ojos en la operación</h2>
+  <div class="cards">
+    <div class="card">
+      <div class="n">04</div>
+      <h3>Voz del Cliente omnicanal</h3>
+      <p>Ingiere reseñas de Google, Uber Eats, Rappi y redes sociales; analiza el sentimiento y conecta cada queja o elogio con el platillo, turno o estación responsable.</p>
+      <div class="chips"><span class="chip">Google</span><span class="chip">Uber Eats</span><span class="chip">Rappi</span><span class="chip">Redes sociales</span></div>
+      <div class="valor"><div><b>Valor:</b> tu reputación se vuelve un sistema de mejora continua.</div></div>
+    </div>
+    <div class="card">
+      <div class="n">05</div>
+      <h3>Centinela de mermas y anomalías</h3>
+      <p>Vigila en tiempo real cancelaciones, cortesías, descuentos, cortes de caja y consumos de inventario; los correlaciona con turno y empleado, y alerta de inmediato los patrones inusuales.</p>
+      <div class="chips"><span class="chip">Cancelaciones</span><span class="chip">Cortesías</span><span class="chip">Descuentos</span><span class="chip">Inventario</span></div>
+      <div class="valor"><div><b>Valor:</b> prevención de pérdidas basada en datos, no en confianza.</div></div>
+    </div>
+  </div>
+</div>
+<div class="baseline"></div>
+<script id="fit">(function(){function f(){var s=Math.min(innerWidth/1920,innerHeight/1080);document.body.style.transform="scale("+s+")";}document.body.style.transformOrigin="top left";document.documentElement.style.overflow="hidden";document.documentElement.style.background=getComputedStyle(document.body).backgroundColor;window.addEventListener("resize",f);f();})();</script>
+</body></html>

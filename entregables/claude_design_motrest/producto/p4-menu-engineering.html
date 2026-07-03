@@ -1,0 +1,129 @@
+<!doctype html>
+<html lang="es"><head>
+<meta charset="utf-8">
+<title>P4 · Menu Engineering — MotRest</title>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+:root{--verde:#F2853A;--naranja:#E6B23A;--rojo:#E0392B;--pizarra:#2D3A42;--negro:#14181A;--claro:#FDEBD7;--gris:#8A969C;--fondo:#F4F6F3;--borde:#E3E9E0}
+html,body{width:1920px;height:1080px;overflow:hidden}
+body{font-family:'Inter','Segoe UI',Arial,sans-serif;background:var(--fondo);color:var(--pizarra);display:flex}
+h1,h2,h3,.sg{font-family:'Space Grotesk','Segoe UI',Arial,sans-serif}
+.sb{width:250px;background:var(--negro);color:#fff;display:flex;flex-direction:column;padding:28px 16px;flex:none}
+.sb .logo{font-family:'Space Grotesk',sans-serif;font-size:45px;font-weight:700;padding:0 14px 26px}
+.sb .logo span{color:var(--verde)}
+.sb nav{display:flex;flex-direction:column;gap:4px}
+.sb nav div{display:flex;align-items:center;gap:12px;padding:12px 14px;border-radius:12px;color:#B9C2BC;font-size:27.5px;font-weight:500}
+.sb nav div.on{background:var(--verde);color:#fff;font-weight:600}
+.sb nav div i{width:10px;height:10px;border-radius:3px;background:currentColor;opacity:.55;font-style:normal}
+.sb .foot{margin-top:auto;padding:12px 14px;font-size:21.5px;color:var(--gris)}
+.main{flex:1;display:flex;flex-direction:column;min-width:0}
+.hd{height:84px;background:#fff;border-bottom:1px solid var(--borde);display:flex;align-items:center;gap:16px;padding:0 30px;flex:none}
+.hd h1{font-size:40px;font-weight:600}
+.chip{display:inline-flex;align-items:center;gap:8px;background:var(--claro);border-radius:999px;padding:8px 16px;font-size:22.5px;font-weight:600}
+.chip.gray{background:#EEF1ED;color:var(--gris)}
+.hd .sp{flex:1}
+.avatar{display:flex;align-items:center;gap:10px;font-size:24.5px;font-weight:600}
+.avatar .av{width:40px;height:40px;border-radius:50%;background:var(--negro);color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700}
+.content{flex:1;padding:26px 30px;display:grid;grid-template-columns:1.5fr 1fr;gap:22px;min-height:0}
+.card{background:#fff;border:1px solid var(--borde);border-radius:18px;padding:24px 28px;display:flex;flex-direction:column;min-height:0}
+.card h2{font-size:30.5px;font-weight:600}
+.card .sub{font-size:22.5px;color:var(--gris);margin-top:4px}
+.matrix{flex:1;position:relative;margin:34px 16px 44px 58px}
+.q{position:absolute;width:50%;height:50%}
+.q.ne{right:0;top:0;background:rgba(242,133,58,.07)}
+.q.nw{left:0;top:0;background:rgba(230,178,61,.06)}
+.q.se{right:0;bottom:0;background:rgba(45,58,66,.05)}
+.q.sw{left:0;bottom:0;background:rgba(224,57,43,.06)}
+.qlab{position:absolute;font-family:'Space Grotesk',sans-serif;font-size:24.5px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;padding:5px 14px;border-radius:999px;color:#fff}
+.qlab.ne{top:14px;right:14px;background:var(--verde)}
+.qlab.nw{top:14px;left:14px;background:var(--naranja)}
+.qlab.se{bottom:14px;right:14px;background:var(--pizarra)}
+.qlab.sw{bottom:14px;left:14px;background:var(--rojo)}
+.axx{position:absolute;left:0;right:0;top:50%;height:2px;background:var(--borde)}
+.axy{position:absolute;top:0;bottom:0;left:50%;width:2px;background:var(--borde)}
+.matrix .frame{position:absolute;inset:0;border:2px solid var(--borde);border-radius:14px}
+.alx{position:absolute;bottom:-38px;left:50%;transform:translateX(-50%);font-size:22.5px;color:var(--gris);font-weight:600}
+.aly{position:absolute;left:-46px;top:50%;transform:translateY(-50%) rotate(-90deg);font-size:22.5px;color:var(--gris);font-weight:600;white-space:nowrap}
+.dot{position:absolute;transform:translate(-50%,-50%);display:flex;flex-direction:column;align-items:center;gap:5px}
+.dot i{width:18px;height:18px;border-radius:50%;border:3px solid #fff;box-shadow:0 2px 8px rgba(20,24,26,.25);font-style:normal}
+.dot span{font-size:22px;font-weight:600;background:#fff;border:1px solid var(--borde);border-radius:8px;padding:3px 9px;white-space:nowrap}
+.dot span b{color:var(--gris);font-weight:500;margin-left:5px}
+.right{display:flex;flex-direction:column;gap:20px;min-height:0}
+.rec{border:2px solid var(--borde);border-radius:16px;padding:18px 22px;display:flex;gap:16px;align-items:flex-start}
+.rec i{flex:none;width:44px;height:44px;border-radius:12px;color:#fff;display:flex;align-items:center;justify-content:center;font-style:normal;font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:30.5px}
+.rec h3{font-size:28px;font-weight:600}
+.rec p{font-size:24.5px;color:var(--gris);line-height:1.4;margin-top:4px}
+.rec p b{color:var(--pizarra)}
+.price{margin-top:auto;background:var(--negro);border-radius:16px;padding:20px 24px;color:#fff}
+.price h3{font-size:27.5px;font-weight:600;color:var(--verde);display:flex;align-items:center;gap:10px}
+.price p{font-size:24.5px;color:#B9C2BC;line-height:1.45;margin-top:8px}
+.price p b{color:#fff}
+</style><!-- fonts-bumped -->
+<!-- rebrand-naranja -->
+<!-- fonts-bumped-2 -->
+<!-- fonts-bumped-3 -->
+</head>
+<body>
+<aside class="sb">
+  <div class="logo">MotRest<span>.</span></div>
+  <nav>
+    <div><i></i>Venta</div>
+    <div><i></i>Cocina</div>
+    <div><i></i>Inventario</div>
+    <div><i></i>Compras</div>
+    <div><i></i>Finanzas</div>
+    <div><i></i>Personal</div>
+    <div><i></i>Clientes</div>
+    <div class="on"><i></i>Inteligencia</div>
+    <div><i></i>Ajustes</div>
+  </nav>
+  <div class="foot">MOTRAE · Innovation already in motion</div>
+</aside>
+<div class="main">
+  <header class="hd">
+    <h1>Menu engineering · IA</h1>
+    <span class="chip">Últimos 30 días ▾</span>
+    <span class="chip gray">Carta: 24 platillos</span>
+    <span class="chip gray">Datos de demostración</span>
+    <span class="sp"></span>
+    <span class="avatar"><span class="av">G</span>Gonzalo · Dirección</span>
+  </header>
+  <div class="content">
+    <div class="card">
+      <h2>Matriz margen × popularidad</h2>
+      <div class="sub">Cada platillo clasificado por el agente con ventas y costeo reales del periodo. Etiqueta: nombre · margen.</div>
+      <div class="matrix">
+        <div class="frame"></div>
+        <div class="q ne"></div><div class="q nw"></div><div class="q se"></div><div class="q sw"></div>
+        <div class="axx"></div><div class="axy"></div>
+        <span class="qlab ne">★ Estrellas</span><span class="qlab nw">? Enigmas</span>
+        <span class="qlab se">▸ Vacas</span><span class="qlab sw">✕ Perros</span>
+        <span class="alx">Popularidad (ventas del periodo) →</span>
+        <span class="aly">Margen de contribución →</span>
+        <div class="dot" style="left:82%;top:18%"><i style="background:var(--verde)"></i><span>Mitad y mitad<b>68%</b></span></div>
+        <div class="dot" style="left:70%;top:30%"><i style="background:var(--verde)"></i><span>Margherita<b>71%</b></span></div>
+        <div class="dot" style="left:24%;top:14%"><i style="background:var(--naranja)"></i><span>Cuatro quesos<b>74%</b></span></div>
+        <div class="dot" style="left:34%;top:34%"><i style="background:var(--naranja)"></i><span>Lasaña trufada<b>69%</b></span></div>
+        <div class="dot" style="left:84%;top:66%"><i style="background:var(--pizarra)"></i><span>Pepperoni<b>58%</b></span></div>
+        <div class="dot" style="left:64%;top:78%"><i style="background:var(--pizarra)"></i><span>Spaghetti pomodoro<b>54%</b></span></div>
+        <div class="dot" style="left:26%;top:70%"><i style="background:var(--rojo)"></i><span>Ensalada césar<b>48%</b></span></div>
+        <div class="dot" style="left:16%;top:86%"><i style="background:var(--rojo)"></i><span>Calzone clásico<b>41%</b></span></div>
+      </div>
+    </div>
+    <div class="right">
+      <div class="card" style="flex:1;gap:14px">
+        <h2>Recomendaciones del agente</h2>
+        <div class="rec"><i style="background:var(--verde)">↑</i><div><h3>Impulsar · Cuatro quesos</h3><p>Margen <b>74%</b> con baja visibilidad. Súbela al inicio de la carta y al combo del viernes; potencial de <b>+$6,800/mes</b>.</p></div></div>
+        <div class="rec"><i style="background:var(--naranja)">✎</i><div><h3>Rediseñar · Pepperoni</h3><p>Muy popular pero margen <b>58%</b>. Renegociar pepperoni con proveedor B o ajustar gramaje <b>−8%</b> sin afectar percepción.</p></div></div>
+        <div class="rec"><i style="background:var(--rojo)">✕</i><div><h3>Retirar o reinventar · Calzone clásico</h3><p><b>9 ventas</b> en 30 días y margen <b>41%</b>. Sugerencia: fusionarlo con la línea de promociones de hora valle.</p></div></div>
+        <div class="price">
+          <h3>◎ Precio inteligente · hora valle</h3>
+          <p>Martes a jueves <b>16:00–18:00</b>: −12% en pastas seleccionadas. Margen protegido por costeo en vivo; demanda proyectada <b>+22%</b> en ese bloque.</p>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+<script id="fit">(function(){function f(){var s=Math.min(innerWidth/1920,innerHeight/1080);document.body.style.transform="scale("+s+")";}document.body.style.transformOrigin="top left";document.documentElement.style.overflow="hidden";document.documentElement.style.background=getComputedStyle(document.body).backgroundColor;window.addEventListener("resize",f);f();})();</script>
+</body></html>

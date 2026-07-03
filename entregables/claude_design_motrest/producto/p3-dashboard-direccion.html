@@ -1,0 +1,153 @@
+<!doctype html>
+<html lang="es"><head>
+<meta charset="utf-8">
+<title>P3 · Dashboard Dirección — MotRest</title>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+:root{--verde:#F2853A;--naranja:#E6B23A;--rojo:#E0392B;--pizarra:#2D3A42;--negro:#14181A;--claro:#FDEBD7;--gris:#8A969C;--fondo:#F4F6F3;--borde:#E3E9E0}
+html,body{width:1920px;height:1080px;overflow:hidden}
+body{font-family:'Inter','Segoe UI',Arial,sans-serif;background:var(--fondo);color:var(--pizarra);display:flex}
+h1,h2,h3,.sg{font-family:'Space Grotesk','Segoe UI',Arial,sans-serif}
+.sb{width:250px;background:var(--negro);color:#fff;display:flex;flex-direction:column;padding:28px 16px;flex:none}
+.sb .logo{font-family:'Space Grotesk',sans-serif;font-size:45px;font-weight:700;padding:0 14px 26px}
+.sb .logo span{color:var(--verde)}
+.sb nav{display:flex;flex-direction:column;gap:4px}
+.sb nav div{display:flex;align-items:center;gap:12px;padding:12px 14px;border-radius:12px;color:#B9C2BC;font-size:27.5px;font-weight:500}
+.sb nav div.on{background:var(--verde);color:#fff;font-weight:600}
+.sb nav div i{width:10px;height:10px;border-radius:3px;background:currentColor;opacity:.55;font-style:normal}
+.sb .foot{margin-top:auto;padding:12px 14px;font-size:21.5px;color:var(--gris)}
+.main{flex:1;display:flex;flex-direction:column;min-width:0}
+.hd{height:84px;background:#fff;border-bottom:1px solid var(--borde);display:flex;align-items:center;gap:16px;padding:0 30px;flex:none}
+.hd h1{font-size:40px;font-weight:600}
+.chip{display:inline-flex;align-items:center;gap:8px;background:var(--claro);border-radius:999px;padding:8px 16px;font-size:22.5px;font-weight:600}
+.chip.gray{background:#EEF1ED;color:var(--gris)}
+.hd .sp{flex:1}
+.avatar{display:flex;align-items:center;gap:10px;font-size:24.5px;font-weight:600}
+.avatar .av{width:40px;height:40px;border-radius:50%;background:var(--negro);color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700}
+.content{flex:1;padding:22px 30px;display:flex;flex-direction:column;gap:18px;min-height:0}
+.kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:20px}
+.kpi{background:#fff;border:1px solid var(--borde);border-radius:18px;padding:15px 22px}
+.kpi .l{font-size:24.5px;color:var(--gris);font-weight:500}
+.kpi .v{font-family:'Space Grotesk',sans-serif;font-size:64.5px;font-weight:700;margin-top:6px}
+.kpi .d{display:inline-flex;align-items:center;gap:6px;margin-top:8px;font-size:22.5px;font-weight:600;border-radius:999px;padding:4px 12px}
+.kpi .d.up{background:var(--claro);color:#B4591A}
+.kpi .d.down{background:#FBE4E1;color:#B02A20}
+.grid{flex:1;display:grid;grid-template-columns:1.55fr 1fr;gap:20px;min-height:0}
+.card{background:#fff;border:1px solid var(--borde);border-radius:18px;padding:24px 28px;display:flex;flex-direction:column;min-height:0}
+.card h2{font-size:30.5px;font-weight:600;display:flex;align-items:center;gap:14px}
+.legend{margin-left:auto;display:flex;gap:18px;font-size:22px;color:var(--gris);font-family:'Inter',sans-serif;font-weight:500}
+.legend span{display:flex;align-items:center;gap:7px}
+.legend i{width:16px;height:0;border-top:3px solid var(--verde);font-style:normal;border-radius:2px}
+.legend i.fc{border-top-style:dashed;border-top-color:var(--gris)}
+.chart{flex:1;margin-top:10px;min-height:0}
+.chart svg{width:100%;height:100%}
+.right{display:flex;flex-direction:column;gap:20px;min-height:0}
+.pl{display:flex;flex-direction:column;gap:0;margin-top:12px}
+.pl div{display:flex;justify-content:space-between;font-size:25.5px;padding:8px 0;border-bottom:1px solid var(--borde);color:var(--gris)}
+.pl div b{color:var(--pizarra);font-weight:600}
+.pl div.tot{border-bottom:0;padding-top:12px}
+.pl div.tot span:first-child{font-weight:700;color:var(--pizarra)}
+.pl div.tot b{font-family:'Space Grotesk',sans-serif;font-size:32.5px;color:var(--verde)}
+.al{display:flex;gap:12px;align-items:flex-start;padding:9px 0;border-bottom:1px solid var(--borde);font-size:23px;line-height:1.35}
+.al:last-child{border-bottom:0}
+.al i{flex:none;width:11px;height:11px;border-radius:50%;margin-top:4px;font-style:normal}
+.al small{display:block;color:var(--gris);margin-top:3px}
+.ask{display:flex;align-items:center;gap:12px;background:var(--negro);border-radius:14px;padding:14px 18px;color:var(--gris);font-size:24.5px}
+.ask .av{width:34px;height:34px;border-radius:50%;background:var(--verde);color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700;font-family:'Space Grotesk',sans-serif}
+.ask b{color:#fff;font-weight:500}
+</style><!-- fonts-bumped -->
+<!-- rebrand-naranja -->
+<!-- fonts-bumped-2 -->
+<!-- fonts-bumped-3 -->
+</head>
+<body>
+<aside class="sb">
+  <div class="logo">MotRest<span>.</span></div>
+  <nav>
+    <div><i></i>Venta</div>
+    <div><i></i>Cocina</div>
+    <div><i></i>Inventario</div>
+    <div><i></i>Compras</div>
+    <div><i></i>Finanzas</div>
+    <div><i></i>Personal</div>
+    <div><i></i>Clientes</div>
+    <div class="on"><i></i>Inteligencia</div>
+    <div><i></i>Ajustes</div>
+  </nav>
+  <div class="foot">MOTRAE · Innovation already in motion</div>
+</aside>
+<div class="main">
+  <header class="hd">
+    <h1>Panel de Dirección</h1>
+    <span class="chip">Todas las sucursales ▾</span>
+    <span class="chip gray">Hoy · Viernes</span>
+    <span class="chip gray">Datos de demostración</span>
+    <span class="sp"></span>
+    <span class="avatar"><span class="av">G</span>Gonzalo · Dirección</span>
+  </header>
+  <div class="content">
+    <div class="kpis">
+      <div class="kpi"><div class="l">Ventas del día</div><div class="v">$84,320</div><span class="d up">▲ 12% vs pronóstico</span></div>
+      <div class="kpi"><div class="l">Food cost</div><div class="v">31.2%</div><span class="d up">▼ 0.8 pt vs semana previa</span></div>
+      <div class="kpi"><div class="l">Margen bruto</div><div class="v">63.4%</div><span class="d up">▲ 1.5 pt vs mes previo</span></div>
+      <div class="kpi"><div class="l">Merma del día</div><div class="v">$1,240</div><span class="d up">▼ 18% vs línea base</span></div>
+    </div>
+    <div class="grid">
+      <div class="card">
+        <h2>Ventas por hora — real vs pronóstico
+          <span class="legend"><span><i></i>Real</span><span><i class="fc"></i>Pronóstico</span></span>
+        </h2>
+        <div class="chart">
+          <svg viewBox="0 0 940 340" preserveAspectRatio="none" aria-label="Ventas por hora, real contra pronóstico">
+            <g stroke="#E3E9E0" stroke-width="1">
+              <line x1="60" y1="300" x2="900" y2="300"/><line x1="60" y1="220" x2="900" y2="220"/>
+              <line x1="60" y1="140" x2="900" y2="140"/><line x1="60" y1="60" x2="900" y2="60"/>
+            </g>
+            <g fill="#8A969C" font-size="21" font-family="Inter,Segoe UI,sans-serif">
+              <text x="52" y="304" text-anchor="end">$0</text><text x="52" y="224" text-anchor="end">$4k</text>
+              <text x="52" y="144" text-anchor="end">$8k</text><text x="52" y="64" text-anchor="end">$12k</text>
+              <text x="60" y="326" text-anchor="middle">12:00</text><text x="209" y="326" text-anchor="middle">14:00</text>
+              <text x="358" y="326" text-anchor="middle">16:00</text><text x="507" y="326" text-anchor="middle">18:00</text>
+              <text x="656" y="326" text-anchor="middle">20:00</text><text x="805" y="326" text-anchor="middle">22:00</text>
+            </g>
+            <path d="M60,258 L135,232 L209,216 L284,244 L358,256 L433,240 L507,192 L582,122 L656,50 L731,76 L805,152 L880,222 L880,300 L60,300 Z" fill="rgba(242,133,58,.12)"/>
+            <path d="M60,252 L135,238 L209,222 L284,240 L358,252 L433,236 L507,200 L582,136 L656,62 L731,84 L805,144 L880,216" fill="none" stroke="#8A969C" stroke-width="2" stroke-dasharray="7 6"/>
+            <path d="M60,258 L135,232 L209,216 L284,244 L358,256 L433,240 L507,192 L582,122 L656,50 L731,76 L805,152 L880,222" fill="none" stroke="#F2853A" stroke-width="2.5"/>
+            <line x1="656" y1="36" x2="656" y2="300" stroke="#2D3A42" stroke-width="1" stroke-dasharray="3 4"/>
+            <circle cx="656" cy="50" r="6" fill="#F2853A" stroke="#fff" stroke-width="2"/>
+            <circle cx="656" cy="62" r="5" fill="#8A969C" stroke="#fff" stroke-width="2"/>
+            <g font-family="Inter,Segoe UI,sans-serif">
+              <rect x="672" y="30" width="196" height="74" rx="12" fill="#14181A"/>
+              <text x="688" y="54" fill="#8A969C" font-size="21">20:00 · hora pico</text>
+              <text x="688" y="74" fill="#fff" font-size="23" font-weight="600">Real&#160;&#160;$12,480</text>
+              <text x="688" y="93" fill="#B9C2BC" font-size="23">Pronóstico&#160;&#160;$11,900</text>
+            </g>
+          </svg>
+        </div>
+      </div>
+      <div class="right">
+        <div class="card">
+          <h2>P&amp;L del mes (corte al día 3)</h2>
+          <div class="pl">
+            <div><span>Ingresos</span><b>$412,800</b></div>
+            <div><span>Costo de venta</span><b>$128,790</b></div>
+            <div><span>Gastos operativos</span><b>$96,410</b></div>
+            <div class="tot"><span>Utilidad operativa</span><b>$187,600</b></div>
+          </div>
+        </div>
+        <div class="card" style="flex:1">
+          <h2>Alertas del Centinela</h2>
+          <div style="margin-top:8px">
+            <div class="al"><i style="background:var(--rojo)"></i><span><b>Crítica:</b> cancelaciones inusuales en Caja 2, turno noche.<small>Hace 12 min · ver correlación</small></span></div>
+            <div class="al"><i style="background:var(--naranja)"></i><span><b>Advertencia:</b> merma de masa +32% sobre línea base.<small>Hace 41 min · estación horno</small></span></div>
+            <div class="al"><i style="background:var(--verde)"></i><span><b>Resuelta:</b> compra de mozzarella ajustada por pronóstico.<small>Hoy 18:20 · compras autónomas</small></span></div>
+          </div>
+        </div>
+        <div class="ask"><span class="av">M</span><span><b>Pregúntale al Copiloto…</b> “¿cómo cerramos la semana?”</span></div>
+      </div>
+    </div>
+  </div>
+</div>
+<script id="fit">(function(){function f(){var s=Math.min(innerWidth/1920,innerHeight/1080);document.body.style.transform="scale("+s+")";}document.body.style.transformOrigin="top left";document.documentElement.style.overflow="hidden";document.documentElement.style.background=getComputedStyle(document.body).backgroundColor;window.addEventListener("resize",f);f();})();</script>
+</body></html>

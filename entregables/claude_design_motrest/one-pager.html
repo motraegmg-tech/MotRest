@@ -1,0 +1,114 @@
+<!doctype html>
+<html lang="es"><head>
+<meta charset="utf-8">
+<title>MotRest — One-pager comercial</title>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+:root{--verde:#F2853A;--naranja:#E6B23A;--rojo:#E0392B;--pizarra:#2D3A42;--negro:#14181A;--claro:#FDEBD7;--gris:#8A969C;--borde:#E3E9E0}
+html,body{width:1240px;height:1600px;overflow:hidden}
+body{font-family:'Inter','Segoe UI',Arial,sans-serif;background:#fff;color:var(--pizarra);display:flex;flex-direction:column}
+h1,h2,h3,.sg{font-family:'Space Grotesk','Segoe UI',Arial,sans-serif}
+.hd{background:var(--negro);color:#fff;padding:44px 64px 38px;position:relative;overflow:hidden}
+.hd .glow{position:absolute;width:600px;height:600px;border-radius:50%;background:radial-gradient(circle,rgba(242,133,58,.25) 0%,rgba(242,133,58,0) 62%);right:-180px;top:-260px}
+.hd .eyebrow{font-family:'Space Grotesk',sans-serif;font-size:16px;font-weight:600;letter-spacing:.22em;text-transform:uppercase;color:var(--verde);position:relative}
+.hd h1{font-size:64px;font-weight:700;position:relative;margin-top:10px}
+.hd h1 span{color:var(--verde)}
+.hd .sub{font-size:24px;color:var(--claro);position:relative;margin-top:6px;font-family:'Space Grotesk',sans-serif}
+.hd .line{font-size:16.5px;color:var(--gris);position:relative;margin-top:12px}
+.wrap{flex:1;padding:34px 64px;display:flex;flex-direction:column;gap:26px}
+.sec h2{font-size:17px;font-weight:700;color:var(--verde);text-transform:uppercase;letter-spacing:.1em;margin-bottom:12px}
+.prob{display:grid;grid-template-columns:1fr 1fr;gap:20px;align-items:stretch}
+.prob .box{border:2px solid var(--borde);border-radius:14px;padding:18px 22px;font-size:16.5px;line-height:1.5;color:var(--gris)}
+.prob .box b{color:var(--pizarra)}
+.prob .box.hl{background:var(--claro);border-color:var(--verde);color:var(--pizarra)}
+.mods{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
+.mod{border:1px solid var(--borde);border-radius:10px;padding:10px 14px;font-size:14.5px;line-height:1.35}
+.mod b{display:block;font-family:'Space Grotesk',sans-serif;font-size:15.5px}
+.mod b i{font-style:normal;color:var(--verde);margin-right:6px}
+.mod span{color:var(--gris);font-size:13.5px}
+.caps{display:grid;grid-template-columns:repeat(5,1fr);gap:10px}
+.cap{background:var(--claro);border-radius:12px;padding:14px 14px}
+.cap b{display:block;font-family:'Space Grotesk',sans-serif;font-size:15px;line-height:1.25}
+.cap span{display:block;font-size:12.5px;color:var(--pizarra);opacity:.7;margin-top:6px;line-height:1.35}
+.cap .n{display:inline-flex;width:26px;height:26px;border-radius:8px;background:var(--verde);color:#fff;align-items:center;justify-content:center;font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:14px;margin-bottom:8px}
+.modelo{display:grid;grid-template-columns:repeat(3,1fr);gap:14px}
+.mo{border:2px solid var(--borde);border-radius:14px;padding:16px 20px}
+.mo b{font-family:'Space Grotesk',sans-serif;font-size:17px;display:block}
+.mo span{font-size:14.5px;color:var(--gris);line-height:1.4;display:block;margin-top:5px}
+.cta{margin-top:auto;background:var(--negro);border-radius:18px;padding:28px 36px;color:#fff;display:flex;align-items:center;gap:30px}
+.cta .b{flex:none;background:var(--verde);border-radius:12px;padding:16px 28px;font-family:'Space Grotesk',sans-serif;font-size:19px;font-weight:600}
+.cta .tx b{font-family:'Space Grotesk',sans-serif;font-size:20px;display:block}
+.cta .tx span{font-size:15px;color:#B9C2BC;display:block;margin-top:4px}
+.cta .ct{margin-left:auto;text-align:right;font-size:14.5px;color:#B9C2BC;line-height:1.6}
+.cta .ct b{color:#fff}
+.ft{padding:16px 64px 26px;display:flex;justify-content:space-between;font-size:13.5px;color:var(--gris)}
+.ft .slogan{font-style:italic}
+.ft .slogan b{color:var(--verde);font-style:normal;font-family:'Space Grotesk',sans-serif;margin-right:8px}
+@media print{
+  html,body{width:auto;height:auto;overflow:visible}
+  body{transform:none!important}
+  @page{size:letter;margin:0}
+}
+</style><!-- rebrand-naranja -->
+</head>
+<body>
+<header class="hd">
+  <div class="glow"></div>
+  <div class="eyebrow">MOTRAE · Software Restaurantero · ERP AI-first</div>
+  <h1>MotRest<span>.</span></h1>
+  <div class="sub">El sistema operativo del restaurante</div>
+  <div class="line">No solo vende alimentos y bebidas: administra todo tu negocio — venta, cocina, inventario, finanzas, personal e inteligencia — en un solo sistema.</div>
+</header>
+<main class="wrap">
+  <section class="sec">
+    <h2>Por qué existe</h2>
+    <div class="prob">
+      <div class="box">Un POS que solo cobra, contabilidad en otro programa, nómina en hojas de cálculo y compras por WhatsApp: <b>el costo real de cada platillo es una incógnita, la merma se descubre tarde y la dirección decide a ciegas.</b></div>
+      <div class="box hl">El software común responde <b>“¿cuánto vendí?”</b>. MotRest responde además <b>“¿cuánto gané, por qué, qué va a pasar mañana y qué debo hacer hoy?”</b></div>
+    </div>
+  </section>
+  <section class="sec">
+    <h2>Nueve módulos, una sola base de datos</h2>
+    <div class="mods">
+      <div class="mod"><b><i>M1</i>Punto de Venta</b><span>Mesas, delivery, mitad-y-mitad</span></div>
+      <div class="mod"><b><i>M2</i>Cocina (KDS) y Recetas</b><span>Estaciones y costeo por ingrediente</span></div>
+      <div class="mod"><b><i>M3</i>Inventario</b><span>Stock en vivo, caducidades, merma</span></div>
+      <div class="mod"><b><i>M4</i>Compras</b><span>Órdenes y proveedores evaluados</span></div>
+      <div class="mod"><b><i>M5</i>Finanzas</b><span>P&amp;L, flujo de caja y CFDI nativos</span></div>
+      <div class="mod"><b><i>M6</i>RR. HH. y Nómina</b><span>Turnos, propinas, costo laboral</span></div>
+      <div class="mod"><b><i>M7</i>CRM y Fidelización</b><span>Clientes, puntos y campañas</span></div>
+      <div class="mod"><b><i>M8</i>Inteligencia</b><span>Pronóstico, simulación, alertas</span></div>
+      <div class="mod"><b><i>M9</i>Roles</b><span>Cada quien ve y controla lo suyo</span></div>
+    </div>
+  </section>
+  <section class="sec">
+    <h2>Cinco capacidades que nadie más ofrece</h2>
+    <div class="caps">
+      <div class="cap"><span class="n">1</span><b>Gemelo digital</b><span>Simula antes de decidir</span></div>
+      <div class="cap"><span class="n">2</span><b>Menu engineering IA</b><span>Tu carta, herramienta de rentabilidad</span></div>
+      <div class="cap"><span class="n">3</span><b>Compras y turnos autónomos</b><span>Pronóstico que ejecuta</span></div>
+      <div class="cap"><span class="n">4</span><b>Voz del Cliente</b><span>Reseñas → mejora continua</span></div>
+      <div class="cap"><span class="n">5</span><b>Centinela de mermas</b><span>Pérdidas prevenidas en tiempo real</span></div>
+    </div>
+  </section>
+  <section class="sec">
+    <h2>Modelo comercial: no cobramos por licencia, cobramos por resultado</h2>
+    <div class="modelo">
+      <div class="mo"><b>Suscripción por local</b><span>Planes que crecen con tu negocio, del núcleo operativo al ERP con IA.</span></div>
+      <div class="mo"><b>Cobro por resultado</b><span>Parte del precio ligada al ahorro verificado contra tu línea base.</span></div>
+      <div class="mo"><b>Garantía de resultado</b><span>Si no se cumple la meta acordada, el variable no se cobra.</span></div>
+    </div>
+  </section>
+  <div class="cta">
+    <span class="b">Agenda tu Diagnóstico 360°</span>
+    <div class="tx"><b>Empieza conociendo tu línea base real</b><span>Levantamiento de cocina, flujos y datos con metodología DELTA OPS.</span></div>
+    <div class="ct"><b>motrae.gmg@gmail.com</b> · 228 353 6911<br>www.motrae.com · Xalapa, Veracruz · México</div>
+  </div>
+</main>
+<footer class="ft">
+  <span class="slogan"><b>MOTRAE</b>Innovation already in motion</span>
+  <span>MotRest · One-pager comercial · 2026</span>
+</footer>
+<script id="fit">(function(){function f(){var s=Math.min(innerWidth/1240,innerHeight/1600);document.body.style.transform="scale("+s+")";}document.body.style.transformOrigin="top left";document.documentElement.style.overflow="hidden";document.documentElement.style.background="#0B0D0E";window.addEventListener("resize",f);f();})();</script>
+</body></html>

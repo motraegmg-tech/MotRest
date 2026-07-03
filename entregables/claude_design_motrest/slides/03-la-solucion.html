@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="es"><head>
+<meta charset="utf-8">
+<title>03 · La solución — MotRest</title>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+:root{--verde:#F2853A;--naranja:#F2853A;--rojo:#E0392B;--pizarra:#2D3A42;--negro:#14181A;--claro:#FDEBD7;--gris:#8A969C}
+html,body{width:1920px;height:1080px;overflow:hidden}
+body{font-family:'Inter','Segoe UI',Arial,sans-serif;background:#fff;color:var(--pizarra);position:relative}
+h2,h3,.sg{font-family:'Space Grotesk','Segoe UI',Arial,sans-serif}
+.tint{position:absolute;width:1300px;height:1300px;border-radius:50%;background:radial-gradient(circle,rgba(232,243,225,.9) 0%,rgba(232,243,225,0) 65%);right:-420px;top:-480px}
+.slide{width:1920px;height:1080px;padding:88px 128px 110px;display:flex;flex-direction:column;position:relative;z-index:1}
+.topbar{display:flex;justify-content:space-between;align-items:baseline}
+.eyebrow{font-family:'Space Grotesk',sans-serif;font-size:22px;font-weight:600;letter-spacing:.22em;text-transform:uppercase;color:var(--verde)}
+.num{font-size:22px;color:var(--gris);font-weight:500}
+.center{flex:1;display:flex;flex-direction:column;justify-content:center}
+.quote{font-family:'Space Grotesk',sans-serif;font-size:76px;font-weight:700;line-height:1.16;letter-spacing:-.015em;max-width:1560px}
+.quote em{font-style:normal;color:var(--verde)}
+.bar{width:120px;height:10px;background:var(--verde);border-radius:6px;margin-bottom:40px}
+.pillars{display:grid;grid-template-columns:repeat(3,1fr);gap:28px}
+.pillar{background:var(--claro);border-radius:20px;padding:36px 40px}
+.pillar h3{font-size:30px;font-weight:600;margin-bottom:10px}
+.pillar p{font-size:23px;color:var(--pizarra);opacity:.75;line-height:1.4}
+.baseline{position:absolute;left:0;right:0;bottom:0;height:8px;background:var(--verde)}
+</style><!-- rebrand-naranja -->
+</head>
+<body>
+<div class="tint"></div>
+<div class="slide">
+  <div class="topbar"><div class="eyebrow">La solución</div><div class="num">03 / 14</div></div>
+  <div class="center">
+    <div class="bar"></div>
+    <div class="quote">MotRest convierte el punto de venta de tu restaurante en el <em>sistema operativo de todo tu negocio</em>.</div>
+  </div>
+  <div class="pillars">
+    <div class="pillar"><h3>Un solo sistema</h3><p>Venta, cocina, inventario, finanzas, personal e inteligencia en una plataforma.</p></div>
+    <div class="pillar"><h3>Una sola base de datos</h3><p>Todos los módulos se hablan entre sí; cada dato se captura una sola vez.</p></div>
+    <div class="pillar"><h3>AI-first de origen</h3><p>La inteligencia artificial es el núcleo del producto, no un agregado posterior.</p></div>
+  </div>
+</div>
+<div class="baseline"></div>
+<script id="fit">(function(){function f(){var s=Math.min(innerWidth/1920,innerHeight/1080);document.body.style.transform="scale("+s+")";}document.body.style.transformOrigin="top left";document.documentElement.style.overflow="hidden";document.documentElement.style.background=getComputedStyle(document.body).backgroundColor;window.addEventListener("resize",f);f();})();</script>
+</body></html>

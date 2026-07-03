@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="es"><head>
+<meta charset="utf-8">
+<title>01 · Portada — MotRest</title>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+:root{--verde:#F2853A;--naranja:#F2853A;--rojo:#E0392B;--pizarra:#2D3A42;--negro:#14181A;--claro:#FDEBD7;--gris:#8A969C}
+html,body{width:1920px;height:1080px;overflow:hidden}
+body{font-family:'Inter','Segoe UI',Arial,sans-serif;background:var(--negro);color:#fff;position:relative}
+h1,h2,.sg{font-family:'Space Grotesk','Segoe UI',Arial,sans-serif}
+.glow{position:absolute;width:1100px;height:1100px;border-radius:50%;background:radial-gradient(circle,rgba(242,133,58,.22) 0%,rgba(242,133,58,0) 62%);left:-320px;bottom:-420px}
+.beam{position:absolute;top:-140px;right:-60px;width:560px;height:1400px;transform:rotate(28deg);background:linear-gradient(180deg,var(--naranja),var(--rojo));opacity:.16;border-radius:60px}
+.beam2{position:absolute;top:-240px;right:250px;width:120px;height:1400px;transform:rotate(28deg);background:linear-gradient(180deg,var(--naranja),var(--rojo));opacity:.10;border-radius:60px}
+.slide{width:1920px;height:1080px;padding:96px 128px;display:flex;flex-direction:column;position:relative;z-index:1}
+.eyebrow{font-family:'Space Grotesk',sans-serif;font-size:23px;font-weight:600;letter-spacing:.24em;text-transform:uppercase;color:var(--verde)}
+.center{flex:1;display:flex;flex-direction:column;justify-content:center}
+h1{font-size:180px;font-weight:700;letter-spacing:-.02em;line-height:1}
+h1 .dot{color:var(--verde)}
+.sub{font-size:52px;font-weight:500;color:var(--claro);margin-top:28px;font-family:'Space Grotesk',sans-serif}
+.pill{display:inline-flex;align-items:center;gap:14px;margin-top:44px;border:2px solid rgba(242,133,58,.65);border-radius:999px;padding:16px 34px;font-size:26px;font-weight:500;color:#fff;width:max-content}
+.pill .p-dot{width:14px;height:14px;border-radius:50%;background:var(--verde)}
+.foot{display:flex;justify-content:space-between;align-items:baseline;font-size:24px;color:var(--gris)}
+.foot .slogan{font-style:italic;color:#fff;font-weight:500}
+.foot .slogan b{color:var(--verde);font-style:normal;font-family:'Space Grotesk',sans-serif;margin-right:14px}
+</style><!-- rebrand-naranja -->
+</head>
+<body>
+<div class="glow"></div><div class="beam"></div><div class="beam2"></div>
+<div class="slide">
+  <div class="eyebrow">MOTRAE · Software Restaurantero</div>
+  <div class="center">
+    <h1>MotRest<span class="dot">.</span></h1>
+    <div class="sub">El sistema operativo del restaurante</div>
+    <div class="pill"><span class="p-dot"></span>ERP restaurantero AI-first de MOTRAE</div>
+  </div>
+  <div class="foot">
+    <div class="slogan"><b>MOTRAE</b> Innovation already in motion</div>
+    <div>Xalapa, Veracruz · México</div>
+  </div>
+</div>
+<script id="fit">(function(){function f(){var s=Math.min(innerWidth/1920,innerHeight/1080);document.body.style.transform="scale("+s+")";}document.body.style.transformOrigin="top left";document.documentElement.style.overflow="hidden";document.documentElement.style.background=getComputedStyle(document.body).backgroundColor;window.addEventListener("resize",f);f();})();</script>
+</body></html>

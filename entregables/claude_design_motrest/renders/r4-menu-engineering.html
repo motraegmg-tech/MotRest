@@ -1,0 +1,110 @@
+<!doctype html>
+<html lang="es"><head>
+<meta charset="utf-8">
+<title>Render · Menu engineering con IA — MotRest</title>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+html,body{width:1920px;height:1080px;overflow:hidden}
+body{font-family:'Inter','Segoe UI',Arial,sans-serif;background:#14181A;color:#fff;position:relative}
+.hw-glow{position:absolute;width:1200px;height:1200px;border-radius:50%;background:radial-gradient(circle,rgba(242,133,58,.17) 0%,rgba(242,133,58,0) 62%);right:-320px;top:-380px}
+.hw-glow2{position:absolute;width:900px;height:900px;border-radius:50%;background:radial-gradient(circle,rgba(242,133,58,.10) 0%,rgba(242,133,58,0) 60%);left:-260px;bottom:-380px}
+.hw-stage{position:relative;z-index:1;width:1920px;height:1080px;display:flex;align-items:center;gap:80px;padding:0 110px}
+.hw-text{width:520px;flex:none}
+.hw-eyebrow{font-family:'Space Grotesk','Segoe UI',sans-serif;font-size:20px;font-weight:600;letter-spacing:.22em;text-transform:uppercase;color:#F2853A}
+.hw-mod{display:inline-block;margin-top:22px;border:2px solid rgba(242,133,58,.55);border-radius:999px;padding:9px 20px;font-size:17px;font-weight:600;color:#FDEBD7}
+.hw-title{font-family:'Space Grotesk','Segoe UI',sans-serif;font-size:58px;font-weight:700;line-height:1.1;letter-spacing:-.01em;margin-top:22px}
+.hw-cap{font-size:23px;line-height:1.5;color:#B9C2BC;margin-top:20px}
+.hw-brand{position:absolute;left:110px;bottom:52px;font-size:20px;color:#8A969C;font-style:italic}
+.hw-brand b{color:#F2853A;font-style:normal;font-family:'Space Grotesk','Segoe UI',sans-serif;margin-right:12px}
+.hw-dev-area{flex:1;display:flex;align-items:center;justify-content:center}
+.hw-devwrap{display:flex;flex-direction:column;align-items:center}
+.hw-dev{background:#0B0D0E;border:2px solid #2A3237;box-shadow:0 40px 90px rgba(0,0,0,.55)}
+.hw-tablet{padding:26px;border-radius:38px}
+.hw-monitor{padding:20px;border-radius:22px}
+.hw-laptop{padding:18px 18px 22px;border-radius:24px 24px 0 0;border-bottom:0}
+.hw-phone{padding:14px;border-radius:52px;position:relative}
+.hw-notch{position:absolute;top:26px;left:50%;transform:translateX(-50%);width:120px;height:26px;background:#0B0D0E;border-radius:14px;z-index:2}
+.hw-neck{width:110px;height:64px;background:#0B0D0E;border:2px solid #2A3237;border-top:0}
+.hw-base{width:340px;height:18px;background:#0B0D0E;border:2px solid #2A3237;border-radius:10px}
+.hw-lapbase{height:26px;background:#171D21;border:2px solid #2A3237;border-radius:0 0 22px 22px}
+.hw-screen{overflow:hidden;border-radius:14px;background:#000}
+.hw-phone .hw-screen{border-radius:38px}
+.hw-fit{transform-origin:top left}
+#r4, #r4 *{margin:0;padding:0;box-sizing:border-box}#r4{--verde:#F2853A;--naranja:#E6B23A;--rojo:#E0392B;--pizarra:#2D3A42;--negro:#14181A;--claro:#FDEBD7;--gris:#8A969C;--fondo:#F4F6F3;--borde:#E3E9E0}#r4{width:1920px;height:1080px;overflow:hidden}#r4{font-family:'Inter','Segoe UI',Arial,sans-serif;background:var(--fondo);color:var(--pizarra);display:flex}#r4 h1,#r4 h2,#r4 h3,#r4 .sg{font-family:'Space Grotesk','Segoe UI',Arial,sans-serif}#r4 .sb{width:250px;background:var(--negro);color:#fff;display:flex;flex-direction:column;padding:28px 16px;flex:none}#r4 .sb .logo{font-family:'Space Grotesk',sans-serif;font-size:45px;font-weight:700;padding:0 14px 26px}#r4 .sb .logo span{color:var(--verde)}#r4 .sb nav{display:flex;flex-direction:column;gap:4px}#r4 .sb nav div{display:flex;align-items:center;gap:12px;padding:12px 14px;border-radius:12px;color:#B9C2BC;font-size:27.5px;font-weight:500}#r4 .sb nav div.on{background:var(--verde);color:#fff;font-weight:600}#r4 .sb nav div i{width:10px;height:10px;border-radius:3px;background:currentColor;opacity:.55;font-style:normal}#r4 .sb .foot{margin-top:auto;padding:12px 14px;font-size:21.5px;color:var(--gris)}#r4 .main{flex:1;display:flex;flex-direction:column;min-width:0}#r4 .hd{height:84px;background:#fff;border-bottom:1px solid var(--borde);display:flex;align-items:center;gap:16px;padding:0 30px;flex:none}#r4 .hd h1{font-size:40px;font-weight:600}#r4 .chip{display:inline-flex;align-items:center;gap:8px;background:var(--claro);border-radius:999px;padding:8px 16px;font-size:22.5px;font-weight:600}#r4 .chip.gray{background:#EEF1ED;color:var(--gris)}#r4 .hd .sp{flex:1}#r4 .avatar{display:flex;align-items:center;gap:10px;font-size:24.5px;font-weight:600}#r4 .avatar .av{width:40px;height:40px;border-radius:50%;background:var(--negro);color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700}#r4 .content{flex:1;padding:26px 30px;display:grid;grid-template-columns:1.5fr 1fr;gap:22px;min-height:0}#r4 .card{background:#fff;border:1px solid var(--borde);border-radius:18px;padding:24px 28px;display:flex;flex-direction:column;min-height:0}#r4 .card h2{font-size:30.5px;font-weight:600}#r4 .card .sub{font-size:22.5px;color:var(--gris);margin-top:4px}#r4 .matrix{flex:1;position:relative;margin:34px 16px 44px 58px}#r4 .q{position:absolute;width:50%;height:50%}#r4 .q.ne{right:0;top:0;background:rgba(242,133,58,.07)}#r4 .q.nw{left:0;top:0;background:rgba(230,178,61,.06)}#r4 .q.se{right:0;bottom:0;background:rgba(45,58,66,.05)}#r4 .q.sw{left:0;bottom:0;background:rgba(224,57,43,.06)}#r4 .qlab{position:absolute;font-family:'Space Grotesk',sans-serif;font-size:24.5px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;padding:5px 14px;border-radius:999px;color:#fff}#r4 .qlab.ne{top:14px;right:14px;background:var(--verde)}#r4 .qlab.nw{top:14px;left:14px;background:var(--naranja)}#r4 .qlab.se{bottom:14px;right:14px;background:var(--pizarra)}#r4 .qlab.sw{bottom:14px;left:14px;background:var(--rojo)}#r4 .axx{position:absolute;left:0;right:0;top:50%;height:2px;background:var(--borde)}#r4 .axy{position:absolute;top:0;bottom:0;left:50%;width:2px;background:var(--borde)}#r4 .matrix .frame{position:absolute;inset:0;border:2px solid var(--borde);border-radius:14px}#r4 .alx{position:absolute;bottom:-38px;left:50%;transform:translateX(-50%);font-size:22.5px;color:var(--gris);font-weight:600}#r4 .aly{position:absolute;left:-46px;top:50%;transform:translateY(-50%) rotate(-90deg);font-size:22.5px;color:var(--gris);font-weight:600;white-space:nowrap}#r4 .dot{position:absolute;transform:translate(-50%,-50%);display:flex;flex-direction:column;align-items:center;gap:5px}#r4 .dot i{width:18px;height:18px;border-radius:50%;border:3px solid #fff;box-shadow:0 2px 8px rgba(20,24,26,.25);font-style:normal}#r4 .dot span{font-size:22px;font-weight:600;background:#fff;border:1px solid var(--borde);border-radius:8px;padding:3px 9px;white-space:nowrap}#r4 .dot span b{color:var(--gris);font-weight:500;margin-left:5px}#r4 .right{display:flex;flex-direction:column;gap:20px;min-height:0}#r4 .rec{border:2px solid var(--borde);border-radius:16px;padding:18px 22px;display:flex;gap:16px;align-items:flex-start}#r4 .rec i{flex:none;width:44px;height:44px;border-radius:12px;color:#fff;display:flex;align-items:center;justify-content:center;font-style:normal;font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:30.5px}#r4 .rec h3{font-size:28px;font-weight:600}#r4 .rec p{font-size:24.5px;color:var(--gris);line-height:1.4;margin-top:4px}#r4 .rec p b{color:var(--pizarra)}#r4 .price{margin-top:auto;background:var(--negro);border-radius:16px;padding:20px 24px;color:#fff}#r4 .price h3{font-size:27.5px;font-weight:600;color:var(--verde);display:flex;align-items:center;gap:10px}#r4 .price p{font-size:24.5px;color:#B9C2BC;line-height:1.45;margin-top:8px}#r4 .price p b{color:#fff}
+
+</style></head><body>
+<div class="hw-glow"></div><div class="hw-glow2"></div>
+<div class="hw-stage">
+<div class="hw-text">
+<div class="hw-eyebrow">MOTRAE · MotRest</div>
+<div class="hw-title">Menu engineering con IA</div>
+<div class="hw-cap">La carta clasificada por margen y popularidad, con recomendaciones accionables del agente.</div>
+<span class="hw-mod">Capacidad AI-first 02 · Menu Engineering</span>
+</div>
+<div class="hw-dev-area"><div class="hw-devwrap"><div class="hw-dev hw-laptop"><div class="hw-screen" style="width:987px;height:555px"><div class="hw-fit" style="width:1920px;height:1080px;transform:scale(0.514)"><div id="r4">
+<aside class="sb">
+  <div class="logo">MotRest<span>.</span></div>
+  <nav>
+    <div><i></i>Venta</div>
+    <div><i></i>Cocina</div>
+    <div><i></i>Inventario</div>
+    <div><i></i>Compras</div>
+    <div><i></i>Finanzas</div>
+    <div><i></i>Personal</div>
+    <div><i></i>Clientes</div>
+    <div class="on"><i></i>Inteligencia</div>
+    <div><i></i>Ajustes</div>
+  </nav>
+  <div class="foot">MOTRAE · Innovation already in motion</div>
+</aside>
+<div class="main">
+  <header class="hd">
+    <h1>Menu engineering · IA</h1>
+    <span class="chip">Últimos 30 días ▾</span>
+    <span class="chip gray">Carta: 24 platillos</span>
+    <span class="chip gray">Datos de demostración</span>
+    <span class="sp"></span>
+    <span class="avatar"><span class="av">G</span>Gonzalo · Dirección</span>
+  </header>
+  <div class="content">
+    <div class="card">
+      <h2>Matriz margen × popularidad</h2>
+      <div class="sub">Cada platillo clasificado por el agente con ventas y costeo reales del periodo. Etiqueta: nombre · margen.</div>
+      <div class="matrix">
+        <div class="frame"></div>
+        <div class="q ne"></div><div class="q nw"></div><div class="q se"></div><div class="q sw"></div>
+        <div class="axx"></div><div class="axy"></div>
+        <span class="qlab ne">★ Estrellas</span><span class="qlab nw">? Enigmas</span>
+        <span class="qlab se">▸ Vacas</span><span class="qlab sw">✕ Perros</span>
+        <span class="alx">Popularidad (ventas del periodo) →</span>
+        <span class="aly">Margen de contribución →</span>
+        <div class="dot" style="left:82%;top:18%"><i style="background:var(--verde)"></i><span>Mitad y mitad<b>68%</b></span></div>
+        <div class="dot" style="left:70%;top:30%"><i style="background:var(--verde)"></i><span>Margherita<b>71%</b></span></div>
+        <div class="dot" style="left:24%;top:14%"><i style="background:var(--naranja)"></i><span>Cuatro quesos<b>74%</b></span></div>
+        <div class="dot" style="left:34%;top:34%"><i style="background:var(--naranja)"></i><span>Lasaña trufada<b>69%</b></span></div>
+        <div class="dot" style="left:84%;top:66%"><i style="background:var(--pizarra)"></i><span>Pepperoni<b>58%</b></span></div>
+        <div class="dot" style="left:64%;top:78%"><i style="background:var(--pizarra)"></i><span>Spaghetti pomodoro<b>54%</b></span></div>
+        <div class="dot" style="left:26%;top:70%"><i style="background:var(--rojo)"></i><span>Ensalada césar<b>48%</b></span></div>
+        <div class="dot" style="left:16%;top:86%"><i style="background:var(--rojo)"></i><span>Calzone clásico<b>41%</b></span></div>
+      </div>
+    </div>
+    <div class="right">
+      <div class="card" style="flex:1;gap:14px">
+        <h2>Recomendaciones del agente</h2>
+        <div class="rec"><i style="background:var(--verde)">↑</i><div><h3>Impulsar · Cuatro quesos</h3><p>Margen <b>74%</b> con baja visibilidad. Súbela al inicio de la carta y al combo del viernes; potencial de <b>+$6,800/mes</b>.</p></div></div>
+        <div class="rec"><i style="background:var(--naranja)">✎</i><div><h3>Rediseñar · Pepperoni</h3><p>Muy popular pero margen <b>58%</b>. Renegociar pepperoni con proveedor B o ajustar gramaje <b>−8%</b> sin afectar percepción.</p></div></div>
+        <div class="rec"><i style="background:var(--rojo)">✕</i><div><h3>Retirar o reinventar · Calzone clásico</h3><p><b>9 ventas</b> en 30 días y margen <b>41%</b>. Sugerencia: fusionarlo con la línea de promociones de hora valle.</p></div></div>
+        <div class="price">
+          <h3>◎ Precio inteligente · hora valle</h3>
+          <p>Martes a jueves <b>16:00–18:00</b>: −12% en pastas seleccionadas. Margen protegido por costeo en vivo; demanda proyectada <b>+22%</b> en ese bloque.</p>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+</div></div></div></div><div class="hw-lapbase" style="width:1137px"></div></div></div>
+</div>
+<div class="hw-brand"><b>MOTRAE</b>Innovation already in motion</div>
+<script id="fit">(function(){function f(){var s=Math.min(innerWidth/1920,innerHeight/1080);document.body.style.transform="scale("+s+")";}document.body.style.transformOrigin="top left";document.documentElement.style.overflow="hidden";document.documentElement.style.background="#14181A";window.addEventListener("resize",f);f();})();</script>
+</body></html>

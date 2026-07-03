@@ -1,0 +1,108 @@
+<!doctype html>
+<html lang="es"><head>
+<meta charset="utf-8">
+<title>P7 · Reporte de Rentabilidad Mensual — MotRest</title>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+:root{--verde:#F2853A;--naranja:#E6B23A;--rojo:#E0392B;--pizarra:#2D3A42;--negro:#14181A;--claro:#FDEBD7;--gris:#8A969C;--borde:#E3E9E0}
+html,body{width:1920px;height:1080px;overflow:hidden}
+body{font-family:'Inter','Segoe UI',Arial,sans-serif;background:var(--negro);color:#fff;display:flex;align-items:center;gap:70px;padding:0 110px;position:relative}
+h1,h2,h3,.sg{font-family:'Space Grotesk','Segoe UI',Arial,sans-serif}
+.glow{position:absolute;width:1100px;height:1100px;border-radius:50%;background:radial-gradient(circle,rgba(242,133,58,.16) 0%,rgba(242,133,58,0) 62%);left:-300px;top:-380px}
+.doc{position:relative;z-index:1;flex:none;width:680px;height:920px;background:#fff;color:var(--pizarra);border-radius:14px;box-shadow:0 40px 90px rgba(0,0,0,.5);padding:44px 50px;display:flex;flex-direction:column}
+.doc .brand{display:flex;align-items:baseline;gap:14px;border-bottom:4px solid var(--verde);padding-bottom:16px}
+.doc .brand .logo{font-family:'Space Grotesk',sans-serif;font-size:30px;font-weight:700}
+.doc .brand .logo span{color:var(--verde)}
+.doc .brand small{margin-left:auto;font-size:14px;color:var(--gris)}
+.doc h1{font-size:27px;font-weight:700;margin-top:20px}
+.doc .sub{font-size:15.5px;color:var(--gris);margin-top:4px}
+.dkpis{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-top:22px}
+.dk{background:#F4F6F3;border-radius:12px;padding:13px 14px}
+.dk .l{font-size:12.5px;color:var(--gris);font-weight:600}
+.dk b{font-family:'Space Grotesk',sans-serif;font-size:21px;display:block;margin-top:3px}
+.dk .d{font-size:12px;font-weight:700;color:#B4591A}
+.sec{margin-top:22px}
+.sec h2{font-size:16.5px;font-weight:700;color:var(--verde);text-transform:uppercase;letter-spacing:.08em;padding-bottom:6px;border-bottom:1px solid var(--borde)}
+.rowline{display:flex;justify-content:space-between;font-size:15.5px;padding:7px 0;border-bottom:1px solid #F0F2EF;color:var(--gris)}
+.rowline b{color:var(--pizarra);font-weight:600}
+.twocol{display:grid;grid-template-columns:1fr 1fr;gap:26px}
+.mini{font-size:15px;line-height:1.5;color:var(--gris);margin-top:10px}
+.mini b{color:var(--pizarra)}
+.mini .tag{display:inline-block;font-size:12px;font-weight:700;color:#fff;border-radius:6px;padding:2px 8px;margin-right:8px}
+.result{margin-top:auto;background:var(--negro);border-radius:14px;padding:20px 26px;color:#fff;display:flex;align-items:center;gap:22px}
+.result b{font-family:'Space Grotesk',sans-serif;font-size:34px;color:var(--verde)}
+.result p{font-size:14px;color:#B9C2BC;line-height:1.4}
+.side{position:relative;z-index:1;flex:1;display:flex;flex-direction:column;gap:30px}
+.eyebrow{font-family:'Space Grotesk',sans-serif;font-size:24px;font-weight:600;letter-spacing:.22em;text-transform:uppercase;color:var(--verde)}
+.side h1{font-size:62px;font-weight:700;line-height:1.1;letter-spacing:-.01em}
+.pts{display:flex;flex-direction:column;gap:20px}
+.pt{display:flex;gap:16px;align-items:flex-start;font-size:25px;line-height:1.45;color:#B9C2BC}
+.pt b{color:#fff}
+.pt .d{flex:none;width:13px;height:13px;border-radius:50%;background:var(--verde);margin-top:14px}
+.wa{background:#1C2226;border:1px solid #2A3237;border-radius:20px;padding:20px 24px;display:flex;gap:16px;align-items:flex-start;max-width:640px}
+.wa .av{flex:none;width:48px;height:48px;border-radius:50%;background:var(--verde);display:flex;align-items:center;justify-content:center;font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:22px}
+.wa .msg{font-size:19px;line-height:1.45;color:#FDEBD7}
+.wa .msg b{color:#fff}
+.wa .file{display:flex;align-items:center;gap:12px;background:rgba(242,133,58,.14);border:1px solid rgba(242,133,58,.4);border-radius:12px;padding:10px 16px;margin-top:12px;font-size:16px;font-weight:600;color:#fff}
+.wa .file i{font-style:normal;color:var(--verde);font-size:22px}
+.wa .msg small{display:block;text-align:right;font-size:13px;color:var(--gris);margin-top:8px}
+</style><!-- rebrand-naranja -->
+</head>
+<body>
+<div class="glow"></div>
+<div class="doc">
+  <div class="brand"><span class="logo">MotRest<span>.</span></span><small>Reporte automático · generado con IA · Datos de demostración</small></div>
+  <h1>Reporte de Rentabilidad · Junio 2026</h1>
+  <div class="sub">Rodizio · Sucursal Centro · Comparado contra mayo y contra la línea base del diagnóstico (Fase 0)</div>
+  <div class="dkpis">
+    <div class="dk"><span class="l">Ventas del mes</span><b>$1,248,300</b><span class="d">▲ 9.4%</span></div>
+    <div class="dk"><span class="l">Food cost</span><b>30.8%</b><span class="d">▼ 1.1 pt</span></div>
+    <div class="dk"><span class="l">Margen bruto</span><b>63.9%</b><span class="d">▲ 1.2 pt</span></div>
+    <div class="dk"><span class="l">Merma total</span><b>$28,400</b><span class="d">▼ 22%</span></div>
+  </div>
+  <div class="sec">
+    <h2>Estado de resultados</h2>
+    <div class="rowline"><span>Ingresos</span><b>$1,248,300</b></div>
+    <div class="rowline"><span>Costo de venta</span><b>$384,480</b></div>
+    <div class="rowline"><span>Gastos operativos (nómina, renta, servicios)</span><b>$412,900</b></div>
+    <div class="rowline"><span><b>Utilidad operativa</b></span><b style="color:var(--verde)">$450,920 · 36.1%</b></div>
+  </div>
+  <div class="sec twocol">
+    <div>
+      <h2>Menu engineering</h2>
+      <div class="mini"><span class="tag" style="background:var(--verde)">★</span><b>Mitad y mitad</b> — estrella del mes (margen 68.2%).</div>
+      <div class="mini"><span class="tag" style="background:var(--naranja)">✎</span><b>Pepperoni</b> — renegociar insumo (−8% gramaje sugerido).</div>
+      <div class="mini"><span class="tag" style="background:var(--rojo)">✕</span><b>Calzone clásico</b> — candidato a salir de carta.</div>
+    </div>
+    <div>
+      <h2>Mermas evitadas</h2>
+      <div class="mini"><b>$18,400</b> en pérdidas prevenidas: 11 anomalías atendidas, 4 compras ajustadas por pronóstico y porcionado de masa corregido.</div>
+    </div>
+  </div>
+  <div class="result">
+    <b>$18,400</b>
+    <p><b>Ahorro verificado del mes</b> contra la línea base — esta cifra sustenta el componente variable del modelo de cobro por resultado.</p>
+  </div>
+</div>
+<div class="side">
+  <div>
+    <div class="eyebrow">Entregable mensual · Idea 6</div>
+    <h1>El dueño ve, cada mes, lo que MotRest le hizo ganar</h1>
+  </div>
+  <div class="pts">
+    <div class="pt"><span class="d"></span><span><b>Llega solo</b>, por WhatsApp o correo, al cerrar cada mes — sin pedirlo.</span></div>
+    <div class="pt"><span class="d"></span><span>El <b>ahorro verificado</b> del reporte es la misma cifra que sustenta la factura variable: total transparencia.</span></div>
+    <div class="pt"><span class="d"></span><span>Es la palanca #1 de <b>retención</b>: el valor del software se vuelve tangible mes a mes.</span></div>
+  </div>
+  <div class="wa">
+    <span class="av">M</span>
+    <div class="msg">
+      📊 <b>Tu Reporte de Junio está listo, Gonzalo.</b> Margen bruto 63.9% (▲1.2 pt) y $18,400 en pérdidas evitadas. Resumen y PDF completo aquí:
+      <div class="file"><i>▤</i>Reporte_Rentabilidad_Junio_Rodizio.pdf</div>
+      <small>Copiloto MotRest · 1 de julio · 08:00</small>
+    </div>
+  </div>
+</div>
+<script id="fit">(function(){function f(){var s=Math.min(innerWidth/1920,innerHeight/1080);document.body.style.transform="scale("+s+")";}document.body.style.transformOrigin="top left";document.documentElement.style.overflow="hidden";document.documentElement.style.background=getComputedStyle(document.body).backgroundColor;window.addEventListener("resize",f);f();})();</script>
+</body></html>

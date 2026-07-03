@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="es"><head>
+<meta charset="utf-8">
+<title>12 · Caso Rodizio y fases — MotRest</title>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+:root{--verde:#F2853A;--naranja:#F2853A;--rojo:#E0392B;--pizarra:#2D3A42;--negro:#14181A;--claro:#FDEBD7;--gris:#8A969C}
+html,body{width:1920px;height:1080px;overflow:hidden}
+body{font-family:'Inter','Segoe UI',Arial,sans-serif;background:#fff;color:var(--pizarra);position:relative}
+h2,h3,.sg{font-family:'Space Grotesk','Segoe UI',Arial,sans-serif}
+.slide{width:1920px;height:1080px;padding:88px 128px 110px;display:flex;flex-direction:column;position:relative}
+.topbar{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:30px}
+.eyebrow{font-family:'Space Grotesk',sans-serif;font-size:22px;font-weight:600;letter-spacing:.22em;text-transform:uppercase;color:var(--verde)}
+.num{font-size:22px;color:var(--gris);font-weight:500}
+h2{font-size:58px;font-weight:700;letter-spacing:-.01em}
+h2 em{font-style:normal;color:var(--verde)}
+.body{flex:1;display:grid;grid-template-columns:1fr 1.1fr;gap:64px;margin-top:40px}
+.why{background:var(--claro);border-radius:24px;padding:44px 48px;display:flex;flex-direction:column}
+.why h3{font-size:30px;font-weight:600;margin-bottom:8px}
+.why .sub{font-size:22px;color:var(--gris);margin-bottom:28px}
+.wpt{display:flex;gap:18px;align-items:flex-start;font-size:24px;line-height:1.45;margin-bottom:22px}
+.wpt .d{flex:none;width:12px;height:12px;border-radius:50%;background:var(--verde);margin-top:12px}
+.wpt b{display:block}
+.wpt span{color:var(--gris);font-size:22px}
+.phases{display:flex;flex-direction:column;justify-content:space-between}
+.ph{display:flex;gap:26px;align-items:flex-start;position:relative;padding-bottom:26px}
+.ph:not(:last-child):before{content:"";position:absolute;left:26px;top:56px;bottom:0;width:3px;background:var(--claro)}
+.ph .dot{flex:none;width:54px;height:54px;border-radius:50%;background:var(--verde);color:#fff;font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:22px;display:flex;align-items:center;justify-content:center}
+.ph.p0 .dot{background:var(--negro)}
+.ph h4{font-family:'Space Grotesk',sans-serif;font-size:26px;font-weight:600}
+.ph p{font-size:21px;color:var(--gris);line-height:1.35;margin-top:2px}
+.baseline{position:absolute;left:0;right:0;bottom:0;height:8px;background:var(--verde)}
+</style><!-- rebrand-naranja -->
+</head>
+<body>
+<div class="slide">
+  <div class="topbar"><div class="eyebrow">Caso ancla · Implementación</div><div class="num">12 / 14</div></div>
+  <h2>Probado donde es difícil: <em>una cocina exigente</em></h2>
+  <div class="body">
+    <div class="why">
+      <h3>Rodizio · pizzas y pasta</h3>
+      <div class="sub">Nuestro cliente ancla y banco de pruebas real:</div>
+      <div class="wpt"><span class="d"></span><div><b>Recetas combinables</b><span>Pizzas mitad-y-mitad que obligan a costear a nivel de ingrediente.</span></div></div>
+      <div class="wpt"><span class="d"></span><div><b>Mermas sensibles</b><span>Masa, quesos y salsas con caducidad y desperdicio reales.</span></div></div>
+      <div class="wpt"><span class="d"></span><div><b>Picos de demanda marcados</b><span>Viernes y fin de semana tensionan cocina, servicio y compras.</span></div></div>
+    </div>
+    <div class="phases">
+      <div class="ph p0"><span class="dot">F0</span><div><h4>Diagnóstico 360°</h4><p>Retrato completo de tu operación con metodología DELTA OPS: la línea base de costos y mermas.</p></div></div>
+      <div class="ph"><span class="dot">F1</span><div><h4>Núcleo operativo</h4><p>Venta, mesas, cocina (KDS), recetas e inventario corriendo en MotRest.</p></div></div>
+      <div class="ph"><span class="dot">F2</span><div><h4>ERP completo</h4><p>Finanzas, RR. HH., compras y panel por roles: el negocio administrado de extremo a extremo.</p></div></div>
+      <div class="ph"><span class="dot">F3</span><div><h4>Capa AI-first</h4><p>Las 5 capacidades + Copiloto del Dueño activos sobre tus datos.</p></div></div>
+      <div class="ph"><span class="dot">F4</span><div><h4>Crecimiento</h4><p>Consolidación y preparación multisucursal.</p></div></div>
+    </div>
+  </div>
+</div>
+<div class="baseline"></div>
+<script id="fit">(function(){function f(){var s=Math.min(innerWidth/1920,innerHeight/1080);document.body.style.transform="scale("+s+")";}document.body.style.transformOrigin="top left";document.documentElement.style.overflow="hidden";document.documentElement.style.background=getComputedStyle(document.body).backgroundColor;window.addEventListener("resize",f);f();})();</script>
+</body></html>

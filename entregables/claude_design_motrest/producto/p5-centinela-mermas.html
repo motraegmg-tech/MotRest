@@ -1,0 +1,169 @@
+<!doctype html>
+<html lang="es"><head>
+<meta charset="utf-8">
+<title>P5 · Centinela de mermas — MotRest</title>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+:root{--verde:#F2853A;--naranja:#E6B23A;--rojo:#E0392B;--pizarra:#2D3A42;--negro:#14181A;--claro:#FDEBD7;--gris:#8A969C;--fondo:#F4F6F3;--borde:#E3E9E0}
+html,body{width:1920px;height:1080px;overflow:hidden}
+body{font-family:'Inter','Segoe UI',Arial,sans-serif;background:var(--fondo);color:var(--pizarra);display:flex}
+h1,h2,h3,.sg{font-family:'Space Grotesk','Segoe UI',Arial,sans-serif}
+.sb{width:250px;background:var(--negro);color:#fff;display:flex;flex-direction:column;padding:28px 16px;flex:none}
+.sb .logo{font-family:'Space Grotesk',sans-serif;font-size:45px;font-weight:700;padding:0 14px 26px}
+.sb .logo span{color:var(--verde)}
+.sb nav{display:flex;flex-direction:column;gap:4px}
+.sb nav div{display:flex;align-items:center;gap:12px;padding:12px 14px;border-radius:12px;color:#B9C2BC;font-size:27.5px;font-weight:500}
+.sb nav div.on{background:var(--verde);color:#fff;font-weight:600}
+.sb nav div i{width:10px;height:10px;border-radius:3px;background:currentColor;opacity:.55;font-style:normal}
+.sb .foot{margin-top:auto;padding:12px 14px;font-size:21.5px;color:var(--gris)}
+.main{flex:1;display:flex;flex-direction:column;min-width:0}
+.hd{height:84px;background:#fff;border-bottom:1px solid var(--borde);display:flex;align-items:center;gap:16px;padding:0 30px;flex:none}
+.hd h1{font-size:40px;font-weight:600}
+.chip{display:inline-flex;align-items:center;gap:8px;background:var(--claro);border-radius:999px;padding:8px 16px;font-size:22.5px;font-weight:600}
+.chip.gray{background:#EEF1ED;color:var(--gris)}
+.hd .sp{flex:1}
+.avatar{display:flex;align-items:center;gap:10px;font-size:24.5px;font-weight:600}
+.avatar .av{width:40px;height:40px;border-radius:50%;background:var(--negro);color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700}
+.content{flex:1;padding:26px 30px;display:flex;flex-direction:column;gap:20px;min-height:0}
+.stats{display:grid;grid-template-columns:repeat(4,1fr);gap:20px}
+.st{background:#fff;border:1px solid var(--borde);border-radius:16px;padding:18px 24px;display:flex;align-items:center;gap:16px}
+.st i{width:14px;height:14px;border-radius:50%;font-style:normal;flex:none}
+.st .l{font-size:22.5px;color:var(--gris)}
+.st b{font-family:'Space Grotesk',sans-serif;font-size:45px;display:block}
+.cols{flex:1;display:grid;grid-template-columns:1.6fr 1fr;gap:20px;min-height:0}
+.card{background:#fff;border:1px solid var(--borde);border-radius:18px;padding:18px 24px;display:flex;flex-direction:column;min-height:0}
+.card h2{font-size:30.5px;font-weight:600}
+.card .sub{font-size:22.5px;color:var(--gris);margin-top:4px}
+.feed{margin-top:10px;display:flex;flex-direction:column;gap:8px;overflow:hidden}
+.alerta{border:1px solid var(--borde);border-left:6px solid var(--verde);border-radius:14px;padding:10px 16px;display:flex;gap:14px;align-items:flex-start}
+.alerta.crit{border-left-color:var(--rojo);background:rgba(224,57,43,.03)}
+.alerta.warn{border-left-color:var(--naranja)}
+.alerta .sev{flex:none;font-size:20px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;border-radius:999px;padding:5px 12px;color:#fff;background:var(--verde);margin-top:2px}
+.alerta.crit .sev{background:var(--rojo)}
+.alerta.warn .sev{background:var(--naranja)}
+.alerta .tx{flex:1;min-width:0}
+.alerta h3{font-size:28px;font-weight:600}
+.alerta p{font-size:24.5px;color:var(--gris);line-height:1.28;margin-top:3px}
+.alerta p b{color:var(--pizarra)}
+.alerta .meta{display:flex;gap:14px;margin-top:4px;font-size:21.5px;color:var(--gris)}
+.alerta .acts{display:flex;flex-direction:column;gap:8px}
+.ba{border-radius:10px;padding:9px 18px;font-size:22.5px;font-weight:600;text-align:center}
+.ba.p{background:var(--pizarra);color:#fff}
+.ba.s{border:2px solid var(--borde);color:var(--pizarra)}
+.merma{margin-top:12px;display:flex;flex-direction:column;gap:12px}
+.mrow .mh{display:flex;justify-content:space-between;font-size:24.5px;margin-bottom:7px}
+.mrow .mh b{font-weight:600}
+.mrow .mh span{color:var(--gris)}
+.track{position:relative;height:16px;background:#EEF1ED;border-radius:8px}
+.fill{position:absolute;left:0;top:0;bottom:0;border-radius:8px;background:var(--claro);border:1px solid rgba(242,133,58,.4)}
+.fill.over{background:#FBF0D9;border-color:rgba(230,178,61,.55)}
+.base{position:absolute;top:-5px;bottom:-5px;width:3px;background:var(--pizarra);border-radius:2px}
+.blegend{display:flex;gap:18px;font-size:21.5px;color:var(--gris);margin-top:2px}
+.blegend span{display:flex;align-items:center;gap:7px}
+.blegend i{width:12px;height:12px;border-radius:4px;font-style:normal}
+.blegend i.bl{width:3px;height:14px;border-radius:2px;background:var(--pizarra)}
+.saving{margin-top:auto;background:var(--negro);border-radius:16px;padding:20px 24px;color:#fff}
+.saving h3{font-size:25.5px;font-weight:600;color:var(--verde)}
+.saving b{font-family:'Space Grotesk',sans-serif;font-size:54.5px;display:block;margin-top:6px}
+.saving p{font-size:22.5px;color:#B9C2BC;margin-top:6px;line-height:1.4}
+</style><!-- fonts-bumped -->
+<!-- rebrand-naranja -->
+<!-- fonts-bumped-2 -->
+<!-- fonts-bumped-3 -->
+</head>
+<body>
+<aside class="sb">
+  <div class="logo">MotRest<span>.</span></div>
+  <nav>
+    <div><i></i>Venta</div>
+    <div><i></i>Cocina</div>
+    <div class="on"><i></i>Inventario</div>
+    <div><i></i>Compras</div>
+    <div><i></i>Finanzas</div>
+    <div><i></i>Personal</div>
+    <div><i></i>Clientes</div>
+    <div><i></i>Inteligencia</div>
+    <div><i></i>Ajustes</div>
+  </nav>
+  <div class="foot">MOTRAE · Innovation already in motion</div>
+</aside>
+<div class="main">
+  <header class="hd">
+    <h1>Centinela de mermas y anomalías</h1>
+    <span class="chip">Rodizio · Centro ▾</span>
+    <span class="chip gray">Vigilancia en tiempo real</span>
+    <span class="chip gray">Datos de demostración</span>
+    <span class="sp"></span>
+    <span class="avatar"><span class="av">G</span>Gonzalo · Dirección</span>
+  </header>
+  <div class="content">
+    <div class="stats">
+      <div class="st"><i style="background:var(--pizarra)"></i><span><span class="l">Alertas de hoy</span><b>6</b></span></div>
+      <div class="st"><i style="background:var(--rojo)"></i><span><span class="l">Críticas abiertas</span><b>1</b></span></div>
+      <div class="st"><i style="background:var(--naranja)"></i><span><span class="l">Advertencias abiertas</span><b>2</b></span></div>
+      <div class="st"><i style="background:var(--verde)"></i><span><span class="l">Resueltas esta semana</span><b>11</b></span></div>
+    </div>
+    <div class="cols">
+      <div class="card">
+        <h2>Feed de anomalías</h2>
+        <div class="sub">Cancelaciones, cortesías, descuentos, cortes y consumos correlacionados con turno, estación y usuario.</div>
+        <div class="feed">
+          <div class="alerta crit">
+            <span class="sev">Crítica</span>
+            <div class="tx">
+              <h3>Cancelaciones inusuales después del cobro · Caja 2</h3>
+              <p><b>5 cancelaciones post-cobro en 40 min</b> (patrón normal: 0–1 por turno). Correlación: mismo usuario en 4 de 5 · turno noche.</p>
+              <div class="meta"><span>Hace 12 min</span><span>Turno: noche</span><span>Impacto estimado: $740</span></div>
+            </div>
+            <div class="acts"><span class="ba p">Revisar tickets</span><span class="ba s">Marcar visto</span></div>
+          </div>
+          <div class="alerta warn">
+            <span class="sev">Alerta</span>
+            <div class="tx">
+              <h3>Merma de masa +32% sobre línea base · Horno</h3>
+              <p>Consumo de masa por pizza <b>arriba del estándar de receta</b>. Sugerencia del agente: revisar porcionado; el pronóstico indica sobre-preparación del turno tarde.</p>
+              <div class="meta"><span>Hace 41 min</span><span>Estación: horno</span><span>Ingrediente: masa madre</span></div>
+            </div>
+            <div class="acts"><span class="ba p">Ver detalle</span><span class="ba s">Marcar visto</span></div>
+          </div>
+          <div class="alerta warn">
+            <span class="sev">Alerta</span>
+            <div class="tx">
+              <h3>Descuento fuera de patrón · Punto de venta</h3>
+              <p>Descuento del <b>18% aplicado 6 veces en 2 horas</b> por el mismo usuario. Límite configurado para el rol: 10% con autorización.</p>
+              <div class="meta"><span>Hace 1 h 05 min</span><span>Rol: cajero</span><span>Requiere: autorización de gerente</span></div>
+            </div>
+            <div class="acts"><span class="ba p">Revisar</span><span class="ba s">Marcar visto</span></div>
+          </div>
+          <div class="alerta">
+            <span class="sev">Resuelta</span>
+            <div class="tx">
+              <h3>Compra autónoma ajustada por pronóstico · Mozzarella</h3>
+              <p>Pedido reducido <b>−12 kg</b>: lluvia prevista el sábado baja la demanda proyectada. Orden enviada al proveedor con confirmación.</p>
+              <div class="meta"><span>Hoy 18:20</span><span>Módulo: compras autónomas</span><span>Ahorro: $1,080</span></div>
+            </div>
+            <div class="acts"><span class="ba s">Ver orden</span></div>
+          </div>
+        </div>
+      </div>
+      <div class="card">
+        <h2>Merma de la semana vs línea base</h2>
+        <div class="sub">Consumo real por insumo sensible; la marca vertical es la línea base del diagnóstico (Fase 0).</div>
+        <div class="merma">
+          <div class="mrow"><div class="mh"><b>Masa madre</b><span>$1,860 · base $1,410</span></div><div class="track"><div class="fill over" style="width:86%"></div><div class="base" style="left:65%"></div></div></div>
+          <div class="mrow"><div class="mh"><b>Quesos</b><span>$1,120 · base $1,240</span></div><div class="track"><div class="fill" style="width:52%"></div><div class="base" style="left:57%"></div></div></div>
+          <div class="mrow"><div class="mh"><b>Salsas</b><span>$610 · base $700</span></div><div class="track"><div class="fill" style="width:28%"></div><div class="base" style="left:32%"></div></div></div>
+          <div class="blegend"><span><i style="background:var(--claro);border:1px solid rgba(242,133,58,.4)"></i>Dentro de la base</span><span><i style="background:#FBF0D9;border:1px solid rgba(230,178,61,.55)"></i>Sobre la base</span><span><i class="bl"></i>Línea base</span></div>
+        </div>
+        <div class="saving">
+          <h3>Pérdidas evitadas este mes</h3>
+          <b>$18,400</b>
+          <p>Suma verificada de anomalías atendidas y compras ajustadas — la cifra que sustenta el cobro por resultado.</p>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+<script id="fit">(function(){function f(){var s=Math.min(innerWidth/1920,innerHeight/1080);document.body.style.transform="scale("+s+")";}document.body.style.transformOrigin="top left";document.documentElement.style.overflow="hidden";document.documentElement.style.background=getComputedStyle(document.body).backgroundColor;window.addEventListener("resize",f);f();})();</script>
+</body></html>

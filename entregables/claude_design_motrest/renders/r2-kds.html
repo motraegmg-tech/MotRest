@@ -1,0 +1,139 @@
+<!doctype html>
+<html lang="es"><head>
+<meta charset="utf-8">
+<title>Render · Cocina orquestada — MotRest</title>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+html,body{width:1920px;height:1080px;overflow:hidden}
+body{font-family:'Inter','Segoe UI',Arial,sans-serif;background:#14181A;color:#fff;position:relative}
+.hw-glow{position:absolute;width:1200px;height:1200px;border-radius:50%;background:radial-gradient(circle,rgba(242,133,58,.17) 0%,rgba(242,133,58,0) 62%);right:-320px;top:-380px}
+.hw-glow2{position:absolute;width:900px;height:900px;border-radius:50%;background:radial-gradient(circle,rgba(242,133,58,.10) 0%,rgba(242,133,58,0) 60%);left:-260px;bottom:-380px}
+.hw-stage{position:relative;z-index:1;width:1920px;height:1080px;display:flex;align-items:center;gap:80px;padding:0 110px}
+.hw-text{width:520px;flex:none}
+.hw-eyebrow{font-family:'Space Grotesk','Segoe UI',sans-serif;font-size:20px;font-weight:600;letter-spacing:.22em;text-transform:uppercase;color:#F2853A}
+.hw-mod{display:inline-block;margin-top:22px;border:2px solid rgba(242,133,58,.55);border-radius:999px;padding:9px 20px;font-size:17px;font-weight:600;color:#FDEBD7}
+.hw-title{font-family:'Space Grotesk','Segoe UI',sans-serif;font-size:58px;font-weight:700;line-height:1.1;letter-spacing:-.01em;margin-top:22px}
+.hw-cap{font-size:23px;line-height:1.5;color:#B9C2BC;margin-top:20px}
+.hw-brand{position:absolute;left:110px;bottom:52px;font-size:20px;color:#8A969C;font-style:italic}
+.hw-brand b{color:#F2853A;font-style:normal;font-family:'Space Grotesk','Segoe UI',sans-serif;margin-right:12px}
+.hw-dev-area{flex:1;display:flex;align-items:center;justify-content:center}
+.hw-devwrap{display:flex;flex-direction:column;align-items:center}
+.hw-dev{background:#0B0D0E;border:2px solid #2A3237;box-shadow:0 40px 90px rgba(0,0,0,.55)}
+.hw-tablet{padding:26px;border-radius:38px}
+.hw-monitor{padding:20px;border-radius:22px}
+.hw-laptop{padding:18px 18px 22px;border-radius:24px 24px 0 0;border-bottom:0}
+.hw-phone{padding:14px;border-radius:52px;position:relative}
+.hw-notch{position:absolute;top:26px;left:50%;transform:translateX(-50%);width:120px;height:26px;background:#0B0D0E;border-radius:14px;z-index:2}
+.hw-neck{width:110px;height:64px;background:#0B0D0E;border:2px solid #2A3237;border-top:0}
+.hw-base{width:340px;height:18px;background:#0B0D0E;border:2px solid #2A3237;border-radius:10px}
+.hw-lapbase{height:26px;background:#171D21;border:2px solid #2A3237;border-radius:0 0 22px 22px}
+.hw-screen{overflow:hidden;border-radius:14px;background:#000}
+.hw-phone .hw-screen{border-radius:38px}
+.hw-fit{transform-origin:top left}
+#r2, #r2 *{margin:0;padding:0;box-sizing:border-box}#r2{--verde:#F2853A;--naranja:#E6B23A;--rojo:#E0392B;--pizarra:#2D3A42;--negro:#14181A;--claro:#FDEBD7;--gris:#8A969C;--panel:#1C2226;--linea:#2A3237}#r2{width:1920px;height:1080px;overflow:hidden}#r2{font-family:'Inter','Segoe UI',Arial,sans-serif;background:var(--negro);color:#fff;display:flex;flex-direction:column}#r2 h1,#r2 h2,#r2 h3,#r2 .sg{font-family:'Space Grotesk','Segoe UI',Arial,sans-serif}#r2 .hd{height:88px;display:flex;align-items:center;gap:18px;padding:0 36px;border-bottom:1px solid var(--linea);flex:none}#r2 .hd .logo{font-family:'Space Grotesk',sans-serif;font-size:42px;font-weight:700}#r2 .hd .logo span{color:var(--verde)}#r2 .hd .mode{font-size:27.5px;color:var(--gris)}#r2 .hd .sp{flex:1}#r2 .stat{display:flex;align-items:center;gap:10px;background:var(--panel);border-radius:999px;padding:10px 20px;font-size:24.5px;color:var(--gris)}#r2 .stat b{color:#fff;font-family:'Space Grotesk',sans-serif;font-size:29px}#r2 .stat.warn b{color:var(--naranja)}#r2 .board{flex:1;display:grid;grid-template-columns:repeat(4,1fr);gap:20px;padding:24px 36px 30px;min-height:0}#r2 .col{display:flex;flex-direction:column;min-height:0}#r2 .col .ch{display:flex;align-items:center;gap:12px;padding:0 4px 14px}#r2 .col .ch h2{font-size:35.5px;font-weight:600;flex:1}#r2 .col .ch .n{background:var(--panel);border-radius:999px;padding:5px 14px;font-size:24.5px;font-weight:600;color:var(--gris)}#r2 .col .ch i{width:12px;height:12px;border-radius:50%;font-style:normal}#r2 .tickets{display:flex;flex-direction:column;gap:10px;min-height:0;overflow:hidden}#r2 .tk{background:var(--panel);border-radius:16px;padding:12px 16px;border-left:6px solid var(--verde)}#r2 .tk .th{display:flex;align-items:center;gap:10px;margin-bottom:12px}#r2 .tk .oid{font-family:'Space Grotesk',sans-serif;font-size:30.5px;font-weight:700}#r2 .tk .mesa{font-size:22.5px;color:var(--gris)}#r2 .tk .tm{margin-left:auto;font-family:'Space Grotesk',sans-serif;font-size:25.5px;font-weight:700;border-radius:999px;padding:5px 13px;background:rgba(242,133,58,.16);color:var(--verde)}#r2 .tk.w{border-left-color:var(--naranja)}#r2 .tk.w .tm{background:rgba(230,178,61,.16);color:var(--naranja)}#r2 .tk.late{border-left-color:var(--rojo);box-shadow:0 0 0 2px rgba(224,57,43,.45)}#r2 .tk.late .tm{background:rgba(224,57,43,.18);color:var(--rojo)}#r2 .tk ul{list-style:none}#r2 .tk li{font-size:27px;padding:5px 0;display:flex;gap:10px}#r2 .tk li b{color:var(--verde);font-weight:700;min-width:26px}#r2 .tk li small{display:block;color:var(--gris);font-size:22px;margin-top:2px}#r2 .tk .alert{margin-top:10px;font-size:22.5px;font-weight:600;color:var(--rojo)}#r2 .tk .done{margin-top:12px;text-align:center;background:var(--verde);border-radius:10px;padding:10px;font-family:'Space Grotesk',sans-serif;font-size:25.5px;font-weight:600}#r2 .tk.ready{border-left-color:var(--verde);background:rgba(242,133,58,.10)}#r2 .tk.ready .done{background:transparent;border:2px solid var(--verde);color:var(--verde)}#r2 .ft{height:56px;display:flex;align-items:center;gap:26px;padding:0 36px;border-top:1px solid var(--linea);font-size:22.5px;color:var(--gris);flex:none}#r2 .ft b{color:#fff}#r2 .ft .dot{width:8px;height:8px;border-radius:50%;background:var(--verde)}
+
+</style></head><body>
+<div class="hw-glow"></div><div class="hw-glow2"></div>
+<div class="hw-stage">
+<div class="hw-text">
+<div class="hw-eyebrow">MOTRAE · MotRest</div>
+<div class="hw-title">Cocina orquestada</div>
+<div class="hw-cap">Cada estación sabe qué hacer y cuándo; los retrasos se ven antes de que duelan.</div>
+<span class="hw-mod">Módulo M2 · Cocina (KDS) y Recetas</span>
+</div>
+<div class="hw-dev-area"><div class="hw-devwrap"><div class="hw-dev hw-monitor"><div class="hw-screen" style="width:1048px;height:590px"><div class="hw-fit" style="width:1920px;height:1080px;transform:scale(0.546)"><div id="r2">
+<header class="hd">
+  <span class="logo">MotRest<span>.</span> KDS</span>
+  <span class="mode">Todas las estaciones</span>
+  <span class="sp"></span>
+  <span class="stat">En cola <b>14</b></span>
+  <span class="stat">Prom. <b>9:12</b></span>
+  <span class="stat warn">Pico <b>Vie 20:41</b></span>
+  <span class="stat">Rodizio · Centro</span>
+</header>
+<main class="board">
+  <section class="col">
+    <div class="ch"><i style="background:var(--verde)"></i><h2>Horno</h2><span class="n">5</span></div>
+    <div class="tickets">
+      <div class="tk late">
+        <div class="th"><span class="oid">#0226</span><span class="mesa">Mesa 7 · Lucía</span><span class="tm">13:22</span></div>
+        <ul>
+          <li><b>1×</b><span>Pizza fam. mitad y mitad<small>½ Cuatro quesos · ½ Margherita</small></span></li>
+          <li><b>1×</b><span>Pizza med. Pepperoni</span></li>
+        </ul>
+        <div class="alert">⚠ Demorado · prioridad del horno</div>
+        <div class="done">Marcar listo</div>
+      </div>
+      <div class="tk">
+        <div class="th"><span class="oid">#0231</span><span class="mesa">Mesa 12 · Lucía</span><span class="tm">02:10</span></div>
+        <ul><li><b>1×</b><span>Pizza fam. mitad y mitad<small>½ Margherita · ½ Pepperoni</small></span></li></ul>
+        <div class="done">Marcar listo</div>
+      </div>
+      <div class="tk w">
+        <div class="th"><span class="oid">#0228</span><span class="mesa">Delivery · Rappi</span><span class="tm">09:47</span></div>
+        <ul><li><b>2×</b><span>Pizza med. Margherita</span></li></ul>
+        <div class="done">Marcar listo</div>
+      </div>
+    </div>
+  </section>
+  <section class="col">
+    <div class="ch"><i style="background:var(--verde)"></i><h2>Línea de pasta</h2><span class="n">4</span></div>
+    <div class="tickets">
+      <div class="tk">
+        <div class="th"><span class="oid">#0231</span><span class="mesa">Mesa 12</span><span class="tm">02:10</span></div>
+        <ul><li><b>1×</b><span>Pasta al pesto<small>Sin nuez · al dente</small></span></li></ul>
+        <div class="done">Marcar listo</div>
+      </div>
+      <div class="tk w">
+        <div class="th"><span class="oid">#0227</span><span class="mesa">Mesa 3</span><span class="tm">08:31</span></div>
+        <ul><li><b>1×</b><span>Lasaña de la casa</span></li><li><b>1×</b><span>Fettuccine Alfredo<small>Extra parmesano</small></span></li></ul>
+        <div class="done">Marcar listo</div>
+      </div>
+      <div class="tk">
+        <div class="th"><span class="oid">#0233</span><span class="mesa">Mesa 5</span><span class="tm">00:54</span></div>
+        <ul><li><b>2×</b><span>Spaghetti pomodoro</span></li></ul>
+        <div class="done">Marcar listo</div>
+      </div>
+    </div>
+  </section>
+  <section class="col">
+    <div class="ch"><i style="background:var(--naranja)"></i><h2>Ensamble</h2><span class="n">3</span></div>
+    <div class="tickets">
+      <div class="tk">
+        <div class="th"><span class="oid">#0230</span><span class="mesa">Mesa 11</span><span class="tm">03:05</span></div>
+        <ul><li><b>1×</b><span>Ensalada caprese</span></li><li><b>1×</b><span>Pan de ajo gratinado</span></li></ul>
+        <div class="done">Marcar listo</div>
+      </div>
+      <div class="tk w">
+        <div class="th"><span class="oid">#0225</span><span class="mesa">Mesa 8</span><span class="tm">10:02</span></div>
+        <ul><li><b>1×</b><span>Tabla de antipasti<small>Compartir · 2 pers</small></span></li></ul>
+        <div class="done">Marcar listo</div>
+      </div>
+    </div>
+  </section>
+  <section class="col">
+    <div class="ch"><i style="background:var(--verde)"></i><h2>Despacho</h2><span class="n">2</span></div>
+    <div class="tickets">
+      <div class="tk ready">
+        <div class="th"><span class="oid">#0224</span><span class="mesa">Mesa 1 · Lucía</span><span class="tm">listo</span></div>
+        <ul><li><b>1×</b><span>Pizza med. Margherita</span></li><li><b>2×</b><span>Limonada de la casa</span></li></ul>
+        <div class="done">Entregar en mesa</div>
+      </div>
+      <div class="tk ready">
+        <div class="th"><span class="oid">#0222</span><span class="mesa">Delivery · Uber Eats</span><span class="tm">listo</span></div>
+        <ul><li><b>1×</b><span>Pizza fam. Pepperoni</span></li></ul>
+        <div class="done">Entregar a repartidor</div>
+      </div>
+    </div>
+  </section>
+</main>
+<footer class="ft">
+  <span class="dot"></span><span>Sincronizado con Punto de venta e Inventario · descuento de ingredientes en tiempo real</span>
+  <span style="margin-left:auto">Tiempo objetivo por platillo: <b>12:00</b> · Datos de demostración</span>
+</footer>
+</div></div></div></div><div class="hw-neck"></div><div class="hw-base"></div></div></div>
+</div>
+<div class="hw-brand"><b>MOTRAE</b>Innovation already in motion</div>
+<script id="fit">(function(){function f(){var s=Math.min(innerWidth/1920,innerHeight/1080);document.body.style.transform="scale("+s+")";}document.body.style.transformOrigin="top left";document.documentElement.style.overflow="hidden";document.documentElement.style.background="#14181A";window.addEventListener("resize",f);f();})();</script>
+</body></html>
