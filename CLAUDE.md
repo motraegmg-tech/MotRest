@@ -27,5 +27,8 @@
 
 ## Documentos de referencia
 - Contexto maestro del producto: [`README.md`](README.md)
+- **PRD (requisitos de producto):** [`Documentos_de_Primer_Orden/MOTRAE_MotRest_PRD.md`](Documentos_de_Primer_Orden/MOTRAE_MotRest_PRD.md) — alcance funcional completo (18 categorías / 99 funciones del benchmark), roles, modelo comercial, roadmap F0–F4
+- **TRD (requisitos técnicos):** [`Documentos_de_Primer_Orden/MOTRAE_MotRest_TRD.md`](Documentos_de_Primer_Orden/MOTRAE_MotRest_TRD.md) — arquitectura LAN-first (hub + modo isla offline), stack, sync, modelo de datos, ADRs
+- Estándar funcional de mercado: `entregables/MOTRAE_Benchmark_Software_Restaurantero.docx` (cap. 7)
 - Documento de proyecto original: `Clientes\04_Cliente_Rodizio\MOTRAE_Proyecto_Software_Restaurantero_ERP.md`
 - Contexto de empresa MOTRAE: `Identidad y Presentativos\01_Identidad\Documentos_de_Primer_Orden\MOTRAE_Documento_Empresa.md`
