@@ -49,6 +49,12 @@
         return { ...base, texto: `Modificó al usuario ${sesion.nombreDe(ev.usuario_id)}`, tono: "acento" };
       case "credencial_cambiada":
         return { ...base, texto: `Cambió su ${ev.tipo_credencial}`, tono: "acento" };
+      case "usuario_bloqueado":
+        return { ...base, actor: sesion.nombreDe(ev.usuario_id),
+          texto: `Cuenta bloqueada tras ${ev.intentos} intentos fallidos`, tono: "alerta" };
+      case "usuario_desbloqueado":
+        return { ...base, actor: sesion.nombreDe(ev.desbloqueado_por),
+          texto: `Desbloqueó la cuenta de ${sesion.nombreDe(ev.usuario_id)}`, tono: "acento" };
     }
   }
 

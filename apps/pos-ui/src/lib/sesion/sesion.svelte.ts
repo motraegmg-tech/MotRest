@@ -7,6 +7,7 @@
  */
 import {
   FabricaEventos,
+  MAX_INTENTOS,
   crearCredencial,
   evaluar,
   permisosDePlantilla,
@@ -48,7 +49,11 @@ class Sesion {
 
   /** Credenciales por usuario. No es estado reactivo: no se muestra jamás. */
   private credenciales = new Map<ID, Credencial[]>();
-  private intentos = new Map<ID, EstadoIntentos>();
+
+  /** Intentos fallidos por usuario. Reactivo: la UI muestra los restantes. */
+  private intentos = $state<Record<ID, EstadoIntentos>>({});
+  /** Intentos fallidos del diálogo de autorización (no se sabe de quién es el PIN). */
+  private intentosAutorizacion = $state<EstadoIntentos>({ fallos: 0, ultimo_fallo_ts: 0 });
 
   private fabrica = new FabricaEventos<EventoIdentidad>({
     device_id: obtenerDeviceId(),
@@ -134,6 +139,34 @@ class Sesion {
 
   // --- Acceso ------------------------------------------------------------------------
 
+  /** Estado de intentos de un usuario. */
+  private estadoIntentos(usuarioId: ID): EstadoIntentos {
+    return this.intentos[usuarioId] ?? { fallos: 0, ultimo_fallo_ts: 0 };
+  }
+
+  /** ¿La credencial quedó bloqueada por agotar los 7 intentos? */
+  estaBloqueado(usuarioId: ID): boolean {
+    return this.estadoIntentos(usuarioId).fallos >= MAX_INTENTOS;
+  }
+
+  /** Intentos que le quedan al usuario antes del bloqueo definitivo. */
+  intentosRestantes(usuarioId: ID): number {
+    return Math.max(0, MAX_INTENTOS - this.estadoIntentos(usuarioId).fallos);
+  }
+
+  private registrarFallo(usuarioId: ID): number {
+    const previo = this.estadoIntentos(usuarioId);
+    const fallos = previo.fallos + 1;
+    this.intentos = {
+      ...this.intentos,
+      [usuarioId]: { fallos, ultimo_fallo_ts: Date.now() },
+    };
+    if (fallos === MAX_INTENTOS) {
+      this.emitir("usuario_bloqueado", { usuario_id: usuarioId, intentos: fallos });
+    }
+    return fallos;
+  }
+
   /** Inicia sesión con la credencial del usuario indicado. */
   async iniciarSesion(usuarioId: ID, secreto: string): Promise<Resultado> {
     const usuario = this.usuarioDe(usuarioId);
@@ -144,8 +177,16 @@ class Sesion {
       return { ok: false, error: "El usuario está desactivado" };
     }
 
-    const estado = this.intentos.get(usuarioId) ?? { fallos: 0, ultimo_fallo_ts: 0 };
-    const politica = politicaIntentos(estado, Date.now());
+    const politica = politicaIntentos(this.estadoIntentos(usuarioId), Date.now());
+
+    if (politica.bloqueado) {
+      this.emitir("acceso_rechazado", { usuario_id: usuarioId, motivo: "bloqueo_por_intentos" });
+      return {
+        ok: false,
+        error: `Cuenta bloqueada tras ${MAX_INTENTOS} intentos. Requiere desbloqueo de un superior.`,
+      };
+    }
+
     if (!politica.permitido) {
       this.emitir("acceso_rechazado", { usuario_id: usuarioId, motivo: "bloqueo_por_intentos" });
       const segundos = Math.ceil(politica.espera_ms / 1000);
@@ -154,33 +195,75 @@ class Sesion {
 
     const valida = await this.verificarAlguna(usuarioId, secreto);
     if (!valida) {
-      this.intentos.set(usuarioId, {
-        fallos: estado.fallos + 1,
-        ultimo_fallo_ts: Date.now(),
-      });
+      const fallos = this.registrarFallo(usuarioId);
       this.emitir("acceso_rechazado", { usuario_id: usuarioId, motivo: "credencial_invalida" });
-      return { ok: false, error: "Credencial incorrecta" };
+      const restantes = MAX_INTENTOS - fallos;
+      return {
+        ok: false,
+        error:
+          restantes > 0
+            ? `Credencial incorrecta. Te ${restantes === 1 ? "queda 1 intento" : `quedan ${restantes} intentos`}.`
+            : `Cuenta bloqueada tras ${MAX_INTENTOS} intentos. Requiere desbloqueo de un superior.`,
+      };
     }
 
-    this.intentos.delete(usuarioId);
+    const { [usuarioId]: _descartado, ...resto } = this.intentos;
+    this.intentos = resto;
     this.establecerSesion(usuario, false);
+    return { ok: true };
+  }
+
+  /** Reactiva una credencial bloqueada. Solo un rol autorizante puede hacerlo. */
+  desbloquear(usuarioId: ID): Resultado {
+    if (!this.puedeOperar("admin.usuario.editar")) {
+      return { ok: false, error: "No tienes permiso para desbloquear usuarios" };
+    }
+    const { [usuarioId]: _descartado, ...resto } = this.intentos;
+    this.intentos = resto;
+    this.emitir("usuario_desbloqueado", {
+      usuario_id: usuarioId,
+      desbloqueado_por: this.usuarioActual?.id ?? "sistema",
+    });
     return { ok: true };
   }
 
   /** Cambio rápido de usuario en el POS: se identifica por su PIN. */
   async cambioRapido(pin: string): Promise<Resultado> {
+    const politica = politicaIntentos(this.intentosAutorizacion, Date.now());
+    if (politica.bloqueado) {
+      return {
+        ok: false,
+        error: `Se agotaron los ${MAX_INTENTOS} intentos. Inicia sesión desde la pantalla de acceso.`,
+      };
+    }
+
     for (const usuario of this.usuariosActivos) {
-      const credenciales = this.credenciales.get(usuario.id) ?? [];
-      for (const credencial of credenciales) {
+      if (this.estaBloqueado(usuario.id)) continue;
+      for (const credencial of this.credenciales.get(usuario.id) ?? []) {
         if (credencial.tipo !== "pin") continue;
         if (await verificarCredencial(pin, credencial)) {
+          this.intentosAutorizacion = { fallos: 0, ultimo_fallo_ts: 0 };
           this.establecerSesion(usuario, true);
           return { ok: true };
         }
       }
     }
+
+    this.intentosAutorizacion = {
+      fallos: this.intentosAutorizacion.fallos + 1,
+      ultimo_fallo_ts: Date.now(),
+    };
     this.emitir("acceso_rechazado", { motivo: "credencial_invalida" });
-    return { ok: false, error: "PIN no reconocido" };
+    const restantes = MAX_INTENTOS - this.intentosAutorizacion.fallos;
+    return {
+      ok: false,
+      error: restantes > 0 ? `PIN no reconocido. Quedan ${restantes} intentos.` : "Intentos agotados",
+    };
+  }
+
+  /** Intentos que quedan en el diálogo de autorización. */
+  get restantesAutorizacion(): number {
+    return Math.max(0, MAX_INTENTOS - this.intentosAutorizacion.fallos);
   }
 
   cerrarSesion(): void {
@@ -210,11 +293,24 @@ class Sesion {
     const solicitante = this.usuarioActual;
     if (!solicitante) return { ok: false, error: "No hay sesión iniciada" };
 
+    const politica = politicaIntentos(this.intentosAutorizacion, Date.now());
+    if (politica.bloqueado) {
+      return {
+        ok: false,
+        error: `Se agotaron los ${MAX_INTENTOS} intentos de autorización. Cierra el diálogo e inténtalo desde la pantalla de acceso.`,
+      };
+    }
+    if (!politica.permitido) {
+      const segundos = Math.ceil(politica.espera_ms / 1000);
+      return { ok: false, error: `Demasiados intentos. Espera ${segundos} s` };
+    }
+
     for (const usuario of this.usuariosActivos) {
-      if (!puedeAutorizar(usuario, accion)) continue;
+      if (!puedeAutorizar(usuario, accion) || this.estaBloqueado(usuario.id)) continue;
       for (const credencial of this.credenciales.get(usuario.id) ?? []) {
         if (credencial.tipo !== "pin") continue;
         if (await verificarCredencial(pin, credencial)) {
+          this.intentosAutorizacion = { fallos: 0, ultimo_fallo_ts: 0 };
           this.emitir("autorizacion_otorgada", {
             accion,
             solicitante_id: solicitante.id,
@@ -226,12 +322,24 @@ class Sesion {
       }
     }
 
+    this.intentosAutorizacion = {
+      fallos: this.intentosAutorizacion.fallos + 1,
+      ultimo_fallo_ts: Date.now(),
+    };
     this.emitir("autorizacion_denegada", {
       accion,
       solicitante_id: solicitante.id,
       motivo: "PIN no corresponde a un rol autorizante",
     });
-    return { ok: false, error: "El PIN no corresponde a alguien que pueda autorizar esto" };
+
+    const restantes = MAX_INTENTOS - this.intentosAutorizacion.fallos;
+    return {
+      ok: false,
+      error:
+        restantes > 0
+          ? `El PIN no corresponde a alguien que pueda autorizar esto. Quedan ${restantes} intentos.`
+          : `Se agotaron los ${MAX_INTENTOS} intentos de autorización.`,
+    };
   }
 
   // --- Gestión de usuarios --------------------------------------------------------------

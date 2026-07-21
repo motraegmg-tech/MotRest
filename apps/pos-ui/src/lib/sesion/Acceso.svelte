@@ -3,7 +3,7 @@
    * Pantalla de acceso. Los perfiles administrativos entran con contraseña;
    * el personal de piso con PIN.
    */
-  import type { Usuario } from "@motrest/dominio";
+  import { MAX_INTENTOS, type Usuario } from "@motrest/dominio";
   import { sesion } from "./sesion.svelte";
   import TecladoPin from "./TecladoPin.svelte";
 
@@ -18,6 +18,8 @@
   let verificando = $state(false);
 
   const esContrasena = $derived(elegido ? sesion.tipoCredencialDe(elegido.id) === "contrasena" : false);
+  const bloqueado = $derived(elegido ? sesion.estaBloqueado(elegido.id) : false);
+  const restantes = $derived(elegido ? sesion.intentosRestantes(elegido.id) : 0);
 
   function elegir(u: Usuario) {
     elegido = u;
@@ -60,29 +62,51 @@
     <button class="volver" onclick={onCerrar}>Cancelar</button>
   {:else}
     <h2>Hola, {elegido.nombre}</h2>
-    <p class="pista">
-      {esContrasena ? "Escribe tu contraseña" : "Marca tu PIN"}
-    </p>
 
-    {#if esContrasena}
-      <input
-        class="clave"
-        type="password"
-        bind:value={secreto}
-        placeholder="Contraseña"
-        autocomplete="current-password"
-        onkeydown={(e) => e.key === "Enter" && entrar()}
-      />
-      <button class="entrar" onclick={entrar} disabled={verificando || secreto.length === 0}>
-        {verificando ? "Verificando…" : "Entrar"}
-      </button>
-    {:else}
-      <div class="puntos">
-        {#each Array(8) as _, i (i)}
-          <span class="punto" class:lleno={i < secreto.length}></span>
-        {/each}
+    {#if bloqueado}
+      <div class="bloqueo" role="alert">
+        <p class="titulo-bloqueo">Cuenta bloqueada</p>
+        <p>
+          Se agotaron los {MAX_INTENTOS} intentos permitidos. Un usuario con permiso de
+          administración debe desbloquear esta cuenta.
+        </p>
       </div>
-      <TecladoPin valor={secreto} onCambio={(v) => (secreto = v)} onAceptar={entrar} />
+    {:else}
+      <p class="pista">
+        {esContrasena ? "Escribe tu contraseña" : "Marca tu PIN"}
+      </p>
+
+      {#if esContrasena}
+        <input
+          class="clave"
+          type="password"
+          bind:value={secreto}
+          placeholder="Contraseña"
+          autocomplete="current-password"
+          onkeydown={(e) => e.key === "Enter" && entrar()}
+        />
+        <button class="entrar" onclick={entrar} disabled={verificando || secreto.length === 0}>
+          {verificando ? "Verificando…" : "Entrar"}
+        </button>
+      {:else}
+        <div class="puntos">
+          {#each Array(8) as _, i (i)}
+            <span class="punto" class:lleno={i < secreto.length}></span>
+          {/each}
+        </div>
+        <TecladoPin
+          valor={secreto}
+          onCambio={(v) => (secreto = v)}
+          onAceptar={entrar}
+          bloqueado={verificando}
+        />
+      {/if}
+
+      {#if restantes < MAX_INTENTOS && restantes > 0}
+        <p class="restantes">
+          {restantes === 1 ? "Queda 1 intento" : `Quedan ${restantes} intentos`} antes del bloqueo
+        </p>
+      {/if}
     {/if}
 
     {#if error}<p class="error" role="alert">{error}</p>{/if}
@@ -220,6 +244,31 @@
     font-size: 0.85rem;
     font-weight: 600;
     color: #ff8a7a;
+    max-width: 20rem;
+    text-align: center;
+  }
+  .restantes {
+    font-size: 0.78rem;
+    color: #e6b23a;
+    font-weight: 600;
+  }
+  .bloqueo {
+    max-width: 20rem;
+    text-align: center;
+    background: rgba(224, 57, 43, 0.12);
+    border: 1.5px solid rgba(224, 57, 43, 0.5);
+    border-radius: var(--r-lg);
+    padding: 1rem 1.25rem;
+    font-size: 0.85rem;
+    color: #ffc9c2;
+    line-height: 1.5;
+  }
+  .titulo-bloqueo {
+    font-family: var(--font-titulo);
+    font-size: 1rem;
+    font-weight: 700;
+    color: #ff8a7a;
+    margin-bottom: 0.35rem;
   }
   .volver {
     margin-top: 0.5rem;

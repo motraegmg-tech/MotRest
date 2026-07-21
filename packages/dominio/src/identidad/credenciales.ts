@@ -124,28 +124,52 @@ export interface EstadoIntentos {
   ultimo_fallo_ts: number;
 }
 
+/**
+ * Tope duro de intentos fallidos, para contraseñas y PIN por igual.
+ * Al agotarse, la credencial queda BLOQUEADA y solo un rol autorizante puede
+ * desbloquearla: no hay reintento por tiempo. Evita el martilleo contra el
+ * verificador (y, cuando exista el Hub, contra el backend).
+ */
+export const MAX_INTENTOS = 7;
+
+/** Intentos sin penalización antes de que empiece la espera progresiva. */
+const LIBRES = 3;
+
 export interface ResultadoPolitica {
   permitido: boolean;
   /** Milisegundos que faltan para poder reintentar. */
   espera_ms: number;
+  /** true = se agotaron los 7 intentos; requiere desbloqueo autorizado. */
+  bloqueado: boolean;
+  /** Intentos que quedan antes del bloqueo definitivo. */
+  restantes: number;
 }
 
 /**
- * Bloqueo progresivo: los primeros intentos son libres; a partir del tercero la
- * espera se duplica (2 s, 4 s, 8 s…) con tope de 5 minutos.
+ * Política de intentos: espera progresiva (2 s, 4 s, 8 s… tope 5 min) a partir
+ * del cuarto fallo, y **bloqueo definitivo al séptimo**.
  */
 export function politicaIntentos(
   estado: EstadoIntentos,
   ahora: number,
 ): ResultadoPolitica {
-  const LIBRES = 3;
-  if (estado.fallos < LIBRES) return { permitido: true, espera_ms: 0 };
+  const restantes = Math.max(0, MAX_INTENTOS - estado.fallos);
+
+  if (estado.fallos >= MAX_INTENTOS) {
+    return { permitido: false, espera_ms: 0, bloqueado: true, restantes: 0 };
+  }
+
+  if (estado.fallos < LIBRES) {
+    return { permitido: true, espera_ms: 0, bloqueado: false, restantes };
+  }
 
   const espera = Math.min(2 ** (estado.fallos - LIBRES + 1) * 1000, 5 * 60_000);
   const transcurrido = ahora - estado.ultimo_fallo_ts;
-  if (transcurrido >= espera) return { permitido: true, espera_ms: 0 };
+  if (transcurrido >= espera) {
+    return { permitido: true, espera_ms: 0, bloqueado: false, restantes };
+  }
 
-  return { permitido: false, espera_ms: espera - transcurrido };
+  return { permitido: false, espera_ms: espera - transcurrido, bloqueado: false, restantes };
 }
 
 /** Reglas mínimas de calidad del secreto. */

@@ -5,6 +5,7 @@ import {
   definicionAccion,
 } from "../identidad/acciones.js";
 import {
+  MAX_INTENTOS,
   crearCredencial,
   politicaIntentos,
   validarSecreto,
@@ -194,14 +195,52 @@ describe("credenciales", () => {
     const ahora = 1_000_000;
     expect(politicaIntentos({ fallos: 2, ultimo_fallo_ts: ahora }, ahora).permitido).toBe(true);
 
-    const bloqueado = politicaIntentos({ fallos: 4, ultimo_fallo_ts: ahora }, ahora);
-    expect(bloqueado.permitido).toBe(false);
-    expect(bloqueado.espera_ms).toBeGreaterThan(0);
+    const esperando = politicaIntentos({ fallos: 4, ultimo_fallo_ts: ahora }, ahora);
+    expect(esperando.permitido).toBe(false);
+    expect(esperando.bloqueado).toBe(false);
+    expect(esperando.espera_ms).toBeGreaterThan(0);
 
     // Tras esperar lo suficiente, vuelve a permitir.
     expect(
       politicaIntentos({ fallos: 4, ultimo_fallo_ts: ahora }, ahora + 10 * 60_000).permitido,
     ).toBe(true);
+  });
+});
+
+describe("tope de 7 intentos", () => {
+  const ahora = 1_000_000;
+
+  it("son exactamente 7 los intentos permitidos", () => {
+    expect(MAX_INTENTOS).toBe(7);
+  });
+
+  it("va descontando los intentos restantes", () => {
+    expect(politicaIntentos({ fallos: 0, ultimo_fallo_ts: 0 }, ahora).restantes).toBe(7);
+    expect(politicaIntentos({ fallos: 3, ultimo_fallo_ts: 0 }, ahora).restantes).toBe(4);
+    expect(politicaIntentos({ fallos: 6, ultimo_fallo_ts: 0 }, ahora).restantes).toBe(1);
+  });
+
+  it("al séptimo fallo queda bloqueado", () => {
+    const r = politicaIntentos({ fallos: MAX_INTENTOS, ultimo_fallo_ts: ahora }, ahora);
+    expect(r.bloqueado).toBe(true);
+    expect(r.permitido).toBe(false);
+    expect(r.restantes).toBe(0);
+  });
+
+  it("el bloqueo NO se levanta con el tiempo: requiere desbloqueo", () => {
+    // Un año después sigue bloqueado; solo un autorizante puede reactivarlo.
+    const muchoDespues = ahora + 365 * 24 * 60 * 60_000;
+    const r = politicaIntentos({ fallos: MAX_INTENTOS, ultimo_fallo_ts: ahora }, muchoDespues);
+    expect(r.bloqueado).toBe(true);
+    expect(r.permitido).toBe(false);
+  });
+
+  it("nunca permite un octavo intento", () => {
+    for (const fallos of [7, 8, 20, 100]) {
+      const r = politicaIntentos({ fallos, ultimo_fallo_ts: 0 }, ahora);
+      expect(r.permitido, `con ${fallos} fallos`).toBe(false);
+      expect(r.bloqueado, `con ${fallos} fallos`).toBe(true);
+    }
   });
 
   it("valida la calidad del secreto", () => {

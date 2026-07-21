@@ -63,6 +63,17 @@ export type EventoIdentidad =
       tipo: "credencial_cambiada";
       usuario_id: ID;
       tipo_credencial: "contrasena" | "pin";
+    })
+  | (EventoBase & {
+      tipo: "usuario_bloqueado";
+      usuario_id: ID;
+      /** Intentos fallidos que dispararon el bloqueo. */
+      intentos: number;
+    })
+  | (EventoBase & {
+      tipo: "usuario_desbloqueado";
+      usuario_id: ID;
+      desbloqueado_por: ID;
     });
 
 export type TipoEventoIdentidad = EventoIdentidad["tipo"];

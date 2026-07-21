@@ -88,13 +88,22 @@
     {#if vista.modo === "lista"}
       <div class="lista">
         {#each sesion.usuarios as usuario (usuario.id)}
+          {@const bloqueado = sesion.estaBloqueado(usuario.id)}
           <div class="usuario" class:inactivo={!usuario.activo}>
             <span class="av">{usuario.iniciales}</span>
             <span class="datos">
-              <b>{usuario.nombre}</b>
+              <b>
+                {usuario.nombre}
+                {#if bloqueado}<span class="candado">bloqueado</span>{/if}
+              </b>
               <small>{usuario.puesto} · {usuario.permisos.length} actividades</small>
             </span>
             {#if puedeEditar}
+              {#if bloqueado}
+                <button class="accion urgente" onclick={() => sesion.desbloquear(usuario.id)}>
+                  Desbloquear
+                </button>
+              {/if}
               <button class="accion" onclick={() => editar(usuario)}>Permisos</button>
               <button
                 class="accion"
@@ -270,6 +279,27 @@
   .accion:hover {
     border-color: var(--acento);
     color: var(--acento);
+  }
+  .accion.urgente {
+    border-color: var(--peligro);
+    color: var(--peligro);
+  }
+  .accion.urgente:hover {
+    background: var(--peligro);
+    color: #fff;
+  }
+  .candado {
+    display: inline-block;
+    margin-left: 0.4rem;
+    font-size: 0.68rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: #fff;
+    background: var(--peligro);
+    border-radius: var(--r-pill);
+    padding: 0.1rem 0.45rem;
+    vertical-align: middle;
   }
   .campos {
     display: flex;

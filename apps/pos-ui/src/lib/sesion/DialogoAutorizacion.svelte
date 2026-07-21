@@ -4,7 +4,7 @@
    * Es el flujo real del restaurante: el mesero pide, el gerente firma, y
    * la firma queda en la bitácora con nombre, dispositivo y hora.
    */
-  import { ROLES, etiquetaAccion, type Accion, type RolId } from "@motrest/dominio";
+  import { MAX_INTENTOS, ROLES, etiquetaAccion, type Accion, type RolId } from "@motrest/dominio";
   import { sesion } from "./sesion.svelte";
   import TecladoPin from "./TecladoPin.svelte";
 
@@ -65,8 +65,15 @@
   </div>
 
   {#if error}<p class="error" role="alert">{error}</p>{/if}
+  {#if sesion.restantesAutorizacion < MAX_INTENTOS && sesion.restantesAutorizacion > 0}
+    <p class="restantes">
+      {sesion.restantesAutorizacion === 1
+        ? "Queda 1 intento"
+        : `Quedan ${sesion.restantesAutorizacion} intentos`}
+    </p>
+  {/if}
 
-  <TecladoPin valor={pin} onCambio={(v) => (pin = v)} onAceptar={firmar} />
+  <TecladoPin valor={pin} onCambio={(v) => (pin = v)} onAceptar={firmar} bloqueado={verificando} />
 
   <button class="cancelar" onclick={onCancelar}>Cancelar</button>
 </div>
@@ -138,6 +145,11 @@
     font-size: 0.82rem;
     font-weight: 600;
     color: var(--peligro);
+  }
+  .restantes {
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: var(--acento-2);
   }
   .cancelar {
     margin-top: 0.4rem;

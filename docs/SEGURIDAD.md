@@ -23,8 +23,15 @@ autorización ocurre en el dispositivo, y eso hay que decirlo claro:
   latencia se nota; es un compromiso consciente.
 - **Comparación en tiempo constante**, para no filtrar información por el tiempo
   de respuesta.
-- **Bloqueo progresivo:** a partir del tercer fallo la espera se duplica
+- **Espera progresiva:** a partir del cuarto fallo la espera se duplica
   (2 s, 4 s, 8 s…) con tope de 5 minutos.
+- **Tope duro de 7 intentos** (decisión de Gonzalo), igual para contraseñas y
+  PIN. Al séptimo fallo la credencial queda **bloqueada de forma definitiva**:
+  no se levanta con el tiempo, solo un rol con permiso de administración puede
+  reactivarla desde el panel de usuarios. Aplica a los tres puntos de entrada:
+  pantalla de acceso, cambio rápido de usuario y diálogo de autorización.
+  Además de proteger la cuenta, acota el trabajo del verificador —y, cuando
+  exista, del backend— frente a un intento de martilleo.
 
 ### El límite real de un PIN
 
@@ -35,7 +42,9 @@ combinación de:
 
 1. caché cifrada en el dispositivo (pendiente: etapa 4),
 2. expiración corta de esa caché (pendiente: etapa 10),
-3. bloqueo por intentos (**ya implementado**),
+3. **tope de 7 intentos con bloqueo definitivo (ya implementado)** — es la
+   defensa más eficaz de las cuatro mientras no exista el Hub: reduce el espacio
+   explorable de un millón de combinaciones a siete,
 4. el Hub como fuente canónica que revalida todo (pendiente: etapa 10).
 
 El PIN es apropiado para lo que es: **autorizar acciones de piso ante un
