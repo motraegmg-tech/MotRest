@@ -1,0 +1,7 @@
+{
+  "name": "@motrest/impresion",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Impresión ESC/POS centralizada en el hub (red 9100 / USB / Bluetooth) con fallback directo en modo isla. STUB: se implementa en un paso posterior.",
+  "type": "module"
+}

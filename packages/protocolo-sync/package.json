@@ -1,0 +1,7 @@
+{
+  "name": "@motrest/protocolo-sync",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Protocolo de sincronización dispositivo↔hub (replicación del event log por LAN) y hub↔nube (PowerSync). STUB: se implementa en un paso posterior.",
+  "type": "module"
+}

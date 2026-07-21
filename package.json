@@ -1,0 +1,17 @@
+{
+  "name": "motrest",
+  "version": "0.0.0",
+  "private": true,
+  "description": "MotRest — ERP restaurantero de MOTRAE. Monorepo (F1: núcleo operativo).",
+  "packageManager": "pnpm@9.15.0",
+  "engines": {
+    "node": ">=20"
+  },
+  "type": "module",
+  "scripts": {
+    "build": "pnpm -r build",
+    "test": "pnpm -r test",
+    "lint": "pnpm -r lint",
+    "dev:pos": "pnpm --filter pos-ui dev"
+  }
+}

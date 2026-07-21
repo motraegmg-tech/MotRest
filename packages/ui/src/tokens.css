@@ -1,0 +1,47 @@
+/*
+ * Tokens de marca de MotRest / MOTRAE.
+ *
+ * ADR-10 (TRD §14): el acento dominante es el NARANJA #F2853A, no el verde del
+ * README §12 (documento maestro pendiente de actualizar). Paleta y jerarquía
+ * tomadas del mockup P1 (entregables/claude_design_motrest/producto/p1-...html),
+ * renombradas con semántica correcta (el mockup llamaba "verde" al naranja).
+ */
+:root {
+  /* Marca */
+  --acento: #f2853a; /* naranja MOTRAE — acento dominante · mesa enviada a cocina */
+  --acento-2: #e6b23a; /* ámbar de apoyo */
+  --peligro: #e0392b; /* rojo MOTRAE — cancelar / alertas · mesa ocupada */
+
+  /* Neutros */
+  --negro: #14181a; /* barra lateral, paneles oscuros */
+  --pizarra: #2d3a42; /* texto principal */
+  --gris: #8a969c; /* texto secundario */
+  --claro: #fdebd7; /* chips y realces cálidos */
+  --fondo: #f4f6f3; /* fondo de la app */
+  --borde: #e3e9e0; /* separadores */
+  --blanco: #ffffff;
+
+  /* Tipografía */
+  --font-titulo: "Space Grotesk", "Segoe UI", system-ui, sans-serif;
+  --font-cuerpo: "Inter", "Segoe UI", system-ui, sans-serif;
+
+  /* Radios */
+  --r-sm: 0.5rem;
+  --r-md: 0.75rem;
+  --r-lg: 1rem;
+  --r-xl: 1.25rem;
+  --r-pill: 999px;
+
+  /* Espaciado (escala base 4px) */
+  --sp-1: 0.25rem;
+  --sp-2: 0.5rem;
+  --sp-3: 0.75rem;
+  --sp-4: 1rem;
+  --sp-5: 1.5rem;
+  --sp-6: 2rem;
+
+  /* Sombras */
+  --sombra-sm: 0 2px 8px rgba(20, 24, 26, 0.08);
+  --sombra-md: 0 6px 16px rgba(242, 133, 58, 0.28);
+  --sombra-lg: 0 18px 40px rgba(20, 24, 26, 0.12);
+}

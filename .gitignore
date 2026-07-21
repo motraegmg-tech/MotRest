@@ -1,0 +1,26 @@
+# Dependencias
+node_modules/
+
+# Builds
+dist/
+build/
+.svelte-kit/
+*.tsbuildinfo
+
+# Coberturas y logs
+coverage/
+*.log
+npm-debug.log*
+pnpm-debug.log*
+
+# Entorno y locales
+.env
+.env.*
+!.env.example
+*.local
+
+# Editores / SO
+.DS_Store
+Thumbs.db
+.vscode/*
+!.vscode/extensions.json

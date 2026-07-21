@@ -1,0 +1,21 @@
+{
+  "name": "@motrest/dominio",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Núcleo de dominio de MotRest: tipos, eventos (event sourcing), reducers y costeo mitad-y-mitad. Isomórfico (hub Node + clientes web).",
+  "type": "module",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "build": "tsc --noEmit -p tsconfig.json",
+    "lint": "tsc --noEmit -p tsconfig.json",
+    "test": "vitest run"
+  },
+  "devDependencies": {
+    "typescript": "^5.6.0",
+    "vitest": "^2.1.0"
+  }
+}
