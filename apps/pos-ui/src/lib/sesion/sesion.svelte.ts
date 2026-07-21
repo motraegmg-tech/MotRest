@@ -8,12 +8,19 @@
 import {
   FabricaEventos,
   MAX_INTENTOS,
+  ROLES,
   crearCredencial,
+  etiquetaAccion,
   evaluar,
   permisosDePlantilla,
+  permisosNoOtorgables,
   politicaIntentos,
   puedeAutorizar,
+  puedeGestionarA,
+  puedeOtorgar,
   puedeVer,
+  rangoDe,
+  rolesAsignablesPor,
   streamIdentidad,
   uuidv7,
   validarSecreto,
@@ -215,8 +222,18 @@ class Sesion {
 
   /** Reactiva una credencial bloqueada. Solo un rol autorizante puede hacerlo. */
   desbloquear(usuarioId: ID): Resultado {
+    const actor = this.usuarioActual;
+    const objetivo = this.usuarioDe(usuarioId);
+    if (!actor || !objetivo) return { ok: false, error: "Usuario no encontrado" };
+
     if (!this.puedeOperar("admin.usuario.editar")) {
       return { ok: false, error: "No tienes permiso para desbloquear usuarios" };
+    }
+    if (!puedeGestionarA(actor, objetivo)) {
+      return {
+        ok: false,
+        error: `No puedes desbloquear a ${objetivo.nombre}: su rol está a tu mismo nivel o por encima del tuyo.`,
+      };
     }
     const { [usuarioId]: _descartado, ...resto } = this.intentos;
     this.intentos = resto;
@@ -344,6 +361,26 @@ class Sesion {
 
   // --- Gestión de usuarios --------------------------------------------------------------
 
+  // --- Jerarquía (nadie administra a un igual ni a un superior) -----------------
+
+  /** ¿El usuario en sesión puede administrar a este otro? */
+  puedeGestionar(objetivo: Usuario): boolean {
+    const actor = this.usuarioActual;
+    return actor ? puedeGestionarA(actor, objetivo) : false;
+  }
+
+  /** Roles que el usuario en sesión puede asignar (solo por debajo del suyo). */
+  get rolesAsignables(): RolId[] {
+    const actor = this.usuarioActual;
+    return actor ? rolesAsignablesPor(actor) : [];
+  }
+
+  /** ¿Puede conceder este permiso? Solo se delega lo que uno tiene. */
+  puedeOtorgar(permiso: Permiso): boolean {
+    const actor = this.usuarioActual;
+    return actor ? puedeOtorgar(actor, permiso) : false;
+  }
+
   async crearUsuario(datos: {
     nombre: string;
     puesto: string;
@@ -351,8 +388,25 @@ class Sesion {
     permisos: Permiso[];
     pin: string;
   }): Promise<Resultado> {
-    if (!this.puedeOperar("admin.usuario.crear")) {
+    const actor = this.usuarioActual;
+    if (!actor || !this.puedeOperar("admin.usuario.crear")) {
       return { ok: false, error: "No tienes permiso para crear usuarios" };
+    }
+    if (rangoDe(datos.rol_id) >= rangoDe(actor.rol_id)) {
+      return {
+        ok: false,
+        error: `No puedes crear un usuario con el rol ${ROLES[datos.rol_id].nombre}: está a tu mismo nivel o por encima.`,
+      };
+    }
+    const excedidos = permisosNoOtorgables(actor, datos.permisos);
+    if (excedidos.length > 0) {
+      return {
+        ok: false,
+        error: `No puedes otorgar permisos que tú no tienes: ${excedidos
+          .slice(0, 3)
+          .map((p) => etiquetaAccion(p.accion))
+          .join(", ")}${excedidos.length > 3 ? "…" : ""}`,
+      };
     }
     const nombre = datos.nombre.trim();
     if (nombre.length < 2) return { ok: false, error: "Escribe el nombre del usuario" };
@@ -384,9 +438,30 @@ class Sesion {
   }
 
   actualizarPermisos(usuarioId: ID, permisos: Permiso[]): Resultado {
+    const actor = this.usuarioActual;
+    const objetivo = this.usuarioDe(usuarioId);
+    if (!actor || !objetivo) return { ok: false, error: "Usuario no encontrado" };
+
     if (!this.puedeOperar("admin.usuario.editar")) {
       return { ok: false, error: "No tienes permiso para editar usuarios" };
     }
+    if (!puedeGestionarA(actor, objetivo)) {
+      return {
+        ok: false,
+        error: `No puedes modificar a ${objetivo.nombre}: su rol está a tu mismo nivel o por encima del tuyo.`,
+      };
+    }
+    const excedidos = permisosNoOtorgables(actor, permisos);
+    if (excedidos.length > 0) {
+      return {
+        ok: false,
+        error: `No puedes otorgar permisos que tú no tienes: ${excedidos
+          .slice(0, 3)
+          .map((p) => etiquetaAccion(p.accion))
+          .join(", ")}${excedidos.length > 3 ? "…" : ""}`,
+      };
+    }
+
     this.usuarios = this.usuarios.map((u) => (u.id === usuarioId ? { ...u, permisos } : u));
     if (this.usuarioActual?.id === usuarioId) {
       this.usuarioActual = { ...this.usuarioActual, permisos };
@@ -396,9 +471,20 @@ class Sesion {
   }
 
   cambiarActivo(usuarioId: ID, activo: boolean): Resultado {
+    const actor = this.usuarioActual;
+    const objetivo = this.usuarioDe(usuarioId);
+    if (!actor || !objetivo) return { ok: false, error: "Usuario no encontrado" };
+
     if (!this.puedeOperar("admin.usuario.editar")) {
       return { ok: false, error: "No tienes permiso para editar usuarios" };
     }
+    if (!puedeGestionarA(actor, objetivo)) {
+      return {
+        ok: false,
+        error: `No puedes ${activo ? "activar" : "desactivar"} a ${objetivo.nombre}: su rol está a tu mismo nivel o por encima del tuyo.`,
+      };
+    }
+
     this.usuarios = this.usuarios.map((u) => (u.id === usuarioId ? { ...u, activo } : u));
     this.emitir("usuario_actualizado", { usuario_id: usuarioId, cambios: { activo } });
     return { ok: true };

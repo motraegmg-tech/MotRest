@@ -14,11 +14,21 @@ import {
 import {
   esLectura,
   evaluar,
+  permisosNoOtorgables,
   puedeAutorizar,
+  puedeGestionarA,
+  puedeOtorgar,
   puedeVer,
+  rolesAsignablesPor,
   rolesQueAutorizan,
 } from "../identidad/matriz.js";
-import { ROLES, permisosDePlantilla, type RolId, type Usuario } from "../identidad/roles.js";
+import {
+  ROLES,
+  permisosDePlantilla,
+  rangoDe,
+  type RolId,
+  type Usuario,
+} from "../identidad/roles.js";
 
 function usuario(rol_id: RolId, extra: Partial<Usuario> = {}): Usuario {
   return {
@@ -165,6 +175,99 @@ describe("permisos ajustados por usuario", () => {
     expect(rolesQueAutorizan("pos.cortesia.otorgar")).toEqual(
       expect.arrayContaining(["propietario", "gerente"]),
     );
+  });
+});
+
+// --- Jerarquía: nadie administra a un igual ni a un superior -----------------------
+
+describe("jerarquía de roles", () => {
+  const gonzalo = usuario("propietario");
+  const marco = usuario("gerente");
+  const otroGerente = usuario("gerente", { id: "usr-gerente-2" });
+  const lucia = usuario("mesero");
+
+  it("el propietario está por encima de todos", () => {
+    for (const rol of ["gerente", "administracion", "chef", "cajero", "mesero"] as RolId[]) {
+      expect(rangoDe("propietario") > rangoDe(rol), rol).toBe(true);
+    }
+  });
+
+  it("un gerente NO puede administrar a la dirección", () => {
+    // Este era el hueco: Marco podía editar los permisos de Gonzalo.
+    expect(puedeGestionarA(marco, gonzalo)).toBe(false);
+  });
+
+  it("un gerente NO puede administrar a otro gerente", () => {
+    expect(puedeGestionarA(marco, otroGerente)).toBe(false);
+  });
+
+  it("nadie puede administrarse a sí mismo", () => {
+    expect(puedeGestionarA(gonzalo, gonzalo)).toBe(false);
+    expect(puedeGestionarA(marco, marco)).toBe(false);
+  });
+
+  it("el gerente sí administra a quien está por debajo", () => {
+    expect(puedeGestionarA(marco, lucia)).toBe(true);
+  });
+
+  it("el propietario administra al gerente", () => {
+    expect(puedeGestionarA(gonzalo, marco)).toBe(true);
+  });
+
+  it("solo se asignan roles por debajo del propio", () => {
+    const porGerente = rolesAsignablesPor(marco);
+    expect(porGerente).not.toContain("propietario");
+    expect(porGerente).not.toContain("gerente");
+    expect(porGerente).toContain("mesero");
+
+    expect(rolesAsignablesPor(gonzalo)).toContain("gerente");
+    // El mesero solo supera en rango al comensal; de todos modos el permiso
+    // admin.usuario.crear le impide dar de alta a nadie.
+    expect(rolesAsignablesPor(lucia)).toEqual(["comensal"]);
+    expect(evaluar(lucia, "admin.usuario.crear").resultado).not.toBe("permitido");
+  });
+});
+
+describe("delegación de permisos", () => {
+  const marco = usuario("gerente");
+  const lucia = usuario("mesero");
+
+  it("no se puede conceder un permiso que uno no tiene", () => {
+    // El gerente no tiene admin.rol.editar: no puede dárselo a nadie.
+    expect(puedeOtorgar(marco, { accion: "admin.rol.editar", nivel: "operar" })).toBe(false);
+  });
+
+  it("no se puede conceder un nivel superior al propio", () => {
+    // El gerente solo VE el food cost; no puede dar permiso de operarlo.
+    expect(puedeOtorgar(marco, { accion: "fin.costo.ver", nivel: "ver" })).toBe(true);
+    expect(puedeOtorgar(marco, { accion: "fin.costo.ver", nivel: "autorizar" })).toBe(false);
+  });
+
+  it("sí se puede conceder lo que uno tiene, al mismo nivel o menor", () => {
+    expect(puedeOtorgar(marco, { accion: "pos.item.agregar", nivel: "operar" })).toBe(true);
+    expect(puedeOtorgar(marco, { accion: "pos.item.cancelar_enviado", nivel: "operar" })).toBe(true);
+  });
+
+  it("no se puede delegar un límite mayor al propio", () => {
+    // El gerente tiene descuento hasta 20 %.
+    expect(puedeOtorgar(marco, { accion: "pos.descuento.aplicar", nivel: "operar", limite: 0.1 })).toBe(true);
+    expect(puedeOtorgar(marco, { accion: "pos.descuento.aplicar", nivel: "operar", limite: 0.5 })).toBe(false);
+    // Sin límite explícito sería "sin tope": tampoco se permite.
+    expect(puedeOtorgar(marco, { accion: "pos.descuento.aplicar", nivel: "operar" })).toBe(false);
+  });
+
+  it("señala exactamente qué permisos exceden lo que el actor puede dar", () => {
+    const intento = [
+      { accion: "pos.item.agregar", nivel: "operar" } as const,
+      { accion: "admin.rol.editar", nivel: "autorizar" } as const,
+      { accion: "caja.corte.sellar", nivel: "autorizar" } as const,
+    ];
+    const excedidos = permisosNoOtorgables(marco, intento);
+    expect(excedidos.map((p) => p.accion)).toEqual(["admin.rol.editar", "caja.corte.sellar"]);
+  });
+
+  it("un mesero no puede delegar nada que no tenga", () => {
+    expect(puedeOtorgar(lucia, { accion: "fin.costo.ver", nivel: "ver" })).toBe(false);
   });
 });
 

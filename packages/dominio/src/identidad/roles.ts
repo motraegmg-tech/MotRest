@@ -212,6 +212,32 @@ export const ROLES: Record<RolId, Rol> = {
 
 export const LISTA_ROLES: Rol[] = Object.values(ROLES);
 
+/**
+ * Rango jerárquico de cada rol.
+ *
+ * Nadie puede administrar a un igual ni a un superior: un gerente NO edita los
+ * permisos de la dirección, ni la desactiva, ni la desbloquea. Sin esta regla,
+ * cualquiera con permiso de "editar usuarios" podría escalar privilegios
+ * modificando a quien está por encima suyo.
+ *
+ * Consecuencia deliberada: los permisos del propietario no los edita nadie
+ * (tampoco él mismo). Es el ancla de confianza del sistema.
+ */
+export const RANGO: Record<RolId, number> = {
+  propietario: 100,
+  gerente: 80,
+  administracion: 70,
+  compras: 50,
+  chef: 50,
+  cajero: 40,
+  mesero: 30,
+  comensal: 10,
+};
+
+export function rangoDe(rolId: RolId): number {
+  return RANGO[rolId];
+}
+
 /** Copia de los permisos de una plantilla, lista para ajustarse por usuario. */
 export function permisosDePlantilla(rolId: RolId): Permiso[] {
   return ROLES[rolId].permisos.map((x) => ({ ...x }));

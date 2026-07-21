@@ -19,8 +19,19 @@
     permisos: Permiso[];
     onCambio: (permisos: Permiso[]) => void;
     soloLectura?: boolean;
+    /**
+     * Filtro de delegación: solo se concede lo que uno mismo tiene. Los niveles
+     * que el administrador no posee aparecen deshabilitados.
+     */
+    puedeOtorgar?: (permiso: Permiso) => boolean;
   }
-  let { permisos, onCambio, soloLectura = false }: Props = $props();
+  let { permisos, onCambio, soloLectura = false, puedeOtorgar }: Props = $props();
+
+  function otorgable(accion: Accion, nivel: Nivel | "ninguno"): boolean {
+    if (nivel === "ninguno") return true;
+    if (!puedeOtorgar) return true;
+    return puedeOtorgar({ accion, nivel });
+  }
 
   /** Acciones cuyo alcance se puede acotar, y en qué unidad. */
   const LIMITES: Partial<Record<Accion, "porcentaje" | "monto">> = {
@@ -120,10 +131,12 @@
 
               <div class="niveles">
                 {#each NIVELES as opcion (opcion.valor)}
+                  {@const permitido = otorgable(definicion.accion, opcion.valor)}
                   <button
                     class="nivel"
                     class:on={nivel === opcion.valor}
-                    disabled={soloLectura}
+                    disabled={soloLectura || !permitido}
+                    title={permitido ? "" : "No puedes conceder un nivel que tú no tienes"}
                     onclick={() => fijarNivel(definicion.accion, opcion.valor)}
                   >
                     {opcion.etiqueta}
@@ -271,7 +284,11 @@
     color: #fff;
   }
   .nivel:disabled {
-    cursor: default;
+    cursor: not-allowed;
+    opacity: 0.4;
+  }
+  .nivel.on:disabled {
+    opacity: 0.75;
   }
   .limite {
     display: flex;

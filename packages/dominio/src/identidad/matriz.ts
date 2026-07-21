@@ -12,7 +12,14 @@
  */
 import type { Accion } from "./acciones.js";
 import { definicionAccion } from "./acciones.js";
-import { LISTA_ROLES, type Permiso, type RolId, type Usuario } from "./roles.js";
+import {
+  LISTA_ROLES,
+  rangoDe,
+  type Nivel,
+  type Permiso,
+  type RolId,
+  type Usuario,
+} from "./roles.js";
 
 /** Contexto de la acción concreta, para evaluar los límites. */
 export interface ContextoAccion {
@@ -125,4 +132,57 @@ export function puedeOperar(usuario: Usuario, accion: Accion, ctx?: ContextoAcci
 export function puedeAutorizar(usuario: Usuario, accion: Accion): boolean {
   const permiso = permisoDe(usuario, accion);
   return usuario.activo && permiso?.nivel === "autorizar";
+}
+
+// --- Jerarquía: nadie administra a un igual ni a un superior ------------------
+
+const ORDEN_NIVEL: Record<Nivel, number> = { ver: 1, operar: 2, autorizar: 3 };
+
+/** Nivel que tiene el usuario sobre una acción, o null si no la tiene. */
+export function nivelDe(usuario: Usuario, accion: Accion): Nivel | null {
+  return permisoDe(usuario, accion)?.nivel ?? null;
+}
+
+/**
+ * ¿`actor` puede administrar a `objetivo` (editar permisos, activar, desbloquear)?
+ *
+ * Exige rango ESTRICTAMENTE mayor. Un gerente no toca a la dirección, ni a otro
+ * gerente, ni a sí mismo: así se cierra la escalada de privilegios.
+ */
+export function puedeGestionarA(actor: Usuario, objetivo: Usuario): boolean {
+  if (!actor.activo) return false;
+  if (actor.id === objetivo.id) return false;
+  return rangoDe(actor.rol_id) > rangoDe(objetivo.rol_id);
+}
+
+/** Roles que `actor` puede asignar al dar de alta: solo por debajo del suyo. */
+export function rolesAsignablesPor(actor: Usuario): RolId[] {
+  const propio = rangoDe(actor.rol_id);
+  return LISTA_ROLES.filter((r) => rangoDe(r.id) < propio).map((r) => r.id);
+}
+
+/**
+ * ¿`actor` puede otorgar este permiso?
+ *
+ * Solo se concede lo que uno mismo tiene, y nunca a un nivel superior al propio.
+ * Sin esta regla, alguien podría escalar creando un usuario con más poder que él
+ * y entrando con esa cuenta.
+ */
+export function puedeOtorgar(actor: Usuario, permiso: Permiso): boolean {
+  const propio = nivelDe(actor, permiso.accion);
+  if (!propio) return false;
+  if (ORDEN_NIVEL[permiso.nivel] > ORDEN_NIVEL[propio]) return false;
+
+  // Un límite propio no se puede superar al delegarlo.
+  const limitePropio = permisoDe(actor, permiso.accion)?.limite;
+  if (limitePropio !== undefined) {
+    if (permiso.limite === undefined) return false;
+    if (permiso.limite > limitePropio) return false;
+  }
+  return true;
+}
+
+/** Permisos de la lista que `actor` NO está facultado para otorgar. */
+export function permisosNoOtorgables(actor: Usuario, permisos: readonly Permiso[]): Permiso[] {
+  return permisos.filter((p) => !puedeOtorgar(actor, p));
 }

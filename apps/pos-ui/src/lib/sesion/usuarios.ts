@@ -54,8 +54,8 @@ export const USUARIOS_SEMILLA: UsuarioSembrado[] = [
       tipo: "contrasena",
       algoritmo: "PBKDF2-SHA256",
       iteraciones: 600_000,
-      sal: "IK5KHMUskKpcG7rEXyHyOQ==",
-      hash: "ytiJTH9qtOzRxgR+d752IF0ZD2g7WGb/diIPqrFpZBE=",
+      sal: "iJf1HoicFDIu2K0h9cnS3A==",
+      hash: "NFSHjYhoj1hl5oem8W+NuW7rZdGb16FW1rlDa+b3WTk=",
       creada_ts: AHORA,
     },
     // PIN 2108: firma autorizaciones sin teclear la contraseña completa.

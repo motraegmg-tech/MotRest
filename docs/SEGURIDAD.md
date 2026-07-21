@@ -78,6 +78,31 @@ real; hoy existen solo para poder probar el flujo de autorización.
   descuentos, cortesías, retiros, sellar el corte…) no se pueden ejecutar en
   silencio.
 
+## Jerarquía: prevención de escalada de privilegios
+
+Dos reglas cierran el hueco por el que alguien con permiso de "editar usuarios"
+podría darse más poder del que tiene:
+
+**1 · Nadie administra a un igual ni a un superior.** Cada rol tiene un rango
+(propietario 100 · gerente 80 · administración 70 · compras y chef 50 ·
+cajero 40 · mesero 30 · comensal 10). Para editar permisos, activar, desactivar
+o desbloquear a alguien se exige rango **estrictamente mayor**. Consecuencias
+deliberadas:
+
+- un gerente no toca a la dirección, ni a otro gerente;
+- **nadie edita sus propios permisos**, ni siquiera el propietario;
+- los permisos del propietario no los modifica nadie: es el ancla de confianza.
+
+**2 · Solo se delega lo que uno tiene.** Al crear o editar un usuario no se
+puede conceder una acción que el administrador no posea, ni a un nivel superior
+al suyo, ni con un alcance mayor que el propio (un gerente con tope de 20 % de
+descuento no puede otorgar 50 %). Sin esta regla, la primera se sortearía
+creando una cuenta nueva con más poder y entrando con ella.
+
+Ambas se aplican en el dominio (`identidad/matriz.ts`) y están cubiertas por
+pruebas, además de reflejarse en la interfaz: los botones desaparecen y los
+niveles no otorgables aparecen deshabilitados.
+
 ## Auditoría
 
 **El event log ES la bitácora** (TRD §10). No hay una tabla de auditoría

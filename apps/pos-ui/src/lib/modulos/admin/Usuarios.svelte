@@ -24,12 +24,18 @@
   const puedeCrear = $derived(sesion.puedeOperar("admin.usuario.crear"));
   const puedeEditar = $derived(sesion.puedeOperar("admin.usuario.editar"));
 
+  /** Solo roles por debajo del propio: nadie crea a un igual ni a un superior. */
+  const rolesDisponibles = $derived(
+    LISTA_ROLES.filter((r) => sesion.rolesAsignables.includes(r.id)),
+  );
+
   function nuevo() {
+    const inicial = rolesDisponibles.at(-1)?.id ?? "mesero";
     nombre = "";
     puesto = "";
-    rolId = "mesero";
+    rolId = inicial;
     pin = "";
-    permisos = sesion.plantilla("mesero");
+    permisos = sesion.plantilla(inicial);
     error = "";
     vista = { modo: "nuevo" };
   }
@@ -79,16 +85,20 @@
     <div class="lista">
       {#each sesion.usuarios as usuario (usuario.id)}
         {@const bloqueado = sesion.estaBloqueado(usuario.id)}
+        {@const gestionable = sesion.puedeGestionar(usuario)}
+        {@const propio = sesion.usuarioActual?.id === usuario.id}
         <div class="usuario" class:inactivo={!usuario.activo}>
           <span class="av">{usuario.iniciales}</span>
           <span class="datos">
             <b>
               {usuario.nombre}
+              {#if propio}<span class="marca">tú</span>{/if}
               {#if bloqueado}<span class="candado">bloqueado</span>{/if}
             </b>
             <small>{usuario.puesto} · {usuario.permisos.length} actividades concedidas</small>
           </span>
-          {#if puedeEditar}
+
+          {#if puedeEditar && gestionable}
             {#if bloqueado}
               <button class="accion urgente" onclick={() => sesion.desbloquear(usuario.id)}>
                 Desbloquear
@@ -98,6 +108,13 @@
             <button class="accion" onclick={() => sesion.cambiarActivo(usuario.id, !usuario.activo)}>
               {usuario.activo ? "Desactivar" : "Activar"}
             </button>
+          {:else}
+            <button class="accion" onclick={() => editar(usuario)}>Ver permisos</button>
+            {#if puedeEditar}
+              <span class="protegido" title="Su rol está a tu mismo nivel o por encima del tuyo">
+                {propio ? "No puedes editarte" : "Fuera de tu alcance"}
+              </span>
+            {/if}
           {/if}
         </div>
       {/each}
@@ -129,17 +146,25 @@
     <div class="plantillas">
       <p class="etiqueta">Partir de un rol</p>
       <div class="roles">
-        {#each LISTA_ROLES as rol (rol.id)}
+        {#each rolesDisponibles as rol (rol.id)}
           <button class="rol" class:on={rol.id === rolId} onclick={() => cambiarRol(rol.id)}>
             {rol.nombre}
           </button>
         {/each}
       </div>
       <p class="desc">{LISTA_ROLES.find((r) => r.id === rolId)?.descripcion}</p>
+      <p class="nota-jerarquia">
+        Solo puedes crear usuarios con un rol por debajo del tuyo, y concederles
+        actividades que tú mismo tengas.
+      </p>
     </div>
 
     <p class="etiqueta">Actividades, permisos y alcances</p>
-    <EditorPermisos {permisos} onCambio={(p) => (permisos = p)} />
+    <EditorPermisos
+      {permisos}
+      onCambio={(p) => (permisos = p)}
+      puedeOtorgar={(p) => sesion.puedeOtorgar(p)}
+    />
 
     {#if error}<p class="error" role="alert">{error}</p>{/if}
     <div class="botones">
@@ -150,6 +175,7 @@
     </div>
   {:else}
     {@const editado = vista.usuario}
+    {@const editable = puedeEditar && sesion.puedeGestionar(editado)}
     <div class="encabezado">
       <div>
         <h1>Permisos de {editado.nombre}</h1>
@@ -159,16 +185,28 @@
       </div>
     </div>
 
+    {#if !editable}
+      <div class="protegido-aviso" role="note">
+        <b>Solo lectura.</b>
+        {sesion.usuarioActual?.id === editado.id
+          ? "Nadie edita sus propios permisos: evita que alguien se conceda más poder del que tiene."
+          : "Su rol está a tu mismo nivel o por encima del tuyo, así que no puedes modificarlo."}
+      </div>
+    {/if}
+
     <EditorPermisos
       permisos={permisosEdicion}
       onCambio={(p) => (permisosEdicion = p)}
-      soloLectura={!puedeEditar}
+      soloLectura={!editable}
+      puedeOtorgar={(p) => sesion.puedeOtorgar(p)}
     />
 
     {#if error}<p class="error" role="alert">{error}</p>{/if}
     <div class="botones">
-      <button class="secundario" onclick={() => (vista = { modo: "lista" })}>Cancelar</button>
-      {#if puedeEditar}
+      <button class="secundario" onclick={() => (vista = { modo: "lista" })}>
+        {editable ? "Cancelar" : "Volver"}
+      </button>
+      {#if editable}
         <button class="principal" onclick={() => guardarEdicion(editado)}>Guardar permisos</button>
       {/if}
     </div>
@@ -343,6 +381,40 @@
     font-size: 0.86rem;
     color: var(--gris);
     font-style: italic;
+  }
+  .nota-jerarquia {
+    margin-top: 0.5rem;
+    font-size: 0.8rem;
+    color: var(--gris);
+    max-width: 40rem;
+  }
+  .marca {
+    display: inline-block;
+    margin-left: 0.4rem;
+    font-size: 0.66rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--acento);
+    border: 1px solid var(--acento);
+    border-radius: var(--r-pill);
+    padding: 0.05rem 0.4rem;
+    vertical-align: middle;
+  }
+  .protegido {
+    font-size: 0.76rem;
+    color: var(--gris);
+    font-style: italic;
+    white-space: nowrap;
+  }
+  .protegido-aviso {
+    background: #fffaf5;
+    border: 1px solid var(--acento);
+    border-radius: var(--r-md);
+    padding: 0.75rem 1rem;
+    font-size: 0.86rem;
+    color: var(--pizarra);
+    line-height: 1.5;
   }
   .error {
     font-size: 0.86rem;
