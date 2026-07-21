@@ -7,6 +7,7 @@
 import { compararEventos, type EventoComanda, type EventoIdentidad } from "@motrest/dominio";
 import { almacenEnMemoria, almacenIndexedDB, type Almacen } from "@motrest/protocolo-sync";
 import { catalogo, impuestos } from "../catalogo";
+import { plano } from "../plano.svelte";
 import { pos, fabricaPos } from "../pos.svelte";
 import { sembrarSalon } from "../semilla";
 import { sesion } from "../sesion/sesion.svelte";
@@ -48,6 +49,11 @@ class Arranque {
 
     try {
       const almacen = this.almacen;
+
+      // El plano es catálogo: se carga antes que la operación, porque las
+      // comandas se agrupan por las mesas que él define.
+      await plano.hidratar(almacen);
+
       const guardados = await almacen.eventos.leerTodos();
 
       if (guardados.length === 0) {
@@ -68,6 +74,7 @@ class Arranque {
       // A partir de aquí, cada evento emitido se persiste.
       pos.conectarAlmacen(almacen);
       sesion.conectarAlmacen(almacen);
+      plano.conectarAlmacen(almacen);
     } catch (causa) {
       this.error = causa instanceof Error ? causa.message : "Error al cargar los datos";
       console.error("Fallo al rehidratar", causa);

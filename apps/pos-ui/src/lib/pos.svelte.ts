@@ -35,7 +35,8 @@ import {
 } from "@motrest/dominio";
 import type { Almacen } from "@motrest/protocolo-sync";
 import { catalogo, impuestos, tamanosPizza } from "./catalogo";
-import { EMPLEADO_ACTUAL, SUCURSAL_ID, mesas, obtenerDeviceId } from "./presentacion";
+import { plano } from "./plano.svelte";
+import { EMPLEADO_ACTUAL, SUCURSAL_ID, obtenerDeviceId } from "./presentacion";
 import { construirRenglon, mitades, type OpcionesSemilla } from "./semilla";
 import { autorizacion } from "./sesion/autorizacion.svelte";
 import { sesion } from "./sesion/sesion.svelte";
@@ -99,9 +100,13 @@ class TiendaPOS {
   hidratar(eventos: readonly EventoComanda[]): void {
     this.logs = agruparPorMesa(eventos);
 
-    // Deja activa la primera mesa con cuenta abierta; si no hay, la 12.
-    const conCuenta = mesas.find((m) => this.estadoMesa(m.id) !== "libre");
-    this.mesaActiva = conCuenta?.id ?? "mesa-12";
+    // Deja activa la primera mesa con cuenta abierta; si no hay, la primera del plano.
+    const conCuenta = plano.todasLasMesas.find((m) => this.estadoMesa(m.id) !== "libre");
+    this.mesaActiva = conCuenta?.id ?? plano.todasLasMesas[0]?.id ?? "";
+
+    // El salón se abre en el área donde está la mesa activa.
+    const area = plano.areaDeMesa(this.mesaActiva);
+    if (area) plano.areaActiva = area.id;
   }
 
   /** A partir de aquí cada evento emitido se guarda en el dispositivo. */
@@ -174,8 +179,9 @@ class TiendaPOS {
     return c ? renglonesPendientes(c) : [];
   }
 
-  get numeroMesaActiva(): number {
-    return mesas.find((m) => m.id === this.mesaActiva)?.numero ?? 0;
+  /** Identificador visible de la mesa activa: puede ser "12" o "Barra 3". */
+  get nombreMesaActiva(): string {
+    return plano.nombreMesa(this.mesaActiva);
   }
 
   // --- Estado del salón ---------------------------------------------------------
@@ -286,7 +292,7 @@ class TiendaPOS {
     const orden_id = this.asegurarOrden();
     const renglon = construirRenglon(opcionesSemilla, productoId, 1);
     this.emitir(this.mesaActiva, fabrica.crear("item_agregado", orden_id, { orden_id, renglon }));
-    this.flash(`${renglon.descripcion} agregado a la mesa ${this.numeroMesaActiva}`);
+    this.flash(`${renglon.descripcion} agregado a la mesa ${this.nombreMesaActiva}`);
   }
 
   async agregarPizza(): Promise<void> {
@@ -304,7 +310,7 @@ class TiendaPOS {
       detalle,
     );
     this.emitir(this.mesaActiva, fabrica.crear("item_agregado", orden_id, { orden_id, renglon }));
-    this.flash(`${renglon.descripcion} agregada a la mesa ${this.numeroMesaActiva}`);
+    this.flash(`${renglon.descripcion} agregada a la mesa ${this.nombreMesaActiva}`);
   }
 
   /**
@@ -364,7 +370,7 @@ class TiendaPOS {
     const orden_id = this.ordenActiva(this.mesaActiva);
     const t = this.totales;
     if (!orden_id || !t || !this.hayCuenta) return;
-    const mesa = this.numeroMesaActiva;
+    const mesa = this.nombreMesaActiva;
     this.emitir(
       this.mesaActiva,
       fabrica.crear("pago_registrado", orden_id, {
@@ -380,4 +386,4 @@ class TiendaPOS {
 }
 
 export const pos = new TiendaPOS();
-export { mesas };
+

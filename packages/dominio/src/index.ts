@@ -15,6 +15,7 @@ export * from "./comun/impuestos.js";
 export * from "./evento.js";
 
 // Catálogo
+export * from "./catalogo/areas.js";
 export * from "./catalogo/productos.js";
 export * from "./catalogo/porciones.js";
 export * from "./catalogo/recetas.js";

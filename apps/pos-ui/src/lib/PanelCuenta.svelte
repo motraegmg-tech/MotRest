@@ -15,7 +15,7 @@
 <aside class="cuenta">
   {#if pos.comanda && pos.hayCuenta}
     <div class="ch">
-      <h2>Mesa {pos.numeroMesaActiva}</h2>
+      <h2>Mesa {pos.nombreMesaActiva}</h2>
       {#if pos.enviadaACocina}
         <span class="chip cocina">En cocina</span>
       {:else}
@@ -81,7 +81,7 @@
     </div>
   {:else}
     <div class="vacia">
-      <div class="mesa-num">Mesa {pos.numeroMesaActiva}</div>
+      <div class="mesa-num">Mesa {pos.nombreMesaActiva}</div>
       <p class="titulo-vacio">Sin cuenta abierta</p>
       <p class="hint">Toca una mesa del salón o agrega un producto para abrir la cuenta.</p>
     </div>

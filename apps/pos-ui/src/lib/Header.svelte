@@ -34,7 +34,7 @@
   <h1>{moduloActual?.titulo ?? cabecera.titulo}</h1>
   <span class="chip">{cabecera.sucursal} ▾</span>
   {#if enVenta}
-    <span class="chip acento">Mesa {pos.numeroMesaActiva}</span>
+    <span class="chip acento">Mesa {pos.nombreMesaActiva}</span>
   {/if}
   <span class="chip gray">{diaYHora(ahora)}</span>
   <span class="chip gray">{cabecera.demo}</span>

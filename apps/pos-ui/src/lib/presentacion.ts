@@ -32,16 +32,7 @@ export function obtenerDeviceId(): ID {
   return nuevo;
 }
 
-/** Número total de mesas del salón. */
-export const NUM_MESAS = 12;
-
-/** Mesas del salón. Sin número de comensales (decisión de Gonzalo). */
-export interface Mesa {
-  id: ID;
-  numero: number;
-}
-
-export const mesas: Mesa[] = Array.from({ length: NUM_MESAS }, (_, i) => ({
-  id: `mesa-${i + 1}`,
-  numero: i + 1,
-}));
+/**
+ * Las mesas ya no viven aquí: son parte del plano de piso que cada restaurante
+ * edita (ver `plano.svelte.ts` y `catalogo/areas.ts` en el dominio).
+ */

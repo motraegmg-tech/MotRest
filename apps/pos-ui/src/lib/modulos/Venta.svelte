@@ -31,7 +31,7 @@
   <div class="centro" data-paso={paso}>
     <div class="barra-tablet">
       <button class="abrir-salon" onclick={() => (cajonSalon = true)}>
-        ☰ Salón · mesa {pos.numeroMesaActiva}
+        ☰ Salón · mesa {pos.nombreMesaActiva}
       </button>
     </div>
     <ConfiguradorPlatillo />

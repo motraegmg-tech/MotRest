@@ -10,6 +10,7 @@
   import { rutas } from "./lib/nav/rutas.svelte";
   import Venta from "./lib/modulos/Venta.svelte";
   import Bitacora from "./lib/modulos/admin/Bitacora.svelte";
+  import Salones from "./lib/modulos/admin/Salones.svelte";
   import Usuarios from "./lib/modulos/admin/Usuarios.svelte";
   import Acceso from "./lib/sesion/Acceso.svelte";
   import CambioCredencial from "./lib/sesion/CambioCredencial.svelte";
@@ -49,6 +50,8 @@
     {:else if modulo.clave === "administracion"}
       {#if seccion === "bitacora"}
         <Bitacora />
+      {:else if seccion === "salones"}
+        <Salones />
       {:else}
         <Usuarios />
       {/if}
