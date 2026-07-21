@@ -40,6 +40,11 @@ export interface Producto {
 
   /** Estación de cocina a la que se rutea (KDS e impresión). */
   estacion_id?: ID;
+  /**
+   * Clave del catálogo c_ClaveProdServ del SAT, para facturar. Si se omite se
+   * usa la de consumo en restaurante (90101501).
+   */
+  clave_prod_serv?: string;
   disponible: boolean;
   orden: number;
 }

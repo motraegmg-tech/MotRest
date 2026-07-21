@@ -4,9 +4,15 @@
  *
  * A partir de aquí recargar el navegador ya no pierde la operación.
  */
-import { compararEventos, type EventoComanda, type EventoIdentidad } from "@motrest/dominio";
+import {
+  compararEventos,
+  type EventoComanda,
+  type EventoFiscal,
+  type EventoIdentidad,
+} from "@motrest/dominio";
 import { almacenEnMemoria, almacenIndexedDB, type Almacen } from "@motrest/protocolo-sync";
 import { catalogo, impuestos } from "../catalogo";
+import { fiscal } from "../fiscal.svelte";
 import { plano } from "../plano.svelte";
 import { pos, fabricaPos } from "../pos.svelte";
 import { sembrarSalon } from "../semilla";
@@ -16,13 +22,27 @@ import { sesion } from "../sesion/sesion.svelte";
 const TIPOS_COMANDA = new Set([
   "orden_creada",
   "item_agregado",
+  "item_modificado",
   "item_cancelado",
+  "item_transferido",
+  "item_recibido",
   "items_enviados",
   "item_en_marcha",
   "item_listo",
   "item_entregado",
+  "descuento_aplicado",
+  "cortesia_otorgada",
+  "propina_registrada",
   "pago_registrado",
   "cuenta_cerrada",
+]);
+
+/** Eventos del ciclo fiscal (CFDI). */
+const TIPOS_FISCALES = new Set([
+  "cfdi_generado",
+  "cfdi_timbrado",
+  "cfdi_rechazado",
+  "cfdi_cancelado",
 ]);
 
 class Arranque {
@@ -68,13 +88,21 @@ class Arranque {
         ) as EventoIdentidad[];
 
         pos.hidratar(comanda);
-        await sesion.hidratar(identidad, almacen);
+        await sesion.hidratar(
+          identidad.filter((e) => !TIPOS_FISCALES.has(e.tipo)) as EventoIdentidad[],
+          almacen,
+        );
+        await fiscal.hidratar(
+          ordenados.filter((e) => TIPOS_FISCALES.has((e as EventoFiscal).tipo)) as EventoFiscal[],
+          almacen,
+        );
       }
 
       // A partir de aquí, cada evento emitido se persiste.
       pos.conectarAlmacen(almacen);
       sesion.conectarAlmacen(almacen);
       plano.conectarAlmacen(almacen);
+      fiscal.conectarAlmacen(almacen);
     } catch (causa) {
       this.error = causa instanceof Error ? causa.message : "Error al cargar los datos";
       console.error("Fallo al rehidratar", causa);
@@ -97,6 +125,7 @@ class Arranque {
     await almacen.eventos.anexar(eventos);
     pos.hidratar(eventos.sort(compararEventos));
     await sesion.hidratar([], almacen);
+    await fiscal.hidratar([], almacen);
   }
 
   /** Borra todo lo guardado y recarga con la demostración de origen. */

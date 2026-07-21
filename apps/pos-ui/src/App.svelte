@@ -8,6 +8,7 @@
   import Sidebar from "./lib/nav/Sidebar.svelte";
   import { MODULO_POR_CLAVE, MODULOS } from "./lib/nav/modulos";
   import { rutas } from "./lib/nav/rutas.svelte";
+  import Finanzas from "./lib/modulos/Finanzas.svelte";
   import Venta from "./lib/modulos/Venta.svelte";
   import Bitacora from "./lib/modulos/admin/Bitacora.svelte";
   import Salones from "./lib/modulos/admin/Salones.svelte";
@@ -47,6 +48,8 @@
       </div>
     {:else if modulo.clave === "venta"}
       <Venta />
+    {:else if modulo.clave === "finanzas"}
+      <Finanzas />
     {:else if modulo.clave === "administracion"}
       {#if seccion === "bitacora"}
         <Bitacora />

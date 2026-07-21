@@ -9,10 +9,13 @@
     sumar,
     type FormaPago,
   } from "@motrest/dominio";
+  import DialogoFactura from "./DialogoFactura.svelte";
   import { hora, mxn } from "./formato";
   import { plano } from "./plano.svelte";
   import { pos } from "./pos.svelte";
   import { sesion } from "./sesion/sesion.svelte";
+
+  let facturando = $state(false);
 
   const etiquetaEstado: Record<string, string> = {
     enviado: "en cocina",
@@ -128,6 +131,12 @@
       </div>
 
       <div class="extras">
+        {#if sesion.puedeOperar("fin.factura.emitir")}
+          <span class="grupo">
+            Factura
+            <button class="mini" onclick={() => (facturando = true)}>Emitir CFDI</button>
+          </span>
+        {/if}
         <span class="grupo">
           Propina
           {#each [0.1, 0.15, 0.2] as pct (pct)}
@@ -227,6 +236,10 @@
     <div class="toast" role="status">{pos.mensaje}</div>
   {/if}
 </aside>
+
+{#if facturando && pos.comanda}
+  <DialogoFactura comanda={pos.comanda} onCerrar={() => (facturando = false)} />
+{/if}
 
 <style>
   .cuenta {

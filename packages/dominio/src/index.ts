@@ -31,6 +31,14 @@ export * from "./comanda/totales.js";
 export * from "./caja/eventos.js";
 export * from "./caja/reducers.js";
 
+// Fiscal (CFDI 4.0)
+export * from "./fiscal/claves.js";
+export * from "./fiscal/rfc.js";
+export * from "./fiscal/comprobante.js";
+export * from "./fiscal/xml.js";
+export * from "./fiscal/validacion.js";
+export * from "./fiscal/eventos.js";
+
 // Costeo
 export * from "./costeo/costeo.js";
 export * from "./costeo/configuracion.js";
