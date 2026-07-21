@@ -11,6 +11,7 @@
 import type { Centavos } from "../comun/dinero.js";
 import type { ID } from "../comun/ids.js";
 import type { TasasSnapshot } from "../comun/impuestos.js";
+import type { SeleccionModificador } from "../catalogo/modificadores.js";
 import type { PorcionElegida } from "../catalogo/porciones.js";
 
 export type EstadoRenglon =
@@ -48,6 +49,8 @@ export interface RenglonComanda {
 
   /** Snapshot de la configuración de porciones, si el producto es configurable. */
   porciones?: PorcionElegida[];
+  /** Snapshot de los modificadores elegidos (término, extras, sin cebolla…). */
+  modificadores?: SeleccionModificador[];
   notas?: string;
 
   estado: EstadoRenglon;

@@ -23,6 +23,18 @@ export type FormaPago =
   | "transferencia"
   | "vale";
 
+export const FORMAS_PAGO: { valor: FormaPago; etiqueta: string; efectivo: boolean }[] = [
+  { valor: "efectivo", etiqueta: "Efectivo", efectivo: true },
+  { valor: "tarjeta_debito", etiqueta: "Débito", efectivo: false },
+  { valor: "tarjeta_credito", etiqueta: "Crédito", efectivo: false },
+  { valor: "transferencia", etiqueta: "Transferencia", efectivo: false },
+  { valor: "vale", etiqueta: "Vale", efectivo: false },
+];
+
+export function etiquetaFormaPago(forma: FormaPago): string {
+  return FORMAS_PAGO.find((f) => f.valor === forma)?.etiqueta ?? forma;
+}
+
 export type EventoComanda =
   | (EventoBase & {
       tipo: "orden_creada";
@@ -67,12 +79,62 @@ export type EventoComanda =
       renglon_id: ID;
     })
   | (EventoBase & {
+      tipo: "item_modificado";
+      orden_id: ID;
+      renglon_id: ID;
+      cantidad?: number;
+      notas?: string;
+    })
+  | (EventoBase & {
+      /** Traspaso de renglones a otra cuenta (dividir o mover de mesa). */
+      tipo: "item_transferido";
+      orden_id: ID;
+      renglon_id: ID;
+      a_orden_id: ID;
+    })
+  | (EventoBase & {
+      /** Recepción del renglón en la cuenta destino. */
+      tipo: "item_recibido";
+      orden_id: ID;
+      renglon: RenglonComanda;
+      de_orden_id: ID;
+    })
+  | (EventoBase & {
+      tipo: "descuento_aplicado";
+      orden_id: ID;
+      /** Sobre un renglón concreto o sobre toda la cuenta. */
+      alcance: "renglon" | "cuenta";
+      renglon_id?: ID;
+      /** Fracción 0..1 si es porcentaje; centavos si es monto fijo. */
+      modo: "porcentaje" | "monto";
+      valor: number;
+      motivo: string;
+      autorizador_id?: ID;
+    })
+  | (EventoBase & {
+      /** La cortesía tiene semántica contable distinta al descuento. */
+      tipo: "cortesia_otorgada";
+      orden_id: ID;
+      renglon_id?: ID;
+      motivo: string;
+      autorizador_id?: ID;
+    })
+  | (EventoBase & {
+      tipo: "propina_registrada";
+      orden_id: ID;
+      monto: Centavos;
+      /** Empleado al que se le acredita, si el reparto es nominal. */
+      beneficiario_id?: ID;
+    })
+  | (EventoBase & {
       tipo: "pago_registrado";
       orden_id: ID;
       monto: Centavos;
       forma: FormaPago;
-      propina?: Centavos;
+      /** Efectivo recibido, para calcular el cambio. */
+      recibido?: Centavos;
       referencia?: string;
+      sesion_caja_id?: ID;
     })
   | (EventoBase & {
       tipo: "cuenta_cerrada";

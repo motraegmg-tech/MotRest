@@ -50,6 +50,7 @@ export interface CatalogoIndex {
   categorias: ReadonlyMap<ID, Categoria>;
   recetas: ReadonlyMap<ID, import("./recetas.js").Receta>;
   impuestos: ReadonlyMap<ID, import("../comun/impuestos.js").PerfilImpuesto>;
+  grupos: ReadonlyMap<ID, import("./modificadores.js").GrupoModificadores>;
 }
 
 export interface CatalogoPlano {
@@ -57,6 +58,7 @@ export interface CatalogoPlano {
   categorias: readonly Categoria[];
   recetas?: readonly import("./recetas.js").Receta[];
   impuestos: readonly import("../comun/impuestos.js").PerfilImpuesto[];
+  grupos?: readonly import("./modificadores.js").GrupoModificadores[];
 }
 
 export function indexar(plano: CatalogoPlano): CatalogoIndex {
@@ -65,7 +67,38 @@ export function indexar(plano: CatalogoPlano): CatalogoIndex {
     categorias: new Map(plano.categorias.map((c) => [c.id, c])),
     recetas: new Map((plano.recetas ?? []).map((r) => [r.id, r])),
     impuestos: new Map(plano.impuestos.map((i) => [i.id, i])),
+    grupos: new Map((plano.grupos ?? []).map((g) => [g.id, g])),
   };
+}
+
+/** Grupos de modificadores de un producto, en su orden de presentación. */
+export function gruposDe(
+  cat: CatalogoIndex,
+  producto: Producto,
+): import("./modificadores.js").GrupoModificadores[] {
+  return (producto.grupos_modificadores ?? [])
+    .map((id) => cat.grupos.get(id))
+    .filter((g): g is import("./modificadores.js").GrupoModificadores => g !== undefined)
+    .sort((a, b) => a.orden - b.orden);
+}
+
+/** Productos de una categoría, ordenados. */
+export function productosDeCategoria(cat: CatalogoIndex, categoriaId: ID): Producto[] {
+  return [...cat.productos.values()]
+    .filter((p) => p.categoria_id === categoriaId && p.disponible)
+    .sort((a, b) => a.orden - b.orden);
+}
+
+/** Búsqueda por nombre, sin distinguir acentos ni mayúsculas. */
+export function buscarProductos(cat: CatalogoIndex, texto: string): Producto[] {
+  const normalizar = (s: string) =>
+    s.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
+  const aguja = normalizar(texto.trim());
+  if (aguja.length === 0) return [];
+
+  return [...cat.productos.values()]
+    .filter((p) => p.disponible && normalizar(p.nombre).includes(aguja))
+    .sort((a, b) => a.orden - b.orden);
 }
 
 /** Busca un producto o lanza con un mensaje útil. */

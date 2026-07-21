@@ -6,8 +6,14 @@
    * el TRD §10 ("el event log es la bitácora inmutable"). Fusiona los eventos de
    * identidad con los de operación y los ordena por el reloj del dispositivo.
    */
-  import { etiquetaAccion, type EventoComanda, type EventoIdentidad } from "@motrest/dominio";
-  import { hora } from "../../formato";
+  import {
+    deCentavos,
+    etiquetaAccion,
+    etiquetaFormaPago,
+    type EventoComanda,
+    type EventoIdentidad,
+  } from "@motrest/dominio";
+  import { hora, mxn } from "../../formato";
   import { pos } from "../../pos.svelte";
   import { sesion } from "../../sesion/sesion.svelte";
 
@@ -60,6 +66,28 @@
         return { ...base,
           texto: `Canceló un renglón${ev.autorizador_id ? ` · autorizó ${sesion.nombreDe(ev.autorizador_id)}` : ""}`,
           tono: "alerta" };
+      case "item_modificado":
+        return { ...base,
+          texto: ev.cantidad !== undefined
+            ? `Cambió la cantidad de un renglón a ${ev.cantidad}`
+            : "Modificó las notas de un renglón",
+          tono: "normal" };
+      case "item_transferido":
+        return { ...base, texto: "Traspasó un renglón a otra cuenta", tono: "acento" };
+      case "item_recibido":
+        return { ...base, texto: `Recibió ${ev.renglon.descripcion} de otra cuenta`, tono: "acento" };
+      case "descuento_aplicado":
+        return { ...base,
+          texto: `Aplicó un descuento de ${
+            ev.modo === "porcentaje" ? `${Math.round(ev.valor * 100)} %` : mxn(deCentavos(ev.valor))
+          } (${ev.motivo})${ev.autorizador_id ? ` · autorizó ${sesion.nombreDe(ev.autorizador_id)}` : ""}`,
+          tono: "alerta" };
+      case "cortesia_otorgada":
+        return { ...base,
+          texto: `Otorgó una cortesía (${ev.motivo})${ev.autorizador_id ? ` · autorizó ${sesion.nombreDe(ev.autorizador_id)}` : ""}`,
+          tono: "alerta" };
+      case "propina_registrada":
+        return { ...base, texto: `Registró propina de ${mxn(ev.monto)}`, tono: "normal" };
       case "items_enviados":
         return { ...base, texto: `Envió ${ev.renglon_ids.length} platillo(s) a cocina`, tono: "normal" };
       case "item_en_marcha":
@@ -69,7 +97,9 @@
       case "item_entregado":
         return { ...base, texto: "Platillo entregado", tono: "normal" };
       case "pago_registrado":
-        return { ...base, texto: `Registró un pago (${ev.forma})`, tono: "acento" };
+        return { ...base,
+          texto: `Cobró ${mxn(ev.monto)} en ${etiquetaFormaPago(ev.forma)}`,
+          tono: "acento" };
       case "cuenta_cerrada":
         return { ...base, texto: "Cerró la cuenta", tono: "acento" };
     }

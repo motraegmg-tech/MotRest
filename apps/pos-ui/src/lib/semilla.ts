@@ -6,13 +6,13 @@
  * que el propio restaurante da de alta.
  */
 import {
+  CERO,
   FabricaEventos,
-  costearPorciones,
-  productoDe,
+  construirRenglon,
   proyectarComanda,
-  snapshotTasas,
   uuidv7,
   type CatalogoIndex,
+  type ConfiguracionRenglon,
   type EventoComanda,
   type ID,
   type PerfilImpuesto,
@@ -27,29 +27,11 @@ export interface OpcionesSemilla {
 }
 
 /** Construye un renglón con snapshot de precio, costo e impuesto. */
-export function construirRenglon(
+export function renglonDe(
   opciones: OpcionesSemilla,
-  productoId: ID,
-  cantidad: number,
-  porciones?: PorcionElegida[],
-  detalle?: string,
+  config: ConfiguracionRenglon,
 ): RenglonComanda {
-  const { catalogo, impuestoPorDefecto } = opciones;
-  const p = productoDe(catalogo, productoId);
-  const perfil = catalogo.impuestos.get(p.impuesto_id) ?? impuestoPorDefecto;
-  return {
-    id: uuidv7(),
-    producto_id: p.id,
-    descripcion: p.nombre,
-    detalle,
-    cantidad,
-    precio_unitario: p.precio,
-    costo_unitario: porciones?.length ? costearPorciones(porciones, catalogo) : p.costo,
-    impuesto: snapshotTasas(perfil),
-    porciones,
-    estado: "capturado",
-    estacion_id: p.estacion_id,
-  };
+  return construirRenglon(config, opciones.catalogo, opciones.impuestoPorDefecto);
 }
 
 /** Arma las dos porciones de una pizza mitad y mitad. */
@@ -62,7 +44,7 @@ export function mitades(izq: ID, der: ID): PorcionElegida[] {
 
 /** Siembra el salón. Devuelve el log de eventos por mesa. */
 export function sembrarSalon(opciones: OpcionesSemilla): Record<ID, EventoComanda[]> {
-  const { catalogo, fabrica } = opciones;
+  const { fabrica } = opciones;
   const logs: Record<ID, EventoComanda[]> = {};
 
   const abrir = (mesaId: ID): ID => {
@@ -77,24 +59,36 @@ export function sembrarSalon(opciones: OpcionesSemilla): Record<ID, EventoComand
     return orden_id;
   };
 
-  const add = (mesaId: ID, orden_id: ID, productoId: ID, cantidad = 1, detalle?: string): void => {
+  const add = (
+    mesaId: ID,
+    orden_id: ID,
+    producto_id: ID,
+    cantidad = 1,
+    extra: Partial<ConfiguracionRenglon> = {},
+  ): void => {
     logs[mesaId]?.push(
       fabrica.crear("item_agregado", orden_id, {
         orden_id,
-        renglon: construirRenglon(opciones, productoId, cantidad, undefined, detalle),
+        renglon: renglonDe(opciones, { producto_id, cantidad, ...extra }),
       }),
     );
   };
 
   const addPizza = (mesaId: ID, orden_id: ID, tamanoId: ID, izq: ID, der: ID): void => {
-    const porciones = mitades(izq, der);
-    const detalle = `½ ${productoDe(catalogo, izq).nombre} · ½ ${productoDe(catalogo, der).nombre}`;
-    logs[mesaId]?.push(
-      fabrica.crear("item_agregado", orden_id, {
-        orden_id,
-        renglon: construirRenglon(opciones, tamanoId, 1, porciones, detalle),
-      }),
-    );
+    add(mesaId, orden_id, tamanoId, 1, {
+      porciones: mitades(izq, der),
+      modificadores: [
+        {
+          grupo_id: "gm-orilla",
+          grupo_nombre: "Orilla",
+          opcion_id: "op-orilla-trad",
+          opcion_nombre: "Tradicional",
+          precio_delta: CERO,
+          costo_delta: CERO,
+          cantidad: 1,
+        },
+      ],
+    });
   };
 
   const enviarTodo = (mesaId: ID, orden_id: ID): void => {
@@ -107,7 +101,7 @@ export function sembrarSalon(opciones: OpcionesSemilla): Record<ID, EventoComand
   // Mesa 12: la comanda completa del mockup P1.
   const o12 = abrir("mesa-12");
   addPizza("mesa-12", o12, "prod-pizza-familiar", "var-margherita", "var-pepperoni");
-  add("mesa-12", o12, "prod-pasta-pesto", 1, "Sin nuez · término al dente");
+  add("mesa-12", o12, "prod-pasta-pesto", 1, { notas: "Término al dente" });
   add("mesa-12", o12, "prod-limonada", 2);
   add("mesa-12", o12, "prod-agua", 1);
 

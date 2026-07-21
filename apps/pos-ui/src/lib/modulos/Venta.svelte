@@ -7,8 +7,8 @@
    *   tablet (768–1279 px)  → el salón se colapsa en cajón lateral
    *   teléfono (<768 px)    → flujo por pasos
    */
-  import AgregadoRapido from "../AgregadoRapido.svelte";
-  import ConfiguradorPlatillo from "../ConfiguradorPlatillo.svelte";
+  import CatalogoProductos from "../CatalogoProductos.svelte";
+  import ConfiguradorProducto from "../ConfiguradorProducto.svelte";
   import PanelCuenta from "../PanelCuenta.svelte";
   import PanelSalon from "../PanelSalon.svelte";
   import { pos } from "../pos.svelte";
@@ -34,13 +34,15 @@
         ☰ Salón · mesa {pos.nombreMesaActiva}
       </button>
     </div>
-    <ConfiguradorPlatillo />
-    <AgregadoRapido />
+    <CatalogoProductos />
   </div>
 
   <div class="cuenta" data-paso={paso}>
     <PanelCuenta />
   </div>
+
+  <!-- Configurador: se abre encima cuando el producto lo requiere -->
+  <ConfiguradorProducto />
 
   <!-- Navegación por pasos, solo en teléfono -->
   <nav class="pasos">

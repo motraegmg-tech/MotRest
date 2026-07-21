@@ -167,15 +167,17 @@ describe("proyección de la comanda", () => {
     const f = new FabricaEventos<EventoComanda>(CTX);
     const completo: EventoComanda[] = [
       ...eventos,
+      f.crear("propina_registrada", orden_id, { orden_id, monto: pesos(60) as Centavos }),
       f.crear("pago_registrado", orden_id, {
-        orden_id, monto: pesos(598.56) as Centavos, forma: "efectivo", propina: pesos(60) as Centavos,
+        orden_id, monto: pesos(658.56) as Centavos, forma: "efectivo",
       }),
       f.crear("cuenta_cerrada", orden_id, { orden_id }),
     ];
     const estado = proyectarComanda(completo);
     const t = totalesComanda(estado);
     expect(estado.cerrada).toBe(true);
-    expect(t.pagado).toBe(pesos(598.56));
+    // Se cobra el total más la propina: 598.56 + 60.
+    expect(t.pagado).toBe(pesos(658.56));
     expect(t.propina).toBe(pesos(60));
     expect(t.saldo).toBe(0);
   });

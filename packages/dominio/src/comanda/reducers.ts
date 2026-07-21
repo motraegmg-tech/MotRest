@@ -2,7 +2,7 @@
  * Reducers de la comanda: reconstruyen el estado (proyección) desde el log de
  * eventos. Estado inmutable — cada evento produce un objeto nuevo (ADR-02).
  */
-import type { Centavos } from "../comun/dinero.js";
+import { sumar, type Centavos } from "../comun/dinero.js";
 import type { ID } from "../comun/ids.js";
 import type { EventoComanda, FormaPago } from "./eventos.js";
 import { estaActivo, type EstadoRenglon, type RenglonComanda } from "./renglon.js";
@@ -10,8 +10,23 @@ import { estaActivo, type EstadoRenglon, type RenglonComanda } from "./renglon.j
 export interface Pago {
   monto: Centavos;
   forma: FormaPago;
-  propina: Centavos;
+  recibido?: Centavos;
   referencia?: string;
+}
+
+export interface Descuento {
+  alcance: "renglon" | "cuenta";
+  renglon_id?: ID;
+  modo: "porcentaje" | "monto";
+  valor: number;
+  motivo: string;
+  autorizador_id?: ID;
+}
+
+export interface Cortesia {
+  renglon_id?: ID;
+  motivo: string;
+  autorizador_id?: ID;
 }
 
 /** Proyección del estado de una comanda. Sin `personas` (decisión de Gonzalo). */
@@ -24,6 +39,9 @@ export interface EstadoComanda {
   renglones: RenglonComanda[];
   cerrada: boolean;
   pagos: Pago[];
+  descuentos: Descuento[];
+  cortesias: Cortesia[];
+  propina: Centavos;
 }
 
 /** Cambia el estado de un renglón concreto, dejando el resto intacto. */
@@ -55,6 +73,9 @@ export function aplicarEvento(
       renglones: [],
       cerrada: false,
       pagos: [],
+      descuentos: [],
+      cortesias: [],
+      propina: 0 as Centavos,
     };
   }
 
@@ -92,6 +113,62 @@ export function aplicarEvento(
     case "item_entregado":
       return conEstadoRenglon(estado, ev.renglon_id, "entregado");
 
+    case "item_modificado":
+      return {
+        ...estado,
+        renglones: estado.renglones.map((r) =>
+          r.id === ev.renglon_id
+            ? {
+                ...r,
+                ...(ev.cantidad === undefined ? {} : { cantidad: ev.cantidad }),
+                ...(ev.notas === undefined ? {} : { notas: ev.notas }),
+              }
+            : r,
+        ),
+      };
+
+    case "item_transferido":
+      // El renglón deja esta cuenta; la destino lo recibe con `item_recibido`.
+      return {
+        ...estado,
+        renglones: estado.renglones.filter((r) => r.id !== ev.renglon_id),
+      };
+
+    case "item_recibido":
+      return { ...estado, renglones: [...estado.renglones, ev.renglon] };
+
+    case "descuento_aplicado":
+      return {
+        ...estado,
+        descuentos: [
+          ...estado.descuentos,
+          {
+            alcance: ev.alcance,
+            renglon_id: ev.renglon_id,
+            modo: ev.modo,
+            valor: ev.valor,
+            motivo: ev.motivo,
+            autorizador_id: ev.autorizador_id,
+          },
+        ],
+      };
+
+    case "cortesia_otorgada":
+      return {
+        ...estado,
+        cortesias: [
+          ...estado.cortesias,
+          {
+            renglon_id: ev.renglon_id,
+            motivo: ev.motivo,
+            autorizador_id: ev.autorizador_id,
+          },
+        ],
+      };
+
+    case "propina_registrada":
+      return { ...estado, propina: sumar(estado.propina, ev.monto) };
+
     case "pago_registrado":
       return {
         ...estado,
@@ -100,7 +177,7 @@ export function aplicarEvento(
           {
             monto: ev.monto,
             forma: ev.forma,
-            propina: ev.propina ?? (0 as Centavos),
+            recibido: ev.recibido,
             referencia: ev.referencia,
           },
         ],

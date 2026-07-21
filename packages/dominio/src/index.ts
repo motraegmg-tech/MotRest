@@ -18,6 +18,7 @@ export * from "./evento.js";
 export * from "./catalogo/areas.js";
 export * from "./catalogo/productos.js";
 export * from "./catalogo/porciones.js";
+export * from "./catalogo/modificadores.js";
 export * from "./catalogo/recetas.js";
 
 // Comanda
@@ -26,8 +27,13 @@ export * from "./comanda/eventos.js";
 export * from "./comanda/reducers.js";
 export * from "./comanda/totales.js";
 
+// Caja
+export * from "./caja/eventos.js";
+export * from "./caja/reducers.js";
+
 // Costeo
 export * from "./costeo/costeo.js";
+export * from "./costeo/configuracion.js";
 
 // Identidad, roles y permisos
 export * from "./identidad/acciones.js";

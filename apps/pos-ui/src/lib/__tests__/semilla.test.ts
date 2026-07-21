@@ -46,7 +46,8 @@ describe("semilla del salón", () => {
     const logs = sembrarSalon(opciones());
     const estado = proyectarComanda(logs["mesa-12"]!);
     expect(renglonesActivos(estado)).toHaveLength(4);
-    expect(estado.renglones[0]?.detalle).toBe("½ Margherita · ½ Pepperoni");
+    // El detalle ahora incluye también los modificadores elegidos.
+    expect(estado.renglones[0]?.detalle).toBe("½ Margherita · ½ Pepperoni · Tradicional");
   });
 
   it("las mesas 4 y 10 quedan enviadas a cocina; la 12 no", () => {
