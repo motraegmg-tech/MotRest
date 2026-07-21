@@ -21,6 +21,7 @@ import {
   renglonesActivos,
   renglonesPendientes,
   tieneEnviados,
+  yaEnviado,
   totalesComanda,
   uuidv7,
   type Centavos,
@@ -34,6 +35,8 @@ import {
 import { catalogo, impuestos, tamanosPizza } from "./catalogo";
 import { EMPLEADO_ACTUAL, SUCURSAL_ID, mesas, obtenerDeviceId } from "./presentacion";
 import { construirRenglon, mitades, sembrarSalon, type OpcionesSemilla } from "./semilla";
+import { autorizacion } from "./sesion/autorizacion.svelte";
+import { sesion } from "./sesion/sesion.svelte";
 
 export type EstadoMesa = "libre" | "ocupada" | "cuenta";
 
@@ -83,6 +86,18 @@ class TiendaPOS {
   private emitir(mesaId: ID, evento: EventoComanda): void {
     const previos = this.logs[mesaId] ?? [];
     this.logs = { ...this.logs, [mesaId]: [...previos, evento] };
+  }
+
+  /** Los eventos se firman con el empleado que tenga la sesión abierta. */
+  private sincronizarActor(): void {
+    fabrica.actualizarContexto({
+      empleado_id: sesion.usuarioActual?.id ?? EMPLEADO_ACTUAL,
+    });
+  }
+
+  /** Todos los eventos operativos del local, para la bitácora de auditoría. */
+  get todosLosEventos(): EventoComanda[] {
+    return Object.values(this.logs).flat();
   }
 
   private flash(texto: string): void {
@@ -229,14 +244,22 @@ class TiendaPOS {
     return this.ordenActiva(this.mesaActiva) ?? this.abrirMesa(this.mesaActiva);
   }
 
-  agregarSimple(productoId: ID): void {
+  async agregarSimple(productoId: ID): Promise<void> {
+    const permiso = await autorizacion.solicitar("pos.item.agregar");
+    if (!permiso.ok) return;
+    this.sincronizarActor();
+
     const orden_id = this.asegurarOrden();
     const renglon = construirRenglon(opcionesSemilla, productoId, 1);
     this.emitir(this.mesaActiva, fabrica.crear("item_agregado", orden_id, { orden_id, renglon }));
     this.flash(`${renglon.descripcion} agregado a la mesa ${this.numeroMesaActiva}`);
   }
 
-  agregarPizza(): void {
+  async agregarPizza(): Promise<void> {
+    const permiso = await autorizacion.solicitar("pos.item.agregar");
+    if (!permiso.ok) return;
+    this.sincronizarActor();
+
     const orden_id = this.asegurarOrden();
     const detalle = `½ ${this.etiquetaIzq} · ½ ${this.etiquetaDer}`;
     const renglon = construirRenglon(
@@ -250,21 +273,40 @@ class TiendaPOS {
     this.flash(`${renglon.descripcion} agregada a la mesa ${this.numeroMesaActiva}`);
   }
 
-  cancelar(renglonId: ID): void {
+  /**
+   * Cancelar un renglón. Si ya salió a cocina exige autorización de un rol
+   * superior; la firma queda registrada en el propio evento y en la bitácora.
+   */
+  async cancelar(renglonId: ID): Promise<void> {
     const orden_id = this.ordenActiva(this.mesaActiva);
     if (!orden_id) return;
+
+    const renglon = this.renglones.find((r) => r.id === renglonId);
+    if (!renglon) return;
+
+    const enviado = yaEnviado(renglon);
+    const accion = enviado ? "pos.item.cancelar_enviado" : "pos.item.cancelar_previo_envio";
+    const permiso = await autorizacion.solicitar(accion, undefined, renglon.descripcion);
+    if (!permiso.ok) return;
+
+    this.sincronizarActor();
     this.emitir(
       this.mesaActiva,
       fabrica.crear("item_cancelado", orden_id, {
         orden_id,
         renglon_id: renglonId,
-        autorizador_id: fabrica.empleadoActual,
+        autorizador_id: permiso.autorizador_id ?? sesion.usuarioActual?.id,
       }),
     );
+    if (enviado) this.flash(`"${renglon.descripcion}" cancelado con autorización`);
   }
 
   /** Manda a cocina solo lo que sigue pendiente (envío por tiempos). */
-  enviarACocina(): void {
+  async enviarACocina(): Promise<void> {
+    const permiso = await autorizacion.solicitar("pos.item.enviar_cocina");
+    if (!permiso.ok) return;
+    this.sincronizarActor();
+
     const orden_id = this.ordenActiva(this.mesaActiva);
     const porEnviar = this.pendientes;
     if (!orden_id || porEnviar.length === 0) return;
@@ -280,7 +322,11 @@ class TiendaPOS {
     );
   }
 
-  cobrar(): void {
+  async cobrar(): Promise<void> {
+    const permiso = await autorizacion.solicitar("pos.cobro.registrar");
+    if (!permiso.ok) return;
+    this.sincronizarActor();
+
     const orden_id = this.ordenActiva(this.mesaActiva);
     const t = this.totales;
     if (!orden_id || !t || !this.hayCuenta) return;

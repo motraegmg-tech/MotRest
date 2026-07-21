@@ -27,3 +27,10 @@ export * from "./comanda/totales.js";
 
 // Costeo
 export * from "./costeo/costeo.js";
+
+// Identidad, roles y permisos
+export * from "./identidad/acciones.js";
+export * from "./identidad/roles.js";
+export * from "./identidad/matriz.js";
+export * from "./identidad/credenciales.js";
+export * from "./identidad/eventos.js";

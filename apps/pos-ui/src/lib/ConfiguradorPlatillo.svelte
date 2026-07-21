@@ -3,6 +3,10 @@
   import { catalogo, idsVariedades, tamanosPizza } from "./catalogo";
   import { mxn, pct } from "./formato";
   import { pos } from "./pos.svelte";
+  import { sesion } from "./sesion/sesion.svelte";
+
+  // El food cost es información sensible: un mesero no lo ve (PRD §2).
+  const veCostos = $derived(sesion.puedeVer("fin.costo.ver"));
 
   function nombreVariedad(id: string): string {
     return productoDe(catalogo, id).nombre;
@@ -49,7 +53,9 @@
         <div class="half">
           <h3>
             {mitad.posicion} · {mitad.nombre}
-            <span class="mg">costo {mxn(mitad.costo)} · margen {pct(mitad.margen)}</span>
+            {#if veCostos}
+              <span class="mg">costo {mxn(mitad.costo)} · margen {pct(mitad.margen)}</span>
+            {/if}
           </h3>
           <div class="selector">
             {#each idsVariedades as id (id)}
@@ -66,7 +72,7 @@
           {#if mitad.ingredientes.length > 0}
             <div class="ing">
               {#each mitad.ingredientes as ing (ing.nombre)}
-                <span>{ing.nombre} <b>{mxn(ing.costo)}</b></span>
+                <span>{ing.nombre} {#if veCostos}<b>{mxn(ing.costo)}</b>{/if}</span>
               {/each}
             </div>
           {/if}
@@ -74,10 +80,16 @@
       {/each}
 
       <div class="live">
-        <span class="t">Costeo en vivo</span>
-        <span class="kv">Costo del platillo<b>{mxn(pos.costoPizza)}</b></span>
-        <span class="kv">Precio de carta<b>{mxn(pos.precioPizza)}</b></span>
-        <span class="kv gain">Margen<b>{pct(pos.margenPizza)}</b></span>
+        {#if veCostos}
+          <span class="t">Costeo en vivo</span>
+          <span class="kv">Costo del platillo<b>{mxn(pos.costoPizza)}</b></span>
+          <span class="kv">Precio de carta<b>{mxn(pos.precioPizza)}</b></span>
+          <span class="kv gain">Margen<b>{pct(pos.margenPizza)}</b></span>
+        {:else}
+          <span class="t">Precio</span>
+          <span class="kv">Precio de carta<b>{mxn(pos.precioPizza)}</b></span>
+          <span class="kv oculto">Los costos y márgenes no están disponibles para tu rol</span>
+        {/if}
       </div>
     </div>
   </div>
@@ -318,5 +330,9 @@
   }
   .live .kv.gain b {
     color: var(--acento);
+  }
+  .live .kv.oculto {
+    font-style: italic;
+    font-size: 0.8rem;
   }
 </style>
