@@ -2,6 +2,24 @@
   "name": "@motrest/protocolo-sync",
   "version": "0.0.0",
   "private": true,
-  "description": "Protocolo de sincronización dispositivo↔hub (replicación del event log por LAN) y hub↔nube (PowerSync). STUB: se implementa en un paso posterior.",
-  "type": "module"
+  "description": "Persistencia del event log (IndexedDB hoy, SQLite con el Hub) y sincronización dispositivo↔hub↔nube.",
+  "type": "module",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "build": "tsc --noEmit -p tsconfig.json",
+    "lint": "tsc --noEmit -p tsconfig.json",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@motrest/dominio": "workspace:*"
+  },
+  "devDependencies": {
+    "fake-indexeddb": "^6.0.0",
+    "typescript": "^5.6.0",
+    "vitest": "^2.1.0"
+  }
 }

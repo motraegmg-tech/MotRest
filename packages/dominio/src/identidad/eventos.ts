@@ -46,6 +46,7 @@ export type EventoIdentidad =
       tipo: "usuario_creado";
       usuario_id: ID;
       nombre: string;
+      puesto: string;
       rol_id: RolId;
       permisos: Permiso[];
     })

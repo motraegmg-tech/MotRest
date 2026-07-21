@@ -6,8 +6,11 @@
    * alcances, y edición de los permisos de quien ya existe.
    */
   import { LISTA_ROLES, type Permiso, type RolId, type Usuario } from "@motrest/dominio";
+  import { arranque } from "../../persistencia/arranque.svelte";
   import EditorPermisos from "../../sesion/EditorPermisos.svelte";
   import { sesion } from "../../sesion/sesion.svelte";
+
+  let confirmandoReinicio = $state(false);
 
   type Vista = { modo: "lista" } | { modo: "nuevo" } | { modo: "editar"; usuario: Usuario };
   let vista = $state<Vista>({ modo: "lista" });
@@ -122,6 +125,26 @@
 
     {#if !puedeCrear && !puedeEditar}
       <p class="nota">Tu rol permite consultar la lista, pero no modificarla.</p>
+    {/if}
+
+    {#if sesion.puedeOperar("admin.usuario.editar")}
+      <div class="mantenimiento">
+        <div>
+          <b>Reiniciar datos de demostración</b>
+          <small>
+            Borra el registro de operación guardado en este dispositivo y vuelve al
+            estado inicial. No afecta a otros equipos.
+          </small>
+        </div>
+        {#if confirmandoReinicio}
+          <button class="accion urgente" onclick={() => arranque.reiniciarDemostracion()}>
+            Confirmar borrado
+          </button>
+          <button class="accion" onclick={() => (confirmandoReinicio = false)}>Cancelar</button>
+        {:else}
+          <button class="accion" onclick={() => (confirmandoReinicio = true)}>Reiniciar</button>
+        {/if}
+      </div>
     {/if}
   {:else if vista.modo === "nuevo"}
     <div class="encabezado">
@@ -387,6 +410,28 @@
     font-size: 0.8rem;
     color: var(--gris);
     max-width: 40rem;
+  }
+  .mantenimiento {
+    margin-top: 1rem;
+    display: flex;
+    align-items: center;
+    gap: 0.85rem;
+    border: 1px dashed var(--borde);
+    border-radius: var(--r-md);
+    padding: 0.85rem 1rem;
+  }
+  .mantenimiento > div {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+  }
+  .mantenimiento b {
+    font-size: 0.9rem;
+  }
+  .mantenimiento small {
+    font-size: 0.78rem;
+    color: var(--gris);
+    max-width: 34rem;
   }
   .marca {
     display: inline-block;

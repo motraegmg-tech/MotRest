@@ -15,6 +15,7 @@ import {
   permisosDePlantilla,
   permisosNoOtorgables,
   politicaIntentos,
+  proyectarIdentidad,
   puedeAutorizar,
   puedeGestionarA,
   puedeOtorgar,
@@ -37,6 +38,7 @@ import {
   type Usuario,
   type Veredicto,
 } from "@motrest/dominio";
+import { CLAVES, type Almacen } from "@motrest/protocolo-sync";
 import { SUCURSAL_ID, obtenerDeviceId } from "../presentacion";
 import { USUARIOS_SEMILLA, USUARIO_POR_DEFECTO } from "./usuarios";
 
@@ -68,16 +70,99 @@ class Sesion {
     sucursal_id: SUCURSAL_ID,
   });
 
+  /** Almacén local. Mientras sea null, todo vive solo en memoria. */
+  private almacen: Almacen | null = null;
+
   constructor() {
+    this.sembrarCredenciales();
+  }
+
+  private sembrarCredenciales(): void {
     for (const sembrado of USUARIOS_SEMILLA) {
       const lista: Credencial[] = [sembrado.credencial];
       if (sembrado.pin) lista.push(sembrado.pin);
       this.credenciales.set(sembrado.usuario.id, lista);
     }
-    // Arranca con una sesión de piso abierta para no bloquear la demo;
-    // la pantalla de acceso permite entrar como cualquier usuario.
-    const inicial = this.usuarios.find((u) => u.id === USUARIO_POR_DEFECTO);
-    if (inicial) this.establecerSesion(inicial, false);
+  }
+
+  // --- Persistencia -------------------------------------------------------------
+
+  /**
+   * Rehidrata identidad desde el event log y el almacén local:
+   *  - usuarios y bloqueos, proyectados desde los eventos sobre la semilla;
+   *  - credenciales e intentos, que NO van al log porque son secretos;
+   *  - la sesión que estaba abierta antes de recargar.
+   */
+  async hidratar(eventos: readonly EventoIdentidad[], almacen: Almacen): Promise<void> {
+    this.eventos = [...eventos];
+
+    const proyeccion = proyectarIdentidad(
+      USUARIOS_SEMILLA.map((s) => s.usuario),
+      eventos,
+    );
+    this.usuarios = proyeccion.usuarios;
+
+    const guardadas = await almacen.estado.cargar<Record<ID, Credencial[]>>(CLAVES.credenciales);
+    if (guardadas) {
+      this.credenciales = new Map(Object.entries(guardadas));
+    }
+
+    const intentos = await almacen.estado.cargar<Record<ID, EstadoIntentos>>(CLAVES.intentos);
+    if (intentos) this.intentos = intentos;
+
+    // Los bloqueos del log mandan sobre el contador en disco.
+    for (const id of proyeccion.bloqueados) {
+      if ((this.intentos[id]?.fallos ?? 0) < MAX_INTENTOS) {
+        this.intentos = {
+          ...this.intentos,
+          [id]: { fallos: MAX_INTENTOS, ultimo_fallo_ts: Date.now() },
+        };
+      }
+    }
+
+    const activa = await almacen.estado.cargar<ID>(CLAVES.sesion);
+    const usuario = activa ? this.usuarioDe(activa) : undefined;
+    if (usuario?.activo && !this.estaBloqueado(usuario.id)) {
+      // Se restaura la sesión sin volver a emitir un inicio: no hubo uno nuevo.
+      this.usuarioActual = usuario;
+      this.fabrica.actualizarContexto({ empleado_id: usuario.id });
+    } else {
+      const inicial = this.usuarioDe(USUARIO_POR_DEFECTO);
+      if (inicial) this.establecerSesion(inicial, false);
+    }
+  }
+
+  /** A partir de aquí cada evento y cada secreto se guardan en el dispositivo. */
+  conectarAlmacen(almacen: Almacen): void {
+    this.almacen = almacen;
+    void this.guardarSecretos();
+    void this.guardarSesionActiva();
+  }
+
+  private async guardarSecretos(): Promise<void> {
+    if (!this.almacen) return;
+    try {
+      await this.almacen.estado.guardar(
+        CLAVES.credenciales,
+        Object.fromEntries(this.credenciales),
+      );
+      await this.almacen.estado.guardar(CLAVES.intentos, this.intentos);
+    } catch (causa) {
+      console.error("No se pudieron guardar las credenciales", causa);
+    }
+  }
+
+  private async guardarSesionActiva(): Promise<void> {
+    if (!this.almacen) return;
+    try {
+      if (this.usuarioActual) {
+        await this.almacen.estado.guardar(CLAVES.sesion, this.usuarioActual.id);
+      } else {
+        await this.almacen.estado.eliminar(CLAVES.sesion);
+      }
+    } catch (causa) {
+      console.error("No se pudo guardar la sesión activa", causa);
+    }
   }
 
   // --- Emisión de eventos --------------------------------------------------------
@@ -88,6 +173,10 @@ class Sesion {
   ): void {
     const evento = this.fabrica.crear(tipo, STREAM, datos);
     this.eventos = [...this.eventos, evento];
+
+    void this.almacen?.eventos.anexar([evento]).catch((causa) => {
+      console.error("No se pudo guardar el evento de identidad", causa);
+    });
   }
 
   private establecerSesion(usuario: Usuario, cambioRapido: boolean): void {
@@ -98,6 +187,7 @@ class Sesion {
       rol_id: usuario.rol_id,
       cambio_rapido: cambioRapido,
     });
+    void this.guardarSesionActiva();
   }
 
   // --- Consultas ------------------------------------------------------------------
@@ -171,6 +261,7 @@ class Sesion {
     if (fallos === MAX_INTENTOS) {
       this.emitir("usuario_bloqueado", { usuario_id: usuarioId, intentos: fallos });
     }
+    void this.guardarSecretos();
     return fallos;
   }
 
@@ -216,6 +307,7 @@ class Sesion {
 
     const { [usuarioId]: _descartado, ...resto } = this.intentos;
     this.intentos = resto;
+    void this.guardarSecretos();
     this.establecerSesion(usuario, false);
     return { ok: true };
   }
@@ -237,6 +329,7 @@ class Sesion {
     }
     const { [usuarioId]: _descartado, ...resto } = this.intentos;
     this.intentos = resto;
+    void this.guardarSecretos();
     this.emitir("usuario_desbloqueado", {
       usuario_id: usuarioId,
       desbloqueado_por: this.usuarioActual?.id ?? "sistema",
@@ -287,6 +380,7 @@ class Sesion {
     if (!this.usuarioActual) return;
     this.emitir("sesion_cerrada", { usuario_id: this.usuarioActual.id });
     this.usuarioActual = null;
+    void this.guardarSesionActiva();
   }
 
   private async verificarAlguna(usuarioId: ID, secreto: string): Promise<boolean> {
@@ -431,9 +525,11 @@ class Sesion {
     this.emitir("usuario_creado", {
       usuario_id: id,
       nombre: nuevo.nombre,
+      puesto: nuevo.puesto,
       rol_id: nuevo.rol_id,
       permisos: nuevo.permisos,
     });
+    await this.guardarSecretos();
     return { ok: true };
   }
 
@@ -509,6 +605,7 @@ class Sesion {
     this.usuarioActual = actualizado;
 
     this.emitir("credencial_cambiada", { usuario_id: usuario.id, tipo_credencial: tipo });
+    await this.guardarSecretos();
     return { ok: true };
   }
 

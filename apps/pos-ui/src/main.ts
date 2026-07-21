@@ -12,10 +12,14 @@ import "@motrest/ui/base.css";
 
 import { mount } from "svelte";
 import App from "./App.svelte";
+import { arranque } from "./lib/persistencia/arranque.svelte";
 
 const target = document.getElementById("app");
 if (!target) {
   throw new Error('No se encontró el contenedor #app en index.html');
 }
+
+// Rehidrata desde el almacén local antes de que el usuario toque nada.
+void arranque.iniciar();
 
 export default mount(App, { target });

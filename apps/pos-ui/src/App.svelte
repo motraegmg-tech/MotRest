@@ -14,6 +14,7 @@
   import Acceso from "./lib/sesion/Acceso.svelte";
   import CambioCredencial from "./lib/sesion/CambioCredencial.svelte";
   import DialogoAutorizacion from "./lib/sesion/DialogoAutorizacion.svelte";
+  import { arranque } from "./lib/persistencia/arranque.svelte";
   import { autorizacion } from "./lib/sesion/autorizacion.svelte";
   import { sesion } from "./lib/sesion/sesion.svelte";
 
@@ -27,6 +28,12 @@
   const permitido = $derived(sesion.puedeVer(modulo.permiso));
 </script>
 
+{#if arranque.cargando}
+  <div class="cargando">
+    <div class="marca">MotRest<span>.</span></div>
+    <p>Cargando la operación del local…</p>
+  </div>
+{:else}
 <div class="app">
   <Sidebar />
   <div class="main">
@@ -51,6 +58,12 @@
   </div>
 </div>
 
+{#if arranque.efimero}
+  <div class="efimero" role="status">
+    Sin almacenamiento en este navegador: los datos se perderán al cerrar.
+  </div>
+{/if}
+
 {#if mostrarAcceso || !sesion.autenticado}
   <Acceso onCerrar={() => (mostrarAcceso = false)} />
 {:else if sesion.debeCambiarCredencial}
@@ -71,8 +84,45 @@
 {#if autorizacion.aviso}
   <div class="aviso" role="status">{autorizacion.aviso}</div>
 {/if}
+{/if}
 
 <style>
+  .cargando {
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 0.75rem;
+    background: var(--negro);
+    color: #b9c2bc;
+  }
+  .cargando .marca {
+    font-family: var(--font-titulo);
+    font-size: 2.2rem;
+    font-weight: 700;
+    color: #fff;
+  }
+  .cargando .marca span {
+    color: var(--acento);
+  }
+  .cargando p {
+    font-size: 0.9rem;
+  }
+  .efimero {
+    position: fixed;
+    z-index: 44;
+    top: 0.75rem;
+    left: 50%;
+    transform: translateX(-50%);
+    background: var(--acento-2);
+    color: var(--negro);
+    border-radius: var(--r-pill);
+    padding: 0.4rem 1rem;
+    font-size: 0.8rem;
+    font-weight: 600;
+    box-shadow: var(--sombra-sm);
+  }
   .app {
     display: flex;
     height: 100vh;

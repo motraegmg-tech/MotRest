@@ -34,3 +34,4 @@ export * from "./identidad/roles.js";
 export * from "./identidad/matriz.js";
 export * from "./identidad/credenciales.js";
 export * from "./identidad/eventos.js";
+export * from "./identidad/reducers.js";

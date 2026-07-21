@@ -139,6 +139,27 @@ export function renglonesPendientes(estado: EstadoComanda): RenglonComanda[] {
   return estado.renglones.filter((r) => r.estado === "capturado");
 }
 
+/**
+ * Reagrupa un log plano de eventos por mesa, para rehidratar el POS tras
+ * recargar. La correspondencia orden → mesa se aprende del `orden_creada`; los
+ * eventos huérfanos (sin su apertura) se descartan.
+ */
+export function agruparPorMesa(
+  eventos: readonly EventoComanda[],
+): Record<ID, EventoComanda[]> {
+  const ordenAMesa = new Map<ID, ID>();
+  const porMesa: Record<ID, EventoComanda[]> = {};
+
+  for (const ev of eventos) {
+    if (ev.tipo === "orden_creada") ordenAMesa.set(ev.orden_id, ev.mesa_id);
+    const mesa = ordenAMesa.get(ev.orden_id);
+    if (!mesa) continue;
+    (porMesa[mesa] ??= []).push(ev);
+  }
+
+  return porMesa;
+}
+
 /** ¿Hay algo ya enviado a cocina en esta comanda? */
 export function tieneEnviados(estado: EstadoComanda): boolean {
   return estado.renglones.some(

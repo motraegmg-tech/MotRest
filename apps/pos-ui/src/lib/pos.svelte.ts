@@ -12,6 +12,7 @@
  */
 import {
   FabricaEventos,
+  agruparPorMesa,
   costearPorciones,
   margen,
   pesos,
@@ -32,9 +33,10 @@ import {
   type RenglonComanda,
   type TotalesComanda,
 } from "@motrest/dominio";
+import type { Almacen } from "@motrest/protocolo-sync";
 import { catalogo, impuestos, tamanosPizza } from "./catalogo";
 import { EMPLEADO_ACTUAL, SUCURSAL_ID, mesas, obtenerDeviceId } from "./presentacion";
-import { construirRenglon, mitades, sembrarSalon, type OpcionesSemilla } from "./semilla";
+import { construirRenglon, mitades, type OpcionesSemilla } from "./semilla";
 import { autorizacion } from "./sesion/autorizacion.svelte";
 import { sesion } from "./sesion/sesion.svelte";
 
@@ -61,6 +63,9 @@ const fabrica = new FabricaEventos<EventoComanda>({
   sucursal_id: SUCURSAL_ID,
 });
 
+/** La fábrica se comparte con el arranque para poder sembrar la demostración. */
+export const fabricaPos = fabrica;
+
 const opcionesSemilla: OpcionesSemilla = {
   catalogo,
   impuestoPorDefecto: impuestos[0]!,
@@ -68,8 +73,15 @@ const opcionesSemilla: OpcionesSemilla = {
 };
 
 class TiendaPOS {
-  /** Log de eventos por mesa (append-only: se reasigna al emitir). */
-  private logs = $state.raw<Record<ID, readonly EventoComanda[]>>(sembrarSalon(opcionesSemilla));
+  /**
+   * Log de eventos por mesa (append-only: se reasigna al emitir).
+   * Nace vacío: lo llena `hidratar()` durante el arranque, ya sea desde lo
+   * guardado en el dispositivo o desde la semilla de demostración.
+   */
+  private logs = $state.raw<Record<ID, readonly EventoComanda[]>>({});
+
+  /** Almacén local. Mientras sea null, los eventos solo viven en memoria. */
+  private almacen: Almacen | null = null;
 
   mesaActiva = $state<ID>("mesa-12");
 
@@ -81,11 +93,33 @@ class TiendaPOS {
   mensaje = $state<string>("");
   private temporizador: ReturnType<typeof setTimeout> | undefined;
 
+  // --- Persistencia -----------------------------------------------------------
+
+  /** Rehidrata el salón desde un log plano de eventos ya ordenado. */
+  hidratar(eventos: readonly EventoComanda[]): void {
+    this.logs = agruparPorMesa(eventos);
+
+    // Deja activa la primera mesa con cuenta abierta; si no hay, la 12.
+    const conCuenta = mesas.find((m) => this.estadoMesa(m.id) !== "libre");
+    this.mesaActiva = conCuenta?.id ?? "mesa-12";
+  }
+
+  /** A partir de aquí cada evento emitido se guarda en el dispositivo. */
+  conectarAlmacen(almacen: Almacen): void {
+    this.almacen = almacen;
+  }
+
   // --- Emisión ------------------------------------------------------------------
 
   private emitir(mesaId: ID, evento: EventoComanda): void {
     const previos = this.logs[mesaId] ?? [];
     this.logs = { ...this.logs, [mesaId]: [...previos, evento] };
+
+    // Persistencia en segundo plano: la interfaz no espera al disco.
+    void this.almacen?.eventos.anexar([evento]).catch((causa) => {
+      console.error("No se pudo guardar el evento", causa);
+      this.flash("Aviso: el último cambio no se pudo guardar en el dispositivo");
+    });
   }
 
   /** Los eventos se firman con el empleado que tenga la sesión abierta. */
