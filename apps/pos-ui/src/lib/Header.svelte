@@ -1,15 +1,23 @@
 <script lang="ts">
   import { diaYHora } from "./formato";
+  import { MODULO_POR_CLAVE } from "./nav/modulos";
+  import { rutas } from "./nav/rutas.svelte";
   import { pos } from "./pos.svelte";
   import { cabecera } from "./presentacion";
   import { sesion } from "./sesion/sesion.svelte";
 
   interface Props {
     onAbrirAcceso: () => void;
-    onAbrirUsuarios: () => void;
-    onAbrirBitacora: () => void;
   }
-  let { onAbrirAcceso, onAbrirUsuarios, onAbrirBitacora }: Props = $props();
+  let { onAbrirAcceso }: Props = $props();
+
+  const moduloActual = $derived(MODULO_POR_CLAVE.get(rutas.actual.modulo));
+  const enVenta = $derived(rutas.actual.modulo === "venta");
+
+  function irA(modulo: string, seccion: string) {
+    menuAbierto = false;
+    rutas.ir(modulo, seccion);
+  }
 
   // Reloj del propio dispositivo (ADR-17): el software no tiene reloj propio.
   let ahora = $state(Date.now());
@@ -23,9 +31,11 @@
 </script>
 
 <header class="hd">
-  <h1>{cabecera.titulo}</h1>
+  <h1>{moduloActual?.titulo ?? cabecera.titulo}</h1>
   <span class="chip">{cabecera.sucursal} ▾</span>
-  <span class="chip acento">Mesa {pos.numeroMesaActiva}</span>
+  {#if enVenta}
+    <span class="chip acento">Mesa {pos.numeroMesaActiva}</span>
+  {/if}
   <span class="chip gray">{diaYHora(ahora)}</span>
   <span class="chip gray">{cabecera.demo}</span>
   <span class="sp"></span>
@@ -46,13 +56,11 @@
         <button onclick={() => { menuAbierto = false; onAbrirAcceso(); }}>
           Cambiar de usuario
         </button>
-        {#if sesion.puedeVer("admin.usuario.crear") || sesion.puedeVer("admin.usuario.editar")}
-          <button onclick={() => { menuAbierto = false; onAbrirUsuarios(); }}>
-            Usuarios y permisos
-          </button>
+        {#if sesion.puedeVer("admin.usuario.editar")}
+          <button onclick={() => irA("administracion", "usuarios")}>Usuarios y permisos</button>
         {/if}
         {#if sesion.puedeVer("admin.bitacora.ver")}
-          <button onclick={() => { menuAbierto = false; onAbrirBitacora(); }}>Bitácora</button>
+          <button onclick={() => irA("administracion", "bitacora")}>Bitácora</button>
         {/if}
         <button
           class="salir"

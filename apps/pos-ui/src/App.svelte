@@ -1,41 +1,53 @@
 <script lang="ts">
-  import AgregadoRapido from "./lib/AgregadoRapido.svelte";
-  import ConfiguradorPlatillo from "./lib/ConfiguradorPlatillo.svelte";
+  /**
+   * Shell de la aplicación: sidebar de módulos + cabecera + módulo activo.
+   * El módulo que se muestra sale del router por hash (nav/rutas).
+   */
   import Header from "./lib/Header.svelte";
-  import PanelCuenta from "./lib/PanelCuenta.svelte";
-  import PanelSalon from "./lib/PanelSalon.svelte";
-  import Sidebar from "./lib/Sidebar.svelte";
+  import ModuloEnRoadmap from "./lib/nav/ModuloEnRoadmap.svelte";
+  import Sidebar from "./lib/nav/Sidebar.svelte";
+  import { MODULO_POR_CLAVE, MODULOS } from "./lib/nav/modulos";
+  import { rutas } from "./lib/nav/rutas.svelte";
+  import Venta from "./lib/modulos/Venta.svelte";
+  import Bitacora from "./lib/modulos/admin/Bitacora.svelte";
+  import Usuarios from "./lib/modulos/admin/Usuarios.svelte";
   import Acceso from "./lib/sesion/Acceso.svelte";
-  import Bitacora from "./lib/sesion/Bitacora.svelte";
   import CambioCredencial from "./lib/sesion/CambioCredencial.svelte";
   import DialogoAutorizacion from "./lib/sesion/DialogoAutorizacion.svelte";
-  import PanelUsuarios from "./lib/sesion/PanelUsuarios.svelte";
   import { autorizacion } from "./lib/sesion/autorizacion.svelte";
   import { sesion } from "./lib/sesion/sesion.svelte";
 
   let mostrarAcceso = $state(false);
-  let mostrarUsuarios = $state(false);
-  let mostrarBitacora = $state(false);
 
   const pendiente = $derived(autorizacion.pendiente);
+  const modulo = $derived(MODULO_POR_CLAVE.get(rutas.actual.modulo) ?? MODULOS[0]!);
+  const seccion = $derived(rutas.actual.seccion);
+
+  /** ¿El usuario puede ver el módulo al que apunta la ruta? */
+  const permitido = $derived(sesion.puedeVer(modulo.permiso));
 </script>
 
 <div class="app">
   <Sidebar />
   <div class="main">
-    <Header
-      onAbrirAcceso={() => (mostrarAcceso = true)}
-      onAbrirUsuarios={() => (mostrarUsuarios = true)}
-      onAbrirBitacora={() => (mostrarBitacora = true)}
-    />
-    <div class="content">
-      <PanelSalon />
-      <div class="centro">
-        <ConfiguradorPlatillo />
-        <AgregadoRapido />
+    <Header onAbrirAcceso={() => (mostrarAcceso = true)} />
+
+    {#if !permitido}
+      <div class="sin-acceso">
+        <h1>Sin acceso</h1>
+        <p>Tu rol no tiene permiso para ver el módulo {modulo.titulo}.</p>
       </div>
-      <PanelCuenta />
-    </div>
+    {:else if modulo.clave === "venta"}
+      <Venta />
+    {:else if modulo.clave === "administracion"}
+      {#if seccion === "bitacora"}
+        <Bitacora />
+      {:else}
+        <Usuarios />
+      {/if}
+    {:else}
+      <ModuloEnRoadmap {modulo} />
+    {/if}
   </div>
 </div>
 
@@ -43,14 +55,6 @@
   <Acceso onCerrar={() => (mostrarAcceso = false)} />
 {:else if sesion.debeCambiarCredencial}
   <CambioCredencial />
-{/if}
-
-{#if mostrarUsuarios}
-  <PanelUsuarios onCerrar={() => (mostrarUsuarios = false)} />
-{/if}
-
-{#if mostrarBitacora}
-  <Bitacora onCerrar={() => (mostrarBitacora = false)} />
 {/if}
 
 {#if pendiente}
@@ -79,19 +83,20 @@
     display: flex;
     flex-direction: column;
     min-width: 0;
-  }
-  .content {
-    flex: 1;
-    display: grid;
-    grid-template-columns: minmax(14rem, 18rem) minmax(0, 1fr) minmax(20rem, 27rem);
     min-height: 0;
   }
-  .centro {
+  .sin-acceso {
+    flex: 1;
     display: flex;
     flex-direction: column;
-    min-width: 0;
-    min-height: 0;
-    overflow: hidden;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    color: var(--gris);
+  }
+  .sin-acceso h1 {
+    font-size: 1.5rem;
+    color: var(--pizarra);
   }
   .aviso {
     position: fixed;
@@ -109,13 +114,27 @@
     max-width: min(28rem, calc(100vw - 2rem));
     text-align: center;
   }
-  @media (max-width: 1100px) {
-    .content {
-      grid-template-columns: 1fr;
-      overflow-y: auto;
+
+  /* Tablet y teléfono: el sidebar se reduce a iconos y luego se oculta. */
+  @media (max-width: 1279px) {
+    .app :global(.sb) {
+      width: 4.5rem;
+      padding: 1.5rem 0.5rem;
     }
-    .centro {
-      overflow: visible;
+    .app :global(.sb .logo),
+    .app :global(.sb .txt),
+    .app :global(.sb .fase),
+    .app :global(.sb .foot),
+    .app :global(.sb .secciones) {
+      display: none;
+    }
+    .app :global(.sb .item) {
+      justify-content: center;
+      padding: 0.7rem 0.4rem;
+    }
+    .app :global(.sb .item i) {
+      width: 0.85rem;
+      height: 0.85rem;
     }
   }
 </style>

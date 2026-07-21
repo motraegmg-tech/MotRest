@@ -2,7 +2,7 @@
   import { importeRenglon } from "@motrest/dominio";
   import { hora, mxn } from "./formato";
   import { pos } from "./pos.svelte";
-  import { nombreEmpleado } from "./presentacion";
+  import { sesion } from "./sesion/sesion.svelte";
 
   const etiquetaEstado: Record<string, string> = {
     enviado: "en cocina",
@@ -23,7 +23,7 @@
       {/if}
     </div>
     <div class="sub">
-      {nombreEmpleado(pos.comanda.mesero_id)} · abierta {hora(pos.comanda.abierta_ts)}
+      {sesion.nombreDe(pos.comanda.mesero_id)} · abierta {hora(pos.comanda.abierta_ts)}
     </div>
 
     <div class="items">

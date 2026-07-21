@@ -1,29 +1,20 @@
 <script lang="ts">
   /**
-   * Bitácora de auditoría.
+   * M9 · Bitácora de auditoría.
    *
    * No es una tabla aparte: es el PROPIO event log leído al derecho, como manda
    * el TRD §10 ("el event log es la bitácora inmutable"). Fusiona los eventos de
    * identidad con los de operación y los ordena por el reloj del dispositivo.
    */
-  import { etiquetaAccion, type EventoIdentidad } from "@motrest/dominio";
-  import type { EventoComanda } from "@motrest/dominio";
-  import { hora } from "../formato";
-  import { pos } from "../pos.svelte";
-  import { sesion } from "./sesion.svelte";
+  import { etiquetaAccion, type EventoComanda, type EventoIdentidad } from "@motrest/dominio";
+  import { hora } from "../../formato";
+  import { pos } from "../../pos.svelte";
+  import { sesion } from "../../sesion/sesion.svelte";
 
-  interface Props {
-    onCerrar: () => void;
-  }
-  let { onCerrar }: Props = $props();
+  type Tono = "normal" | "alerta" | "acento";
+  type Entrada = { id: string; ts: number; actor: string; texto: string; tono: Tono };
 
-  type Entrada = {
-    id: string;
-    ts: number;
-    actor: string;
-    texto: string;
-    tono: "normal" | "alerta" | "acento";
-  };
+  let filtro = $state<"todo" | "alertas">("todo");
 
   function describirIdentidad(ev: EventoIdentidad): Entrada {
     const base = { id: ev.id, ts: ev.ts, actor: sesion.nombreDe(ev.empleado_id) };
@@ -84,26 +75,34 @@
     }
   }
 
-  const entradas = $derived(
+  const todas = $derived(
     [
       ...sesion.eventos.map(describirIdentidad),
       ...pos.todosLosEventos.map(describirComanda),
     ].sort((a, b) => b.ts - a.ts),
   );
+
+  const entradas = $derived(filtro === "alertas" ? todas.filter((e) => e.tono === "alerta") : todas);
 </script>
 
-<div class="velo" role="presentation" onclick={onCerrar}></div>
-<div class="panel" role="dialog" aria-modal="true" aria-label="Bitácora">
-  <header>
-    <h2>Bitácora</h2>
-    <span class="conteo">{entradas.length} registros</span>
-    <button class="cerrar" onclick={onCerrar} aria-label="Cerrar">×</button>
-  </header>
-
-  <p class="nota">
-    El registro de auditoría es el propio event log: inmutable, con quién, qué,
-    en qué dispositivo y a qué hora.
-  </p>
+<div class="seccion">
+  <div class="encabezado">
+    <div>
+      <h1>Bitácora</h1>
+      <p class="sub">
+        El registro de auditoría es el propio event log: inmutable, con quién, qué,
+        en qué dispositivo y a qué hora.
+      </p>
+    </div>
+    <div class="filtros">
+      <button class:on={filtro === "todo"} onclick={() => (filtro = "todo")}>
+        Todo ({todas.length})
+      </button>
+      <button class:on={filtro === "alertas"} onclick={() => (filtro = "alertas")}>
+        Alertas ({todas.filter((e) => e.tono === "alerta").length})
+      </button>
+    </div>
+  </div>
 
   <div class="lista">
     {#each entradas as entrada (entrada.id)}
@@ -113,70 +112,76 @@
         <span class="texto">{entrada.texto}</span>
       </div>
     {:else}
-      <p class="vacia">Todavía no hay registros.</p>
+      <p class="vacia">No hay registros que mostrar.</p>
     {/each}
   </div>
 </div>
 
 <style>
-  .velo {
-    position: fixed;
-    inset: 0;
-    background: rgba(20, 24, 26, 0.55);
-    z-index: 30;
-  }
-  .panel {
-    position: fixed;
-    z-index: 31;
-    top: 50%;
-    left: 50%;
-    transform: translate(-50%, -50%);
-    background: #fff;
-    border-radius: var(--r-xl);
-    width: min(44rem, calc(100vw - 2rem));
-    max-height: calc(100vh - 3rem);
+  .seccion {
+    flex: 1;
+    overflow-y: auto;
+    padding: 2rem 2.25rem;
     display: flex;
     flex-direction: column;
-    box-shadow: var(--sombra-lg);
-    overflow: hidden;
+    gap: 1.25rem;
+    max-width: 62rem;
   }
-  header {
+  .encabezado {
     display: flex;
-    align-items: center;
-    gap: 0.75rem;
-    padding: 1.1rem 1.5rem 0.6rem;
+    align-items: flex-start;
+    gap: 1rem;
+    flex-wrap: wrap;
   }
-  h2 {
+  .encabezado > div:first-child {
     flex: 1;
-    font-size: 1.25rem;
+    min-width: 16rem;
+  }
+  h1 {
+    font-size: 1.7rem;
     font-weight: 600;
   }
-  .conteo {
-    font-size: 0.8rem;
+  .sub {
+    margin-top: 0.25rem;
+    font-size: 0.9rem;
+    color: var(--gris);
+    max-width: 38rem;
+  }
+  .filtros {
+    display: flex;
+    gap: 0.3rem;
+    background: var(--fondo);
+    border: 1px solid var(--borde);
+    border-radius: var(--r-md);
+    padding: 0.2rem;
+  }
+  .filtros button {
+    padding: 0.4rem 0.85rem;
+    border-radius: var(--r-sm);
+    font-size: 0.83rem;
+    font-weight: 600;
     color: var(--gris);
   }
-  .cerrar {
-    font-size: 1.5rem;
-    color: var(--gris);
-    line-height: 1;
-  }
-  .nota {
-    padding: 0 1.5rem 0.85rem;
-    font-size: 0.8rem;
-    color: var(--gris);
-    border-bottom: 1px solid var(--borde);
+  .filtros button.on {
+    background: var(--acento);
+    color: #fff;
   }
   .lista {
-    overflow-y: auto;
-    padding: 0.5rem 1.5rem 1.5rem;
+    background: #fff;
+    border: 1px solid var(--borde);
+    border-radius: var(--r-lg);
+    padding: 0.25rem 1.25rem;
   }
   .entrada {
     display: flex;
     gap: 0.85rem;
-    padding: 0.55rem 0;
+    padding: 0.6rem 0;
     border-bottom: 1px solid var(--borde);
-    font-size: 0.88rem;
+    font-size: 0.89rem;
     align-items: baseline;
+  }
+  .entrada:last-child {
+    border-bottom: none;
   }
   .hora {
     font-family: var(--font-titulo);
@@ -188,11 +193,10 @@
   .actor {
     font-weight: 600;
     flex: none;
-    min-width: 6rem;
+    min-width: 7rem;
   }
   .texto {
     flex: 1;
-    color: var(--pizarra);
   }
   .entrada.alerta .texto {
     color: var(--peligro);

@@ -1,51 +1,15 @@
-/**
- * Datos de presentación y semilla del local.
- *
- * Los empleados aquí son PROVISIONALES: la identidad real (login, roles y
- * permisos granulares, usuario Gonzalo DJA) llega en la etapa 2.
- */
+/** Datos del local y de presentación. */
 import { uuidv7 } from "@motrest/dominio";
 import type { ID } from "@motrest/dominio";
 
-export const modulos = [
-  "Venta",
-  "Cocina",
-  "Inventario",
-  "Compras",
-  "Finanzas",
-  "Personal",
-  "Clientes",
-  "Inteligencia",
-  "Ajustes",
-] as const;
-
-export const moduloActivo = "Venta";
-
 export const SUCURSAL_ID: ID = "suc-rodizio-centro";
 
-export interface Empleado {
-  id: ID;
-  nombre: string;
-  puesto: string;
-  iniciales: string;
-}
-
-/** Semilla provisional de empleados (la identidad real llega en la etapa 2). */
-export const empleados: Empleado[] = [
-  { id: "emp-lucia", nombre: "Lucía", puesto: "Mesera", iniciales: "L" },
-  { id: "emp-gerente", nombre: "Marco", puesto: "Gerente", iniciales: "M" },
-];
-
-export const empleadosPorId: ReadonlyMap<ID, Empleado> = new Map(
-  empleados.map((e) => [e.id, e]),
-);
-
-export function nombreEmpleado(id: ID): string {
-  return empleadosPorId.get(id)?.nombre ?? "—";
-}
-
-/** Empleado con la sesión iniciada (provisional hasta la etapa 2). */
-export const EMPLEADO_ACTUAL: ID = "emp-lucia";
+/**
+ * Empleado con el que se firma la semilla del salón. Coincide con el usuario
+ * `usr-lucia` de `sesion/usuarios.ts`, de modo que la bitácora muestre su
+ * nombre y no un identificador huérfano.
+ */
+export const EMPLEADO_ACTUAL: ID = "usr-lucia";
 
 export const cabecera = {
   titulo: "Punto de venta",
@@ -68,13 +32,16 @@ export function obtenerDeviceId(): ID {
   return nuevo;
 }
 
+/** Número total de mesas del salón. */
+export const NUM_MESAS = 12;
+
 /** Mesas del salón. Sin número de comensales (decisión de Gonzalo). */
 export interface Mesa {
   id: ID;
   numero: number;
 }
 
-export const mesas: Mesa[] = Array.from({ length: 12 }, (_, i) => ({
+export const mesas: Mesa[] = Array.from({ length: NUM_MESAS }, (_, i) => ({
   id: `mesa-${i + 1}`,
   numero: i + 1,
 }));
