@@ -64,9 +64,15 @@ export const MODULOS: EntradaModulo[] = [
     clave: "cocina",
     titulo: "Cocina",
     fase: "F1",
-    permiso: "cocina.comanda.ver",
+    // El menú se administra aquí, así que basta con poder consultar recetas
+    // para que el módulo aparezca: un mesero entra a ver de qué está hecho un
+    // platillo aunque no tenga acceso al tablero de producción.
+    permiso: "cocina.receta.ver",
     operativo: true,
-    secciones: [{ clave: "tablero", titulo: "Tablero de cocina", permiso: "cocina.comanda.ver" }],
+    secciones: [
+      { clave: "tablero", titulo: "Tablero de cocina", permiso: "cocina.comanda.ver" },
+      { clave: "menu", titulo: "Menú", permiso: "cocina.receta.ver" },
+    ],
     resumen:
       "Pantalla de cocina por estación con tiempos y semáforo, recetas y control de producción.",
     funciones: [

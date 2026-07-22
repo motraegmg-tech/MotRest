@@ -33,6 +33,7 @@ export type Accion =
   // M2 · Cocina
   | "cocina.comanda.ver"
   | "cocina.item.marcar_listo"
+  | "cocina.receta.ver"
   | "cocina.receta.editar"
   // M3 · Inventario
   | "inv.existencias.ver"
@@ -124,6 +125,7 @@ export const CATALOGO_ACCIONES: GrupoAcciones[] = [
     acciones: [
       def("cocina.comanda.ver", "m2", "Ver comandas", "Consultar la pantalla de cocina por estación"),
       def("cocina.item.marcar_listo", "m2", "Marcar platillos listos", "Avanzar el estado de producción de un platillo"),
+      def("cocina.receta.ver", "m2", "Ver recetas", "Consultar de qué está hecho un platillo, sin ver sus costos"),
       def("cocina.receta.editar", "m2", "Editar recetas", "Modificar la receta e insumos de un platillo", true),
     ],
   },

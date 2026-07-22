@@ -13,8 +13,13 @@ import {
   totalesComanda,
   type EventoComanda,
 } from "@motrest/dominio";
-import { catalogo, impuestos } from "../catalogo";
+import { catalogo, impuestos, menuSemilla } from "../catalogo";
+import { menu } from "../menu.svelte";
 import { sembrarSalon, type OpcionesSemilla } from "../semilla";
+
+// El catálogo lee del store del menú, que en la app llena el arranque. Aquí no
+// hay arranque, así que se siembra a mano.
+menu.sembrar(menuSemilla);
 
 function opciones(): OpcionesSemilla {
   return {

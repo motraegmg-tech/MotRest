@@ -10,16 +10,18 @@
  * En la etapa 9 (M9 Administración) esto se sustituye por el catálogo que el
  * propio restaurante da de alta desde la interfaz.
  */
-import { IVA_16, indexar, pesos } from "@motrest/dominio";
+import { IVA_16, pesos } from "@motrest/dominio";
 import type {
   CatalogoIndex,
   Categoria,
   GrupoModificadores,
   ID,
+  MenuLocal,
   PerfilImpuesto,
   Producto,
   Receta,
 } from "@motrest/dominio";
+import { menu } from "./menu.svelte";
 
 export const impuestos: PerfilImpuesto[] = [IVA_16];
 
@@ -338,13 +340,46 @@ export const productos: Producto[] = [
     estacion_id: "est-postres" },
 ];
 
-export const catalogo: CatalogoIndex = indexar({
+/**
+ * Menú de arranque. Desde la etapa 9 esto es solo la SIEMBRA: en cuanto el
+ * restaurante edita su carta, manda lo guardado en el dispositivo.
+ */
+export const menuSemilla: MenuLocal = {
+  version: 1,
+  updated_at: 0,
   productos,
   categorias,
   recetas,
   impuestos,
   grupos: gruposModificadores,
-});
+};
+
+/**
+ * El catálogo vivo.
+ *
+ * Es un objeto de getters, no una instantánea: cada lectura consulta el store
+ * del menú, así que editar la carta se refleja al instante en el POS, el
+ * configurador y el inventario **sin que ninguno de ellos cambie una línea**.
+ * Leerlo dentro de un `$derived` lo suscribe a los cambios, como cualquier
+ * estado de Svelte.
+ */
+export const catalogo: CatalogoIndex = {
+  get productos() {
+    return menu.index.productos;
+  },
+  get categorias() {
+    return menu.index.categorias;
+  },
+  get recetas() {
+    return menu.index.recetas;
+  },
+  get impuestos() {
+    return menu.index.impuestos;
+  },
+  get grupos() {
+    return menu.index.grupos;
+  },
+};
 
 /** Tamaños de pizza, en el orden en que se muestran las pestañas. */
 export const tamanosPizza = [

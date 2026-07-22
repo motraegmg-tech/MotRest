@@ -86,6 +86,7 @@ export const ROLES: Record<RolId, Rol> = {
       p("caja.arqueo.ver", "ver"),
       p("cocina.comanda.ver", "ver"),
       p("cocina.item.marcar_listo", "operar"),
+      p("cocina.receta.ver", "ver"),
       p("cocina.receta.editar", "operar"),
       p("inv.existencias.ver", "ver"),
       p("inv.merma.registrar", "operar"),
@@ -146,6 +147,7 @@ export const ROLES: Record<RolId, Rol> = {
       p("compras.proveedor.editar", "operar"),
       p("compras.orden.generar", "operar"),
       p("compras.recepcion.registrar", "operar"),
+      p("cocina.receta.ver", "ver"),
       p("fin.costo.ver", "ver"),
       p("bi.reporte.ver", "ver"),
       p("rrhh.checada.registrar", "operar"),
@@ -159,6 +161,7 @@ export const ROLES: Record<RolId, Rol> = {
     permisos: [
       p("cocina.comanda.ver", "ver"),
       p("cocina.item.marcar_listo", "operar"),
+      p("cocina.receta.ver", "ver"),
       p("cocina.receta.editar", "operar"),
       p("inv.existencias.ver", "ver"),
       p("inv.merma.registrar", "operar"),
@@ -183,6 +186,7 @@ export const ROLES: Record<RolId, Rol> = {
       p("caja.sesion.abrir", "operar"),
       p("caja.arqueo.ver", "ver"),
       p("fin.factura.emitir", "operar"),
+      p("cocina.receta.ver", "ver"),
       p("crm.cliente.ver", "ver"),
       p("rrhh.checada.registrar", "operar"),
     ],
@@ -198,6 +202,9 @@ export const ROLES: Record<RolId, Rol> = {
       p("pos.item.cancelar_previo_envio", "operar"),
       p("pos.item.enviar_cocina", "operar"),
       p("pos.cuenta.transferir", "operar"),
+      // Quien atiende la mesa tiene que poder decir de qué está hecho un
+      // platillo: una pregunta por alergias no puede depender de la cocina.
+      p("cocina.receta.ver", "ver"),
       p("rrhh.checada.registrar", "operar"),
     ],
   },

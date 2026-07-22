@@ -12,10 +12,11 @@ import {
   type EventoInventario,
 } from "@motrest/dominio";
 import { almacenEnMemoria, almacenIndexedDB, type Almacen } from "@motrest/protocolo-sync";
-import { catalogo, impuestos } from "../catalogo";
+import { catalogo, impuestos, menuSemilla } from "../catalogo";
 import { fiscal } from "../fiscal.svelte";
 import { EXISTENCIAS_INICIALES } from "../insumos";
 import { inventario } from "../inventario.svelte";
+import { menu } from "../menu.svelte";
 import { plano } from "../plano.svelte";
 import { pos, fabricaPos } from "../pos.svelte";
 import { sembrarSalon } from "../semilla";
@@ -76,9 +77,11 @@ class Arranque {
     try {
       const almacen = this.almacen;
 
-      // El plano es catálogo: se carga antes que la operación, porque las
-      // comandas se agrupan por las mesas que él define.
+      // Plano y menú son CATÁLOGO: se cargan antes que la operación, porque las
+      // comandas se agrupan por las mesas del plano y sus renglones se leen
+      // contra los productos del menú.
       await plano.hidratar(almacen);
+      await menu.hidratar(almacen, menuSemilla);
 
       const guardados = await almacen.eventos.leerTodos();
 
@@ -117,6 +120,7 @@ class Arranque {
       plano.conectarAlmacen(almacen);
       fiscal.conectarAlmacen(almacen);
       inventario.conectarAlmacen(almacen);
+      menu.conectarAlmacen(almacen);
 
       // El almacén nace en la etapa 8: un dispositivo con operación anterior no
       // tiene ni un movimiento y abriría el inventario en ceros. Se carga aquí,

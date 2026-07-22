@@ -20,6 +20,8 @@ export * from "./catalogo/productos.js";
 export * from "./catalogo/porciones.js";
 export * from "./catalogo/modificadores.js";
 export * from "./catalogo/recetas.js";
+export * from "./catalogo/menu.js";
+export * from "./catalogo/visibilidad.js";
 
 // Comanda
 export * from "./comanda/renglon.js";
