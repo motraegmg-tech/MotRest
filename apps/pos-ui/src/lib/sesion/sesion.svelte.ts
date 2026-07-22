@@ -312,6 +312,50 @@ class Sesion {
     return { ok: true };
   }
 
+  /**
+   * Comprueba la credencial de alguien SIN abrirle sesión.
+   *
+   * Es lo que necesita el checador: la tablet de la entrada tiene una sesión
+   * abierta todo el turno y no debe cambiarla porque alguien marque su hora.
+   * Se apoya en la misma política de 7 intentos que el inicio de sesión, para
+   * que este camino no sea una puerta trasera con menos protección.
+   */
+  async comprobarCredencial(usuarioId: ID, secreto: string): Promise<Resultado> {
+    const usuario = this.usuarioDe(usuarioId);
+    if (!usuario) return { ok: false, error: "Usuario no encontrado" };
+    if (!usuario.activo) return { ok: false, error: "El usuario está desactivado" };
+
+    const politica = politicaIntentos(this.estadoIntentos(usuarioId), Date.now());
+    if (politica.bloqueado) {
+      return {
+        ok: false,
+        error: `Cuenta bloqueada tras ${MAX_INTENTOS} intentos. Requiere desbloqueo de un superior.`,
+      };
+    }
+    if (!politica.permitido) {
+      const segundos = Math.ceil(politica.espera_ms / 1000);
+      return { ok: false, error: `Demasiados intentos. Espera ${segundos} s` };
+    }
+
+    if (!(await this.verificarAlguna(usuarioId, secreto))) {
+      const fallos = this.registrarFallo(usuarioId);
+      this.emitir("acceso_rechazado", { usuario_id: usuarioId, motivo: "credencial_invalida" });
+      const restantes = MAX_INTENTOS - fallos;
+      return {
+        ok: false,
+        error:
+          restantes > 0
+            ? `PIN incorrecto. Te ${restantes === 1 ? "queda 1 intento" : `quedan ${restantes} intentos`}.`
+            : `Cuenta bloqueada tras ${MAX_INTENTOS} intentos. Requiere desbloqueo de un superior.`,
+      };
+    }
+
+    const { [usuarioId]: _descartado, ...resto } = this.intentos;
+    this.intentos = resto;
+    void this.guardarSecretos();
+    return { ok: true };
+  }
+
   /** Reactiva una credencial bloqueada. Solo un rol autorizante puede hacerlo. */
   desbloquear(usuarioId: ID): Resultado {
     const actor = this.usuarioActual;

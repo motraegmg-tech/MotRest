@@ -43,6 +43,12 @@ export * from "./inventario/eventos.js";
 export * from "./inventario/reducers.js";
 export * from "./inventario/explosion.js";
 
+// Personal (checador)
+export * from "./personal/asistencia.js";
+
+// Inteligencia (reportes)
+export * from "./inteligencia/reportes.js";
+
 // Fiscal (CFDI 4.0)
 export * from "./fiscal/claves.js";
 export * from "./fiscal/rfc.js";

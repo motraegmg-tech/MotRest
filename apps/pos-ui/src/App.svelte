@@ -10,9 +10,12 @@
   import { rutas } from "./lib/nav/rutas.svelte";
   import Cocina from "./lib/modulos/Cocina.svelte";
   import Finanzas from "./lib/modulos/Finanzas.svelte";
+  import Inteligencia from "./lib/modulos/Inteligencia.svelte";
   import Inventario from "./lib/modulos/Inventario.svelte";
+  import Personal from "./lib/modulos/Personal.svelte";
   import Venta from "./lib/modulos/Venta.svelte";
   import Bitacora from "./lib/modulos/admin/Bitacora.svelte";
+  import Catalogo from "./lib/modulos/admin/Catalogo.svelte";
   import Salones from "./lib/modulos/admin/Salones.svelte";
   import Usuarios from "./lib/modulos/admin/Usuarios.svelte";
   import Acceso from "./lib/sesion/Acceso.svelte";
@@ -54,6 +57,10 @@
       <Cocina />
     {:else if modulo.clave === "inventario"}
       <Inventario />
+    {:else if modulo.clave === "personal"}
+      <Personal />
+    {:else if modulo.clave === "inteligencia"}
+      <Inteligencia />
     {:else if modulo.clave === "finanzas"}
       <Finanzas />
     {:else if modulo.clave === "administracion"}
@@ -61,6 +68,8 @@
         <Bitacora />
       {:else if seccion === "salones"}
         <Salones />
+      {:else if seccion === "catalogo"}
+        <Catalogo />
       {:else}
         <Usuarios />
       {/if}

@@ -14,24 +14,38 @@
  */
 import {
   agregarCategoria,
+  agregarEstacion,
+  agregarInsumo,
   agregarProducto,
   bloquean,
   cambiarDisponibilidad,
+  editarEstacion,
+  editarInsumo,
   editarProducto,
   eliminarCategoria,
+  eliminarEstacion,
+  eliminarInsumo,
   eliminarProducto,
   guardarReceta,
   indexar,
   menuPorCategoria,
   productosEnCategoria,
+  productosEnEstacion,
+  recetasConInsumo,
   resumenMenu,
   validarCategoria,
+  validarEstacion,
+  validarInsumo,
   validarProducto,
   vistaProducto,
+  type BorradorEstacion,
+  type BorradorInsumo,
   type BorradorProducto,
   type CatalogoIndex,
   type CategoriaConProductos,
+  type EstacionKds,
   type ID,
+  type Insumo,
   type MenuLocal,
   type PermisosMenu,
   type ProblemaMenu,
@@ -246,6 +260,103 @@ class StoreMenu {
       };
     }
     this.aplicar((m) => eliminarCategoria(m, categoriaId));
+    return SIN_PROBLEMAS;
+  }
+
+  // --- Insumos y estaciones (M9) --------------------------------------------------------
+
+  get insumos(): Insumo[] {
+    return this.datos?.insumos ?? [];
+  }
+
+  get estaciones(): EstacionKds[] {
+    return [...(this.datos?.estaciones ?? [])].sort((a, b) => a.orden - b.orden);
+  }
+
+  /** Recetas que se romperían al borrar un insumo. */
+  recetasQueUsan(insumoId: ID): Receta[] {
+    return this.datos ? recetasConInsumo(this.datos, insumoId) : [];
+  }
+
+  cuantosEnEstacion(estacionId: ID): number {
+    return this.datos ? productosEnEstacion(this.datos, estacionId) : 0;
+  }
+
+  private soloAdmin(): ResultadoMenu | null {
+    if (this.permisos.editarProductos) return null;
+    return {
+      ok: false,
+      problemas: [
+        { campo: "permiso", mensaje: "Tu perfil no puede editar el catálogo", gravedad: "error" },
+      ],
+    };
+  }
+
+  crearInsumo(borrador: BorradorInsumo): ResultadoMenu {
+    const veto = this.soloAdmin();
+    if (veto || !this.datos) return veto ?? { ok: false, problemas: [] };
+
+    const problemas = validarInsumo(borrador, this.datos);
+    if (bloquean(problemas)) return { ok: false, problemas };
+    this.aplicar((m) => agregarInsumo(m, borrador));
+    return { ok: true, problemas };
+  }
+
+  actualizarInsumo(insumoId: ID, borrador: BorradorInsumo): ResultadoMenu {
+    const veto = this.soloAdmin();
+    if (veto || !this.datos) return veto ?? { ok: false, problemas: [] };
+
+    const problemas = validarInsumo(borrador, this.datos, insumoId);
+    if (bloquean(problemas)) return { ok: false, problemas };
+    this.aplicar((m) => editarInsumo(m, insumoId, borrador));
+    return { ok: true, problemas };
+  }
+
+  borrarInsumo(insumoId: ID): ResultadoMenu {
+    const veto = this.soloAdmin();
+    if (veto || !this.datos) return veto ?? { ok: false, problemas: [] };
+
+    const enUso = recetasConInsumo(this.datos, insumoId);
+    if (enUso.length > 0) {
+      return {
+        ok: false,
+        problemas: [
+          {
+            campo: "insumo",
+            mensaje: `Lo usan ${enUso.length} receta(s): ${enUso.map((r) => r.nombre).join(", ")}`,
+            gravedad: "error",
+          },
+        ],
+      };
+    }
+    this.aplicar((m) => eliminarInsumo(m, insumoId));
+    return SIN_PROBLEMAS;
+  }
+
+  crearEstacion(borrador: BorradorEstacion): ResultadoMenu {
+    const veto = this.soloAdmin();
+    if (veto || !this.datos) return veto ?? { ok: false, problemas: [] };
+
+    const problemas = validarEstacion(borrador, this.datos);
+    if (bloquean(problemas)) return { ok: false, problemas };
+    this.aplicar((m) => agregarEstacion(m, borrador));
+    return { ok: true, problemas };
+  }
+
+  actualizarEstacion(estacionId: ID, borrador: BorradorEstacion): ResultadoMenu {
+    const veto = this.soloAdmin();
+    if (veto || !this.datos) return veto ?? { ok: false, problemas: [] };
+
+    const problemas = validarEstacion(borrador, this.datos, estacionId);
+    if (bloquean(problemas)) return { ok: false, problemas };
+    this.aplicar((m) => editarEstacion(m, estacionId, borrador));
+    return { ok: true, problemas };
+  }
+
+  borrarEstacion(estacionId: ID): ResultadoMenu {
+    const veto = this.soloAdmin();
+    if (veto) return veto;
+    this.aplicar((m) => eliminarEstacion(m, estacionId));
     return SIN_PROBLEMAS;
   }
 

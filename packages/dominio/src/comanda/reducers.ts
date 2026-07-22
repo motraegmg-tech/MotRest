@@ -38,6 +38,8 @@ export interface EstadoComanda {
   abierta_ts: number;
   renglones: RenglonComanda[];
   cerrada: boolean;
+  /** Momento del cobro. Es la hora que cuenta como venta. */
+  cerrada_ts?: number;
   pagos: Pago[];
   descuentos: Descuento[];
   cortesias: Cortesia[];
@@ -190,7 +192,9 @@ export function aplicarEvento(
       };
 
     case "cuenta_cerrada":
-      return { ...estado, cerrada: true };
+      // El sello de cierre es lo que ancla la venta a una hora del día: es la
+      // base de la curva horaria y del corte por turno.
+      return { ...estado, cerrada: true, cerrada_ts: ev.ts };
 
     default: {
       // Exhaustividad: agregar un tipo sin manejarlo falla en compilación.

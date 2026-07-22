@@ -169,6 +169,19 @@ class TiendaPOS {
     return tieneEnviados(c) ? "cuenta" : "ocupada";
   }
 
+  /**
+   * Todas las comandas del local, abiertas y cerradas.
+   *
+   * Es la base de los reportes: una cuenta cobrada sigue viviendo en el log de
+   * su mesa hasta que esa mesa se vuelve a usar, y su historia completa está en
+   * el event log de todos modos.
+   */
+  get todasLasComandas(): EstadoComanda[] {
+    return Object.values(this.logs)
+      .filter((log) => log.length > 0)
+      .map((log) => proyectarComanda(log));
+  }
+
   /** Todas las comandas abiertas del local: es lo que ve la cocina. */
   get comandasAbiertas(): EstadoComanda[] {
     const abiertas: EstadoComanda[] = [];

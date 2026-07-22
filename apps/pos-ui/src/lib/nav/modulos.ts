@@ -148,16 +148,16 @@ export const MODULOS: EntradaModulo[] = [
     titulo: "Personal",
     fase: "F1",
     permiso: "rrhh.checada.registrar",
-    operativo: false,
-    secciones: [],
+    operativo: true,
+    secciones: [{ clave: "checador", titulo: "Checador", permiso: "rrhh.checada.registrar" }],
     resumen: "Checador de asistencia, turnos, propinas, prenómina y desempeño del equipo.",
     funciones: [
       "Reloj checador / control de asistencia por PIN",
       "Prenómina con horas, propinas e incidencias",
       "Desempeño de meseros (venta, propinas, tiempos)",
     ],
-    enF1: "Checador por PIN y ficha del personal.",
-    etapa: "Etapa 9 del plan.",
+    enF1: "Checador por PIN con turnos, descansos y corrección auditada de checadas olvidadas.",
+    etapa: "La prenómina completa llega en F2.",
   },
   {
     id: "m7",
@@ -184,8 +184,8 @@ export const MODULOS: EntradaModulo[] = [
     titulo: "Inteligencia",
     fase: "F3",
     permiso: "bi.reporte.ver",
-    operativo: false,
-    secciones: [],
+    operativo: true,
+    secciones: [{ clave: "reportes", titulo: "Reportes", permiso: "bi.reporte.ver" }],
     resumen:
       "Tableros por rol y las cinco capacidades AI-first: la diferencia de MotRest frente al mercado.",
     funciones: [
@@ -196,8 +196,8 @@ export const MODULOS: EntradaModulo[] = [
       "Centinela de mermas y anomalías",
       "Voz del cliente omnicanal",
     ],
-    enF1: "Ventas por producto, mesero y hora; ticket promedio y food cost del día.",
-    etapa: "Fase F3. El event log que ya estamos escribiendo es su materia prima.",
+    enF1: "Ventas por producto, mesero y hora; ticket promedio, food cost e ingeniería de menú.",
+    etapa: "Las 5 capacidades AI llegan en F3, sobre este mismo event log.",
   },
   {
     id: "m9",
@@ -209,6 +209,7 @@ export const MODULOS: EntradaModulo[] = [
     secciones: [
       { clave: "usuarios", titulo: "Usuarios y permisos", permiso: "admin.usuario.editar" },
       { clave: "salones", titulo: "Salones y plano", permiso: "cat.area.editar" },
+      { clave: "catalogo", titulo: "Insumos y estaciones", permiso: "cat.producto.editar" },
       { clave: "bitacora", titulo: "Bitácora", permiso: "admin.bitacora.ver" },
     ],
     resumen:
@@ -220,8 +221,8 @@ export const MODULOS: EntradaModulo[] = [
       "Salones, mesas, estaciones e impresoras",
       "Multisucursal y multiempresa",
     ],
-    enF1: "Usuarios con permisos granulares y bitácora de auditoría.",
-    etapa: "Etapa 9 suma el catálogo completo editable desde la interfaz.",
+    enF1: "Usuarios y permisos granulares, salones, insumos, estaciones y bitácora de auditoría — todo editable sin tocar código.",
+    etapa: "Multisucursal y multiempresa llegan en F4.",
   },
 ];
 

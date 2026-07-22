@@ -3,17 +3,29 @@ import { pesos } from "../comun/dinero.js";
 import { IVA_16 } from "../comun/impuestos.js";
 import {
   agregarCategoria,
+  agregarEstacion,
+  agregarInsumo,
   agregarProducto,
   bloquean,
   cambiarDisponibilidad,
+  editarEstacion,
+  editarInsumo,
   editarProducto,
   eliminarCategoria,
+  eliminarEstacion,
+  eliminarInsumo,
   eliminarProducto,
   guardarReceta,
   productosEnCategoria,
+  productosEnEstacion,
   recetaNueva,
+  recetasConInsumo,
   validarCategoria,
+  validarEstacion,
+  validarInsumo,
   validarProducto,
+  type BorradorEstacion,
+  type BorradorInsumo,
   type BorradorProducto,
   type MenuLocal,
 } from "../catalogo/menu.js";
@@ -75,6 +87,15 @@ function menuBase(): MenuLocal {
     recetas: [recetaPizza],
     impuestos: [IVA_16],
     grupos: [],
+    insumos: [
+      { id: "ins-masa", nombre: "Masa madre", unidad_base: "g", costo_unitario: pesos(0.06), stock_minimo: 5000 },
+      { id: "ins-mozz", nombre: "Mozzarella", unidad_base: "g", costo_unitario: pesos(0.18), stock_minimo: 3000 },
+      { id: "ins-libre", nombre: "Orégano", unidad_base: "g", costo_unitario: pesos(0.4), stock_minimo: 100 },
+    ],
+    estaciones: [
+      { id: "est-horno", nombre: "Horno", orden: 1, minutos_objetivo: 12, minutos_limite: 18 },
+      { id: "est-barra", nombre: "Barra", orden: 2, minutos_objetivo: 3, minutos_limite: 6 },
+    ],
   };
 }
 
@@ -354,5 +375,110 @@ describe("recetas del menú", () => {
     });
     expect(menu.recetas).toHaveLength(1);
     expect(menu.recetas[0]!.nombre).toBe("Margherita DOP");
+  });
+});
+
+// --- Insumos ---------------------------------------------------------------------------
+
+const insumo = (extra: Partial<BorradorInsumo> = {}): BorradorInsumo => ({
+  nombre: "Albahaca fresca",
+  unidad_base: "g",
+  costo_unitario: pesos(0.26),
+  stock_minimo: 200,
+  ...extra,
+});
+
+describe("insumos del almacén", () => {
+  it("acepta un insumo bien capturado", () => {
+    expect(validarInsumo(insumo(), menuBase())).toEqual([]);
+  });
+
+  it("rechaza nombre repetido y costo negativo", () => {
+    const p = validarInsumo(
+      insumo({ nombre: "mozzarella", costo_unitario: -5 as never }),
+      menuBase(),
+    );
+    expect(p.map((x) => x.campo).sort()).toEqual(["costo_unitario", "nombre"]);
+  });
+
+  it("un mínimo en cero advierte: nunca entraría a la lista de reposición", () => {
+    const p = validarInsumo(insumo({ stock_minimo: 0 }), menuBase());
+    expect(p).toHaveLength(1);
+    expect(p[0]!.gravedad).toBe("advertencia");
+    expect(bloquean(p)).toBe(false);
+  });
+
+  it("agregar sube la versión y conserva el resto del catálogo", () => {
+    const menu = agregarInsumo(menuBase(), insumo());
+    expect(menu.version).toBe(2);
+    expect(menu.insumos).toHaveLength(4);
+    expect(menu.productos).toHaveLength(2);
+  });
+
+  it("editar NO cambia la unidad base: convertiría gramos en kilos", () => {
+    const menu = editarInsumo(
+      menuBase(),
+      "ins-masa",
+      insumo({ nombre: "Masa madre 00", unidad_base: "kg" }),
+    );
+    const masa = menu.insumos.find((i) => i.id === "ins-masa")!;
+    expect(masa.nombre).toBe("Masa madre 00");
+    expect(masa.unidad_base).toBe("g");
+  });
+
+  it("no se puede dar de baja un insumo que alguna receta usa", () => {
+    const menu = menuBase();
+    expect(recetasConInsumo(menu, "ins-masa")).toHaveLength(1);
+    expect(eliminarInsumo(menu, "ins-masa")).toBe(menu);
+  });
+
+  it("sí se da de baja uno que nadie usa", () => {
+    const menu = eliminarInsumo(menuBase(), "ins-libre");
+    expect(menu.insumos).toHaveLength(2);
+  });
+});
+
+// --- Estaciones -------------------------------------------------------------------------
+
+const estacion = (extra: Partial<BorradorEstacion> = {}): BorradorEstacion => ({
+  nombre: "Parrilla",
+  minutos_objetivo: 14,
+  minutos_limite: 20,
+  ...extra,
+});
+
+describe("estaciones de cocina", () => {
+  it("acepta una estación bien capturada", () => {
+    expect(validarEstacion(estacion(), menuBase())).toEqual([]);
+  });
+
+  it("exige que el límite sea mayor que el objetivo", () => {
+    // Si no, el semáforo saltaría de verde a rojo sin pasar por ámbar.
+    const p = validarEstacion(estacion({ minutos_objetivo: 10, minutos_limite: 10 }), menuBase());
+    expect(p[0]!.campo).toBe("minutos_limite");
+    expect(bloquean(p)).toBe(true);
+  });
+
+  it("rechaza nombre repetido", () => {
+    expect(bloquean(validarEstacion(estacion({ nombre: "horno" }), menuBase()))).toBe(true);
+  });
+
+  it("editar conserva el orden en el tablero", () => {
+    const menu = editarEstacion(menuBase(), "est-barra", estacion({ nombre: "Barra fría" }));
+    const barra = menu.estaciones.find((e) => e.id === "est-barra")!;
+    expect(barra.nombre).toBe("Barra fría");
+    expect(barra.orden).toBe(2);
+  });
+
+  it("eliminar una estación DESRUTEA sus productos en vez de dejarlos huérfanos", () => {
+    const menu = menuBase();
+    expect(productosEnEstacion(menu, "est-horno")).toBe(1);
+
+    const siguiente = eliminarEstacion(menu, "est-horno");
+    expect(siguiente.estaciones).toHaveLength(1);
+    // El producto sigue vendiéndose; solo deja de rutearse.
+    const pizza = siguiente.productos.find((p) => p.id === "prod-margherita")!;
+    expect(pizza.estacion_id).toBeUndefined();
+    expect(pizza.disponible).toBe(true);
   });
 });

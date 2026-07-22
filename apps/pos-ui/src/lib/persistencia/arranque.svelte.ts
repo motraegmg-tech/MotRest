@@ -6,12 +6,14 @@
  */
 import {
   compararEventos,
+  type EventoAsistencia,
   type EventoComanda,
   type EventoFiscal,
   type EventoIdentidad,
   type EventoInventario,
 } from "@motrest/dominio";
 import { almacenEnMemoria, almacenIndexedDB, type Almacen } from "@motrest/protocolo-sync";
+import { asistencia } from "../asistencia.svelte";
 import { catalogo, impuestos, menuSemilla } from "../catalogo";
 import { fiscal } from "../fiscal.svelte";
 import { EXISTENCIAS_INICIALES } from "../insumos";
@@ -51,6 +53,9 @@ const TIPOS_FISCALES = new Set([
 
 /** Eventos de almacén. */
 const TIPOS_INVENTARIO = new Set(["movimiento_inventario", "conteo_registrado"]);
+
+/** Eventos del checador. */
+const TIPOS_ASISTENCIA = new Set(["checada_registrada"]);
 
 class Arranque {
   cargando = $state(true);
@@ -99,7 +104,10 @@ class Arranque {
         pos.hidratar(comanda);
         await sesion.hidratar(
           identidad.filter(
-            (e) => !TIPOS_FISCALES.has(e.tipo) && !TIPOS_INVENTARIO.has(e.tipo),
+            (e) =>
+              !TIPOS_FISCALES.has(e.tipo) &&
+              !TIPOS_INVENTARIO.has(e.tipo) &&
+              !TIPOS_ASISTENCIA.has(e.tipo),
           ) as EventoIdentidad[],
           almacen,
         );
@@ -112,6 +120,11 @@ class Arranque {
             TIPOS_INVENTARIO.has((e as EventoInventario).tipo),
           ) as EventoInventario[],
         );
+        asistencia.hidratar(
+          ordenados.filter((e) =>
+            TIPOS_ASISTENCIA.has((e as EventoAsistencia).tipo),
+          ) as EventoAsistencia[],
+        );
       }
 
       // A partir de aquí, cada evento emitido se persiste.
@@ -121,6 +134,7 @@ class Arranque {
       fiscal.conectarAlmacen(almacen);
       inventario.conectarAlmacen(almacen);
       menu.conectarAlmacen(almacen);
+      asistencia.conectarAlmacen(almacen);
 
       // El almacén nace en la etapa 8: un dispositivo con operación anterior no
       // tiene ni un movimiento y abriría el inventario en ceros. Se carga aquí,

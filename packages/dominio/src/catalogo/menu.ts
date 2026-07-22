@@ -19,10 +19,20 @@ import { CERO, type Centavos } from "../comun/dinero.js";
 import type { ID } from "../comun/ids.js";
 import { uuidv7 } from "../comun/ids.js";
 import type { PerfilImpuesto } from "../comun/impuestos.js";
+import type { EstacionKds } from "../cocina/estaciones.js";
+import type { Insumo, Unidad } from "../inventario/insumos.js";
 import type { GrupoModificadores } from "./modificadores.js";
 import type { Categoria, Producto } from "./productos.js";
 import type { Receta } from "./recetas.js";
 
+/**
+ * Todo lo que define QUÉ sirve un restaurante y CÓMO lo produce: la carta, sus
+ * recetas, los insumos con que se hacen y las estaciones donde se preparan.
+ *
+ * Va junto en una sola instantánea porque se referencian entre sí —un producto
+ * apunta a su estación, una receta a sus insumos— y separarlos permitiría
+ * guardar la mitad de un cambio.
+ */
 export interface MenuLocal {
   version: number;
   updated_at: number;
@@ -31,6 +41,8 @@ export interface MenuLocal {
   recetas: Receta[];
   impuestos: PerfilImpuesto[];
   grupos: GrupoModificadores[];
+  insumos: Insumo[];
+  estaciones: EstacionKds[];
 }
 
 /** Lo que captura el formulario de alta o edición. */
@@ -334,4 +346,188 @@ export function recetaNueva(nombreProducto: string): Receta {
 /** Ingrediente en blanco, con costo cero hasta que se capture. */
 export function ingredienteNuevo(): Receta["ingredientes"][number] {
   return { id: `ing-${uuidv7().slice(0, 8)}`, nombre: "", costo: CERO };
+}
+
+// --- Insumos del almacén -------------------------------------------------------------
+
+export interface BorradorInsumo {
+  nombre: string;
+  unidad_base: Unidad;
+  /** Costo de UNA unidad base, en centavos. */
+  costo_unitario: Centavos;
+  stock_minimo: number;
+  categoria?: string;
+}
+
+export function validarInsumo(
+  borrador: BorradorInsumo,
+  menu: MenuLocal,
+  insumoId?: ID,
+): ProblemaMenu[] {
+  const problemas: ProblemaMenu[] = [];
+  const nombre = borrador.nombre.trim();
+
+  if (nombre.length < 2) {
+    problemas.push({ campo: "nombre", mensaje: "El insumo necesita un nombre", gravedad: "error" });
+  }
+  if (menu.insumos.some((i) => i.id !== insumoId && normalizar(i.nombre) === normalizar(nombre))) {
+    problemas.push({ campo: "nombre", mensaje: `Ya existe "${nombre}"`, gravedad: "error" });
+  }
+  if (!Number.isInteger(borrador.costo_unitario) || borrador.costo_unitario < 0) {
+    problemas.push({ campo: "costo_unitario", mensaje: "El costo no puede ser negativo", gravedad: "error" });
+  }
+  if (!Number.isFinite(borrador.stock_minimo) || borrador.stock_minimo < 0) {
+    problemas.push({ campo: "stock_minimo", mensaje: "El mínimo no puede ser negativo", gravedad: "error" });
+  }
+  if (borrador.stock_minimo === 0) {
+    problemas.push({
+      campo: "stock_minimo",
+      mensaje: "Sin mínimo, este insumo nunca aparecerá en la lista de reposición",
+      gravedad: "advertencia",
+    });
+  }
+
+  return problemas;
+}
+
+export function agregarInsumo(menu: MenuLocal, borrador: BorradorInsumo): MenuLocal {
+  const nuevo: Insumo = {
+    id: `ins-${uuidv7().slice(0, 8)}`,
+    nombre: borrador.nombre.trim(),
+    unidad_base: borrador.unidad_base,
+    costo_unitario: borrador.costo_unitario,
+    stock_minimo: borrador.stock_minimo,
+    ...(borrador.categoria?.trim() ? { categoria: borrador.categoria.trim() } : {}),
+  };
+  return conVersion(menu, { insumos: [...menu.insumos, nuevo] });
+}
+
+/**
+ * Edita un insumo. La UNIDAD BASE no se cambia aquí a propósito: las existencias
+ * ya registradas están expresadas en ella, y cambiarla convertiría 5 000 g en
+ * 5 000 kg de un plumazo. Para cambiar de unidad se da de alta otro insumo.
+ */
+export function editarInsumo(
+  menu: MenuLocal,
+  insumoId: ID,
+  borrador: BorradorInsumo,
+): MenuLocal {
+  return conVersion(menu, {
+    insumos: menu.insumos.map((i) =>
+      i.id !== insumoId
+        ? i
+        : {
+            ...i,
+            nombre: borrador.nombre.trim(),
+            costo_unitario: borrador.costo_unitario,
+            stock_minimo: borrador.stock_minimo,
+            ...(borrador.categoria?.trim()
+              ? { categoria: borrador.categoria.trim() }
+              : { categoria: undefined }),
+          },
+    ),
+  });
+}
+
+/** Recetas que quedarían rotas si se borra un insumo. */
+export function recetasConInsumo(menu: MenuLocal, insumoId: ID): Receta[] {
+  return menu.recetas.filter((r) => r.ingredientes.some((i) => i.insumo_id === insumoId));
+}
+
+/**
+ * Da de baja un insumo. Se niega si alguna receta lo usa: borrarlo dejaría
+ * ingredientes apuntando al vacío y el descuento de existencias fallaría en
+ * silencio justo cuando más se necesita.
+ */
+export function eliminarInsumo(menu: MenuLocal, insumoId: ID): MenuLocal {
+  if (recetasConInsumo(menu, insumoId).length > 0) return menu;
+  return conVersion(menu, { insumos: menu.insumos.filter((i) => i.id !== insumoId) });
+}
+
+// --- Estaciones de cocina --------------------------------------------------------------
+
+export interface BorradorEstacion {
+  nombre: string;
+  minutos_objetivo: number;
+  minutos_limite: number;
+}
+
+export function validarEstacion(
+  borrador: BorradorEstacion,
+  menu: MenuLocal,
+  estacionId?: ID,
+): ProblemaMenu[] {
+  const problemas: ProblemaMenu[] = [];
+  const nombre = borrador.nombre.trim();
+
+  if (nombre.length < 2) {
+    problemas.push({ campo: "nombre", mensaje: "La estación necesita un nombre", gravedad: "error" });
+  }
+  if (menu.estaciones.some((e) => e.id !== estacionId && normalizar(e.nombre) === normalizar(nombre))) {
+    problemas.push({ campo: "nombre", mensaje: `Ya existe "${nombre}"`, gravedad: "error" });
+  }
+  if (!Number.isFinite(borrador.minutos_objetivo) || borrador.minutos_objetivo <= 0) {
+    problemas.push({ campo: "minutos_objetivo", mensaje: "El objetivo debe ser mayor a cero", gravedad: "error" });
+  }
+  // Sin esta regla el semáforo nunca pasaría por ámbar: saltaría de verde a rojo.
+  if (borrador.minutos_limite <= borrador.minutos_objetivo) {
+    problemas.push({
+      campo: "minutos_limite",
+      mensaje: "El límite tiene que ser mayor que el objetivo",
+      gravedad: "error",
+    });
+  }
+
+  return problemas;
+}
+
+export function agregarEstacion(menu: MenuLocal, borrador: BorradorEstacion): MenuLocal {
+  const nueva: EstacionKds = {
+    id: `est-${uuidv7().slice(0, 8)}`,
+    nombre: borrador.nombre.trim(),
+    orden: menu.estaciones.length + 1,
+    minutos_objetivo: Math.round(borrador.minutos_objetivo),
+    minutos_limite: Math.round(borrador.minutos_limite),
+  };
+  return conVersion(menu, { estaciones: [...menu.estaciones, nueva] });
+}
+
+export function editarEstacion(
+  menu: MenuLocal,
+  estacionId: ID,
+  borrador: BorradorEstacion,
+): MenuLocal {
+  return conVersion(menu, {
+    estaciones: menu.estaciones.map((e) =>
+      e.id !== estacionId
+        ? e
+        : {
+            ...e,
+            nombre: borrador.nombre.trim(),
+            minutos_objetivo: Math.round(borrador.minutos_objetivo),
+            minutos_limite: Math.round(borrador.minutos_limite),
+          },
+    ),
+  });
+}
+
+/** Productos ruteados a una estación. */
+export function productosEnEstacion(menu: MenuLocal, estacionId: ID): number {
+  return menu.productos.filter((p) => p.estacion_id === estacionId).length;
+}
+
+/**
+ * Elimina una estación y DESRUTEA sus productos.
+ *
+ * Dejarlos apuntando a una estación inexistente los sacaría del tablero de
+ * cocina sin aviso: se seguirían enviando y nadie los vería. Es preferible que
+ * caigan en "sin ruteo", donde al menos aparecen en la vista de todas.
+ */
+export function eliminarEstacion(menu: MenuLocal, estacionId: ID): MenuLocal {
+  return conVersion(menu, {
+    estaciones: menu.estaciones.filter((e) => e.id !== estacionId),
+    productos: menu.productos.map((p) =>
+      p.estacion_id === estacionId ? { ...p, estacion_id: undefined } : p,
+    ),
+  });
 }

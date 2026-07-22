@@ -9,7 +9,6 @@
    */
   import {
     calcularImpuesto,
-    estacionesPorDefecto,
     pesos,
     type BorradorProducto,
     type ProblemaMenu,
@@ -25,7 +24,8 @@
   }
   let { productoId, onCerrar }: Props = $props();
 
-  const estaciones = estacionesPorDefecto();
+  // Las estaciones las configura el restaurante desde Administración.
+  const estaciones = $derived(menu.estaciones);
   const permisos = $derived(menu.permisos);
 
   // Valor inicial a propósito: de aquí en adelante el borrador es del formulario.

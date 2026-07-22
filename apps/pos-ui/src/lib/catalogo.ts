@@ -10,7 +10,7 @@
  * En la etapa 9 (M9 Administración) esto se sustituye por el catálogo que el
  * propio restaurante da de alta desde la interfaz.
  */
-import { IVA_16, pesos } from "@motrest/dominio";
+import { IVA_16, estacionesPorDefecto, pesos } from "@motrest/dominio";
 import type {
   CatalogoIndex,
   Categoria,
@@ -21,6 +21,7 @@ import type {
   Producto,
   Receta,
 } from "@motrest/dominio";
+import { insumos } from "./insumos";
 import { menu } from "./menu.svelte";
 
 export const impuestos: PerfilImpuesto[] = [IVA_16];
@@ -352,6 +353,8 @@ export const menuSemilla: MenuLocal = {
   recetas,
   impuestos,
   grupos: gruposModificadores,
+  insumos,
+  estaciones: estacionesPorDefecto(),
 };
 
 /**

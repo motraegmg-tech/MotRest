@@ -30,7 +30,7 @@ import {
 } from "@motrest/dominio";
 import type { Almacen } from "@motrest/protocolo-sync";
 import { catalogo } from "./catalogo";
-import { insumos as insumosSemilla } from "./insumos";
+import { menu } from "./menu.svelte";
 import { SUCURSAL_ID, obtenerDeviceId } from "./presentacion";
 
 export interface Resultado {
@@ -39,8 +39,13 @@ export interface Resultado {
 }
 
 class StoreInventario {
-  /** Catálogo de insumos. En la etapa 9 se edita desde M9. */
-  insumos = $state<Insumo[]>([...insumosSemilla]);
+  /**
+   * Catálogo de insumos. Vive en el catálogo del local (editable desde M9), no
+   * aquí: este store es dueño de los MOVIMIENTOS, no de la ficha del insumo.
+   */
+  get insumos(): Insumo[] {
+    return menu.insumos;
+  }
 
   private eventos = $state.raw<EventoInventario[]>([]);
   private almacen: Almacen | null = null;

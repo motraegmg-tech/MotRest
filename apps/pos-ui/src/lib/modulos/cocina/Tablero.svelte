@@ -11,15 +11,16 @@
    */
   import {
     cargaPorEstacion,
-    estacionesPorDefecto,
     etiquetaSemaforo,
     proyectarTablero,
   } from "@motrest/dominio";
+  import { menu } from "../../menu.svelte";
   import { plano } from "../../plano.svelte";
   import { pos } from "../../pos.svelte";
   import { sesion } from "../../sesion/sesion.svelte";
 
-  const estaciones = estacionesPorDefecto();
+  // Las estaciones las configura el restaurante desde Administración.
+  const estaciones = $derived(menu.estaciones);
 
   let estacionActiva = $state<string | null>(null);
   let verEntregados = $state(false);
