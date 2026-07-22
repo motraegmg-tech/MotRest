@@ -68,14 +68,21 @@
       {/if}
     </div>
 
+    <!--
+      Aquí solo se captura. Enviar a cocina vive en la cuenta, que es donde se
+      ven los platillos que van a salir: mandar a ciegas es como se pierden
+      comandas.
+    -->
     <div class="acciones">
       <button class="principal" onclick={onPedido}>
         {pos.renglones.length === 0 ? "Tomar pedido" : "Agregar al pedido"}
       </button>
       {#if pos.pendientes.length > 0}
-        <button class="secundario" onclick={() => pos.enviarACocina()}>
-          Enviar a cocina ({pos.pendientes.length})
-        </button>
+        <p class="recordatorio">
+          {pos.pendientes.length}
+          {pos.pendientes.length === 1 ? "platillo pendiente" : "platillos pendientes"} de
+          enviar · usa <b>Enviar a cocina</b> en la cuenta
+        </p>
       {/if}
     </div>
   {/if}
@@ -225,16 +232,13 @@
   .principal:hover {
     filter: brightness(1.05);
   }
-  .secundario {
-    border: 2px solid var(--borde);
-    border-radius: var(--r-md);
-    padding: 0.75rem;
-    font-size: 0.95rem;
-    font-weight: 600;
-    color: var(--pizarra);
+  .recordatorio {
+    font-size: 0.82rem;
+    color: var(--gris);
+    text-align: center;
+    line-height: 1.5;
   }
-  .secundario:hover {
-    border-color: var(--acento);
+  .recordatorio b {
     color: var(--acento);
   }
 </style>

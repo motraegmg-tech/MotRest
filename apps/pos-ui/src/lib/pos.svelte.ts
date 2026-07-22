@@ -124,9 +124,15 @@ class TiendaPOS {
     return c ? totalesComanda(c) : null;
   }
 
-  get hayCuenta(): boolean {
+  /** La mesa está en servicio: hay cuenta abierta, aunque no hayan pedido nada. */
+  get comandaAbierta(): boolean {
     const c = this.comanda;
-    return !!c && !c.cerrada && this.renglones.length > 0;
+    return !!c && !c.cerrada;
+  }
+
+  /** Hay algo consumido: es lo que permite cobrar o facturar. */
+  get hayCuenta(): boolean {
+    return this.comandaAbierta && this.renglones.length > 0;
   }
 
   get enviadaACocina(): boolean {
@@ -145,11 +151,19 @@ class TiendaPOS {
 
   // --- Estado del salón ---------------------------------------------------------
 
+  /**
+   * Estado de una mesa.
+   *
+   * Una mesa con la cuenta abierta está OCUPADA aunque todavía no hayan pedido
+   * nada: los comensales ya están sentados y esa mesa no se puede dar a nadie
+   * más. Antes se reportaba libre mientras no hubiera renglones, y ponerla en
+   * servicio parecía no hacer nada.
+   */
   estadoMesa(mesaId: ID): EstadoMesa {
     const log = this.logs[mesaId];
     if (!log || log.length === 0) return "libre";
     const c = proyectarComanda(log);
-    if (c.cerrada || renglonesActivos(c).length === 0) return "libre";
+    if (c.cerrada) return "libre";
     return tieneEnviados(c) ? "cuenta" : "ocupada";
   }
 

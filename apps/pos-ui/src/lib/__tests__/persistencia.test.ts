@@ -112,6 +112,31 @@ describe("lo que se opera queda guardado", () => {
     expect(enDisco?.mesa_id).toBe("mesa-2");
   });
 
+  it("una mesa en servicio SIN consumo ya cuenta como ocupada", async () => {
+    // Regresión: antes se seguía reportando libre mientras no hubiera
+    // renglones, y ponerla en servicio parecía no hacer nada.
+    pos.seleccionarMesa("mesa-6");
+    await pos.ponerEnServicio();
+
+    expect(pos.estadoMesa("mesa-6")).toBe("ocupada");
+    expect(pos.renglones).toHaveLength(0);
+    expect(pos.comandaAbierta).toBe(true);
+    // Sin consumo no se puede cobrar todavía.
+    expect(pos.hayCuenta).toBe(false);
+  });
+
+  it("al ordenar, la mesa sigue ocupada hasta que se envía a cocina", async () => {
+    pos.seleccionarMesa("mesa-9");
+    await pos.ponerEnServicio();
+    await pos.agregarSimple("prod-cafe");
+
+    expect(pos.estadoMesa("mesa-9")).toBe("ocupada");
+    expect(pos.hayCuenta).toBe(true);
+
+    await pos.enviarACocina();
+    expect(pos.estadoMesa("mesa-9")).toBe("cuenta");
+  });
+
   it("el log local es el outbox: todo sigue pendiente de enviar al Hub", async () => {
     const pendientes = await arranque.repositorio!.eventos.pendientes();
     const total = await arranque.repositorio!.eventos.contar();

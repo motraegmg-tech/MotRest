@@ -59,7 +59,7 @@
 </script>
 
 <aside class="cuenta">
-  {#if pos.comanda && pos.hayCuenta && t}
+  {#if pos.comanda && pos.comandaAbierta && t}
     <div class="ch">
       <h2>Mesa {pos.nombreMesaActiva}</h2>
       {#if pos.enviadaACocina}
@@ -74,6 +74,11 @@
 
     {#if vista === "cuenta"}
       <div class="items">
+        {#if pos.renglones.length === 0}
+          <p class="sin-consumo">
+            Mesa en servicio, sin consumo todavía. Toma el pedido para empezar la cuenta.
+          </p>
+        {/if}
         {#each pos.renglones as renglon (renglon.id)}
           <div class="item">
             <span class="cant">
@@ -130,7 +135,7 @@
         {/if}
       </div>
 
-      <div class="extras">
+      <div class="extras" class:oculto={!pos.hayCuenta}>
         {#if sesion.puedeOperar("fin.factura.emitir")}
           <span class="grupo">
             Factura
@@ -168,7 +173,11 @@
             ? "✓ Todo enviado a cocina"
             : `Enviar a cocina (${pos.pendientes.length})`}
         </button>
-        <button class="b2 cobrar" onclick={() => (vista = "cobro")}>
+        <button
+          class="b2 cobrar"
+          disabled={!pos.hayCuenta}
+          onclick={() => (vista = "cobro")}
+        >
           Cobrar {mxn(t.saldo)}
         </button>
       </div>
@@ -410,6 +419,16 @@
     display: flex;
     flex-direction: column;
     gap: 0.4rem;
+  }
+  .extras.oculto {
+    display: none;
+  }
+  .sin-consumo {
+    padding: 1.25rem 0;
+    font-size: 0.86rem;
+    color: var(--gris);
+    font-style: italic;
+    line-height: 1.5;
   }
   .grupo {
     display: flex;
