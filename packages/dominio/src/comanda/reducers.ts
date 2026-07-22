@@ -96,7 +96,12 @@ export function aplicarEvento(
         ...estado,
         renglones: estado.renglones.map((r) =>
           aEnviar.has(r.id) && r.estado === "capturado"
-            ? { ...r, estado: "enviado" as const, curso: ev.curso ?? r.curso }
+            ? {
+                ...r,
+                estado: "enviado" as const,
+                curso: ev.curso ?? r.curso,
+                enviado_ts: ev.ts,
+              }
             : r,
         ),
       };
@@ -105,13 +110,14 @@ export function aplicarEvento(
     case "item_en_marcha":
       return conEstadoRenglon(estado, ev.renglon_id, "en_marcha", {
         estacion_id: ev.estacion_id,
+        en_marcha_ts: ev.ts,
       });
 
     case "item_listo":
-      return conEstadoRenglon(estado, ev.renglon_id, "listo");
+      return conEstadoRenglon(estado, ev.renglon_id, "listo", { listo_ts: ev.ts });
 
     case "item_entregado":
-      return conEstadoRenglon(estado, ev.renglon_id, "entregado");
+      return conEstadoRenglon(estado, ev.renglon_id, "entregado", { entregado_ts: ev.ts });
 
     case "item_modificado":
       return {

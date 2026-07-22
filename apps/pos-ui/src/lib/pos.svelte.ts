@@ -22,6 +22,7 @@ import {
   yaEnviado,
   type Centavos,
   type ConfiguracionRenglon,
+  type EstadoComanda,
   type EventoComanda,
   type FormaPago,
   type ID,
@@ -31,6 +32,7 @@ import {
 import type { Almacen } from "@motrest/protocolo-sync";
 import { catalogo, impuestos } from "./catalogo";
 import { configurador } from "./configurador.svelte";
+import { inventario } from "./inventario.svelte";
 import { plano } from "./plano.svelte";
 import { EMPLEADO_ACTUAL, SUCURSAL_ID, obtenerDeviceId } from "./presentacion";
 import { sembrarSalon, type OpcionesSemilla } from "./semilla";
@@ -167,6 +169,65 @@ class TiendaPOS {
     return tieneEnviados(c) ? "cuenta" : "ocupada";
   }
 
+  /** Todas las comandas abiertas del local: es lo que ve la cocina. */
+  get comandasAbiertas(): EstadoComanda[] {
+    const abiertas: EstadoComanda[] = [];
+    for (const log of Object.values(this.logs)) {
+      if (log.length === 0) continue;
+      const c = proyectarComanda(log);
+      if (!c.cerrada) abiertas.push(c);
+    }
+    return abiertas;
+  }
+
+  /** Mesa a la que pertenece una orden, para emitir sobre su log. */
+  private mesaDeOrden(ordenId: ID): ID | null {
+    for (const [mesaId, log] of Object.entries(this.logs)) {
+      if (log.length === 0) continue;
+      if (proyectarComanda(log).orden_id === ordenId) return mesaId;
+    }
+    return null;
+  }
+
+  // --- Comandos de cocina ---------------------------------------------------------
+
+  private async emitirDeCocina(
+    ordenId: ID,
+    crear: (mesaId: ID) => EventoComanda,
+  ): Promise<void> {
+    const permiso = await autorizacion.solicitar("cocina.item.marcar_listo");
+    if (!permiso.ok) return;
+
+    const mesaId = this.mesaDeOrden(ordenId);
+    if (!mesaId) return;
+
+    this.sincronizarActor();
+    this.emitir(mesaId, crear(mesaId));
+  }
+
+  /** La cocina tomó el platillo: arranca su preparación. */
+  async marcarEnMarcha(ordenId: ID, renglonId: ID, estacionId?: ID): Promise<void> {
+    await this.emitirDeCocina(ordenId, () =>
+      fabrica.crear("item_en_marcha", ordenId, {
+        orden_id: ordenId,
+        renglon_id: renglonId,
+        estacion_id: estacionId,
+      }),
+    );
+  }
+
+  async marcarListo(ordenId: ID, renglonId: ID): Promise<void> {
+    await this.emitirDeCocina(ordenId, () =>
+      fabrica.crear("item_listo", ordenId, { orden_id: ordenId, renglon_id: renglonId }),
+    );
+  }
+
+  async marcarEntregado(ordenId: ID, renglonId: ID): Promise<void> {
+    await this.emitirDeCocina(ordenId, () =>
+      fabrica.crear("item_entregado", ordenId, { orden_id: ordenId, renglon_id: renglonId }),
+    );
+  }
+
   /** Total en curso de una mesa, para pintarlo en el plano. */
   totalDeMesa(mesaId: ID): Centavos {
     const log = this.logs[mesaId];
@@ -301,16 +362,23 @@ class TiendaPOS {
     const porEnviar = this.pendientes;
     if (!orden_id || porEnviar.length === 0) return;
 
-    this.emitir(
-      this.mesaActiva,
-      fabrica.crear("items_enviados", orden_id, {
-        orden_id,
-        renglon_ids: porEnviar.map((r) => r.id),
-      }),
+    const envio = fabrica.crear("items_enviados", orden_id, {
+      orden_id,
+      renglon_ids: porEnviar.map((r) => r.id),
+    });
+    this.emitir(this.mesaActiva, envio);
+
+    // Al salir a cocina, lo que se va del almacén se descuenta. Solo aplica a
+    // los insumos que declararon su vínculo desde la receta; un restaurante que
+    // no lleva inventario simplemente no mueve nada.
+    const movidos = inventario.consumirPorReceta(
+      porEnviar,
+      envio.id,
+      sesion.usuarioActual?.id,
     );
-    this.flash(
-      `${porEnviar.length} ${porEnviar.length === 1 ? "platillo enviado" : "platillos enviados"} a cocina`,
-    );
+
+    const cuantos = `${porEnviar.length} ${porEnviar.length === 1 ? "platillo enviado" : "platillos enviados"} a cocina`;
+    this.flash(movidos > 0 ? `${cuantos} · ${movidos} insumos descontados` : cuantos);
   }
 
   // --- Descuentos, cortesías y propina ------------------------------------------------

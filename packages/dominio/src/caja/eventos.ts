@@ -12,7 +12,7 @@ import type { ID } from "../comun/ids.js";
 import type { EventoBase } from "../evento.js";
 import type { FormaPago } from "../comanda/eventos.js";
 
-export type MotivoMovimiento = "retiro" | "ingreso" | "fondo";
+export type MotivoMovimientoCaja = "retiro" | "ingreso" | "fondo";
 
 export type EventoCaja =
   | (EventoBase & {
@@ -25,7 +25,7 @@ export type EventoCaja =
   | (EventoBase & {
       tipo: "movimiento_efectivo";
       sesion_id: ID;
-      motivo: MotivoMovimiento;
+      motivo: MotivoMovimientoCaja;
       /** Positivo entra a la caja, negativo sale. */
       monto: Centavos;
       concepto: string;

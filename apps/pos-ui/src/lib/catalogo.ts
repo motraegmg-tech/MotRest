@@ -32,50 +32,74 @@ export const categorias: Categoria[] = [
   { id: "cat-postres", nombre: "Postres", orden: 6 },
 ];
 
-/** Recetas opcionales: solo para desglosar los insumos de cada variedad. */
+/**
+ * Recetas opcionales: desglosan los insumos de cada variedad y —cuando declaran
+ * `insumo_id`, `cantidad` y `unidad`— descuentan existencias al enviar a cocina.
+ * Los costos son los de la cantidad que consume una pizza completa.
+ */
 export const recetas: Receta[] = [
   {
     id: "rec-margherita",
     nombre: "Margherita",
     ingredientes: [
-      { id: "masa", nombre: "Masa madre", costo: pesos(12.4) },
-      { id: "pomodoro", nombre: "Salsa pomodoro", costo: pesos(6.8) },
-      { id: "mozz-fdl", nombre: "Mozzarella fior di latte", costo: pesos(17.8) },
-      { id: "albahaca", nombre: "Albahaca fresca", costo: pesos(2.6) },
-      { id: "aceite", nombre: "Aceite de oliva", costo: pesos(2.6) },
+      { id: "masa", nombre: "Masa madre", costo: pesos(12.4),
+        insumo_id: "ins-masa", cantidad: 200, unidad: "g" },
+      { id: "pomodoro", nombre: "Salsa pomodoro", costo: pesos(6.8),
+        insumo_id: "ins-pomodoro", cantidad: 150, unidad: "ml" },
+      { id: "mozz-fdl", nombre: "Mozzarella fior di latte", costo: pesos(17.8),
+        insumo_id: "ins-mozz-fdl", cantidad: 100, unidad: "g" },
+      { id: "albahaca", nombre: "Albahaca fresca", costo: pesos(2.6),
+        insumo_id: "ins-albahaca", cantidad: 10, unidad: "g" },
+      { id: "aceite", nombre: "Aceite de oliva", costo: pesos(2.6),
+        insumo_id: "ins-aceite", cantidad: 20, unidad: "ml" },
     ],
   },
   {
     id: "rec-pepperoni",
     nombre: "Pepperoni",
     ingredientes: [
-      { id: "masa", nombre: "Masa madre", costo: pesos(12.4) },
-      { id: "pomodoro", nombre: "Salsa pomodoro", costo: pesos(6.8) },
-      { id: "mozz", nombre: "Mozzarella", costo: pesos(14.2) },
-      { id: "pepperoni", nombre: "Pepperoni artesanal", costo: pesos(15.8) },
+      { id: "masa", nombre: "Masa madre", costo: pesos(12.4),
+        insumo_id: "ins-masa", cantidad: 200, unidad: "g" },
+      { id: "pomodoro", nombre: "Salsa pomodoro", costo: pesos(6.8),
+        insumo_id: "ins-pomodoro", cantidad: 150, unidad: "ml" },
+      { id: "mozz", nombre: "Mozzarella", costo: pesos(14.2),
+        insumo_id: "ins-mozz", cantidad: 100, unidad: "g" },
+      { id: "pepperoni", nombre: "Pepperoni artesanal", costo: pesos(15.8),
+        insumo_id: "ins-pepperoni", cantidad: 40, unidad: "g" },
     ],
   },
   {
     id: "rec-cuatro-quesos",
     nombre: "Cuatro quesos",
     ingredientes: [
-      { id: "masa", nombre: "Masa madre", costo: pesos(12.4) },
-      { id: "pomodoro", nombre: "Salsa pomodoro", costo: pesos(6.8) },
-      { id: "mozz", nombre: "Mozzarella", costo: pesos(14.2) },
-      { id: "gorgonzola", nombre: "Gorgonzola", costo: pesos(12) },
-      { id: "parmesano", nombre: "Parmesano", costo: pesos(9) },
-      { id: "provolone", nombre: "Provolone", costo: pesos(8) },
+      { id: "masa", nombre: "Masa madre", costo: pesos(12.4),
+        insumo_id: "ins-masa", cantidad: 200, unidad: "g" },
+      { id: "pomodoro", nombre: "Salsa pomodoro", costo: pesos(6.8),
+        insumo_id: "ins-pomodoro", cantidad: 150, unidad: "ml" },
+      { id: "mozz", nombre: "Mozzarella", costo: pesos(14.2),
+        insumo_id: "ins-mozz", cantidad: 100, unidad: "g" },
+      { id: "gorgonzola", nombre: "Gorgonzola", costo: pesos(12),
+        insumo_id: "ins-gorgonzola", cantidad: 40, unidad: "g" },
+      { id: "parmesano", nombre: "Parmesano", costo: pesos(9),
+        insumo_id: "ins-parmesano", cantidad: 25, unidad: "g" },
+      { id: "provolone", nombre: "Provolone", costo: pesos(8),
+        insumo_id: "ins-provolone", cantidad: 30, unidad: "g" },
     ],
   },
   {
     id: "rec-hawaiana",
     nombre: "Hawaiana",
     ingredientes: [
-      { id: "masa", nombre: "Masa madre", costo: pesos(12.4) },
-      { id: "pomodoro", nombre: "Salsa pomodoro", costo: pesos(6.8) },
-      { id: "mozz", nombre: "Mozzarella", costo: pesos(14.2) },
-      { id: "jamon", nombre: "Jamón", costo: pesos(10) },
-      { id: "pina", nombre: "Piña", costo: pesos(6) },
+      { id: "masa", nombre: "Masa madre", costo: pesos(12.4),
+        insumo_id: "ins-masa", cantidad: 200, unidad: "g" },
+      { id: "pomodoro", nombre: "Salsa pomodoro", costo: pesos(6.8),
+        insumo_id: "ins-pomodoro", cantidad: 150, unidad: "ml" },
+      { id: "mozz", nombre: "Mozzarella", costo: pesos(14.2),
+        insumo_id: "ins-mozz", cantidad: 100, unidad: "g" },
+      { id: "jamon", nombre: "Jamón", costo: pesos(10),
+        insumo_id: "ins-jamon", cantidad: 50, unidad: "g" },
+      { id: "pina", nombre: "Piña", costo: pesos(6),
+        insumo_id: "ins-pina", cantidad: 100, unidad: "g" },
     ],
   },
 ];

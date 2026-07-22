@@ -8,10 +8,10 @@
 import { CERO, restar, sumar, type Centavos } from "../comun/dinero.js";
 import type { ID } from "../comun/ids.js";
 import type { EventoComanda, FormaPago } from "../comanda/eventos.js";
-import type { EventoCaja, MotivoMovimiento, VentasPorForma } from "./eventos.js";
+import type { EventoCaja, MotivoMovimientoCaja, VentasPorForma } from "./eventos.js";
 
 export interface Movimiento {
-  motivo: MotivoMovimiento;
+  motivo: MotivoMovimientoCaja;
   monto: Centavos;
   concepto: string;
   autorizador_id?: ID;

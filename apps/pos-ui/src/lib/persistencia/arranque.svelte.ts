@@ -9,10 +9,13 @@ import {
   type EventoComanda,
   type EventoFiscal,
   type EventoIdentidad,
+  type EventoInventario,
 } from "@motrest/dominio";
 import { almacenEnMemoria, almacenIndexedDB, type Almacen } from "@motrest/protocolo-sync";
 import { catalogo, impuestos } from "../catalogo";
 import { fiscal } from "../fiscal.svelte";
+import { EXISTENCIAS_INICIALES } from "../insumos";
+import { inventario } from "../inventario.svelte";
 import { plano } from "../plano.svelte";
 import { pos, fabricaPos } from "../pos.svelte";
 import { sembrarSalon } from "../semilla";
@@ -44,6 +47,9 @@ const TIPOS_FISCALES = new Set([
   "cfdi_rechazado",
   "cfdi_cancelado",
 ]);
+
+/** Eventos de almacén. */
+const TIPOS_INVENTARIO = new Set(["movimiento_inventario", "conteo_registrado"]);
 
 class Arranque {
   cargando = $state(true);
@@ -89,12 +95,19 @@ class Arranque {
 
         pos.hidratar(comanda);
         await sesion.hidratar(
-          identidad.filter((e) => !TIPOS_FISCALES.has(e.tipo)) as EventoIdentidad[],
+          identidad.filter(
+            (e) => !TIPOS_FISCALES.has(e.tipo) && !TIPOS_INVENTARIO.has(e.tipo),
+          ) as EventoIdentidad[],
           almacen,
         );
         await fiscal.hidratar(
           ordenados.filter((e) => TIPOS_FISCALES.has((e as EventoFiscal).tipo)) as EventoFiscal[],
           almacen,
+        );
+        inventario.hidratar(
+          ordenados.filter((e) =>
+            TIPOS_INVENTARIO.has((e as EventoInventario).tipo),
+          ) as EventoInventario[],
         );
       }
 
@@ -103,6 +116,7 @@ class Arranque {
       sesion.conectarAlmacen(almacen);
       plano.conectarAlmacen(almacen);
       fiscal.conectarAlmacen(almacen);
+      inventario.conectarAlmacen(almacen);
     } catch (causa) {
       this.error = causa instanceof Error ? causa.message : "Error al cargar los datos";
       console.error("Fallo al rehidratar", causa);
@@ -126,6 +140,13 @@ class Arranque {
     pos.hidratar(eventos.sort(compararEventos));
     await sesion.hidratar([], almacen);
     await fiscal.hidratar([], almacen);
+
+    // Carga inicial del almacén, como una recepción de compra.
+    inventario.hidratar([]);
+    inventario.conectarAlmacen(almacen);
+    for (const [insumoId, cantidad] of EXISTENCIAS_INICIALES) {
+      inventario.registrar(insumoId, cantidad, "recepcion", "Carga inicial del almacén");
+    }
   }
 
   /** Borra todo lo guardado y recarga con la demostración de origen. */

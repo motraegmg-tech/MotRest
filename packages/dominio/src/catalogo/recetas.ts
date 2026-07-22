@@ -21,6 +21,15 @@ export interface Ingrediente {
   nombre: string;
   /** Costo del insumo por la cantidad que consume la receta. */
   costo: Centavos;
+
+  /**
+   * Vínculo OPCIONAL con el almacén. Solo los ingredientes que lo declaran
+   * descuentan existencias al enviar el platillo a cocina; los demás se
+   * quedan como puro desglose de costo.
+   */
+  insumo_id?: ID;
+  cantidad?: number;
+  unidad?: import("../inventario/insumos.js").Unidad;
 }
 
 export interface Receta {

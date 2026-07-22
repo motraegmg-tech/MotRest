@@ -31,6 +31,16 @@ export * from "./comanda/totales.js";
 export * from "./caja/eventos.js";
 export * from "./caja/reducers.js";
 
+// Cocina (KDS)
+export * from "./cocina/estaciones.js";
+export * from "./cocina/tablero.js";
+
+// Inventario
+export * from "./inventario/insumos.js";
+export * from "./inventario/eventos.js";
+export * from "./inventario/reducers.js";
+export * from "./inventario/explosion.js";
+
 // Fiscal (CFDI 4.0)
 export * from "./fiscal/claves.js";
 export * from "./fiscal/rfc.js";

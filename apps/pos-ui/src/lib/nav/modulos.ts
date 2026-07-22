@@ -65,8 +65,8 @@ export const MODULOS: EntradaModulo[] = [
     titulo: "Cocina",
     fase: "F1",
     permiso: "cocina.comanda.ver",
-    operativo: false,
-    secciones: [],
+    operativo: true,
+    secciones: [{ clave: "tablero", titulo: "Tablero de cocina", permiso: "cocina.comanda.ver" }],
     resumen:
       "Pantalla de cocina por estación con tiempos y semáforo, recetas y control de producción.",
     funciones: [
@@ -76,8 +76,8 @@ export const MODULOS: EntradaModulo[] = [
       "Recetas y subrecetas con explosión de insumos",
       "Monitor de tiempos de producción por estación",
     ],
-    enF1: "El estado por renglón (capturado → enviado → en marcha → listo → entregado) ya está en el motor: es lo que alimentará el KDS.",
-    etapa: "Etapa 8 del plan.",
+    enF1: "KDS por estación con cronómetro y semáforo por platillo, y recall de lo entregado.",
+    etapa: "La impresión de comandas por área llega en la etapa 11.",
   },
   {
     id: "m3",
@@ -85,8 +85,8 @@ export const MODULOS: EntradaModulo[] = [
     titulo: "Inventario",
     fase: "F1",
     permiso: "inv.existencias.ver",
-    operativo: false,
-    secciones: [],
+    operativo: true,
+    secciones: [{ clave: "almacen", titulo: "Existencias y mermas", permiso: "inv.existencias.ver" }],
     resumen:
       "Existencias en tiempo real, consumo por receta, mermas, conteos cíclicos y multialmacén.",
     funciones: [
@@ -95,8 +95,8 @@ export const MODULOS: EntradaModulo[] = [
       "Costeo ideal contra real",
       "Producción y rendimientos internos",
     ],
-    enF1: "Las recetas opcionales por producto ya existen: son la base del descuento por ingrediente.",
-    etapa: "Etapa 8 del plan.",
+    enF1: "Existencias derivadas de los movimientos, descuento automático al enviar a cocina, mermas y conteos cíclicos.",
+    etapa: "El costeo ideal contra real y el multialmacén llegan en F2.",
   },
   {
     id: "m4",

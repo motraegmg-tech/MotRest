@@ -58,6 +58,22 @@ export interface RenglonComanda {
   estacion_id?: ID;
   /** Tiempo del servicio: 1 entrada, 2 fuerte, 3 postre. */
   curso?: number;
+
+  /**
+   * Sellos de tiempo del ciclo de producción, tomados del reloj del dispositivo
+   * que emitió cada evento. Son los que alimentan los cronómetros del KDS.
+   */
+  enviado_ts?: number;
+  en_marcha_ts?: number;
+  listo_ts?: number;
+  entregado_ts?: number;
+}
+
+/** Minutos transcurridos desde que el platillo salió a cocina. */
+export function minutosEnCocina(r: RenglonComanda, ahora: number): number {
+  if (!r.enviado_ts) return 0;
+  const hasta = r.listo_ts ?? ahora;
+  return Math.max(0, Math.floor((hasta - r.enviado_ts) / 60_000));
 }
 
 /** Importe de línea (precio × cantidad), antes de impuestos. */
