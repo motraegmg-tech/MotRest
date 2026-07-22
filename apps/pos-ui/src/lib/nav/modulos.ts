@@ -210,6 +210,7 @@ export const MODULOS: EntradaModulo[] = [
       { clave: "usuarios", titulo: "Usuarios y permisos", permiso: "admin.usuario.editar" },
       { clave: "salones", titulo: "Salones y plano", permiso: "cat.area.editar" },
       { clave: "catalogo", titulo: "Insumos y estaciones", permiso: "cat.producto.editar" },
+      { clave: "hub", titulo: "Hub del local", permiso: "admin.dispositivo.aprobar" },
       { clave: "bitacora", titulo: "Bitácora", permiso: "admin.bitacora.ver" },
     ],
     resumen:

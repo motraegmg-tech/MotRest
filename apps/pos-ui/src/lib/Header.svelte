@@ -4,6 +4,7 @@
   import { pos } from "./pos.svelte";
   import { cabecera } from "./presentacion";
   import { sesion } from "./sesion/sesion.svelte";
+  import { sync } from "./sync.svelte";
 
   interface Props {
     onAbrirAcceso: () => void;
@@ -29,6 +30,15 @@
     <span class="chip acento">Mesa {pos.nombreMesaActiva}</span>
   {/if}
   <span class="chip gray">{cabecera.demo}</span>
+  <!--
+    El enlace solo se anuncia si hay un Hub configurado. Un local de una sola
+    terminal no tiene por qué ver un aviso permanente de algo que no usa.
+  -->
+  {#if sync.configurado}
+    <span class="chip enlace {sync.estado}" title={sync.detalle}>
+      <span class="punto"></span>{sync.etiqueta}
+    </span>
+  {/if}
   <span class="sp"></span>
 
   <div class="usuario">
@@ -97,6 +107,34 @@
   .chip.acento {
     background: var(--acento);
     color: #fff;
+  }
+  .chip.enlace {
+    background: #eef1ed;
+    color: var(--gris);
+    gap: 0.4rem;
+  }
+  .chip.enlace .punto {
+    width: 0.45rem;
+    height: 0.45rem;
+    border-radius: 50%;
+    background: var(--gris);
+  }
+  .chip.enlace.sincronizado {
+    color: #3f5c31;
+  }
+  .chip.enlace.sincronizado .punto {
+    background: #6b8f57;
+  }
+  .chip.enlace.conectando .punto,
+  .chip.enlace.sincronizando .punto {
+    background: var(--acento-2);
+  }
+  /* Isla no es un error: es el modo de trabajo cuando no hay Hub a la vista. */
+  .chip.enlace.isla {
+    color: var(--acento-2);
+  }
+  .chip.enlace.isla .punto {
+    background: var(--acento-2);
   }
   .sp {
     flex: 1;

@@ -1,0 +1,299 @@
+/**
+ * El Hub: árbitro del event log del local.
+ *
+ * Su única responsabilidad irrenunciable es **asignar la secuencia total**. Los
+ * dispositivos sellan con su propio reloj, que puede ir desfasado; quién ocurrió
+ * antes lo decide aquí un solo árbitro (TRD §5.1, ADR-17).
+ *
+ * Lo que el Hub NO hace, a propósito:
+ *   - No es requisito para vender. Si se apaga, las terminales siguen operando
+ *     en isla y al volver se reconcilian solas (TRD R3).
+ *   - No reescribe eventos. Un hecho recibido dos veces conserva su secuencia
+ *     original: el log es la bitácora de auditoría y no se corrige, se anexa.
+ *
+ * La clase no conoce WebSocket ni red: habla con "conexiones" abstractas, para
+ * poder probar el protocolo completo sin levantar un servidor.
+ */
+import { evaluar, type Accion, type Usuario } from "@motrest/dominio";
+import type { EventoBase, ID } from "@motrest/dominio";
+import {
+  VERSION_PROTOCOLO,
+  eventoValido,
+  type MensajeCliente,
+  type MensajeHub,
+} from "@motrest/protocolo-sync";
+import type { LogHub } from "@motrest/protocolo-sync/sqlite";
+
+/** Lo mínimo que el Hub necesita de una conexión. */
+export interface Conexion {
+  id: string;
+  enviar(mensaje: MensajeHub): void;
+  cerrar(): void;
+}
+
+interface Sesion {
+  conexion: Conexion;
+  device_id: ID;
+  sucursal_id: ID;
+  saludado: boolean;
+}
+
+export interface OpcionesHub {
+  hub_id: ID;
+  log: LogHub;
+  /**
+   * Exigir que el dispositivo esté aprobado antes de aceptar sus eventos.
+   *
+   * En un local real va en `true`: alcanzar la red no da derecho a escribir en
+   * el log de ventas. Se apaga solo para pruebas y para el primer arranque,
+   * donde todavía no hay nadie que pueda aprobar a nadie.
+   */
+  exigirAprobacion?: boolean;
+  /** Resuelve un empleado para revalidar permisos. */
+  usuarioDe?: (empleadoId: ID) => Usuario | undefined;
+  registrar?: (nivel: "info" | "aviso" | "error", mensaje: string) => void;
+}
+
+/** Eventos cuya emisión exige un permiso concreto, revalidado en el servidor. */
+const PERMISO_POR_EVENTO: Partial<Record<string, Accion>> = {
+  item_cancelado: "pos.item.cancelar_enviado",
+  descuento_aplicado: "pos.descuento.aplicar",
+  cortesia_otorgada: "pos.cortesia.otorgar",
+  pago_registrado: "pos.cobro.registrar",
+  caja_cerrada: "caja.corte.sellar",
+  movimiento_efectivo: "caja.retiro.registrar",
+  conteo_registrado: "inv.conteo.cerrar",
+};
+
+export class Hub {
+  private sesiones = new Map<string, Sesion>();
+  private log: LogHub;
+
+  constructor(private opciones: OpcionesHub) {
+    this.log = opciones.log;
+  }
+
+  private anotar(nivel: "info" | "aviso" | "error", mensaje: string): void {
+    this.opciones.registrar?.(nivel, mensaje);
+  }
+
+  get conectados(): number {
+    return this.sesiones.size;
+  }
+
+  get seqActual(): number {
+    return this.log.seqActual;
+  }
+
+  conectar(conexion: Conexion): void {
+    this.sesiones.set(conexion.id, {
+      conexion,
+      device_id: "",
+      sucursal_id: "",
+      saludado: false,
+    });
+  }
+
+  desconectar(conexionId: string): void {
+    this.sesiones.delete(conexionId);
+  }
+
+  /** Punto de entrada de todo lo que llega por el canal. */
+  recibir(conexionId: string, mensaje: MensajeCliente): void {
+    const sesion = this.sesiones.get(conexionId);
+    if (!sesion) return;
+
+    switch (mensaje.tipo) {
+      case "hola":
+        this.saludar(sesion, mensaje);
+        break;
+      case "push":
+        if (this.exigirSaludo(sesion)) this.ingerir(sesion, mensaje.eventos);
+        break;
+      case "pull":
+        if (this.exigirSaludo(sesion)) {
+          this.entregar(sesion, mensaje.desde_seq, mensaje.limite ?? 500);
+        }
+        break;
+      case "ping":
+        sesion.conexion.enviar({ tipo: "pong", ts: Date.now() });
+        break;
+    }
+  }
+
+  /** Nadie escribe ni lee sin identificarse primero. */
+  private exigirSaludo(sesion: Sesion): boolean {
+    if (sesion.saludado) return true;
+    sesion.conexion.enviar({
+      tipo: "error",
+      codigo: "no_emparejado",
+      mensaje: "Preséntate con 'hola' antes de sincronizar",
+    });
+    return false;
+  }
+
+  private saludar(sesion: Sesion, mensaje: Extract<MensajeCliente, { tipo: "hola" }>): void {
+    if (mensaje.v !== VERSION_PROTOCOLO) {
+      sesion.conexion.enviar({
+        tipo: "error",
+        codigo: "version_incompatible",
+        mensaje: `Este Hub habla la versión ${VERSION_PROTOCOLO} del protocolo y el dispositivo la ${mensaje.v}. Actualiza la terminal.`,
+      });
+      sesion.conexion.cerrar();
+      return;
+    }
+
+    const dispositivo =
+      this.log.dispositivo(mensaje.device_id) ??
+      this.log.registrarDispositivo(mensaje.device_id, mensaje.token ?? "");
+
+    if (this.opciones.exigirAprobacion && !dispositivo.aprobado) {
+      this.anotar("aviso", `Dispositivo sin aprobar intentó sincronizar: ${mensaje.device_id}`);
+      sesion.conexion.enviar({
+        tipo: "error",
+        codigo: "no_emparejado",
+        mensaje: "Este dispositivo aún no está autorizado en el local. Apruébalo desde Administración.",
+      });
+      sesion.conexion.cerrar();
+      return;
+    }
+
+    sesion.device_id = mensaje.device_id;
+    sesion.sucursal_id = mensaje.sucursal_id;
+    sesion.saludado = true;
+
+    this.anotar("info", `Dispositivo conectado: ${mensaje.device_id} (desde seq ${mensaje.desde_seq})`);
+    sesion.conexion.enviar({
+      tipo: "bienvenida",
+      v: VERSION_PROTOCOLO,
+      hub_id: this.opciones.hub_id,
+      seq_actual: this.log.seqActual,
+      ts: Date.now(),
+    });
+  }
+
+  /**
+   * Acepta eventos, les asigna secuencia y los difunde.
+   *
+   * Los inválidos se descartan UNO POR UNO en vez de rechazar el lote: si una
+   * terminal manda algo corrupto entre veinte comandas buenas, las diecinueve
+   * restantes tienen que entrar igual.
+   */
+  private ingerir(sesion: Sesion, eventos: readonly unknown[]): void {
+    const aceptados: EventoBase[] = [];
+
+    for (const crudo of eventos) {
+      if (!eventoValido(crudo)) {
+        this.anotar("aviso", `Evento descartado por malformado desde ${sesion.device_id}`);
+        sesion.conexion.enviar({
+          tipo: "error",
+          codigo: "evento_invalido",
+          mensaje: "El evento no trae los campos mínimos y se descartó",
+        });
+        continue;
+      }
+
+      if (crudo.sucursal_id !== sesion.sucursal_id) {
+        sesion.conexion.enviar({
+          tipo: "error",
+          codigo: "sucursal_distinta",
+          mensaje: "El evento pertenece a otra sucursal",
+          evento_id: crudo.id,
+        });
+        continue;
+      }
+
+      const veto = this.revalidarPermiso(crudo);
+      if (veto) {
+        this.anotar("aviso", `Permiso denegado en el Hub: ${crudo.tipo} de ${crudo.empleado_id}`);
+        sesion.conexion.enviar({
+          tipo: "error",
+          codigo: "permiso_denegado",
+          mensaje: veto,
+          evento_id: crudo.id,
+        });
+        continue;
+      }
+
+      aceptados.push(crudo);
+    }
+
+    if (aceptados.length === 0) return;
+
+    const acks = this.log.ingerir(aceptados);
+    sesion.conexion.enviar({ tipo: "acks", acks });
+
+    const mayor = acks.reduce((n, a) => Math.max(n, a.seq), 0);
+    this.log.anotarAvance(sesion.device_id, mayor);
+
+    this.difundir(sesion, acks);
+  }
+
+  /**
+   * Vuelve a comprobar el permiso en el servidor.
+   *
+   * El cliente ya lo evaluó, pero eso es para la experiencia: un cliente
+   * manipulado puede mandar lo que quiera. Sin `usuarioDe` el Hub todavía no
+   * conoce la plantilla de usuarios y solo arbitra la secuencia — se documenta
+   * como pendiente en vez de fingir que valida.
+   */
+  private revalidarPermiso(evento: EventoBase): string | null {
+    const accion = PERMISO_POR_EVENTO[evento.tipo];
+    if (!accion || !this.opciones.usuarioDe) return null;
+
+    const usuario = this.opciones.usuarioDe(evento.empleado_id);
+    if (!usuario) return `Empleado desconocido: ${evento.empleado_id}`;
+    if (!usuario.activo) return `El usuario ${usuario.nombre} está desactivado`;
+
+    // Un evento con autorizador ya pasó por la firma de un superior en el
+    // dispositivo; lo que se comprueba aquí es que el autorizador exista y pueda.
+    const autorizadorId = (evento as unknown as { autorizador_id?: ID }).autorizador_id;
+    if (autorizadorId) {
+      const autorizador = this.opciones.usuarioDe(autorizadorId);
+      if (!autorizador) return `Autorizador desconocido: ${autorizadorId}`;
+      const v = evaluar(autorizador, accion);
+      if (v.resultado === "denegado") {
+        return `${autorizador.nombre} no puede autorizar "${accion}"`;
+      }
+      return null;
+    }
+
+    const veredicto = evaluar(usuario, accion);
+    if (veredicto.resultado === "denegado") {
+      return `${usuario.nombre} no tiene permiso para "${accion}"`;
+    }
+    if (veredicto.resultado === "requiere_autorizacion") {
+      return `"${accion}" requiere la firma de un superior`;
+    }
+    return null;
+  }
+
+  /** Reparte lo recién aceptado a las demás terminales de la misma sucursal. */
+  private difundir(origen: Sesion, acks: readonly { id: string; seq: number }[]): void {
+    if (acks.length === 0) return;
+    const menor = acks.reduce((n, a) => Math.min(n, a.seq), Infinity);
+    const nuevos = this.log.desde(menor - 1, acks.length + 50);
+
+    for (const sesion of this.sesiones.values()) {
+      if (sesion.conexion.id === origen.conexion.id || !sesion.saludado) continue;
+      if (sesion.sucursal_id !== origen.sucursal_id) continue;
+      const suyos = nuevos.filter((e) => e.device_id !== sesion.device_id);
+      if (suyos.length > 0) {
+        sesion.conexion.enviar({ tipo: "eventos", eventos: suyos, hay_mas: false });
+      }
+    }
+  }
+
+  /** Responde a un `pull`: lo que le falta al dispositivo, por lotes. */
+  private entregar(sesion: Sesion, desdeSeq: number, limite: number): void {
+    const tope = Math.min(Math.max(limite, 1), 1000);
+    const eventos = this.log.desde(desdeSeq, tope);
+    const hayMas = eventos.length === tope;
+
+    sesion.conexion.enviar({ tipo: "eventos", eventos, hay_mas: hayMas });
+
+    if (eventos.length > 0) {
+      this.log.anotarAvance(sesion.device_id, eventos[eventos.length - 1]!.seq);
+    }
+  }
+}

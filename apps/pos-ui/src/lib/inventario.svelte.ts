@@ -8,6 +8,7 @@
 import {
   FabricaEventos,
   aUnidadBase,
+  compararEventos,
   consumoPorMotivo,
   costoMerma,
   deltaDelMotivo,
@@ -64,6 +65,14 @@ class StoreInventario {
 
   conectarAlmacen(almacen: Almacen): void {
     this.almacen = almacen;
+  }
+
+  /** Incorpora movimientos de otra terminal, sin duplicar los ya conocidos. */
+  integrar(eventos: readonly EventoInventario[]): void {
+    const conocidos = new Set(this.eventos.map((e) => e.id));
+    const nuevos = eventos.filter((e) => !conocidos.has(e.id));
+    if (nuevos.length === 0) return;
+    this.eventos = [...this.eventos, ...nuevos].sort(compararEventos);
   }
 
   private emitir(eventos: readonly EventoInventario[]): void {

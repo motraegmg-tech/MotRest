@@ -2,6 +2,27 @@
   "name": "@motrest/hub",
   "version": "0.0.0",
   "private": true,
-  "description": "MotRest Hub — servicio de fondo del local (cerebro autónomo LAN-first). STUB: se implementa en un paso posterior (Fastify + WebSocket + better-sqlite3 + event log).",
-  "type": "module"
+  "description": "MotRest Hub — servicio de fondo del local: secuencia total del event log, sincronización LAN y soporte del modo isla.",
+  "type": "module",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "scripts": {
+    "dev": "tsx watch src/main.ts",
+    "start": "tsx src/main.ts",
+    "build": "tsc --noEmit -p tsconfig.json",
+    "lint": "tsc --noEmit -p tsconfig.json",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@motrest/dominio": "workspace:*",
+    "@motrest/protocolo-sync": "workspace:*",
+    "ws": "^8.18.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.2",
+    "@types/ws": "^8.5.13",
+    "tsx": "^4.19.2",
+    "typescript": "^5.6.0",
+    "vitest": "^2.1.0"
+  }
 }

@@ -6,6 +6,7 @@
  */
 import {
   compararEventos,
+  type EventoBase,
   type EventoAsistencia,
   type EventoComanda,
   type EventoFiscal,
@@ -23,6 +24,7 @@ import { plano } from "../plano.svelte";
 import { pos, fabricaPos } from "../pos.svelte";
 import { sembrarSalon } from "../semilla";
 import { sesion } from "../sesion/sesion.svelte";
+import { sync } from "../sync.svelte";
 
 /** Eventos de comanda reconocidos, para separar el log por familia. */
 const TIPOS_COMANDA = new Set([
@@ -140,6 +142,10 @@ class Arranque {
       // tiene ni un movimiento y abriría el inventario en ceros. Se carga aquí,
       // después de conectar, para que quede persistido como cualquier recepción.
       this.cargarAlmacenInicial();
+
+      // El enlace con el Hub va al final y sin `await`: si no hay Hub, o está
+      // apagado, el POS ya quedó listo para operar en isla (TRD R3).
+      void sync.iniciar(almacen, (eventos) => this.aplicarDeOtros(eventos));
     } catch (causa) {
       this.error = causa instanceof Error ? causa.message : "Error al cargar los datos";
       console.error("Fallo al rehidratar", causa);
@@ -164,6 +170,34 @@ class Arranque {
     await sesion.hidratar([], almacen);
     await fiscal.hidratar([], almacen);
     inventario.hidratar([]);
+  }
+
+  /**
+   * Aplica lo que llegó de otras terminales.
+   *
+   * Los eventos ya se guardaron en el log local; aquí solo se reparten a los
+   * stores para que la pantalla se entere. Cada uno reproyecta desde su log, así
+   * que reaplicar algo que ya se tenía no rompe nada: las proyecciones son
+   * funciones puras del log (ADR-02).
+   */
+  private aplicarDeOtros(eventos: readonly EventoBase[]): void {
+    if (eventos.length === 0) return;
+    const ordenados = [...eventos].sort(compararEventos);
+
+    const comanda = ordenados.filter((e) =>
+      TIPOS_COMANDA.has((e as EventoComanda).tipo),
+    ) as EventoComanda[];
+    if (comanda.length > 0) pos.integrar(comanda);
+
+    const inv = ordenados.filter((e) =>
+      TIPOS_INVENTARIO.has((e as EventoInventario).tipo),
+    ) as EventoInventario[];
+    if (inv.length > 0) inventario.integrar(inv);
+
+    const checadas = ordenados.filter((e) =>
+      TIPOS_ASISTENCIA.has((e as EventoAsistencia).tipo),
+    ) as EventoAsistencia[];
+    if (checadas.length > 0) asistencia.integrar(checadas);
   }
 
   /**

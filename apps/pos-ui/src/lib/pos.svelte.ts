@@ -8,6 +8,7 @@ import {
   CERO,
   FabricaEventos,
   agruparPorMesa,
+  compararEventos,
   construirRenglon,
   pesos,
   proyectarComanda,
@@ -38,6 +39,7 @@ import { EMPLEADO_ACTUAL, SUCURSAL_ID, obtenerDeviceId } from "./presentacion";
 import { sembrarSalon, type OpcionesSemilla } from "./semilla";
 import { autorizacion } from "./sesion/autorizacion.svelte";
 import { sesion } from "./sesion/sesion.svelte";
+import { sync } from "./sync.svelte";
 
 export type EstadoMesa = "libre" | "ocupada" | "cuenta";
 
@@ -81,16 +83,45 @@ class TiendaPOS {
     this.almacen = almacen;
   }
 
+  /**
+   * Incorpora eventos llegados de otra terminal.
+   *
+   * Se deduplica por id: el Hub puede reenviar algo que este dispositivo ya
+   * tenía —tras un resync, por ejemplo— y meterlo dos veces al log duplicaría
+   * renglones en la pantalla aunque la cuenta del Hub estuviera bien.
+   */
+  integrar(eventos: readonly EventoComanda[]): void {
+    const porMesa = agruparPorMesa(eventos);
+    const siguiente = { ...this.logs };
+
+    for (const [mesaId, entrantes] of Object.entries(porMesa)) {
+      const previos = siguiente[mesaId] ?? [];
+      const conocidos = new Set(previos.map((e) => e.id));
+      const nuevos = entrantes.filter((e) => !conocidos.has(e.id));
+      if (nuevos.length === 0) continue;
+      siguiente[mesaId] = [...previos, ...nuevos].sort(compararEventos);
+    }
+
+    this.logs = siguiente;
+  }
+
   // --- Emisión ------------------------------------------------------------------
 
   private emitir(mesaId: ID, evento: EventoComanda): void {
     const previos = this.logs[mesaId] ?? [];
     this.logs = { ...this.logs, [mesaId]: [...previos, evento] };
 
-    void this.almacen?.eventos.anexar([evento]).catch((causa) => {
-      console.error("No se pudo guardar el evento", causa);
-      this.flash("Aviso: el último cambio no se pudo guardar en el dispositivo");
-    });
+    void this.almacen?.eventos
+      .anexar([evento])
+      .then(() => {
+        // Se empuja DESPUÉS de guardar en local, nunca antes: si el envío falla
+        // el evento ya está a salvo en el outbox y saldrá al reconectar.
+        sync.empujar();
+      })
+      .catch((causa) => {
+        console.error("No se pudo guardar el evento", causa);
+        this.flash("Aviso: el último cambio no se pudo guardar en el dispositivo");
+      });
   }
 
   private sincronizarActor(): void {
