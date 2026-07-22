@@ -7,6 +7,7 @@
    * corresponda al del piso.
    */
   import { describirProblema, type FormaMesa, type Mesa } from "@motrest/dominio";
+  import { rutas } from "../../nav/rutas.svelte";
   import { plano } from "../../plano.svelte";
   import { sesion } from "../../sesion/sesion.svelte";
 
@@ -90,6 +91,7 @@
         retícula para que coincidan con su lugar en el piso.
       </p>
     </div>
+    <button class="volver" onclick={() => rutas.ir("venta", "salon")}>← Volver a la venta</button>
   </div>
 
   <!-- Áreas -->
@@ -267,6 +269,28 @@
     font-size: 0.9rem;
     color: var(--gris);
     max-width: 42rem;
+  }
+  .encabezado {
+    display: flex;
+    align-items: flex-start;
+    gap: 1rem;
+  }
+  .encabezado > div {
+    flex: 1;
+  }
+  .volver {
+    border: 1.5px solid var(--borde);
+    border-radius: var(--r-md);
+    padding: 0.5rem 0.9rem;
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: var(--pizarra);
+    background: #fff;
+    white-space: nowrap;
+  }
+  .volver:hover {
+    border-color: var(--acento);
+    color: var(--acento);
   }
   .areas {
     display: flex;

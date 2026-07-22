@@ -3,13 +3,26 @@
    * Salón del POS: dibuja el plano real del local sobre su retícula, de modo que
    * la disposición en pantalla corresponda a la del piso.
    */
+  import { rutas } from "./nav/rutas.svelte";
   import { plano } from "./plano.svelte";
   import { pos } from "./pos.svelte";
+  import { sesion } from "./sesion/sesion.svelte";
+
+  const puedeEditarPlano = $derived(sesion.puedeOperar("cat.area.editar"));
 </script>
 
 <section class="salon">
   <div class="cabecera">
     <h2>Salón</h2>
+    {#if puedeEditarPlano}
+      <button
+        class="editar"
+        title="Editar salones y acomodo de mesas"
+        onclick={() => rutas.ir("administracion", "salones")}
+      >
+        Editar plano
+      </button>
+    {/if}
   </div>
 
   {#if plano.areas.length > 1}
@@ -73,9 +86,29 @@
     display: flex;
     flex-direction: column;
   }
+  .cabecera {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+  }
   .cabecera h2 {
+    flex: 1;
     font-size: 1.25rem;
     font-weight: 600;
+  }
+  .editar {
+    border: 1.5px solid var(--borde);
+    border-radius: var(--r-sm);
+    padding: 0.28rem 0.6rem;
+    font-size: 0.76rem;
+    font-weight: 600;
+    color: var(--gris);
+    background: #fff;
+    white-space: nowrap;
+  }
+  .editar:hover {
+    border-color: var(--acento);
+    color: var(--acento);
   }
   .areas {
     display: flex;

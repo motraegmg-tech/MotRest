@@ -2,52 +2,63 @@
   /**
    * M1 · Venta y servicio — el POS.
    *
-   * Distribución responsive según el TRD §12:
-   *   escritorio (≥1280 px) → tres columnas, como el mockup P1
-   *   tablet (768–1279 px)  → el salón se colapsa en cajón lateral
-   *   teléfono (<768 px)    → flujo por pasos
+   * El salón queda SIEMPRE a la vista en la izquierda: es el mapa del turno y el
+   * mesero lo consulta a cada rato. La columna central muestra la mesa
+   * seleccionada y, solo cuando se va a ordenar, la carta.
    */
   import CatalogoProductos from "../CatalogoProductos.svelte";
   import ConfiguradorProducto from "../ConfiguradorProducto.svelte";
   import PanelCuenta from "../PanelCuenta.svelte";
+  import PanelMesa from "../PanelMesa.svelte";
   import PanelSalon from "../PanelSalon.svelte";
   import { pos } from "../pos.svelte";
 
+  /** Vista de la columna central. */
+  let modo = $state<"mesa" | "pedido">("mesa");
+
   /** Paso activo en el perfil de teléfono. */
-  let paso = $state<"salon" | "carta" | "cuenta">("carta");
-  let cajonSalon = $state(false);
+  let paso = $state<"salon" | "centro" | "cuenta">("centro");
+
+  // Al cambiar de mesa se vuelve al panel de la mesa: el pedido es de una mesa
+  // concreta, no un modo global.
+  let ultimaMesa = $state(pos.mesaActiva);
+  $effect(() => {
+    if (pos.mesaActiva !== ultimaMesa) {
+      ultimaMesa = pos.mesaActiva;
+      modo = "mesa";
+    }
+  });
 </script>
 
 <div class="venta">
-  <!-- Salón: columna fija en escritorio, cajón en tablet, paso en teléfono -->
-  <div class="salon" class:cajon-abierto={cajonSalon} data-paso={paso}>
+  <div class="salon" data-paso={paso}>
     <PanelSalon />
   </div>
 
-  {#if cajonSalon}
-    <div class="velo-cajon" role="presentation" onclick={() => (cajonSalon = false)}></div>
-  {/if}
-
   <div class="centro" data-paso={paso}>
-    <div class="barra-tablet">
-      <button class="abrir-salon" onclick={() => (cajonSalon = true)}>
-        ☰ Salón · mesa {pos.nombreMesaActiva}
-      </button>
-    </div>
-    <CatalogoProductos />
+    {#if modo === "pedido"}
+      <div class="barra-pedido">
+        <button class="volver" onclick={() => (modo = "mesa")}>← Mesa {pos.nombreMesaActiva}</button>
+        <span class="titulo-pedido">Pedido</span>
+      </div>
+      <CatalogoProductos />
+    {:else}
+      <PanelMesa onPedido={() => (modo = "pedido")} />
+    {/if}
   </div>
 
   <div class="cuenta" data-paso={paso}>
     <PanelCuenta />
   </div>
 
-  <!-- Configurador: se abre encima cuando el producto lo requiere -->
   <ConfiguradorProducto />
 
   <!-- Navegación por pasos, solo en teléfono -->
   <nav class="pasos">
     <button class:on={paso === "salon"} onclick={() => (paso = "salon")}>Salón</button>
-    <button class:on={paso === "carta"} onclick={() => (paso = "carta")}>Carta</button>
+    <button class:on={paso === "centro"} onclick={() => (paso = "centro")}>
+      {modo === "pedido" ? "Pedido" : "Mesa"}
+    </button>
     <button class:on={paso === "cuenta"} onclick={() => (paso = "cuenta")}>
       Cuenta
       {#if pos.renglones.length > 0}<span class="badge">{pos.renglones.length}</span>{/if}
@@ -59,7 +70,7 @@
   .venta {
     flex: 1;
     display: grid;
-    grid-template-columns: minmax(14rem, 18rem) minmax(0, 1fr) minmax(20rem, 27rem);
+    grid-template-columns: minmax(15rem, 20rem) minmax(0, 1fr) minmax(19rem, 26rem);
     min-height: 0;
     position: relative;
   }
@@ -76,54 +87,42 @@
     min-height: 0;
     overflow: hidden;
   }
-  .barra-tablet {
-    display: none;
-    padding: 0.75rem 1.75rem 0;
+  .barra-pedido {
+    display: flex;
+    align-items: center;
+    gap: 0.85rem;
+    padding: 0.85rem 1.5rem 0;
+    flex: none;
   }
-  .abrir-salon {
+  .volver {
     border: 1.5px solid var(--borde);
     border-radius: var(--r-md);
-    padding: 0.5rem 0.9rem;
-    font-size: 0.88rem;
+    padding: 0.4rem 0.85rem;
+    font-size: 0.85rem;
     font-weight: 600;
-    background: #fff;
     color: var(--pizarra);
+    background: #fff;
+  }
+  .volver:hover {
+    border-color: var(--acento);
+    color: var(--acento);
+  }
+  .titulo-pedido {
+    font-family: var(--font-titulo);
+    font-size: 0.8rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--acento);
   }
   .pasos {
     display: none;
   }
-  .velo-cajon {
-    display: none;
-  }
 
-  /* --- Tablet: el salón pasa a cajón lateral (TRD §12) --- */
+  /* --- Tablet: el salón se estrecha pero NO se esconde --- */
   @media (max-width: 1279px) and (min-width: 768px) {
     .venta {
-      grid-template-columns: minmax(0, 1fr) minmax(18rem, 24rem);
-    }
-    .salon {
-      position: fixed;
-      z-index: 25;
-      top: 0;
-      bottom: 0;
-      left: 0;
-      width: 17rem;
-      transform: translateX(-100%);
-      transition: transform 0.18s ease;
-      box-shadow: var(--sombra-lg);
-    }
-    .salon.cajon-abierto {
-      transform: translateX(0);
-    }
-    .velo-cajon {
-      display: block;
-      position: fixed;
-      inset: 0;
-      z-index: 24;
-      background: rgba(20, 24, 26, 0.4);
-    }
-    .barra-tablet {
-      display: block;
+      grid-template-columns: minmax(11rem, 14rem) minmax(0, 1fr) minmax(16rem, 21rem);
     }
   }
 
@@ -143,7 +142,7 @@
       overflow-y: auto;
     }
     .salon[data-paso="salon"],
-    .centro[data-paso="carta"],
+    .centro[data-paso="centro"],
     .cuenta[data-paso="cuenta"] {
       display: flex;
     }

@@ -92,8 +92,18 @@ describe("lo que se opera queda guardado", () => {
     expect(activos.every((r) => r.estado !== "capturado")).toBe(true);
   });
 
-  it("abrir una mesa libre genera una sentada nueva persistida", async () => {
+  it("seleccionar una mesa libre NO la abre sola", async () => {
     pos.seleccionarMesa("mesa-2");
+    // Poner una mesa en servicio es una decisión del mesero, no un efecto de
+    // tocarla: puede estar solo consultándola.
+    expect(pos.estadoMesa("mesa-2")).toBe("libre");
+    expect(await comandaDesdeDisco("mesa-2")).toBeNull();
+  });
+
+  it("ponerla en servicio genera una sentada nueva persistida", async () => {
+    pos.seleccionarMesa("mesa-2");
+    await pos.ponerEnServicio();
+
     const orden = pos.comanda?.orden_id;
     expect(orden).toBeDefined();
 

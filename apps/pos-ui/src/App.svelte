@@ -171,26 +171,26 @@
     text-align: center;
   }
 
-  /* Tablet y teléfono: el sidebar se reduce a iconos y luego se oculta. */
+  /*
+   * En pantallas angostas el sidebar se estrecha pero SIGUE mostrando el
+   * nombre de cada módulo junto a su color: un menú de puros cuadritos no se
+   * lee de un vistazo, que es justo lo que un POS necesita.
+   */
   @media (max-width: 1279px) {
     .app :global(.sb) {
-      width: 4.5rem;
-      padding: 1.5rem 0.5rem;
+      width: 11rem;
+      padding: 1rem 0.6rem;
     }
-    .app :global(.sb .logo),
-    .app :global(.sb .txt),
-    .app :global(.sb .fase),
-    .app :global(.sb .foot),
-    .app :global(.sb .secciones) {
-      display: none;
+    .app :global(.sb .logo) {
+      font-size: 1.4rem;
+      padding-bottom: 1rem;
     }
     .app :global(.sb .item) {
-      justify-content: center;
-      padding: 0.7rem 0.4rem;
+      font-size: 0.88rem;
+      padding: 0.55rem 0.6rem;
     }
-    .app :global(.sb .item i) {
-      width: 0.85rem;
-      height: 0.85rem;
+    .app :global(.sb .foot) {
+      display: none;
     }
   }
 </style>

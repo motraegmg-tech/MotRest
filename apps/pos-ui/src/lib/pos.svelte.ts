@@ -170,9 +170,25 @@ class TiendaPOS {
     return c.cerrada ? null : c.orden_id;
   }
 
+  /**
+   * Selecciona una mesa SIN abrirla. Poner una mesa en servicio es una decisión
+   * del mesero, no un efecto secundario de tocarla: puede estar consultándola.
+   */
   seleccionarMesa(mesaId: ID): void {
     this.mesaActiva = mesaId;
-    if (this.estadoMesa(mesaId) === "libre") this.abrirMesa(mesaId);
+    const area = plano.areaDeMesa(mesaId);
+    if (area) plano.areaActiva = area.id;
+  }
+
+  /** Pone la mesa activa en servicio: llegaron comensales. */
+  async ponerEnServicio(): Promise<void> {
+    const permiso = await autorizacion.solicitar("pos.orden.abrir");
+    if (!permiso.ok) return;
+    if (this.estadoMesa(this.mesaActiva) !== "libre") return;
+
+    this.sincronizarActor();
+    this.abrirMesa(this.mesaActiva);
+    this.flash(`Mesa ${this.nombreMesaActiva} en servicio`);
   }
 
   abrirMesa(mesaId: ID): ID {

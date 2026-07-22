@@ -1,5 +1,4 @@
 <script lang="ts">
-  import { diaYHora } from "./formato";
   import { MODULO_POR_CLAVE } from "./nav/modulos";
   import { rutas } from "./nav/rutas.svelte";
   import { pos } from "./pos.svelte";
@@ -19,13 +18,6 @@
     rutas.ir(modulo, seccion);
   }
 
-  // Reloj del propio dispositivo (ADR-17): el software no tiene reloj propio.
-  let ahora = $state(Date.now());
-  $effect(() => {
-    const t = setInterval(() => (ahora = Date.now()), 30_000);
-    return () => clearInterval(t);
-  });
-
   let menuAbierto = $state(false);
   const usuario = $derived(sesion.usuarioActual);
 </script>
@@ -36,7 +28,6 @@
   {#if enVenta}
     <span class="chip acento">Mesa {pos.nombreMesaActiva}</span>
   {/if}
-  <span class="chip gray">{diaYHora(ahora)}</span>
   <span class="chip gray">{cabecera.demo}</span>
   <span class="sp"></span>
 
