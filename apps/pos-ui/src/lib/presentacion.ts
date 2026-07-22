@@ -18,6 +18,19 @@ export const cabecera = {
 };
 
 /**
+ * Encabezado del ticket impreso.
+ *
+ * Son los datos que el comensal se lleva en el papel. En F2 se capturan desde
+ * Administración junto con el resto del perfil fiscal del emisor.
+ */
+export const datosLocal = {
+  nombre: "Rodizio",
+  direccion: "Av. Central 100, Centro",
+  rfc: "XAXX010101000",
+  telefono: "55 1234 5678",
+};
+
+/**
  * Identidad del dispositivo, persistida en el navegador.
  * Sustituye al antiguo `"pos-caja-01"` hardcodeado: cada equipo tiene su UUID.
  */

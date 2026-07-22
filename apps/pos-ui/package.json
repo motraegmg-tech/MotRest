@@ -16,6 +16,7 @@
     "@fontsource/inter": "^5.0.0",
     "@fontsource/space-grotesk": "^5.0.0",
     "@motrest/dominio": "workspace:*",
+    "@motrest/impresion": "workspace:*",
     "@motrest/protocolo-sync": "workspace:*",
     "@motrest/ui": "workspace:*"
   },

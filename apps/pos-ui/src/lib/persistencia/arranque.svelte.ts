@@ -17,6 +17,7 @@ import { almacenEnMemoria, almacenIndexedDB, type Almacen } from "@motrest/proto
 import { asistencia } from "../asistencia.svelte";
 import { catalogo, impuestos, menuSemilla } from "../catalogo";
 import { fiscal } from "../fiscal.svelte";
+import { impresion } from "../impresion.svelte";
 import { EXISTENCIAS_INICIALES } from "../insumos";
 import { inventario } from "../inventario.svelte";
 import { menu } from "../menu.svelte";
@@ -89,6 +90,7 @@ class Arranque {
       // contra los productos del menú.
       await plano.hidratar(almacen);
       await menu.hidratar(almacen, menuSemilla);
+      await impresion.hidratar(almacen);
 
       const guardados = await almacen.eventos.leerTodos();
 

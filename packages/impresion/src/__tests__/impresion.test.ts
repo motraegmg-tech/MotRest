@@ -1,0 +1,422 @@
+import { describe, expect, it } from "vitest";
+import { pesos, type Centavos } from "@motrest/dominio";
+import { Ticket, aCP437 } from "../escpos.js";
+import { comandaCocina, corteCaja, ticketVenta } from "../plantillas.js";
+import { sellarCorte, verificarSello, type CifrasCorte } from "../sello.js";
+import {
+  ColaImpresion,
+  MAX_INTENTOS_IMPRESION,
+  TransporteSimulado,
+  esperaReintento,
+  impresoraPara,
+  type Impresora,
+  type ResultadoEnvio,
+  type Transporte,
+} from "../cola.js";
+
+const T0 = new Date(2026, 6, 22, 21, 15).getTime();
+
+// --- Codificación -------------------------------------------------------------------
+
+describe("codificación para impresoras térmicas", () => {
+  it("el ASCII pasa tal cual", () => {
+    expect(aCP437("Pizza")).toEqual([80, 105, 122, 122, 97]);
+  });
+
+  it("los acentos y la eñe usan CP437, no UTF-8", () => {
+    // En UTF-8 la "ñ" ocuparía dos bytes y la impresora escupiría dos símbolos.
+    expect(aCP437("ñ")).toEqual([0xa4]);
+    expect(aCP437("á")).toEqual([0xa0]);
+    expect(aCP437("¿")).toEqual([0xa8]);
+    expect(aCP437("Piña")).toHaveLength(4);
+  });
+
+  it("lo que no existe en CP437 se degrada a su letra sin acento", () => {
+    // Vale más "Cafe" que "Caf?".
+    expect(aCP437("ç")).toEqual([99]);
+    expect(aCP437("—")).toEqual([45]);
+  });
+
+  it("un símbolo sin byte propio NO se mapea al de una letra existente", () => {
+    // Regresión: el euro apuntaba al byte de la "E", así que al releer el
+    // ticket "Esperado en cajon" se mostraba como "€sperado en cajon".
+    const t = new Ticket(42).linea("Esperado");
+    expect(t.aTexto()).toContain("Esperado");
+    expect(t.aTexto()).not.toContain("€");
+  });
+
+  it("un carácter desconocido no rompe la impresión", () => {
+    expect(aCP437("日")).toEqual([0x20]);
+  });
+});
+
+describe("armado del ticket", () => {
+  it("alinea concepto e importe a los extremos del papel", () => {
+    const t = new Ticket(32);
+    t.columnasDobles("Subtotal", "$516.00");
+    const linea = t.aTexto().split("\n")[0]!;
+    expect(linea).toHaveLength(32);
+    expect(linea.startsWith("Subtotal")).toBe(true);
+    expect(linea.endsWith("$516.00")).toBe(true);
+  });
+
+  it("si no cabe, recorta el concepto y NUNCA el importe", () => {
+    const t = new Ticket(32);
+    t.columnasDobles("Pizza familiar mitad y mitad con orilla rellena", "$1,249.00");
+    const linea = t.aTexto().split("\n")[0]!;
+    expect(linea.endsWith("$1,249.00")).toBe(true);
+    expect(linea.length).toBeLessThanOrEqual(32);
+  });
+
+  it("el separador ocupa exactamente el ancho del papel", () => {
+    expect(new Ticket(42).separador().aTexto()).toHaveLength(42);
+  });
+
+  it("produce bytes, no texto", () => {
+    const bytes = new Ticket(32).linea("Hola").construir();
+    expect(bytes).toBeInstanceOf(Uint8Array);
+    // Arranca con ESC @ (inicializar impresora).
+    expect(bytes[0]).toBe(0x1b);
+    expect(bytes[1]).toBe(0x40);
+  });
+
+  it("el estilo se revierte tras cada línea, para no contagiar a la siguiente", () => {
+    const bytes = [...new Ticket(32).linea("FUERTE", { negrita: true }).construir()];
+    // ESC E 1 … ESC E 0
+    const enciende = bytes.findIndex((b, i) => b === 0x1b && bytes[i + 1] === 0x45 && bytes[i + 2] === 1);
+    const apaga = bytes.findIndex((b, i) => b === 0x1b && bytes[i + 1] === 0x45 && bytes[i + 2] === 0);
+    expect(enciende).toBeGreaterThanOrEqual(0);
+    expect(apaga).toBeGreaterThan(enciende);
+  });
+});
+
+// --- Plantillas ---------------------------------------------------------------------
+
+describe("comanda de cocina", () => {
+  const datos = {
+    orden_id: "ord-abc123456789",
+    mesa: "12",
+    mesero: "Lucía",
+    estacion: "HORNO",
+    ts: T0,
+    renglones: [
+      { cantidad: 2, descripcion: "Pizza familiar", detalle: "½ Margherita · ½ Pepperoni" },
+      { cantidad: 1, descripcion: "Ensalada César", notas: "SIN ADEREZO - alergia" },
+    ],
+  };
+
+  it("lleva la mesa y la estación bien visibles", () => {
+    const texto = comandaCocina(datos).aTexto();
+    expect(texto).toContain("HORNO");
+    expect(texto).toContain("MESA 12");
+  });
+
+  it("NO lleva precios: a la cocina no le sirven", () => {
+    expect(comandaCocina(datos).aTexto()).not.toContain("$");
+  });
+
+  it("resalta las notas, que es lo que más caro cuesta pasar por alto", () => {
+    expect(comandaCocina(datos).aTexto()).toContain(">> SIN ADEREZO - alergia");
+  });
+
+  it("una reimpresión se identifica como tal", () => {
+    const texto = comandaCocina({ ...datos, reimpresion: 1 }).aTexto();
+    expect(texto).toContain("REIMPRESION #1");
+  });
+
+  it("conserva los acentos del mesero", () => {
+    expect(comandaCocina(datos).aTexto()).toContain("Lucía");
+  });
+});
+
+describe("ticket de venta", () => {
+  const datos = {
+    folio: "A-000123",
+    ts: T0,
+    local: { nombre: "Rodizio", direccion: "Av. Central 100", rfc: "XAXX010101000" },
+    mesa: "12",
+    mesero: "Lucía",
+    renglones: [
+      { cantidad: 2, descripcion: "Pizza familiar", importe: pesos(498) },
+      { cantidad: 1, descripcion: "Limonada", importe: pesos(45) },
+    ],
+    subtotal: pesos(543),
+    descuentos: pesos(27),
+    cortesias: pesos(0) as Centavos,
+    iva: pesos(82.56),
+    ieps: pesos(0) as Centavos,
+    total: pesos(598.56),
+    propina: pesos(60),
+    pagos: [{ forma: "Efectivo", monto: pesos(700) }],
+    cambio: pesos(41.44),
+  };
+
+  it("imprime los datos fiscales del local", () => {
+    const texto = ticketVenta(datos).aTexto();
+    expect(texto).toContain("Rodizio");
+    expect(texto).toContain("RFC: XAXX010101000");
+  });
+
+  it("desglosa impuestos y total", () => {
+    const texto = ticketVenta(datos).aTexto();
+    expect(texto).toContain("$543.00");
+    expect(texto).toContain("$82.56");
+    expect(texto).toContain("$598.56");
+  });
+
+  it("imprime el descuento aplicado: el comensal tiene derecho a verlo", () => {
+    expect(ticketVenta(datos).aTexto()).toContain("-$27.00");
+  });
+
+  it("omite las líneas que valen cero, para no ensuciar el ticket", () => {
+    const texto = ticketVenta(datos).aTexto();
+    expect(texto).not.toContain("Cortesias");
+    expect(texto).not.toContain("IEPS");
+  });
+
+  it("separa la propina del total, sin mezclarlas", () => {
+    const texto = ticketVenta(datos).aTexto();
+    expect(texto).toContain("Propina");
+    expect(texto).toContain("$658.56"); // 598.56 + 60
+  });
+
+  it("imprime el cambio cuando lo hay", () => {
+    expect(ticketVenta(datos).aTexto()).toContain("$41.44");
+  });
+
+  it("incluye el QR de autofactura si se pide", () => {
+    const conQr = ticketVenta({ ...datos, url_autofactura: "https://f.motrest.mx/A-000123" });
+    expect(conQr.aTexto()).toContain("Factura tu consumo");
+    // El QR va como comando gráfico, no como texto.
+    expect(conQr.aTexto()).not.toContain("https://");
+    expect(conQr.construir().length).toBeGreaterThan(conQr.aTexto().length);
+  });
+});
+
+// --- Sello del corte ------------------------------------------------------------------
+
+describe("sello del corte de caja", () => {
+  const cifras: CifrasCorte = {
+    sesion_id: "ses-1",
+    cajero_id: "emp-lucia",
+    abierta_ts: T0 - 8 * 3_600_000,
+    cerrada_ts: T0,
+    fondo_inicial: pesos(1500),
+    total_vendido: pesos(24_350),
+    efectivo_esperado: pesos(9_800),
+    declarado: pesos(9_800),
+    diferencia: pesos(0),
+    propinas: pesos(1_240),
+    cuentas_cerradas: 47,
+  };
+
+  it("es estable: las mismas cifras dan el mismo sello", async () => {
+    expect(await sellarCorte(cifras)).toBe(await sellarCorte(cifras));
+  });
+
+  it("se puede cotejar a ojo entre el papel y la pantalla", async () => {
+    const sello = await sellarCorte(cifras);
+    expect(sello).toMatch(/^[0-9A-F]{4}(-[0-9A-F]{4}){3}$/);
+  });
+
+  it("cambiar UN PESO del corte cambia el sello", async () => {
+    const alterado = { ...cifras, declarado: pesos(9_700) };
+    expect(await sellarCorte(alterado)).not.toBe(await sellarCorte(cifras));
+  });
+
+  it("detecta que las cifras se alteraron después del cierre", async () => {
+    const sello = await sellarCorte(cifras);
+    expect(await verificarSello(cifras, sello)).toBe(true);
+
+    // Alguien "corrige" el faltante en el registro, después de firmar el papel.
+    const manipulado = { ...cifras, diferencia: pesos(-500) };
+    expect(await verificarSello(manipulado, sello)).toBe(false);
+  });
+
+  it("un sello con otra forma no se acepta", async () => {
+    expect(await verificarSello(cifras, "no-es-un-sello")).toBe(false);
+  });
+
+  it("el comprobante impreso lleva el sello", async () => {
+    const sello = await sellarCorte(cifras);
+    const texto = corteCaja({
+      folio: "C-0007",
+      local: "Rodizio",
+      cajero: "Lucía",
+      abierta_ts: cifras.abierta_ts,
+      cerrada_ts: cifras.cerrada_ts,
+      fondo_inicial: cifras.fondo_inicial,
+      ventas: [
+        { forma: "Efectivo", monto: pesos(8_300) },
+        { forma: "Tarjeta", monto: pesos(16_050) },
+      ],
+      total_vendido: cifras.total_vendido,
+      efectivo_ventas: pesos(8_300),
+      movimientos: pesos(0) as Centavos,
+      efectivo_esperado: cifras.efectivo_esperado,
+      declarado: cifras.declarado,
+      diferencia: cifras.diferencia,
+      propinas: cifras.propinas,
+      cuentas_cerradas: cifras.cuentas_cerradas,
+      sello,
+    }).aTexto();
+
+    expect(texto).toContain("CORTE DE CAJA");
+    expect(texto).toContain(sello);
+    expect(texto).toContain("Cuadra");
+    expect(texto).toContain("Firma:");
+  });
+
+  it("nombra la diferencia como faltante o sobrante, no como un número suelto", () => {
+    const base = {
+      folio: "C-1", local: "Rodizio", cajero: "Lucía",
+      abierta_ts: T0, cerrada_ts: T0, fondo_inicial: pesos(0) as Centavos,
+      ventas: [], total_vendido: pesos(0) as Centavos, efectivo_ventas: pesos(0) as Centavos,
+      movimientos: pesos(0) as Centavos, efectivo_esperado: pesos(1000),
+      propinas: pesos(0) as Centavos, cuentas_cerradas: 0, sello: "AAAA-BBBB-CCCC-DDDD",
+    };
+
+    expect(corteCaja({ ...base, declarado: pesos(900), diferencia: pesos(-100) }).aTexto())
+      .toContain("Faltante");
+    expect(corteCaja({ ...base, declarado: pesos(1100), diferencia: pesos(100) }).aTexto())
+      .toContain("Sobrante");
+  });
+});
+
+// --- Ruteo y cola -----------------------------------------------------------------------
+
+const impresora = (id: string, areas: string[]): Impresora => ({
+  id,
+  nombre: id,
+  conexion: "red",
+  host: "192.168.1.60",
+  puerto: 9100,
+  ancho: 42,
+  areas,
+  corta: true,
+  cajon: false,
+  activa: true,
+});
+
+describe("ruteo por área", () => {
+  const impresoras = [
+    impresora("imp-caja", ["caja"]),
+    impresora("imp-cocina", ["est-horno", "est-pastas"]),
+    { ...impresora("imp-barra", ["est-barra"]), activa: false },
+  ];
+
+  it("manda cada área a su impresora", () => {
+    expect(impresoraPara(impresoras, "est-horno")?.id).toBe("imp-cocina");
+    expect(impresoraPara(impresoras, "caja")?.id).toBe("imp-caja");
+  });
+
+  it("un área sin impresora cae a caja: mejor mal ubicada que no impresa", () => {
+    expect(impresoraPara(impresoras, "est-postres")?.id).toBe("imp-caja");
+  });
+
+  it("ignora las impresoras desactivadas", () => {
+    // La de barra está apagada, así que su área cae a caja.
+    expect(impresoraPara(impresoras, "est-barra")?.id).toBe("imp-caja");
+  });
+
+  it("sin ninguna impresora no revienta: devuelve nada", () => {
+    expect(impresoraPara([], "caja")).toBeUndefined();
+  });
+});
+
+describe("cola de impresión", () => {
+  const trabajo = (id: string, impresoraId = "imp-caja") => ({
+    id,
+    impresora_id: impresoraId,
+    documento: "ticket" as const,
+    datos: new Uint8Array([1, 2, 3]),
+    vista: "ticket de prueba",
+  });
+
+  it("encolar es inmediato: imprimir no bloquea la venta", () => {
+    const cola = new ColaImpresion([new TransporteSimulado()]);
+    const t = cola.encolar(trabajo("t1"));
+    expect(t.estado).toBe("pendiente");
+    expect(cola.pendientes).toHaveLength(1);
+  });
+
+  it("imprime en orden de llegada", async () => {
+    const transporte = new TransporteSimulado();
+    const cola = new ColaImpresion([transporte]);
+    cola.encolar({ ...trabajo("t1"), datos: new Uint8Array([1]) });
+    cola.encolar({ ...trabajo("t2"), datos: new Uint8Array([2]) });
+
+    await cola.procesar([impresora("imp-caja", ["caja"])]);
+
+    expect(transporte.impresos.map((i) => i.datos[0])).toEqual([1, 2]);
+    expect(cola.pendientes).toHaveLength(0);
+  });
+
+  it("un fallo NO pierde el trabajo: se reintenta", async () => {
+    let intentos = 0;
+    const inestable: Transporte = {
+      puede: () => true,
+      async enviar(): Promise<ResultadoEnvio> {
+        intentos += 1;
+        return { ok: false, error: "Sin papel" };
+      },
+    };
+
+    const cola = new ColaImpresion([inestable]);
+    cola.encolar(trabajo("t1"));
+    await cola.procesar([impresora("imp-caja", ["caja"])]);
+
+    expect(intentos).toBe(1);
+    // Sigue pendiente, con el error a la vista.
+    expect(cola.pendientes).toHaveLength(1);
+    expect(cola.pendientes[0]!.ultimo_error).toBe("Sin papel");
+  });
+
+  it("tras agotar los intentos queda fallido y visible, no desaparece", async () => {
+    const roto: Transporte = {
+      puede: () => true,
+      async enviar(): Promise<ResultadoEnvio> {
+        return { ok: false, error: "Impresora apagada" };
+      },
+    };
+
+    const cola = new ColaImpresion([roto]);
+    cola.encolar(trabajo("t1"));
+    for (let i = 0; i < MAX_INTENTOS_IMPRESION; i += 1) {
+      await cola.procesar([impresora("imp-caja", ["caja"])]);
+    }
+
+    expect(cola.fallidos).toHaveLength(1);
+    expect(cola.pendientes).toHaveLength(0);
+  });
+
+  it("un trabajo fallido se puede reintentar tras arreglar la impresora", async () => {
+    const transporte = new TransporteSimulado();
+    const cola = new ColaImpresion([transporte]);
+    cola.encolar(trabajo("t1", "imp-fantasma"));
+    await cola.procesar([]);
+    expect(cola.fallidos).toHaveLength(1);
+
+    cola.reintentar("t1");
+    await cola.procesar([impresora("imp-fantasma", ["caja"])]);
+    expect(cola.fallidos).toHaveLength(0);
+    expect(transporte.impresos).toHaveLength(1);
+  });
+
+  it("la espera entre reintentos crece, pero tiene techo", () => {
+    expect(esperaReintento(0)).toBe(2_000);
+    expect(esperaReintento(1)).toBe(4_000);
+    expect(esperaReintento(10)).toBe(60_000);
+  });
+
+  it("limpiar conserva lo pendiente y lo fallido", async () => {
+    const cola = new ColaImpresion([new TransporteSimulado()]);
+    cola.encolar(trabajo("t1"));
+    await cola.procesar([impresora("imp-caja", ["caja"])]);
+    cola.encolar(trabajo("t2"));
+
+    cola.limpiarImpresos();
+    expect(cola.todos).toHaveLength(1);
+    expect(cola.todos[0]!.id).toBe("t2");
+  });
+});

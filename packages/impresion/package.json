@@ -2,6 +2,23 @@
   "name": "@motrest/impresion",
   "version": "0.0.0",
   "private": true,
-  "description": "Impresión ESC/POS centralizada en el hub (red 9100 / USB / Bluetooth) con fallback directo en modo isla. STUB: se implementa en un paso posterior.",
-  "type": "module"
+  "description": "Impresión ESC/POS: generación de bytes, plantillas versionadas, sello del corte y cola con reintentos. El transporte real (red 9100 / USB / Bluetooth) vive fuera, porque depende de la plataforma.",
+  "type": "module",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "build": "tsc --noEmit -p tsconfig.json",
+    "lint": "tsc --noEmit -p tsconfig.json",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@motrest/dominio": "workspace:*"
+  },
+  "devDependencies": {
+    "typescript": "^5.6.0",
+    "vitest": "^2.1.0"
+  }
 }

@@ -47,6 +47,9 @@ importers:
       '@motrest/dominio':
         specifier: workspace:*
         version: link:../../packages/dominio
+      '@motrest/impresion':
+        specifier: workspace:*
+        version: link:../../packages/impresion
       '@motrest/protocolo-sync':
         specifier: workspace:*
         version: link:../../packages/protocolo-sync
@@ -85,7 +88,18 @@ importers:
         specifier: ^2.1.0
         version: 2.1.9(@types/node@22.20.1)
 
-  packages/impresion: {}
+  packages/impresion:
+    dependencies:
+      '@motrest/dominio':
+        specifier: workspace:*
+        version: link:../dominio
+    devDependencies:
+      typescript:
+        specifier: ^5.6.0
+        version: 5.9.3
+      vitest:
+        specifier: ^2.1.0
+        version: 2.1.9(@types/node@22.20.1)
 
   packages/protocolo-sync:
     dependencies:

@@ -10,6 +10,7 @@ import {
   agruparPorMesa,
   compararEventos,
   construirRenglon,
+  etiquetaFormaPago,
   pesos,
   proyectarComanda,
   renglonesActivos,
@@ -35,7 +36,8 @@ import { catalogo, impuestos } from "./catalogo";
 import { configurador } from "./configurador.svelte";
 import { inventario } from "./inventario.svelte";
 import { plano } from "./plano.svelte";
-import { EMPLEADO_ACTUAL, SUCURSAL_ID, obtenerDeviceId } from "./presentacion";
+import { impresion } from "./impresion.svelte";
+import { EMPLEADO_ACTUAL, SUCURSAL_ID, datosLocal, obtenerDeviceId } from "./presentacion";
 import { sembrarSalon, type OpcionesSemilla } from "./semilla";
 import { autorizacion } from "./sesion/autorizacion.svelte";
 import { sesion } from "./sesion/sesion.svelte";
@@ -421,8 +423,47 @@ class TiendaPOS {
       sesion.usuarioActual?.id,
     );
 
+    // La comanda impresa sale por estación, para que cada una reciba solo lo
+    // suyo. Se hace al final y sin esperar: si la impresora está apagada, el
+    // platillo ya salió a cocina en el KDS de todos modos.
+    const impresas = this.imprimirComanda(orden_id, porEnviar);
+
     const cuantos = `${porEnviar.length} ${porEnviar.length === 1 ? "platillo enviado" : "platillos enviados"} a cocina`;
-    this.flash(movidos > 0 ? `${cuantos} · ${movidos} insumos descontados` : cuantos);
+    const detalles = [
+      movidos > 0 ? `${movidos} insumos descontados` : "",
+      impresas > 0 ? `${impresas} comanda${impresas === 1 ? "" : "s"} impresa${impresas === 1 ? "" : "s"}` : "",
+    ].filter(Boolean);
+
+    this.flash(detalles.length > 0 ? `${cuantos} · ${detalles.join(" · ")}` : cuantos);
+  }
+
+  /** Agrupa lo enviado por estación y lo manda a la impresora de cada una. */
+  private imprimirComanda(ordenId: ID, renglones: readonly RenglonComanda[]): number {
+    const porEstacion = new Map<ID, { cantidad: number; descripcion: string; detalle?: string; notas?: string }[]>();
+
+    for (const renglon of renglones) {
+      // Lo que no tiene estación va a "caja", que es donde alguien lo verá.
+      const estacion = renglon.estacion_id ?? "caja";
+      const lista = porEstacion.get(estacion) ?? [];
+      lista.push({
+        cantidad: renglon.cantidad,
+        descripcion: renglon.descripcion,
+        detalle: renglon.detalle,
+        notas: renglon.notas,
+      });
+      porEstacion.set(estacion, lista);
+    }
+
+    return impresion.comanda(
+      {
+        orden_id: ordenId,
+        mesa: this.nombreMesaActiva,
+        mesero: sesion.usuarioActual?.nombre ?? "—",
+        ts: Date.now(),
+        renglones: [],
+      },
+      porEstacion,
+    );
   }
 
   // --- Descuentos, cortesías y propina ------------------------------------------------
@@ -573,6 +614,10 @@ class TiendaPOS {
     const t = this.totales;
     if (t && t.saldo <= 0) {
       const mesa = this.nombreMesaActiva;
+      const comanda = this.comanda;
+      // El ticket se arma ANTES de cerrar, mientras la comanda sigue completa.
+      if (comanda) this.imprimirTicket(comanda, t);
+
       this.emitir(this.mesaActiva, fabrica.crear("cuenta_cerrada", orden_id, { orden_id }));
       this.flash(
         t.cambio > 0
@@ -582,6 +627,41 @@ class TiendaPOS {
     } else {
       this.flash("Pago parcial registrado");
     }
+  }
+
+  /**
+   * Manda el ticket a la impresora de caja.
+   *
+   * Las cifras vienen YA CALCULADAS de los totales de la comanda: recalcularlas
+   * al imprimir abriría la puerta a que el papel diga una cosa y la cuenta otra,
+   * y el papel es el que se lleva el cliente.
+   */
+  private imprimirTicket(comanda: EstadoComanda, t: TotalesComanda): void {
+    impresion.ticket({
+      folio: comanda.orden_id.slice(-8).toUpperCase(),
+      ts: Date.now(),
+      local: datosLocal,
+      mesa: this.nombreMesaActiva,
+      mesero: sesion.nombreDe(comanda.mesero_id),
+      renglones: renglonesActivos(comanda).map((r) => ({
+        cantidad: r.cantidad,
+        descripcion: r.descripcion,
+        detalle: r.detalle,
+        importe: (r.precio_unitario * r.cantidad) as Centavos,
+      })),
+      subtotal: t.subtotal,
+      descuentos: t.descuentos,
+      cortesias: t.cortesias,
+      iva: t.iva,
+      ieps: t.ieps,
+      total: t.total,
+      propina: t.propina,
+      pagos: comanda.pagos.map((p) => ({
+        forma: etiquetaFormaPago(p.forma),
+        monto: p.monto,
+      })),
+      cambio: t.cambio,
+    });
   }
 
   /** Cobro rápido del total pendiente en efectivo. */
