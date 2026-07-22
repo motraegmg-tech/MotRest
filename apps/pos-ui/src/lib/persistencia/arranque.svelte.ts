@@ -117,6 +117,11 @@ class Arranque {
       plano.conectarAlmacen(almacen);
       fiscal.conectarAlmacen(almacen);
       inventario.conectarAlmacen(almacen);
+
+      // El almacén nace en la etapa 8: un dispositivo con operación anterior no
+      // tiene ni un movimiento y abriría el inventario en ceros. Se carga aquí,
+      // después de conectar, para que quede persistido como cualquier recepción.
+      this.cargarAlmacenInicial();
     } catch (causa) {
       this.error = causa instanceof Error ? causa.message : "Error al cargar los datos";
       console.error("Fallo al rehidratar", causa);
@@ -140,10 +145,16 @@ class Arranque {
     pos.hidratar(eventos.sort(compararEventos));
     await sesion.hidratar([], almacen);
     await fiscal.hidratar([], almacen);
-
-    // Carga inicial del almacén, como una recepción de compra.
     inventario.hidratar([]);
-    inventario.conectarAlmacen(almacen);
+  }
+
+  /**
+   * Siembra las existencias de arranque, una sola vez, como una recepción de
+   * compra: así el almacén se explica desde su primer movimiento y no aparece
+   * como un saldo caído del cielo.
+   */
+  private cargarAlmacenInicial(): void {
+    if (inventario.activo) return;
     for (const [insumoId, cantidad] of EXISTENCIAS_INICIALES) {
       inventario.registrar(insumoId, cantidad, "recepcion", "Carga inicial del almacén");
     }
