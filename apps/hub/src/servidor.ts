@@ -419,10 +419,25 @@ export class Hub {
      * barrido lo encuentra.
      */
     if (aceptados.some((e) => e.tipo === "cfdi_generado")) {
+      const fiscal = this.opciones.fiscal;
       try {
-        this.opciones.fiscal?.facturador?.procesar();
+        fiscal?.facturador?.procesar();
       } catch (error) {
         this.anotar("error", `Fallo al sellar comprobantes: ${String(error)}`);
+      }
+
+      /*
+       * El timbrado sale en segundo plano y, al terminar, publica su resultado
+       * en el registro del local para que la caja lo vea. No se espera: la
+       * venta ya está cerrada y el comensal no tiene que aguardar al PAC.
+       */
+      if (fiscal?.cola) {
+        void fiscal.cola
+          .procesar()
+          .then(() => fiscal.facturador?.publicarResultados())
+          .catch((error: unknown) => {
+            this.anotar("error", `Fallo al timbrar: ${String(error)}`);
+          });
       }
     }
   }
@@ -552,9 +567,12 @@ export class Hub {
            * ida y vuelta a internet para saber si quedó bien: el sellado ya
            * ocurrió y es local. Si el PAC tarda o falla, la cola lo maneja.
            */
-          void fiscal.cola.procesar().catch((error: unknown) => {
-            this.anotar("error", `Fallo al timbrar tras instalar el CSD: ${String(error)}`);
-          });
+          void fiscal.cola
+            .procesar()
+            .then(() => fiscal.facturador?.publicarResultados())
+            .catch((error: unknown) => {
+              this.anotar("error", `Fallo al timbrar tras instalar el CSD: ${String(error)}`);
+            });
         } else {
           problema = resultado.problema;
         }
@@ -570,9 +588,12 @@ export class Hub {
         if (mensaje.orden_id) fiscal.cola.reintentar(mensaje.orden_id);
         // Se intenta enseguida —quien reintenta a mano acaba de arreglar la
         // causa— pero sin bloquear la respuesta.
-        void fiscal.cola.procesar().catch((error: unknown) => {
-          this.anotar("error", `Fallo al reintentar el timbrado: ${String(error)}`);
-        });
+        void fiscal.cola
+          .procesar()
+          .then(() => fiscal.facturador?.publicarResultados())
+          .catch((error: unknown) => {
+            this.anotar("error", `Fallo al reintentar el timbrado: ${String(error)}`);
+          });
         break;
 
       case "estado":

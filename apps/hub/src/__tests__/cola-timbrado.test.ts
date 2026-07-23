@@ -101,6 +101,8 @@ function xmlSellado(folio: string): string {
 function encolar(c: ColaDeTimbrado, ordenId = "ord-1", folio = "1"): void {
   c.encolar({
     orden_id: ordenId,
+    cfdi_id: `cfdi-${folio}`,
+    sucursal_id: "suc-rodizio",
     serie: "A",
     folio,
     total: 58000,

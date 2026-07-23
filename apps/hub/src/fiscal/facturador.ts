@@ -23,10 +23,22 @@
 import type { DatabaseSync } from "node:sqlite";
 import {
   comprobanteAXml,
+  FabricaEventos,
+  streamFiscal,
   type Comprobante,
   type EventoBase,
+  type EventoFiscal,
   type ID,
 } from "@motrest/dominio";
+
+/**
+ * A nombre de quién anota el Hub lo que hace por su cuenta.
+ *
+ * No es un usuario: no tiene credencial ni puede iniciar sesión. Existe para
+ * que la bitácora pueda decir «esto lo hizo el sistema» en vez de colgárselo a
+ * la última persona que tocó la caja.
+ */
+const EMPLEADO_SISTEMA = "sistema";
 import type { LogHub } from "@motrest/protocolo-sync/sqlite";
 import type { ColaDeTimbrado } from "./cola-timbrado.js";
 import type { Sellador } from "./sellador.js";
@@ -51,14 +63,35 @@ interface EventoCfdiGenerado extends EventoBase {
 }
 
 export class Facturador {
+  private fabrica: FabricaEventos<EventoFiscal>;
+  private nombrePac: string;
+
   constructor(
     private log: LogHub,
     private sellador: Sellador,
     private cola: ColaDeTimbrado,
     private db: DatabaseSync,
     private anotar: (nivel: "info" | "aviso" | "error", mensaje: string) => void = () => {},
+    opciones: { hub_id?: ID; nombrePac?: string } = {},
   ) {
     this.db.exec(ESQUEMA);
+    this.nombrePac = opciones.nombrePac ?? "PAC";
+
+    /*
+     * El Hub firma estos hechos a su propio nombre.
+     *
+     * Timbrar no lo hace una persona: ocurre solo, minutos u horas después del
+     * cobro y quizá con el local cerrado. Atribuirlo a quien facturó sería
+     * escribir en la bitácora algo que esa persona no hizo.
+     *
+     * La sucursal se ajusta por comprobante, no aquí: el Hub no tiene una
+     * propia, la declaran los dispositivos.
+     */
+    this.fabrica = new FabricaEventos<EventoFiscal>({
+      device_id: opciones.hub_id ?? "hub",
+      empleado_id: EMPLEADO_SISTEMA,
+      sucursal_id: "",
+    });
   }
 
   private get marca(): number {
@@ -110,6 +143,8 @@ export class Facturador {
         const sellado = this.sellador.sellarComprobante(cfdi.comprobante);
         this.cola.encolar({
           orden_id: cfdi.orden_id,
+          cfdi_id: cfdi.cfdi_id,
+          sucursal_id: cfdi.sucursal_id,
           serie: cfdi.serie,
           folio: cfdi.folio,
           total: cfdi.comprobante.total,
@@ -148,5 +183,56 @@ export class Facturador {
   esperandoCsd(): number {
     if (this.sellador.listo) return 0;
     return this.log.porTipo(TIPO, this.marca, 1000).length;
+  }
+
+  /**
+   * Devuelve al registro del local el desenlace de cada factura.
+   *
+   * Sin esto, el folio fiscal se queda en la base del Hub y la caja nunca se
+   * entera: el mesero no puede decirle al comensal que su factura salió ni
+   * darle el UUID. Peor todavía, un rechazo pasaría inadvertido hasta que
+   * alguien abriera la pantalla de facturación.
+   *
+   * El hecho va al event log, así que se replica a todas las terminales y
+   * queda en la bitácora — igual que cualquier otro hecho del negocio.
+   */
+  publicarResultados(): number {
+    const pendientes = this.cola.porPublicar();
+    if (pendientes.length === 0) return 0;
+
+    for (const fila of pendientes) {
+      /*
+       * Sin `cfdi_id` no hay a qué comprobante enganchar el resultado. Pasa
+       * solo con filas anteriores a esta columna; se dan por publicadas para
+       * que no se queden intentándolo en cada ciclo.
+       */
+      if (!fila.cfdi_id) {
+        this.cola.marcarPublicado(fila.orden_id);
+        continue;
+      }
+
+      // El hecho vuelve a la sucursal de donde salió el comprobante.
+      this.fabrica.actualizarContexto({ sucursal_id: fila.sucursal_id });
+      const stream = streamFiscal(fila.sucursal_id);
+
+      const evento =
+        fila.estado === "timbrado"
+          ? this.fabrica.crear("cfdi_timbrado", stream, {
+              cfdi_id: fila.cfdi_id,
+              uuid: fila.uuid ?? "",
+              fecha_timbrado: new Date().toISOString(),
+              pac: this.nombrePac,
+            })
+          : this.fabrica.crear("cfdi_rechazado", stream, {
+              cfdi_id: fila.cfdi_id,
+              codigo: (fila.problema ?? "").split(":")[0]?.trim() ?? "",
+              motivo: fila.problema ?? "El PAC no explicó el motivo.",
+            });
+
+      this.log.ingerir([evento]);
+      this.cola.marcarPublicado(fila.orden_id);
+    }
+
+    return pendientes.length;
   }
 }

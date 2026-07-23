@@ -64,6 +64,16 @@ export type ModoTimbrado = "timbrar" | "recuperar";
 
 export type EstadoTimbrado = "pendiente" | "timbrado" | "rechazado";
 
+/** Una factura con desenlace, lista para anotarse en el registro del local. */
+export interface FacturaResuelta {
+  orden_id: string;
+  cfdi_id: string;
+  sucursal_id: string;
+  estado: EstadoTimbrado;
+  uuid: string | null;
+  problema: string | null;
+}
+
 export interface EnCola {
   orden_id: string;
   serie: string;
@@ -131,6 +141,30 @@ export class ColaDeTimbrado {
     if (!columnas.has("recuperaciones")) {
       this.db.exec("ALTER TABLE timbrado ADD COLUMN recuperaciones INTEGER NOT NULL DEFAULT 0");
     }
+    if (!columnas.has("cfdi_id")) {
+      this.db.exec("ALTER TABLE timbrado ADD COLUMN cfdi_id TEXT NOT NULL DEFAULT ''");
+    }
+    /*
+     * La sucursal del comprobante, no la del Hub.
+     *
+     * El Hub no tiene una: la declaran los dispositivos al conectarse. El
+     * resultado del timbrado tiene que volver al mismo lugar del registro de
+     * donde salió el comprobante, o en un local con dos sucursales acabaría en
+     * la equivocada.
+     */
+    if (!columnas.has("sucursal_id")) {
+      this.db.exec("ALTER TABLE timbrado ADD COLUMN sucursal_id TEXT NOT NULL DEFAULT ''");
+    }
+    /*
+     * `publicado` marca que el resultado ya se anotó en el registro del local.
+     *
+     * Sin esta marca, un Hub que se reinicia entre timbrar y publicar volvería
+     * a anexar el mismo hecho con otro id de evento, y la factura aparecería
+     * dos veces en el historial de la caja.
+     */
+    if (!columnas.has("publicado")) {
+      this.db.exec("ALTER TABLE timbrado ADD COLUMN publicado INTEGER NOT NULL DEFAULT 0");
+    }
   }
 
   /**
@@ -142,6 +176,8 @@ export class ColaDeTimbrado {
    */
   encolar(entrada: {
     orden_id: string;
+    cfdi_id: string;
+    sucursal_id: string;
     serie: string;
     folio: string;
     total: number;
@@ -150,17 +186,44 @@ export class ColaDeTimbrado {
     this.db
       .prepare(
         `INSERT OR IGNORE INTO timbrado
-           (orden_id, serie, folio, total, xml, estado, intentos, proximo_ts, creado_ts)
-         VALUES (?, ?, ?, ?, ?, 'pendiente', 0, 0, ?)`,
+           (orden_id, cfdi_id, sucursal_id, serie, folio, total, xml,
+            estado, intentos, proximo_ts, creado_ts)
+         VALUES (?, ?, ?, ?, ?, ?, ?, 'pendiente', 0, 0, ?)`,
       )
       .run(
         entrada.orden_id,
+        entrada.cfdi_id,
+        entrada.sucursal_id,
         entrada.serie,
         entrada.folio,
         entrada.total,
         entrada.xml,
         Date.now(),
       );
+  }
+
+  /**
+   * Facturas ya resueltas cuyo resultado todavía no está en el registro del
+   * local.
+   *
+   * El timbre vive aquí, en la base del Hub, pero la caja lo necesita para
+   * decirle al comensal que su factura salió y entregarle el folio fiscal. Que
+   * llegue allá es responsabilidad de quien tenga el log, no de esta cola.
+   */
+  porPublicar(limite = 50): FacturaResuelta[] {
+    return this.db
+      .prepare(
+        `SELECT orden_id, cfdi_id, sucursal_id, estado, uuid, problema
+           FROM timbrado
+          WHERE publicado = 0 AND estado IN ('timbrado', 'rechazado')
+          ORDER BY creado_ts LIMIT ?`,
+      )
+      .all(limite) as unknown as FacturaResuelta[];
+  }
+
+  /** Da por anotado en el registro del local el resultado de esta factura. */
+  marcarPublicado(ordenId: string): void {
+    this.db.prepare("UPDATE timbrado SET publicado = 1 WHERE orden_id = ?").run(ordenId);
   }
 
   /** Lo que toca intentar ahora: pendientes cuya espera ya venció. */
@@ -385,11 +448,15 @@ export class ColaDeTimbrado {
      * 307, y en el peor caso una factura duplicada si el PAC no dedujera bien.
      * Lo que se reinicia es el contador de intentos.
      */
+    /*
+     * `publicado` vuelve a 0 porque el desenlace va a cambiar: el registro del
+     * local tiene anotado un rechazo y, si ahora se timbra, tiene que enterarse.
+     */
     this.db
       .prepare(
         `UPDATE timbrado
             SET estado = 'pendiente', intentos = 0, recuperaciones = 0,
-                proximo_ts = 0, problema = NULL
+                proximo_ts = 0, problema = NULL, publicado = 0
           WHERE orden_id = ? AND estado = 'rechazado'`,
       )
       .run(ordenId);

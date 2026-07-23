@@ -149,9 +149,26 @@ nadie enterado—, que es peor que detenerse y avisar.
   de que el sello corresponde a la cadena original del comprobante. Lo que solo
   el primer timbrado real confirma es que el **orden** de esa cadena coincide
   con el que recalcula el PAC.
-- **Emitir el evento de dominio al timbrar**, para que la factura quede en el
-  registro del local y no solo en la cola. Hoy el UUID vive en la cola del Hub;
-  llevarlo al log lo hace parte de la bitácora y lo replica a las terminales.
+## El desenlace vuelve a la caja
+
+El folio fiscal no sirve encerrado en la base del Hub: la caja necesita saber
+que la factura salió para entregársela al comensal, y necesita enterarse de un
+rechazo sin que alguien abra la pantalla de facturación a buscarlo.
+
+Por eso, al resolverse una factura, el Hub anexa `cfdi_timbrado` o
+`cfdi_rechazado` **al event log**. De ahí se replica a todas las terminales y
+queda en la bitácora, igual que cualquier otro hecho del negocio.
+
+Tres detalles que lo sostienen:
+
+- **`publicado` en disco.** Un Hub que se apaga entre timbrar y publicar, al
+  volver, anota el hecho una sola vez. Sin esa marca, cada ciclo anexaría el
+  mismo hecho con otro id y la factura aparecería repetida.
+- **Lo firma el sistema, no una persona.** Timbrar ocurre solo, minutos u horas
+  después del cobro y quizá con el local cerrado. Atribuirlo a quien facturó
+  sería escribir en la bitácora algo que esa persona no hizo.
+- **Vuelve a la sucursal de origen.** El Hub no tiene una propia —la declaran
+  los dispositivos—, así que la del comprobante viaja con él en la cola.
 
 ## Alternativas descartadas
 

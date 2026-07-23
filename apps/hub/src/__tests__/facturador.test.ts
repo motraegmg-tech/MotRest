@@ -335,3 +335,111 @@ describe("ni duplicar ni saltarse una factura", () => {
     expect(facturador.procesar()).toMatchObject({ encolados: 0 });
   });
 });
+
+// --- El resultado vuelve a la caja -------------------------------------------------------
+
+/**
+ * El folio fiscal no sirve de nada encerrado en la base del Hub.
+ *
+ * La caja necesita saber que la factura salió para poder entregársela al
+ * comensal, y necesita enterarse de un rechazo sin que alguien abra la pantalla
+ * de facturación a buscarlo. Por eso el desenlace vuelve al event log, que es
+ * lo que se replica a todas las terminales.
+ */
+describe("publicar el desenlace en el registro del local", () => {
+  function fiscalesDelLog(): EventoFiscal[] {
+    return log.porTipo("cfdi_timbrado", 0, 100).concat(
+      log.porTipo("cfdi_rechazado", 0, 100),
+    ) as unknown as EventoFiscal[];
+  }
+
+  it("un timbrado queda anotado con su UUID", async () => {
+    instalarCsd();
+    cobrarYFacturar("ord-1", "1001");
+    facturador.procesar();
+    await cola.procesar();
+
+    expect(facturador.publicarResultados()).toBe(1);
+
+    const [evento] = fiscalesDelLog();
+    expect(evento).toMatchObject({ tipo: "cfdi_timbrado", cfdi_id: "cfdi-1001", uuid: UUID });
+  });
+
+  it("un rechazo también, para que nadie tenga que ir a buscarlo", async () => {
+    instalarCsd();
+    cobrarYFacturar("ord-1", "1001");
+    facturador.procesar();
+
+    const conRechazo = new ColaDeTimbrado(
+      db,
+      new PacFalso(() => clasificar({ codigo: "302", mensaje: "Sello inválido" })),
+    );
+    await conRechazo.procesar();
+    facturador.publicarResultados();
+
+    const [evento] = fiscalesDelLog();
+    expect(evento).toMatchObject({ tipo: "cfdi_rechazado", codigo: "302" });
+  });
+
+  /*
+   * Si el Hub se apaga entre timbrar y publicar, al volver tiene que anotar el
+   * hecho UNA vez. Sin la marca en disco, cada ciclo anexaría el mismo hecho
+   * con otro id y la factura aparecería repetida en el historial de la caja.
+   */
+  it("publicar dos veces no duplica el hecho", async () => {
+    instalarCsd();
+    cobrarYFacturar("ord-1", "1001");
+    facturador.procesar();
+    await cola.procesar();
+
+    facturador.publicarResultados();
+    facturador.publicarResultados();
+    facturador.publicarResultados();
+
+    expect(fiscalesDelLog()).toHaveLength(1);
+  });
+
+  it("lo que sigue pendiente todavía no se publica", async () => {
+    instalarCsd();
+    cobrarYFacturar("ord-1", "1001");
+    facturador.procesar();
+
+    const sinRed = new ColaDeTimbrado(db, new PacFalso(() => ({
+      estado: "reintentable" as const,
+      motivo: "sin conexión",
+    })));
+    await sinRed.procesar();
+
+    expect(facturador.publicarResultados()).toBe(0);
+    expect(fiscalesDelLog()).toHaveLength(0);
+  });
+
+  /*
+   * El Hub firma a su propio nombre. Timbrar ocurre solo, quizá con el local
+   * cerrado; atribuirlo a quien facturó sería escribir en la bitácora algo que
+   * esa persona no hizo.
+   */
+  it("el hecho lo firma el sistema, no la persona que cobró", async () => {
+    instalarCsd();
+    cobrarYFacturar("ord-1", "1001");
+    facturador.procesar();
+    await cola.procesar();
+    facturador.publicarResultados();
+
+    const [evento] = fiscalesDelLog();
+    expect(evento!.empleado_id).toBe("sistema");
+    expect(evento!.empleado_id).not.toBe("emp-lucia");
+  });
+
+  it("vuelve a la sucursal de donde salió el comprobante", async () => {
+    instalarCsd();
+    cobrarYFacturar("ord-1", "1001");
+    facturador.procesar();
+    await cola.procesar();
+    facturador.publicarResultados();
+
+    const [evento] = fiscalesDelLog();
+    expect(evento!.sucursal_id).toBe(SUC);
+    expect(evento!.stream_id).toBe(`fiscal:${SUC}`);
+  });
+});

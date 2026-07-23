@@ -203,7 +203,21 @@ const facturador = new Facturador(
   colaTimbrado,
   almacenFiscal,
   registrar,
+  { hub_id: HUB_ID, nombrePac: pac?.nombre },
 );
+
+/**
+ * Un ciclo completo de facturación: sellar lo nuevo, timbrar, y devolver el
+ * resultado al registro del local.
+ *
+ * Los tres pasos van juntos siempre. Timbrar sin publicar dejaría el folio
+ * fiscal encerrado en la base del Hub, y la caja no podría entregar la factura.
+ */
+async function cicloFiscal(): Promise<void> {
+  facturador.procesar();
+  await colaTimbrado.procesar();
+  facturador.publicarResultados();
+}
 
 const hub = new Hub({
   hub_id: HUB_ID,
@@ -267,7 +281,7 @@ function pacDelEntorno(): PacHttp | null {
  */
 const CADA_CINCO_MINUTOS = 300_000;
 const relojDeTimbrado = setInterval(() => {
-  void colaTimbrado.procesar().catch((error: unknown) => {
+  void cicloFiscal().catch((error: unknown) => {
     registrar("error", `Fallo al procesar la cola de timbrado: ${String(error)}`);
   });
 }, CADA_CINCO_MINUTOS);
