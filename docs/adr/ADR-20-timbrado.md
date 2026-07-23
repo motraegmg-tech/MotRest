@@ -93,6 +93,32 @@ Un detalle que parece menor y no lo es: **el reintento manual conserva el modo
 de recuperación**. Volver a mandarla a timbrar sería pedirle al PAC que timbre
 algo que ya timbró.
 
+## Cómo llega una venta a la cola
+
+La caja **no le pide al Hub que selle**. Emite el hecho —«se generó este
+comprobante»— y el Hub reacciona a él. La dirección importa:
+
+- El comprobante entra al event log **antes** de sellarse, así que sobrevive a
+  que el Hub se apague en medio.
+- Una tablet que factura desde el piso no necesita saber que existe un CSD ni
+  dónde está.
+- Reproducir el log reconstruye exactamente las mismas facturas, que es la
+  premisa de todo el sistema (ADR-02).
+
+El Hub **barre** en vez de atender una notificación, porque el orden real no es
+el ideal: un restaurante puede operar semanas antes de cargar su CSD. Esos
+comprobantes se acumulan y hay que sellarlos todos el día que llegue el
+certificado. Un barrido que **avanza su marca solo cuando consigue sellar**
+resuelve ese caso y el normal con el mismo código — y si no hay CSD, la marca no
+se mueve, de modo que nada queda saltado.
+
+Se dispara al arrancar el Hub, cada vez que llega un comprobante nuevo, y justo
+después de instalar un CSD.
+
+Un detalle deliberado: **si falla el sellado de uno, el barrido se corta ahí**.
+Seguir adelante dejaría un hueco silencioso —una venta cobrada sin factura y sin
+nadie enterado—, que es peor que detenerse y avisar.
+
 ## Detalles que sostienen todo esto
 
 - **La cola vive en SQLite, no en memoria.** El caso a resolver es el corte de
@@ -115,12 +141,17 @@ algo que ya timbró.
 
 - **Elegir PAC.** Es una decisión comercial, no técnica: precio por timbre,
   saldo mínimo y calidad del soporte. El adaptador está listo; sus nombres de
-  campo se cotejan contra la documentación del proveedor que se contrate.
-- **Probar contra un entorno de pruebas real.** Todo lo de arriba está probado
-  contra un PAC simulado y un servidor HTTP de verdad, pero el primer timbrado
-  real es el que confirma el orden de la cadena original.
-- **Emitir el evento de dominio** al timbrar, para que la factura quede en el
-  registro del local y no solo en la cola.
+  campo se cotejan contra la documentación del proveedor que se contrate. Al
+  elegir, **exigir que ofrezca consulta de CFDI ya timbrados**: es lo que hace
+  automática la recuperación descrita arriba.
+- **Probar contra un entorno de pruebas real.** Todo lo anterior está probado
+  contra un PAC simulado y un servidor HTTP de verdad, incluida la verificación
+  de que el sello corresponde a la cadena original del comprobante. Lo que solo
+  el primer timbrado real confirma es que el **orden** de esa cadena coincide
+  con el que recalcula el PAC.
+- **Emitir el evento de dominio al timbrar**, para que la factura quede en el
+  registro del local y no solo en la cola. Hoy el UUID vive en la cola del Hub;
+  llevarlo al log lo hace parte de la bitácora y lo replica a las terminales.
 
 ## Alternativas descartadas
 

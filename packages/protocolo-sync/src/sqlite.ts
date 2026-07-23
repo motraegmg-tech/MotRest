@@ -192,6 +192,25 @@ export class LogHub implements RepositorioEventos {
     return filas.map(aEvento);
   }
 
+  /**
+   * Eventos de un tipo concreto, a partir de una secuencia.
+   *
+   * Existe para que un proceso que solo reacciona a cierta clase de hecho
+   * —facturar cuando aparece un comprobante, por ejemplo— no tenga que leer
+   * todo el log y descartar el 99 % en memoria. La columna `tipo` ya está
+   * indexada por la llave primaria del recorrido.
+   */
+  porTipo(tipo: string, desdeSeq = 0, limite = 200): EventoConSeq[] {
+    const filas = comoFilas<FilaEvento>(
+      this.db
+        .prepare(
+          "SELECT seq, cuerpo FROM eventos WHERE tipo = ? AND seq > ? ORDER BY seq LIMIT ?",
+        )
+        .all(tipo, desdeSeq, limite),
+    );
+    return filas.map(aEvento);
+  }
+
   /** Última secuencia asignada. 0 si el log está vacío. */
   get seqActual(): number {
     const fila = comoFilas<{ s: number | null }>(

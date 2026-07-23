@@ -26,6 +26,7 @@ import {
 } from "@motrest/protocolo-sync";
 import type { LogHub } from "@motrest/protocolo-sync/sqlite";
 import type { ColaDeTimbrado } from "./fiscal/cola-timbrado.js";
+import type { Facturador } from "./fiscal/facturador.js";
 import type { Sellador } from "./fiscal/sellador.js";
 
 /** Lo mínimo que el Hub necesita de una conexión. */
@@ -68,6 +69,8 @@ export interface OpcionesHub {
   fiscal?: {
     sellador: Sellador;
     cola: ColaDeTimbrado;
+    /** Sella y encola los comprobantes que la caja va generando. */
+    facturador?: Facturador;
     nombrePac?: string;
   };
 }
@@ -141,7 +144,7 @@ export class Hub {
         if (this.exigirSaludo(sesion)) this.administrar(sesion, mensaje);
         break;
       case "fiscal":
-        if (this.exigirSaludo(sesion)) void this.atenderFiscal(sesion, mensaje);
+        if (this.exigirSaludo(sesion)) this.atenderFiscal(sesion, mensaje);
         break;
       case "ping":
         sesion.conexion.enviar({ tipo: "pong", ts: Date.now() });
@@ -406,6 +409,22 @@ export class Hub {
     this.log.anotarAvance(sesion.device_id, mayor);
 
     this.difundir(sesion, acks);
+
+    /*
+     * Facturar es reaccionar a un hecho ya guardado, no un paso del cobro.
+     *
+     * Va DESPUÉS del acuse y de la difusión a propósito: la caja no espera al
+     * sellado para dar la cuenta por cobrada, y un fallo aquí no puede tumbar
+     * la venta. El comprobante ya está en el log; si esto falla, el siguiente
+     * barrido lo encuentra.
+     */
+    if (aceptados.some((e) => e.tipo === "cfdi_generado")) {
+      try {
+        this.opciones.fiscal?.facturador?.procesar();
+      } catch (error) {
+        this.anotar("error", `Fallo al sellar comprobantes: ${String(error)}`);
+      }
+    }
   }
 
   /**
@@ -458,10 +477,10 @@ export class Hub {
    * de la cola, en cambio, es información de operación y le basta con lo
    * primero: quien cobra tiene que poder ver si una factura salió.
    */
-  private async atenderFiscal(
+  private atenderFiscal(
     sesion: Sesion,
     mensaje: Extract<MensajeCliente, { tipo: "fiscal" }>,
-  ): Promise<void> {
+  ): void {
     const fiscal = this.opciones.fiscal;
     if (!fiscal) {
       sesion.conexion.enviar({
@@ -512,6 +531,30 @@ export class Hub {
         if (resultado.ok) {
           // Sin la contraseña ni nada que se le parezca: la bitácora se lee.
           this.anotar("info", `CSD instalado para el RFC ${mensaje.rfc_emisor}.`);
+
+          /*
+           * Un restaurante puede llevar semanas operando sin CSD, con los
+           * comprobantes acumulados en el log. Este es el momento de sellarlos
+           * todos: si no se hiciera aquí, esas facturas esperarían al siguiente
+           * cobro para salir, y podrían pasar del plazo del SAT.
+           */
+          const barrido = fiscal.facturador?.procesar(1000);
+          if (barrido && barrido.encolados > 0) {
+            this.anotar(
+              "info",
+              `Se sellaron ${barrido.encolados} comprobante(s) que esperaban un certificado.`,
+            );
+          }
+          /*
+           * El timbrado arranca en segundo plano, sin esperarlo.
+           *
+           * Quien acaba de subir su certificado no tiene por qué aguardar una
+           * ida y vuelta a internet para saber si quedó bien: el sellado ya
+           * ocurrió y es local. Si el PAC tarda o falla, la cola lo maneja.
+           */
+          void fiscal.cola.procesar().catch((error: unknown) => {
+            this.anotar("error", `Fallo al timbrar tras instalar el CSD: ${String(error)}`);
+          });
         } else {
           problema = resultado.problema;
         }
@@ -525,8 +568,11 @@ export class Hub {
 
       case "reintentar":
         if (mensaje.orden_id) fiscal.cola.reintentar(mensaje.orden_id);
-        // Se intenta enseguida: quien reintenta a mano acaba de arreglar la causa.
-        await fiscal.cola.procesar();
+        // Se intenta enseguida —quien reintenta a mano acaba de arreglar la
+        // causa— pero sin bloquear la respuesta.
+        void fiscal.cola.procesar().catch((error: unknown) => {
+          this.anotar("error", `Fallo al reintentar el timbrado: ${String(error)}`);
+        });
         break;
 
       case "estado":

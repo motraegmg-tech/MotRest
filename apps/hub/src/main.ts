@@ -39,6 +39,7 @@ import { carpetaCertificados, certificadoTls, type CertificadoTls } from "./cert
 import { anunciarEnLaRed } from "./descubrimiento.js";
 import { Sellador, carpetaDelCsd } from "./fiscal/sellador.js";
 import { ColaDeTimbrado } from "./fiscal/cola-timbrado.js";
+import { Facturador } from "./fiscal/facturador.js";
 import { MAPEO_REST_COMUN, PacHttp, consultaPorFolio } from "./fiscal/pac-http.js";
 import type { DatabaseSync as TipoDatabaseSync } from "node:sqlite";
 
@@ -196,6 +197,13 @@ const almacenFiscal = new DatabaseSync(join(dirname(RUTA_DB), "fiscal.sqlite"));
 const sellador = new Sellador(carpetaDelCsd(dirname(RUTA_DB)));
 const pac = pacDelEntorno();
 const colaTimbrado = new ColaDeTimbrado(almacenFiscal, pac, registrar);
+const facturador = new Facturador(
+  almacen.log,
+  sellador,
+  colaTimbrado,
+  almacenFiscal,
+  registrar,
+);
 
 const hub = new Hub({
   hub_id: HUB_ID,
@@ -203,7 +211,7 @@ const hub = new Hub({
   exigirAprobacion: EXIGIR_APROBACION,
   enlaces: enlacesEmparejamiento,
   registrar,
-  fiscal: { sellador, cola: colaTimbrado, nombrePac: pac?.nombre },
+  fiscal: { sellador, cola: colaTimbrado, facturador, nombrePac: pac?.nombre },
   guardarCatalogo: (catalogo) => {
     // Se guardan todos juntos: son pocos y así el archivo queda consistente.
     void almacen.estado.cargar<Catalogo[]>(CLAVE_CATALOGOS).then((previos) => {
@@ -275,8 +283,16 @@ if (sellador.listo) {
       `El CSD vence en ${estado.dias_restantes} días. Tramita la renovación en el portal del SAT.`,
     );
   }
+  // Lo que se cobró mientras el Hub estaba apagado se sella ahora.
+  facturador.procesar(1000);
 } else {
-  registrar("info", "Sin CSD: se puede vender, todavía no facturar.");
+  const esperando = facturador.esperandoCsd();
+  registrar(
+    "info",
+    esperando > 0
+      ? `Sin CSD: se puede vender, todavía no facturar. Hay ${esperando} comprobante(s) esperando certificado.`
+      : "Sin CSD: se puede vender, todavía no facturar.",
+  );
 }
 
 // La carta del local sobrevive al reinicio del servicio.
