@@ -12,7 +12,11 @@
  * TLS y mDNS quedan explícitamente PENDIENTES; están anotados abajo en vez de
  * dar por buena una seguridad que no existe.
  */
-import type { IncomingMessage, ServerResponse } from "node:http";
+import {
+  createServer as createServerHttp,
+  type IncomingMessage,
+  type ServerResponse,
+} from "node:http";
 import { createServer } from "node:https";
 import { createReadStream, existsSync, mkdirSync, statSync } from "node:fs";
 import { networkInterfaces } from "node:os";
@@ -33,6 +37,8 @@ import { Hub, type Conexion } from "./servidor.js";
 import { carpetaCertificados, certificadoTls } from "./certificado.js";
 
 const PUERTO = Number(process.env.MOTREST_HUB_PUERTO ?? 8787);
+/** Puerto de la escucha local sin certificado. Solo responde a 127.0.0.1. */
+const PUERTO_LOCAL = Number(process.env.MOTREST_HUB_PUERTO_LOCAL ?? PUERTO + 1);
 const RUTA_DB = resolve(process.env.MOTREST_HUB_DB ?? "./datos/hub.sqlite");
 /**
  * POS ya compilado. Si está, el Hub lo sirve desde su mismo puerto.
@@ -148,33 +154,46 @@ const TIPOS: Record<string, string> = {
   ".ico": "image/x-icon",
 };
 
-const servidor = createServer(
-  { cert: tls.cert, key: tls.key },
-  (peticion: IncomingMessage, respuesta: ServerResponse) => {
-    const url = new URL(peticion.url ?? "/", `https://${peticion.headers.host}`);
+function atender(peticion: IncomingMessage, respuesta: ServerResponse): void {
+  const url = new URL(peticion.url ?? "/", `https://${peticion.headers.host}`);
 
-    const json = (codigo: number, cuerpo: unknown): void => {
-      respuesta.writeHead(codigo, { "content-type": "application/json; charset=utf-8" });
-      respuesta.end(JSON.stringify(cuerpo, null, 2));
-    };
+  const json = (codigo: number, cuerpo: unknown): void => {
+    respuesta.writeHead(codigo, { "content-type": "application/json; charset=utf-8" });
+    respuesta.end(JSON.stringify(cuerpo, null, 2));
+  };
 
-    if (url.pathname === "/salud") {
-      json(200, {
-        hub_id: HUB_ID,
-        seq: hub.seqActual,
-        conectados: hub.conectados,
-        exige_aprobacion: EXIGIR_APROBACION,
-        cifrado: "AES-256-GCM",
-        tls: tls.huella,
-        sirve_pos: existsSync(join(RUTA_POS, "index.html")),
-        ts: Date.now(),
-      });
-      return;
-    }
+  if (url.pathname === "/salud") {
+    json(200, {
+      hub_id: HUB_ID,
+      seq: hub.seqActual,
+      conectados: hub.conectados,
+      exige_aprobacion: EXIGIR_APROBACION,
+      cifrado: "AES-256-GCM",
+      tls: tls.huella,
+      sirve_pos: existsSync(join(RUTA_POS, "index.html")),
+      ts: Date.now(),
+    });
+    return;
+  }
 
-    servirPos(url.pathname, respuesta, json);
-  },
-);
+  servirPos(url.pathname, respuesta, json);
+}
+
+/** Para las terminales de la red: HTTPS, con el certificado del Hub. */
+const servidor = createServer({ cert: tls.cert, key: tls.key }, atender);
+
+/**
+ * Segunda escucha, en HTTP y **atada a 127.0.0.1**.
+ *
+ * El equipo donde corre el Hub —la caja— no debería tener que aceptar un aviso
+ * de certificado para abrir su propio punto de venta. `localhost` es un
+ * contexto seguro por definición del navegador, así que ahí `crypto.subtle`
+ * funciona sin TLS y no hay ningún aviso que saltarse.
+ *
+ * No es un agujero: al atarla a la interfaz de loopback, el tráfico nunca sale
+ * de la máquina. Desde la red esta escucha no existe.
+ */
+const servidorLocal = createServerHttp(atender);
 
 /**
  * Entrega los archivos del POS compilado.
@@ -214,10 +233,16 @@ function servirPos(
 
 // --- WebSocket: el canal de sincronización ----------------------------------------------
 
+/*
+ * Un canal por cada escucha: `wss://` para las terminales de la red y `ws://`
+ * para la caja en localhost. La página y su WebSocket tienen que compartir
+ * origen, así que quien abre por HTTP necesita el canal por HTTP.
+ */
 const wss = new WebSocketServer({ server: servidor, path: "/sync" });
+const wssLocal = new WebSocketServer({ server: servidorLocal, path: "/sync" });
 let contador = 0;
 
-wss.on("connection", (socket: WebSocket) => {
+function alConectar(socket: WebSocket): void {
   const id = `cx-${++contador}`;
 
   /*
@@ -286,7 +311,10 @@ wss.on("connection", (socket: WebSocket) => {
     registrar("aviso", `Error de socket ${id}: ${causa.message}`);
     hub.desconectar(id);
   });
-});
+}
+
+wss.on("connection", alConectar);
+wssLocal.on("connection", alConectar);
 
 servidor.listen(PUERTO, () => {
   registrar("info", `Hub escuchando en el puerto ${PUERTO} (HTTPS + WSS)`);
@@ -301,20 +329,27 @@ servidor.listen(PUERTO, () => {
     registrar("aviso", "Compílalo con: corepack pnpm@9.15.0 --filter pos-ui build");
   }
 
-  if (lan.length === 0) {
-    registrar("aviso", "Sin red detectada: solo se podrá abrir desde este mismo equipo.");
-  } else {
+  console.log("");
+  console.log("  ── EN ESTE EQUIPO (la caja) ─────────────────────────────");
+  console.log(`    http://localhost:${PUERTO_LOCAL}/?hub=ws://localhost:${PUERTO_LOCAL}/sync&k=${claveLocal}`);
+  console.log("");
+  console.log("    Sin avisos: el navegador confía en localhost por definición.");
+
+  if (lan.length > 0) {
     console.log("");
-    console.log("  Abre esto en cada terminal del local:");
+    console.log("  ── EN LAS DEMÁS TERMINALES (tablets, cocina) ────────────");
     for (const ip of lan) {
       console.log(`    https://${ip}:${PUERTO}/?hub=wss://${ip}:${PUERTO}/sync&k=${claveLocal}`);
     }
     console.log("");
-    console.log("  · La PRIMERA vez el navegador avisará del certificado: acéptalo.");
-    console.log("    Es de este Hub, y sin él la terminal no puede cifrar nada.");
-    console.log("  · Ese enlace LLEVA LA CLAVE del local: trátalo como una contraseña.");
-    console.log("");
+    console.log("    La primera vez el navegador avisará del certificado. En Chrome:");
+    console.log("    «Configuración avanzada» o «Help me understand» → «Continuar a…».");
+    console.log("    Es el certificado de este Hub; sin él no se puede cifrar nada.");
   }
+
+  console.log("");
+  console.log("  Estos enlaces LLEVAN LA CLAVE del local: trátalos como contraseñas.");
+  console.log("");
 
   if (!EXIGIR_APROBACION) {
     registrar("aviso", "MODO ABIERTO: cualquier terminal con la clave sincroniza sin autorizar.");
@@ -323,9 +358,16 @@ servidor.listen(PUERTO, () => {
   registrar("aviso", "PENDIENTE: descubrimiento mDNS y QR de emparejamiento.");
 });
 
+// Atada a loopback: desde la red esta escucha no existe.
+servidorLocal.listen(PUERTO_LOCAL, "127.0.0.1", () => {
+  registrar("info", `Acceso local sin certificado en el puerto ${PUERTO_LOCAL} (solo 127.0.0.1)`);
+});
+
 function apagar(senal: string): void {
   registrar("info", `Señal ${senal}: cerrando el Hub`);
   wss.close();
+  wssLocal.close();
+  servidorLocal.close();
   servidor.close(() => {
     almacen.cerrar();
     process.exit(0);

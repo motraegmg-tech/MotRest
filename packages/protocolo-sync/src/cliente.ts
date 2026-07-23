@@ -51,6 +51,8 @@ export interface OpcionesCliente {
   alRecibirCatalogos?: (catalogos: Catalogo[]) => void;
   /** Se llama con la lista de terminales del local. */
   alRecibirTerminales?: (terminales: TerminalRegistrada[]) => void;
+  /** El Hub no tiene ni un evento: este local todavía no ha abierto. */
+  alEncontrarLocalVacio?: () => void;
   /** Devuelve los catálogos locales, para publicarlos al conectar. */
   catalogosLocales?: () => Catalogo[];
   alCambiarEstado?: (estado: EstadoEnlace, detalle?: string) => void;
@@ -179,6 +181,15 @@ export class ClienteSync {
   private async recibir(mensaje: MensajeHub): Promise<void> {
     switch (mensaje.tipo) {
       case "bienvenida": {
+        /*
+         * Un Hub sin un solo evento es un local que todavía no ha abierto.
+         *
+         * Importa porque una terminal emparejada NO siembra: espera a recibir
+         * la operación en curso. Si el local está vacío esperaría para siempre,
+         * así que se le avisa a quien arranca de que puede sembrarlo él.
+         */
+        if (mensaje.seq_actual === 0) this.opciones.alEncontrarLocalVacio?.();
+
         // Se empuja lo pendiente ANTES de pedir lo ajeno: lo que este
         // dispositivo vendió sin red es lo más urgente por publicar.
         await this.empujar();

@@ -166,7 +166,10 @@ class Arranque {
 
       // El enlace con el Hub va al final: si no hay Hub, o está apagado, el POS
       // ya quedó listo para operar en isla (TRD R3).
-      sync.iniciar((eventos) => this.aplicarDeOtros(eventos));
+      sync.iniciar(
+        (eventos) => this.aplicarDeOtros(eventos),
+        () => void this.sembrarLocalVacio(),
+      );
     } catch (causa) {
       this.error = causa instanceof Error ? causa.message : "Error al cargar los datos";
       console.error("Fallo al rehidratar", causa);
@@ -221,6 +224,24 @@ class Arranque {
       TIPOS_ASISTENCIA.has((e as EventoAsistencia).tipo),
     ) as EventoAsistencia[];
     if (checadas.length > 0) asistencia.integrar(checadas);
+  }
+
+  /**
+   * El Hub existe pero el local está en blanco: esta terminal lo abre.
+   *
+   * Una terminal emparejada no siembra, porque lo normal es que se una a un
+   * local que ya opera. Pero si el Hub no tiene ni un evento nadie va a
+   * mandarle nada nunca, y quedarse esperando sería un cuelgue silencioso. La
+   * primera terminal que llega a un local vacío es la que lo pone en marcha.
+   */
+  private async sembrarLocalVacio(): Promise<void> {
+    if (!this.esperandoHub || !this.almacen) return;
+    this.esperandoHub = false;
+
+    await this.sembrar();
+    this.cargarAlmacenInicial();
+    // Lo sembrado sale hacia el Hub como cualquier otra operación.
+    sync.empujar();
   }
 
   /**

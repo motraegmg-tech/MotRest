@@ -52,6 +52,7 @@ class StoreSync {
   private cliente: ClienteSync | null = null;
   private almacen: Almacen | null = null;
   private alLlegar: ((eventos: EventoBase[]) => void) | null = null;
+  private alLocalVacio: (() => void) | null = null;
 
   /** Hay enlace posible cuando se sabe a dónde ir Y con qué clave hablar. */
   get configurado(): boolean {
@@ -124,8 +125,12 @@ class StoreSync {
    * Abre el enlace. Se llama al final del arranque: si hay dirección conecta, y
    * si no, se queda en isla sin ruido.
    */
-  iniciar(alLlegar: (eventos: EventoBase[]) => void): void {
+  iniciar(
+    alLlegar: (eventos: EventoBase[]) => void,
+    alLocalVacio?: () => void,
+  ): void {
     this.alLlegar = alLlegar;
+    this.alLocalVacio = alLocalVacio ?? null;
     if (this.configurado) this.conectar();
   }
 
@@ -200,6 +205,7 @@ class StoreSync {
       catalogosLocales: () => this.catalogosLocales(),
       alRecibirCatalogos: (catalogos) => this.aplicarCatalogos(catalogos),
       alRecibirTerminales: (terminales) => (this.terminales = terminales),
+      alEncontrarLocalVacio: () => this.alLocalVacio?.(),
       alCambiarEstado: (estado, detalle) => {
         this.estado = estado;
         this.detalle = detalle ?? "";
