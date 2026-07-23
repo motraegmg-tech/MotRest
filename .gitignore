@@ -35,3 +35,13 @@ apps/hub/datos/
 apps/hub/datos/tls/
 *.crt
 *.key
+
+# Empaquetado: artefactos de compilación, no fuente
+apps/hub/dist-sea/
+apps/escritorio/src-tauri/binarios/
+apps/escritorio/src-tauri/target/
+apps/escritorio/src-tauri/gen/
+apps/kds-android/www/
+apps/kds-android/android/
+entregables/*.exe
+entregables/*.apk

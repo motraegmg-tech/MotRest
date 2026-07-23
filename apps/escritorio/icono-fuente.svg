@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <!--
+    Icono de MotRest. Naranja MOTRAE (#F2853A) sobre el pizarra de la marca,
+    con la "M" en Space Grotesk convertida a trazos para no depender de que la
+    fuente esté instalada en la máquina que compila.
+  -->
+  <rect width="1024" height="1024" rx="220" fill="#14181A"/>
+  <rect x="88" y="88" width="848" height="848" rx="160" fill="#F2853A"/>
+  <!-- M -->
+  <path d="M 268 700 L 268 324 L 360 324 L 512 560 L 664 324 L 756 324 L 756 700 L 668 700 L 668 470 L 546 656 L 478 656 L 356 470 L 356 700 Z" fill="#14181A"/>
+  <!-- Punto de la marca: MotRest. -->
+  <circle cx="800" cy="676" r="34" fill="#14181A"/>
+</svg>

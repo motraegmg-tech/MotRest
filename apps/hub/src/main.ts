@@ -34,7 +34,7 @@ import {
 } from "@motrest/protocolo-sync";
 import { almacenSqlite } from "@motrest/protocolo-sync/sqlite";
 import { Hub, type Conexion } from "./servidor.js";
-import { carpetaCertificados, certificadoTls } from "./certificado.js";
+import { carpetaCertificados, certificadoTls, type CertificadoTls } from "./certificado.js";
 import { anunciarEnLaRed } from "./descubrimiento.js";
 
 const PUERTO = Number(process.env.MOTREST_HUB_PUERTO ?? 8787);
@@ -94,16 +94,26 @@ const CLAVE_SECRETO = "clave_local";
  * la credencial que se entrega al emparejar una terminal — quien no la tiene no
  * puede ni leer ni escribir en el canal.
  */
-const claveLocal =
-  (await almacen.estado.cargar<string>(CLAVE_SECRETO)) ??
-  (await (async () => {
-    const nueva = generarClaveLocal();
-    await almacen.estado.guardar(CLAVE_SECRETO, nueva);
-    registrar("info", "Clave del local generada. Se usa para cifrar el canal.");
-    return nueva;
-  })());
+async function resolverClaveLocal(): Promise<string> {
+  const guardada = await almacen.estado.cargar<string>(CLAVE_SECRETO);
+  if (guardada) return guardada;
 
-const clavesHub: ClavesCanal = await derivarClaves(claveLocal, "hub");
+  const nueva = generarClaveLocal();
+  await almacen.estado.guardar(CLAVE_SECRETO, nueva);
+  registrar("info", "Clave del local generada. Se usa para cifrar el canal.");
+  return nueva;
+}
+
+/*
+ * Lo que hace falta antes de escuchar, resuelto en `arrancar()` y no en el
+ * cuerpo del módulo.
+ *
+ * No es estilo: al empaquetar el Hub en un ejecutable, el `await` de nivel
+ * superior no está permitido. Tenerlo aquí impedía que el Hub llegara al
+ * instalador, que es lo que lo convierte en un producto.
+ */
+let claveLocal = "";
+let clavesHub: ClavesCanal;
 
 /**
  * Enlaces para emparejar otra terminal, uno por dirección del Hub.
@@ -161,7 +171,8 @@ void almacen.estado.cargar<Catalogo[]>(CLAVE_CATALOGOS).then((guardados) => {
  * saber, desde fuera, si el servicio está vivo.
  */
 const lan = direccionesLan();
-const tls = await certificadoTls(carpetaCertificados(RUTA_DB), lan, `${NOMBRE_RED}.local`);
+/** Se resuelve en `arrancar()`, junto con el resto de lo asíncrono. */
+let tls: CertificadoTls;
 
 const TIPOS: Record<string, string> = {
   ".html": "text/html; charset=utf-8",
@@ -202,21 +213,18 @@ function atender(peticion: IncomingMessage, respuesta: ServerResponse): void {
   servirPos(url.pathname, respuesta, json);
 }
 
-/** Para las terminales de la red: HTTPS, con el certificado del Hub. */
-const servidor = createServer({ cert: tls.cert, key: tls.key }, atender);
-
 /**
- * Segunda escucha, en HTTP y **atada a 127.0.0.1**.
+ * Los dos servidores. Se crean en `arrancar()` porque el de la red necesita el
+ * certificado, que se carga o se genera de forma asíncrona.
  *
- * El equipo donde corre el Hub —la caja— no debería tener que aceptar un aviso
- * de certificado para abrir su propio punto de venta. `localhost` es un
- * contexto seguro por definición del navegador, así que ahí `crypto.subtle`
- * funciona sin TLS y no hay ningún aviso que saltarse.
- *
- * No es un agujero: al atarla a la interfaz de loopback, el tráfico nunca sale
- * de la máquina. Desde la red esta escucha no existe.
+ * El segundo va en HTTP y **atado a 127.0.0.1**: el equipo donde corre el Hub
+ * —la caja— no debería tener que aceptar un aviso de certificado para abrir su
+ * propio punto de venta. `localhost` es un contexto seguro por definición del
+ * navegador, así que ahí `crypto.subtle` funciona sin TLS. No es un agujero: al
+ * atarlo al loopback, desde la red esa escucha no existe.
  */
-const servidorLocal = createServerHttp(atender);
+let servidor: ReturnType<typeof createServer>;
+let servidorLocal: ReturnType<typeof createServerHttp>;
 
 /**
  * Entrega los archivos del POS compilado.
@@ -280,8 +288,8 @@ function cacheDe(archivo: string, indice: string): string {
  * para la caja en localhost. La página y su WebSocket tienen que compartir
  * origen, así que quien abre por HTTP necesita el canal por HTTP.
  */
-const wss = new WebSocketServer({ server: servidor, path: "/sync" });
-const wssLocal = new WebSocketServer({ server: servidorLocal, path: "/sync" });
+let wss: WebSocketServer;
+let wssLocal: WebSocketServer;
 let contador = 0;
 
 function alConectar(socket: WebSocket): void {
@@ -355,70 +363,128 @@ function alConectar(socket: WebSocket): void {
   });
 }
 
-wss.on("connection", alConectar);
-wssLocal.on("connection", alConectar);
+/**
+ * Arranque del Hub.
+ *
+ * Todo lo asíncrono vive aquí y no en el cuerpo del módulo. No es estilo: al
+ * empaquetar el Hub en un ejecutable para el instalador, el `await` de nivel
+ * superior no está permitido, y tenerlo impedía que llegara al producto.
+ */
+async function arrancar(): Promise<void> {
+  claveLocal = await resolverClaveLocal();
+  clavesHub = await derivarClaves(claveLocal, "hub");
+  tls = await certificadoTls(carpetaCertificados(RUTA_DB), lan, `${NOMBRE_RED}.local`);
 
-servidor.listen(PUERTO, () => {
-  registrar("info", `Hub escuchando en el puerto ${PUERTO} (HTTPS + WSS)`);
-  registrar("info", `Base de datos: ${RUTA_DB} · secuencia actual: ${hub.seqActual}`);
-  registrar(
-    tls.nuevo ? "aviso" : "info",
-    `Certificado ${tls.nuevo ? "generado" : "cargado"} · huella ${tls.huella}`,
+  const guardados = await almacen.estado.cargar<Catalogo[]>(CLAVE_CATALOGOS);
+  if (guardados && guardados.length > 0) {
+    hub.cargarCatalogos(guardados);
+    registrar("info", `Catálogos cargados: ${guardados.map((c) => c.clave).join(", ")}`);
+  }
+
+  servidor = createServer({ cert: tls.cert, key: tls.key }, atender);
+  servidorLocal = createServerHttp(atender);
+
+  wss = new WebSocketServer({ server: servidor, path: "/sync" });
+  wssLocal = new WebSocketServer({ server: servidorLocal, path: "/sync" });
+  wss.on("connection", alConectar);
+  wssLocal.on("connection", alConectar);
+
+  escuchar();
+}
+
+/**
+ * Explica un fallo al ocupar un puerto, en vez de volcar la pila.
+ *
+ * El caso real es abrir la caja dos veces: el segundo arranque encuentra el
+ * puerto tomado y hasta ahora moría con un volcado de Node que no le dice nada
+ * a quien abre un restaurante.
+ */
+function alFallarEscucha(causa: NodeJS.ErrnoException, puerto: number): void {
+  if (causa.code === "EADDRINUSE") {
+    registrar("error", `El puerto ${puerto} ya está ocupado.`);
+    registrar("error", "Probablemente el Hub ya está corriendo en este equipo.");
+    registrar("error", "Ciérralo antes, o usa MOTREST_HUB_PUERTO para otro puerto.");
+  } else if (causa.code === "EACCES") {
+    registrar("error", `Sin permiso para usar el puerto ${puerto}.`);
+  } else {
+    registrar("error", `No se pudo escuchar en el puerto ${puerto}: ${causa.message}`);
+  }
+  process.exit(1);
+}
+
+function escuchar(): void {
+  servidor.on("error", (causa: NodeJS.ErrnoException) => alFallarEscucha(causa, PUERTO));
+  servidorLocal.on("error", (causa: NodeJS.ErrnoException) =>
+    alFallarEscucha(causa, PUERTO_LOCAL),
   );
 
-  if (!existsSync(join(RUTA_POS, "index.html"))) {
-    registrar("aviso", `Sin POS compilado en ${RUTA_POS}.`);
-    registrar("aviso", "Compílalo con: corepack pnpm@9.15.0 --filter pos-ui build");
-  }
+  servidor.listen(PUERTO, () => {
+    registrar("info", `Hub escuchando en el puerto ${PUERTO} (HTTPS + WSS)`);
+    registrar("info", `Base de datos: ${RUTA_DB} · secuencia actual: ${hub.seqActual}`);
+    registrar(
+      tls.nuevo ? "aviso" : "info",
+      `Certificado ${tls.nuevo ? "generado" : "cargado"} · huella ${tls.huella}`,
+    );
 
-  console.log("");
-  console.log("  ── EN ESTE EQUIPO (la caja) ─────────────────────────────");
-  console.log(`    http://localhost:${PUERTO_LOCAL}/?hub=ws://localhost:${PUERTO_LOCAL}/sync&k=${claveLocal}`);
-  console.log("");
-  console.log("    Sin avisos: el navegador confía en localhost por definición.");
-
-  if (lan.length > 0) {
-    console.log("");
-    console.log("  ── EN LAS DEMÁS TERMINALES (tablets, cocina) ────────────");
-    console.log("    Lo más cómodo: Administración → Hub del local → Mostrar código,");
-    console.log("    y escanear el QR con la cámara de la tablet.");
-    console.log("");
-    for (const { url } of enlacesEmparejamiento()) {
-      console.log(`    ${url}`);
+    if (!existsSync(join(RUTA_POS, "index.html"))) {
+      registrar("aviso", `Sin POS compilado en ${RUTA_POS}.`);
+      registrar("aviso", "Compílalo con: corepack pnpm@9.15.0 --filter pos-ui build");
     }
+
     console.log("");
-    console.log("    La primera vez el navegador avisará del certificado. En Chrome:");
-    console.log("    «Configuración avanzada» o «Help me understand» → «Continuar a…».");
-    console.log("    Es el certificado de este Hub; sin él no se puede cifrar nada.");
-  }
+    console.log("  ── EN ESTE EQUIPO (la caja) ─────────────────────────────");
+    console.log(
+      `    http://localhost:${PUERTO_LOCAL}/?hub=ws://localhost:${PUERTO_LOCAL}/sync&k=${claveLocal}`,
+    );
+    console.log("");
+    console.log("    Sin avisos: el navegador confía en localhost por definición.");
 
-  console.log("");
-  console.log("  Estos enlaces LLEVAN LA CLAVE del local: trátalos como contraseñas.");
-  console.log("");
+    if (lan.length > 0) {
+      console.log("");
+      console.log("  ── EN LAS DEMÁS TERMINALES (tablets, cocina) ────────────");
+      console.log("    Lo más cómodo: Administración → Hub del local → Mostrar código,");
+      console.log("    y escanear el QR con la cámara de la tablet.");
+      console.log("");
+      for (const { url } of enlacesEmparejamiento()) {
+        console.log(`    ${url}`);
+      }
+      console.log("");
+      console.log("    La primera vez el navegador avisará del certificado. En Chrome:");
+      console.log("    «Configuración avanzada» o «Help me understand» → «Continuar a…».");
+      console.log("    Es el certificado de este Hub; sin él no se puede cifrar nada.");
+    }
 
-  if (!EXIGIR_APROBACION) {
-    registrar("aviso", "MODO ABIERTO: cualquier terminal con la clave sincroniza sin autorizar.");
-  }
-  registrar("info", "Canal CIFRADO con la clave del local (AES-256-GCM).");
-});
+    console.log("");
+    console.log("  Estos enlaces LLEVAN LA CLAVE del local: trátalos como contraseñas.");
+    console.log("");
 
-// Atada a loopback: desde la red esta escucha no existe.
-servidorLocal.listen(PUERTO_LOCAL, "127.0.0.1", () => {
-  registrar("info", `Acceso local sin certificado en el puerto ${PUERTO_LOCAL} (solo 127.0.0.1)`);
-});
+    if (!EXIGIR_APROBACION) {
+      registrar("aviso", "MODO ABIERTO: cualquier terminal con la clave sincroniza sin autorizar.");
+    }
+    registrar("info", "Canal CIFRADO con la clave del local (AES-256-GCM).");
+  });
 
-/*
- * Anuncio en la red. Si falla no pasa nada: el Hub sigue siendo alcanzable por
- * IP y el enlace con IP se mantiene por eso.
- */
-const anuncio = anunciarEnLaRed(NOMBRE_RED, lan, registrar);
+  // Atada a loopback: desde la red esta escucha no existe.
+  servidorLocal.listen(PUERTO_LOCAL, "127.0.0.1", () => {
+    registrar("info", `Acceso local sin certificado en el puerto ${PUERTO_LOCAL} (solo 127.0.0.1)`);
+  });
+
+  /*
+   * Anuncio en la red. Si falla no pasa nada: el Hub sigue siendo alcanzable
+   * por IP y el enlace con IP se mantiene por eso.
+   */
+  anuncio = anunciarEnLaRed(NOMBRE_RED, lan, registrar);
+}
+
+let anuncio: ReturnType<typeof anunciarEnLaRed> = null;
 
 function apagar(senal: string): void {
   registrar("info", `Señal ${senal}: cerrando el Hub`);
   anuncio?.detener();
-  wss.close();
-  wssLocal.close();
-  servidorLocal.close();
+  wss?.close();
+  wssLocal?.close();
+  servidorLocal?.close();
+  if (!servidor) process.exit(0);
   servidor.close(() => {
     almacen.cerrar();
     process.exit(0);
@@ -427,3 +493,10 @@ function apagar(senal: string): void {
 
 process.on("SIGINT", () => apagar("SIGINT"));
 process.on("SIGTERM", () => apagar("SIGTERM"));
+
+arrancar().catch((causa) => {
+  // Si el arranque falla no hay Hub, y quedarse en silencio dejaría al
+  // restaurante creyendo que está encendido. Se dice y se sale con error.
+  registrar("error", `No se pudo arrancar el Hub: ${String(causa)}`);
+  process.exit(1);
+});

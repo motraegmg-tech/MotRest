@@ -1,0 +1,15 @@
+{
+  "name": "@motrest/escritorio",
+  "version": "0.0.0",
+  "private": true,
+  "description": "MotRest para Windows — la caja del local: punto de venta y Hub en un solo instalador.",
+  "type": "module",
+  "scripts": {
+    "dev": "tauri dev",
+    "build": "tauri build",
+    "icono": "tauri icon"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2.1.0"
+  }
+}

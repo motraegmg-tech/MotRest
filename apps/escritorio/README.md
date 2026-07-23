@@ -1,0 +1,65 @@
+# MotRest para Windows — la caja del local
+
+Un solo instalador deja la caja lista: punto de venta, Hub del local y arranque
+automático. Es el criterio de aceptación de la etapa 12 — *"un instalador que un
+tercero instala solo"*.
+
+## Por qué una app y no solo el navegador
+
+No es por rendimiento ni por estética. Los navegadores solo exponen
+`crypto.subtle` —el motor criptográfico— en contextos seguros, y una terminal
+abierta por la IP del local en `http://` no lo tiene. Sin él no se pueden
+verificar contraseñas, ni cifrar el canal con el Hub, ni sellar el corte.
+
+Una app Tauri corre en un origen que el sistema considera seguro por definición.
+El mismo POS, el mismo código, sin advertencias que saltarse.
+
+## Construir el instalador
+
+```bash
+corepack pnpm@9.15.0 --filter pos-ui build          # el POS que va dentro
+corepack pnpm@9.15.0 --filter @motrest/hub empaquetar   # el Hub como .exe
+corepack pnpm@9.15.0 --filter @motrest/escritorio build
+```
+
+Sale en `src-tauri/target/release/bundle/nsis/`.
+
+### En Windows, compila fuera de `Documents`
+
+```bash
+CARGO_TARGET_DIR=C:\motrest-build
+```
+
+Defender en tiempo real bloquea los archivos objeto mientras Rust los escribe y
+la compilación falla con `os error 32`. Compilar fuera de las carpetas que
+escanea con más agresividad lo resuelve **sin tocar la configuración de
+seguridad del equipo**, que es lo que no queremos pedirle a nadie.
+
+## Qué lleva dentro
+
+| Pieza | Qué es |
+|---|---|
+| `motrest.exe` | La app: ventana, webview y arranque del Hub (~5 MB) |
+| `motrest-hub-*.exe` | El Hub completo con Node incrustado (~91 MB) |
+| `pos/` | El POS compilado |
+
+El Hub va como *sidecar*: la app lo levanta al abrir y lo cierra al salir.
+Dejarlo vivo tras cerrar la caja mantendría el puerto ocupado y el siguiente
+arranque fallaría sin explicación.
+
+## Firma del instalador
+
+**Pendiente.** Sin firma, Windows SmartScreen muestra un aviso de "editor
+desconocido" la primera vez. Se resuelve con un certificado de firma de código a
+nombre de MOTRAE, que es un trámite comercial, no técnico.
+
+## Pendiente: fijar el certificado del Hub
+
+La app de la caja no sufre el aviso del certificado —habla con el Hub por
+`localhost`—. Una tablet sí, porque habla por la red.
+
+El camino correcto es **fijar el certificado** (pinning): el QR de
+emparejamiento ya puede llevar la huella que el Hub publica en `/salud`, y la
+app aceptar exactamente ese certificado y ningún otro. Sin advertencia, y más
+seguro que confiar en una autoridad pública. Exige mover el canal al lado
+nativo; está razonado en ADR-18.
