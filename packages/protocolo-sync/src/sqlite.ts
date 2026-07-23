@@ -107,8 +107,22 @@ export class LogHub implements RepositorioEventos {
     // WAL: permite leer mientras se escribe. En un servicio de viernes el Hub
     // recibe comandas y sirve consultas al mismo tiempo.
     this.db.exec("PRAGMA journal_mode = WAL");
-    // NORMAL basta con WAL y evita un fsync por cada comanda capturada.
-    this.db.exec("PRAGMA synchronous = NORMAL");
+    /*
+     * FULL, no NORMAL, y esto NO es exceso de celo.
+     *
+     * Con WAL, `NORMAL` protege contra corrupción pero NO contra pérdida: un
+     * apagón puede deshacer las últimas transacciones ya confirmadas. Eso sería
+     * tolerable si alguien las volviera a mandar, y aquí nadie lo hace: el Hub
+     * responde un acuse por cada evento que ingiere, y la terminal que lo
+     * recibe lo da por guardado y deja de reintentarlo. Un acuse sobre datos
+     * que todavía no tocaron el disco es una promesa que el Hub no puede
+     * cumplir.
+     *
+     * El costo es un fsync por lote. Un restaurante lleno genera unos pocos
+     * eventos por segundo; el disco los absorbe sin notarlo. Cambiar pérdida de
+     * ventas por microsegundos sería un mal negocio.
+     */
+    this.db.exec("PRAGMA synchronous = FULL");
     this.db.exec("PRAGMA foreign_keys = ON");
     this.db.exec(ESQUEMA);
   }
@@ -209,6 +223,10 @@ export class LogHub implements RepositorioEventos {
 
   async confirmar(_acks: readonly Ack[]): Promise<void> {
     // No aplica en el Hub.
+  }
+
+  async reabrirOutbox(): Promise<void> {
+    // Tampoco: el Hub no le reenvía a nadie, él ES la referencia.
   }
 
   async contar(): Promise<number> {

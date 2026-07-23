@@ -1,0 +1,120 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>MotRest</title>
+    <style>
+      :root {
+        --negro: #14181a;
+        --acento: #f2853a;
+        --gris: #8a969c;
+      }
+      * { margin: 0; padding: 0; box-sizing: border-box; }
+      body {
+        height: 100vh;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 1.25rem;
+        background: var(--negro);
+        color: #fff;
+        font-family: "Segoe UI", system-ui, sans-serif;
+        -webkit-user-select: none;
+        user-select: none;
+      }
+      .marca { font-size: 2.6rem; font-weight: 700; letter-spacing: -0.02em; }
+      .marca span { color: var(--acento); }
+      .estado { font-size: 0.95rem; color: var(--gris); text-align: center; max-width: 26rem; line-height: 1.5; }
+      .barra { width: 12rem; height: 3px; background: #2a3237; border-radius: 2px; overflow: hidden; }
+      .barra i { display: block; height: 100%; width: 40%; background: var(--acento); border-radius: 2px; animation: correr 1.1s ease-in-out infinite; }
+      @keyframes correr { 0% { transform: translateX(-100%); } 100% { transform: translateX(350%); } }
+      .fallo { color: #ff8a7a; }
+      button {
+        margin-top: 0.5rem; border: 1.5px solid #2a3237; background: #1c2226;
+        color: #fff; border-radius: 8px; padding: 0.6rem 1.4rem;
+        font-size: 0.9rem; font-weight: 600; cursor: pointer;
+      }
+      button:hover { border-color: var(--acento); }
+    </style>
+  </head>
+  <body>
+    <div class="marca">MotRest<span>.</span></div>
+    <div class="barra" id="barra"><i></i></div>
+    <p class="estado" id="estado">Abriendo el local…</p>
+    <button id="reintentar" hidden>Reintentar</button>
+
+    <script>
+      /*
+       * Pantalla de arranque de la caja.
+       *
+       * Existe por una razón concreta: el punto de venta se carga DESDE el Hub,
+       * no desde el paquete de la aplicación. Así la caja queda emparejada con
+       * su propio Hub y toda la operación se guarda en el registro del local —
+       * antes se guardaba en el almacenamiento del navegador interno y el
+       * registro quedaba vacío.
+       *
+       * El Hub tarda un momento en levantar (genera su clave y su certificado
+       * la primera vez), así que aquí se espera a que responda.
+       */
+      const DESTINO = "http://localhost:8788/";
+      const SALUD = "http://localhost:8788/salud";
+      const LIMITE_MS = 30000;
+
+      const estado = document.getElementById("estado");
+      const barra = document.getElementById("barra");
+      const reintentar = document.getElementById("reintentar");
+      let desde = Date.now();
+
+      async function esperarAlHub() {
+        try {
+          /*
+           * `no-cors` a propósito.
+           *
+           * La aplicación corre en el origen `tauri.localhost`, así que una
+           * consulta normal al Hub sería de origen cruzado y el navegador la
+           * bloquearía. Con `no-cors` la respuesta llega opaca —no se puede
+           * leer— pero es todo lo que hace falta: si el Hub no está
+           * escuchando, la promesa se rechaza; si responde, se cumple.
+           *
+           * La alternativa era abrir CORS en el Hub, y eso permitiría a
+           * cualquier página que el usuario visite preguntarle cosas.
+           */
+          await fetch(SALUD, { cache: "no-store", mode: "no-cors" });
+          estado.textContent = "Listo";
+          location.replace(DESTINO);
+          return;
+        } catch {
+          // Todavía no escucha; es lo normal en los primeros segundos.
+        }
+
+        if (Date.now() - desde > LIMITE_MS) {
+          barra.hidden = true;
+          estado.className = "estado fallo";
+          estado.textContent =
+            "El servicio del local no respondió. Cierra MotRest y vuelve a abrirlo; " +
+            "si sigue igual, revisa que no haya otra copia abierta.";
+          reintentar.hidden = false;
+          return;
+        }
+
+        if (Date.now() - desde > 6000) {
+          estado.textContent = "Preparando el local por primera vez…";
+        }
+        setTimeout(esperarAlHub, 400);
+      }
+
+      reintentar.addEventListener("click", () => {
+        desde = Date.now();
+        barra.hidden = false;
+        reintentar.hidden = true;
+        estado.className = "estado";
+        estado.textContent = "Abriendo el local…";
+        esperarAlHub();
+      });
+
+      esperarAlHub();
+    </script>
+  </body>
+</html>

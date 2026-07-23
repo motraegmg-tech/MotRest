@@ -129,6 +129,20 @@ export class RepositorioEventosIDB implements RepositorioEventos {
     await alTerminar(tx);
   }
 
+  async reabrirOutbox(): Promise<void> {
+    const filas = await this.filas({ nombre: "confirmado", valor: CONFIRMADO });
+    if (filas.length === 0) return;
+    const tx = this.bd.transaction(TIENDA_EVENTOS, "readwrite");
+    const tienda = tx.objectStore(TIENDA_EVENTOS);
+    for (const fila of filas) {
+      // Se quita también el `seq`: era la posición en la historia de un Hub que
+      // ya no existe. El nuevo asignará la suya.
+      const { seq: _viejo, ...evento } = fila.evento;
+      tienda.put({ ...fila, confirmado: PENDIENTE, evento });
+    }
+    await alTerminar(tx);
+  }
+
   async contar(): Promise<number> {
     const tx = this.bd.transaction(TIENDA_EVENTOS, "readonly");
     return promesa(tx.objectStore(TIENDA_EVENTOS).count());

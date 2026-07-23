@@ -6,7 +6,9 @@
   "type": "module",
   "scripts": {
     "dev": "tauri dev",
-    "build": "tauri build",
+    "//build": "`tauri build` NO reconstruye lo que empaqueta: toma el POS de pos-ui/dist y el Hub de binarios/ tal como estén. Sin estos dos pasos previos el instalador sale con código viejo y en silencio — pasó, y costó dos ciclos de diagnóstico creyendo que un arreglo no funcionaba.",
+    "build": "pnpm --filter pos-ui build && pnpm --filter @motrest/hub empaquetar && tauri build",
+    "build:solo-caja": "tauri build",
     "icono": "tauri icon"
   },
   "devDependencies": {

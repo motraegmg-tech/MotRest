@@ -39,6 +39,14 @@ export class RepositorioEventosMemoria implements RepositorioEventos {
     }
   }
 
+  async reabrirOutbox(): Promise<void> {
+    for (const [id, ev] of this.porId) {
+      if (ev.seq === undefined) continue;
+      const { seq: _viejo, ...sinSeq } = ev;
+      this.porId.set(id, sinSeq);
+    }
+  }
+
   async contar(): Promise<number> {
     return this.porId.size;
   }

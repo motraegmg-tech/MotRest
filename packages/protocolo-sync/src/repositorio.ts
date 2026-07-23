@@ -36,6 +36,19 @@ export interface RepositorioEventos {
   /** Marca eventos como confirmados por el Hub, con su secuencia total. */
   confirmar(acks: readonly Ack[]): Promise<void>;
 
+  /**
+   * Devuelve TODO el log al outbox, como si nada estuviera confirmado.
+   *
+   * Se usa cuando el Hub aparece con menos historia de la que ya nos había
+   * confirmado: disco cambiado, reinstalación, respaldo restaurado o
+   * simplemente otro Hub. Una confirmación es una promesa sobre un Hub
+   * concreto; si ese Hub perdió la memoria, la promesa dejó de valer y esta
+   * terminal es quien tiene los datos.
+   *
+   * Reenviar no duplica: el Hub deduplica por el id del evento.
+   */
+  reabrirOutbox(): Promise<void>;
+
   /** Cuántos eventos hay guardados. */
   contar(): Promise<number>;
 

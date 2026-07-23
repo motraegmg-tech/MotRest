@@ -125,6 +125,15 @@ caja. SQLite en modo WAL, como pide el TRD.
 El `id` del evento es la llave primaria: ahí vive la deduplicación de la que
 depende toda la sincronización.
 
+### El acuse significa "está en el disco"
+
+El log abre con `synchronous = FULL`, y esa es la pieza que sostiene la promesa
+del acuse: la terminal descarta su copia pendiente cuando el Hub confirma, así
+que el Hub no puede confirmar antes de escribir. Con `NORMAL` un apagón puede
+deshacer transacciones ya confirmadas —la base queda íntegra, pero sin las
+últimas ventas— y nadie las vuelve a mandar, porque nadie sabe que faltan.
+Detalle en [ADR-19](../../docs/adr/ADR-19-durabilidad.md).
+
 ## Que arranque solo con el equipo
 
 ```powershell

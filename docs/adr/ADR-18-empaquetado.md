@@ -75,6 +75,28 @@ Eso obligó a un cambio en el código: **no puede haber `await` en el nivel
 superior del módulo**, porque el empaquetado no lo admite. El arranque pasó a
 una función `arrancar()`, que además deja explícito el orden de encendido.
 
+## La caja carga el POS DESDE su Hub, no desde el paquete
+
+Al principio la aplicación traía el punto de venta dentro y lo mostraba
+directamente. Parecía lo natural —un archivo menos que servir— y estaba mal.
+
+El POS así cargado **no estaba emparejado con ningún Hub**. Guardaba la
+operación en el almacenamiento del navegador interno de la aplicación, mientras
+el registro del local se quedaba vacío. Dos almacenes que no se hablan: al
+reinstalar se perdía todo, otra terminal que se conectara no encontraba nada, y
+el corte de caja del Hub habría salido en cero con la caja llena de ventas.
+
+Ahora la ventana abre una pantalla de arranque que espera al Hub y luego carga
+el POS desde él. El Hub, al servir a **su propio equipo**, inyecta el
+emparejamiento en la página: la caja queda enlazada sin que nadie configure
+nada. Por la red no lo inyecta —ahí cada terminal se empareja con el QR—,
+porque repartir la clave a quien la pida dejaría el cifrado sin sentido.
+
+La pantalla de arranque consulta al Hub con `mode: "no-cors"`. La aplicación
+corre en el origen `tauri.localhost`, así que una consulta normal sería de
+origen cruzado y el navegador la bloquearía. La alternativa era abrir CORS en el
+Hub, y eso permitiría a cualquier página que el usuario visite preguntarle cosas.
+
 ## Consecuencias
 
 - El instalador de la caja hace innecesario `instalar-servicio.ps1`, que se

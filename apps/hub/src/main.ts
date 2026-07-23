@@ -18,7 +18,7 @@ import {
   type ServerResponse,
 } from "node:http";
 import { createServer } from "node:https";
-import { createReadStream, existsSync, mkdirSync, statSync } from "node:fs";
+import { createReadStream, existsSync, mkdirSync, readFileSync, statSync } from "node:fs";
 import { createRequire } from "node:module";
 import { networkInterfaces } from "node:os";
 import { dirname, extname, join, normalize, resolve } from "node:path";
@@ -226,6 +226,9 @@ const TIPOS: Record<string, string> = {
 
 function atender(peticion: IncomingMessage, respuesta: ServerResponse): void {
   const url = new URL(peticion.url ?? "/", `https://${peticion.headers.host}`);
+  // Quien pide desde el propio equipo ya tiene acceso al archivo de la clave,
+  // así que entregársela en la página no le da nada que no tuviera.
+  const esLocal = esPeticionLocal(peticion);
 
   const json = (codigo: number, cuerpo: unknown): void => {
     respuesta.writeHead(codigo, { "content-type": "application/json; charset=utf-8" });
@@ -246,7 +249,19 @@ function atender(peticion: IncomingMessage, respuesta: ServerResponse): void {
     return;
   }
 
-  servirPos(url.pathname, respuesta, json);
+  servirPos(url.pathname, respuesta, json, esLocal);
+}
+
+/**
+ * ¿La petición viene de este mismo equipo?
+ *
+ * Solo a esas se les entrega el emparejamiento ya hecho. Una terminal de la red
+ * tiene que emparejarse con el QR, como cualquier otra: si el Hub repartiera su
+ * clave a quien la pidiera por la red, el cifrado no protegería de nada.
+ */
+function esPeticionLocal(peticion: IncomingMessage): boolean {
+  const origen = peticion.socket.remoteAddress ?? "";
+  return origen === "127.0.0.1" || origen === "::1" || origen === "::ffff:127.0.0.1";
 }
 
 /**
@@ -272,6 +287,7 @@ function servirPos(
   ruta: string,
   respuesta: ServerResponse,
   json: (codigo: number, cuerpo: unknown) => void,
+  esLocal: boolean,
 ): void {
   const indice = join(RUTA_POS, "index.html");
   if (!existsSync(indice)) {
@@ -291,6 +307,36 @@ function servirPos(
   const dentro = pedido.startsWith(RUTA_POS);
   const archivo =
     dentro && existsSync(pedido) && statSync(pedido).isFile() ? pedido : indice;
+
+  /*
+   * La caja se empareja sola con su propio Hub.
+   *
+   * Sin esto, la terminal del equipo donde corre el Hub quedaba SIN emparejar:
+   * guardaba la operación en el almacenamiento de su navegador y el registro
+   * del local se quedaba vacío. Dos almacenes que no se hablan — al reinstalar
+   * se perdía todo, y otra terminal que se conectara no encontraba nada.
+   *
+   * Solo se inyecta a quien pide desde este mismo equipo. Por la red, cada
+   * terminal se empareja con el QR.
+   */
+  if (archivo === indice && esLocal) {
+    const html = readFileSync(indice, "utf8").replace(
+      "</head>",
+      `  <script>
+      window.__MOTREST_HUB__ = ${JSON.stringify({
+        url: `ws://localhost:${PUERTO_LOCAL}/sync`,
+        clave: claveLocal,
+      })};
+    </script>
+  </head>`,
+    );
+    respuesta.writeHead(200, {
+      "content-type": "text/html; charset=utf-8",
+      "cache-control": "no-cache",
+    });
+    respuesta.end(html);
+    return;
+  }
 
   respuesta.writeHead(200, {
     "content-type": TIPOS[extname(archivo).toLowerCase()] ?? "application/octet-stream",

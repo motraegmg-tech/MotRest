@@ -192,6 +192,29 @@ export class ClienteSync {
          */
         if (mensaje.seq_actual === 0) this.opciones.alEncontrarLocalVacio?.();
 
+        /*
+         * El Hub retrocedió: tiene menos historia de la que ya nos confirmó.
+         *
+         * Pasa cuando cambian el disco de la caja, reinstalan, restauran un
+         * respaldo viejo o ponen otro Hub. Sin esta comprobación la terminal
+         * seguiría creyendo que sus ventas están a salvo "allá" y no volvería a
+         * mandarlas nunca: el Hub olvidó y la terminal no se enteró. El corte
+         * de caja saldría corto y nadie sabría por qué.
+         *
+         * Aquí la terminal es la que tiene los datos, así que los reenvía
+         * todos. El Hub deduplica por id, de modo que reenviar de más no
+         * duplica nada — y quedarse corto sí pierde ventas.
+         */
+        if (mensaje.seq_actual < this.ultimoSeq) {
+          this.avisar(
+            "sincronizando",
+            "El Hub del local perdió historia. Reenviando la operación de esta terminal.",
+          );
+          await this.opciones.almacen.eventos.reabrirOutbox();
+          this.ultimoSeq = 0;
+          await this.opciones.almacen.estado.guardar(CLAVE_ULTIMO_SEQ, 0);
+        }
+
         // Se empuja lo pendiente ANTES de pedir lo ajeno: lo que este
         // dispositivo vendió sin red es lo más urgente por publicar.
         await this.empujar();

@@ -1,0 +1,10 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "local",
+  "description": "Permisos de la caja: la ventana carga el punto de venta desde el Hub de este mismo equipo.",
+  "windows": ["main"],
+  "remote": {
+    "urls": ["http://localhost:8788/*", "http://127.0.0.1:8788/*"]
+  },
+  "permissions": ["core:default", "shell:default"]
+}

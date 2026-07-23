@@ -96,6 +96,39 @@ describe.each(implementaciones)("repositorio de eventos (%s)", (_nombre, crear) 
     expect(confirmado?.seq).toBe(10);
   });
 
+  /*
+   * Si el Hub pierde su base —disco cambiado, reinstalación, respaldo viejo—
+   * la terminal es la única que conserva la operación. Sin esto seguiría
+   * creyendo que sus ventas están a salvo en un Hub que ya las olvidó, y el
+   * corte de caja saldría corto sin que nadie supiera por qué.
+   */
+  it("reabrir el outbox devuelve TODO al pendiente, aunque ya estuviera confirmado", async () => {
+    const lote = eventos(3);
+    await almacen.eventos.anexar(lote);
+    await almacen.eventos.confirmar(lote.map((e, i) => ({ id: e.id, seq: i + 1 })));
+    expect(await almacen.eventos.pendientes()).toHaveLength(0);
+
+    await almacen.eventos.reabrirOutbox();
+
+    const pendientes = await almacen.eventos.pendientes();
+    expect(pendientes).toHaveLength(3);
+    // La secuencia vieja era la posición en la historia de un Hub que ya no
+    // existe: se va con ella. La asignará el Hub nuevo.
+    expect(pendientes.every((e) => e.seq === undefined)).toBe(true);
+  });
+
+  it("reabrir el outbox no pierde ni duplica ningún evento", async () => {
+    const lote = eventos(5);
+    await almacen.eventos.anexar(lote);
+    await almacen.eventos.confirmar([{ id: lote[0]!.id, seq: 1 }]);
+
+    await almacen.eventos.reabrirOutbox();
+
+    expect(await almacen.eventos.contar()).toBe(5);
+    const ids = (await almacen.eventos.pendientes()).map((e) => e.id);
+    expect(new Set(ids).size).toBe(5);
+  });
+
   it("respeta el límite al pedir pendientes", async () => {
     await almacen.eventos.anexar(eventos(10));
     expect(await almacen.eventos.pendientes(4)).toHaveLength(4);

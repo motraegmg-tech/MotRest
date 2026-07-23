@@ -95,8 +95,34 @@ class StoreSync {
    * une a un local existente no debe inventar su propio salón, tiene que
    * recibir el que ya está operando.
    */
+  /**
+   * Emparejamiento que inyecta el Hub al servir a su propio equipo.
+   *
+   * Es lo que hace que la caja funcione sin configurar nada: la aplicación
+   * instalada abre y ya está enlazada con su Hub. Sin esto, la terminal del
+   * equipo donde corre el Hub guardaba la operación en su navegador y el
+   * registro del local quedaba vacío.
+   */
+  private static hubInyectado(): { url: string; clave: string } | null {
+    const dato = (globalThis as { __MOTREST_HUB__?: { url?: string; clave?: string } })
+      .__MOTREST_HUB__;
+    if (!dato?.url || !claveValida(dato.clave ?? "")) return null;
+    return { url: dato.url, clave: dato.clave! };
+  }
+
   async resolverDestino(almacen: Almacen): Promise<void> {
     this.almacen = almacen;
+
+    // El Hub propio manda sobre lo guardado: si esta terminal se movió a otro
+    // local, lo que valga es el Hub desde el que se está abriendo ahora.
+    const propio = StoreSync.hubInyectado();
+    if (propio) {
+      this.url = propio.url;
+      this.clave = propio.clave;
+      await almacen.estado.guardar(CLAVE_HUB, propio.url);
+      await almacen.estado.guardar(CLAVE_SECRETO, propio.clave);
+      return;
+    }
 
     const deLaUrl = StoreSync.hubEnLaUrl();
     if (deLaUrl) {
