@@ -25,6 +25,8 @@ import {
   type MensajeHub,
 } from "@motrest/protocolo-sync";
 import type { LogHub } from "@motrest/protocolo-sync/sqlite";
+import type { ColaDeTimbrado } from "./fiscal/cola-timbrado.js";
+import type { Sellador } from "./fiscal/sellador.js";
 
 /** Lo mínimo que el Hub necesita de una conexión. */
 export interface Conexion {
@@ -58,6 +60,16 @@ export interface OpcionesHub {
   /** Enlaces de emparejamiento, uno por dirección del Hub en la red. */
   enlaces?: () => { etiqueta: string; url: string }[];
   registrar?: (nivel: "info" | "aviso" | "error", mensaje: string) => void;
+  /**
+   * Facturación. Opcional: un Hub sin CSD sigue siendo un Hub perfectamente
+   * útil —arbitra la secuencia y sincroniza— y el restaurante puede operar
+   * meses antes de facturar.
+   */
+  fiscal?: {
+    sellador: Sellador;
+    cola: ColaDeTimbrado;
+    nombrePac?: string;
+  };
 }
 
 /** Eventos cuya emisión exige un permiso concreto, revalidado en el servidor. */
@@ -127,6 +139,9 @@ export class Hub {
         break;
       case "admin":
         if (this.exigirSaludo(sesion)) this.administrar(sesion, mensaje);
+        break;
+      case "fiscal":
+        if (this.exigirSaludo(sesion)) void this.atenderFiscal(sesion, mensaje);
         break;
       case "ping":
         sesion.conexion.enviar({ tipo: "pong", ts: Date.now() });
@@ -430,6 +445,131 @@ export class Hub {
       return `"${accion}" requiere la firma de un superior`;
     }
     return null;
+  }
+
+  // --- Facturación ----------------------------------------------------------------------
+
+  /**
+   * El CSD y la cola de timbrado.
+   *
+   * Dos comprobaciones, no una. Que la terminal esté autorizada dice que el
+   * aparato pertenece al local; administrar el CSD exige además que la PERSONA
+   * pueda, porque es entregar la firma fiscal del negocio. Consultar el estado
+   * de la cola, en cambio, es información de operación y le basta con lo
+   * primero: quien cobra tiene que poder ver si una factura salió.
+   */
+  private async atenderFiscal(
+    sesion: Sesion,
+    mensaje: Extract<MensajeCliente, { tipo: "fiscal" }>,
+  ): Promise<void> {
+    const fiscal = this.opciones.fiscal;
+    if (!fiscal) {
+      sesion.conexion.enviar({
+        tipo: "error",
+        codigo: "permiso_denegado",
+        mensaje: "Esta caja no tiene la facturación configurada",
+      });
+      return;
+    }
+
+    if (!this.log.dispositivo(sesion.device_id)?.aprobado) {
+      sesion.conexion.enviar({
+        tipo: "error",
+        codigo: "permiso_denegado",
+        mensaje: "Solo una terminal autorizada del local puede consultar la facturación",
+      });
+      return;
+    }
+
+    const modifica =
+      mensaje.accion === "instalar_csd" ||
+      mensaje.accion === "desinstalar_csd" ||
+      mensaje.accion === "reintentar";
+
+    if (modifica) {
+      const negativa = this.puedeAdministrarCsd(mensaje.empleado_id);
+      if (negativa) {
+        this.anotar("aviso", `Intento de administrar el CSD sin permiso: ${negativa}`);
+        sesion.conexion.enviar({ tipo: "error", codigo: "permiso_denegado", mensaje: negativa });
+        return;
+      }
+    }
+
+    let problema: string | undefined;
+
+    switch (mensaje.accion) {
+      case "instalar_csd": {
+        if (!mensaje.cer || !mensaje.key || !mensaje.contrasena || !mensaje.rfc_emisor) {
+          problema = "Faltan el certificado, la llave, la contraseña o el RFC del emisor.";
+          break;
+        }
+        const resultado = fiscal.sellador.instalar(
+          Buffer.from(mensaje.cer, "base64"),
+          Buffer.from(mensaje.key, "base64"),
+          mensaje.contrasena,
+          mensaje.rfc_emisor,
+        );
+        if (resultado.ok) {
+          // Sin la contraseña ni nada que se le parezca: la bitácora se lee.
+          this.anotar("info", `CSD instalado para el RFC ${mensaje.rfc_emisor}.`);
+        } else {
+          problema = resultado.problema;
+        }
+        break;
+      }
+
+      case "desinstalar_csd":
+        fiscal.sellador.desinstalar();
+        this.anotar("aviso", "Se retiró el CSD de esta caja. No se podrá facturar hasta cargar otro.");
+        break;
+
+      case "reintentar":
+        if (mensaje.orden_id) fiscal.cola.reintentar(mensaje.orden_id);
+        // Se intenta enseguida: quien reintenta a mano acaba de arreglar la causa.
+        await fiscal.cola.procesar();
+        break;
+
+      case "estado":
+      case "listar_cola":
+        break;
+    }
+
+    const csd = fiscal.sellador.estado();
+    sesion.conexion.enviar({
+      tipo: "fiscal",
+      problema,
+      estado: {
+        csd_cargado: csd.cargado,
+        rfc: csd.rfc,
+        no_certificado: csd.no_certificado,
+        valido_hasta: csd.valido_hasta,
+        dias_restantes: csd.dias_restantes,
+        pac: fiscal.nombrePac ?? null,
+        cola: fiscal.cola.resumen(),
+      },
+      cola: mensaje.accion === "listar_cola" ? fiscal.cola.listar() : undefined,
+    });
+  }
+
+  /** `null` si puede administrar el CSD; si no, por qué no. */
+  private puedeAdministrarCsd(empleadoId: ID): string | null {
+    /*
+     * Sin `usuarioDe` el Hub no conoce la tabla de usuarios. Se DENIEGA en vez
+     * de dejar pasar: para todo lo demás no saber significa no arbitrar, pero
+     * aquí significaría regalar la firma fiscal a quien pregunte.
+     */
+    if (!this.opciones.usuarioDe) {
+      return "Esta caja todavía no puede verificar quién eres. Administra el CSD desde la caja principal.";
+    }
+
+    const usuario = this.opciones.usuarioDe(empleadoId);
+    if (!usuario) return "Usuario desconocido";
+    if (!usuario.activo) return `El usuario ${usuario.nombre} está desactivado`;
+
+    const veredicto = evaluar(usuario, "fin.csd.administrar");
+    if (veredicto.resultado === "permitido") return null;
+
+    return `${usuario.nombre} no puede administrar el Certificado de Sello Digital`;
   }
 
   /** Reparte lo recién aceptado a las demás terminales de la misma sucursal. */

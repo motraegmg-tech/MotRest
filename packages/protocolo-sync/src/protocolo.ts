@@ -89,6 +89,73 @@ export interface MensajeAdmin {
 }
 
 /**
+ * Facturación: el CSD y la cola de timbrado.
+ *
+ * Va por el canal cifrado por la misma razón que la administración de
+ * terminales, y con más motivo: **aquí viaja la contraseña de la llave privada
+ * del CSD**, que es la firma fiscal del restaurante. Por HTTP en claro,
+ * cualquiera en la red del local podría quedársela.
+ *
+ * Los archivos van en base64 porque el canal transporta JSON. Es el mismo
+ * material que el SAT entrega: el `.cer` y el `.key` tal cual, sin convertir.
+ */
+export interface MensajeFiscal {
+  tipo: "fiscal";
+  accion: "estado" | "instalar_csd" | "desinstalar_csd" | "listar_cola" | "reintentar";
+  /**
+   * Quién lo pide.
+   *
+   * Que la terminal esté autorizada no basta aquí: administrar el CSD es
+   * entregar la firma fiscal del negocio, y eso depende de la persona, no del
+   * aparato. El Hub vuelve a evaluar el permiso contra su propia tabla de
+   * usuarios, igual que hace con los eventos — un cliente manipulado puede
+   * decir que es quien quiera.
+   */
+  empleado_id: ID;
+  /** `instalar_csd`: el .cer del SAT en base64. */
+  cer?: string;
+  /** `instalar_csd`: el .key del SAT en base64. */
+  key?: string;
+  /** `instalar_csd`: la contraseña de la llave privada. */
+  contrasena?: string;
+  /** `instalar_csd`: a nombre de qué RFC se va a facturar. */
+  rfc_emisor?: string;
+  /** `reintentar`: qué orden reencolar. */
+  orden_id?: ID;
+}
+
+/** Lo que se puede contar del CSD sin exponerlo. Nunca la llave ni la contraseña. */
+export interface EstadoFiscal {
+  csd_cargado: boolean;
+  rfc: string | null;
+  no_certificado: string | null;
+  valido_hasta: string | null;
+  dias_restantes: number | null;
+  pac: string | null;
+  cola: { pendientes: number; timbradas: number; rechazadas: number };
+}
+
+export interface FacturaEnCola {
+  orden_id: ID;
+  serie: string;
+  folio: string;
+  total: number;
+  estado: "pendiente" | "timbrado" | "rechazado";
+  intentos: number;
+  creado_ts: number;
+  uuid: string | null;
+  problema: string | null;
+}
+
+export interface MensajeFiscalRespuesta {
+  tipo: "fiscal";
+  estado: EstadoFiscal;
+  cola?: FacturaEnCola[];
+  /** Qué salió mal al instalar el CSD, en palabras que orienten. */
+  problema?: string;
+}
+
+/**
  * Lo que hace falta para emparejar otra terminal, listo para pintar en un QR.
  *
  * Lo compone el Hub y no la terminal, porque solo él sabe sus direcciones en la
@@ -119,7 +186,8 @@ export type MensajeCliente =
   | MensajePull
   | MensajePing
   | MensajeCatalogo
-  | MensajeAdmin;
+  | MensajeAdmin
+  | MensajeFiscal;
 
 // --- Hub → Dispositivo -----------------------------------------------------------------
 
@@ -177,7 +245,8 @@ export type MensajeHub =
   | MensajePong
   | MensajeCatalogo
   | MensajeTerminales
-  | MensajeEnlace;
+  | MensajeEnlace
+  | MensajeFiscalRespuesta;
 
 /**
  * ¿La versión entrante de un catálogo gana a la que ya se tiene?

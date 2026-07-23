@@ -37,6 +37,10 @@ import { almacenSqlite } from "@motrest/protocolo-sync/sqlite";
 import { Hub, type Conexion } from "./servidor.js";
 import { carpetaCertificados, certificadoTls, type CertificadoTls } from "./certificado.js";
 import { anunciarEnLaRed } from "./descubrimiento.js";
+import { Sellador, carpetaDelCsd } from "./fiscal/sellador.js";
+import { ColaDeTimbrado } from "./fiscal/cola-timbrado.js";
+import { MAPEO_REST_COMUN, PacHttp } from "./fiscal/pac-http.js";
+import type { DatabaseSync as TipoDatabaseSync } from "node:sqlite";
 
 const PUERTO = Number(process.env.MOTREST_HUB_PUERTO ?? 8787);
 /** Puerto de la escucha local sin certificado. Solo responde a 127.0.0.1. */
@@ -170,12 +174,36 @@ function enlacesEmparejamiento(): { etiqueta: string; url: string }[] {
   ];
 }
 
+/*
+ * Facturación.
+ *
+ * La base fiscal va aparte de la del event log a propósito: la cola de
+ * timbrado es estado de infraestructura —cuántos intentos lleva, cuándo toca
+ * el siguiente—, no hechos del negocio. El log es la bitácora y no se ensucia
+ * con reintentos.
+ *
+ * El PAC se configura por variables de entorno porque su credencial es un
+ * secreto y los secretos no van al repositorio. Sin ellas el Hub arranca igual:
+ * sella y encola, y timbra en cuanto haya proveedor.
+ */
+// Por `require` y no con un import estático: el empaquetador le quita el
+// prefijo `node:` y se pone a buscar un paquete "sqlite" que no existe.
+const { DatabaseSync } = createRequire(import.meta.url)("node:sqlite") as {
+  DatabaseSync: typeof TipoDatabaseSync;
+};
+
+const almacenFiscal = new DatabaseSync(join(dirname(RUTA_DB), "fiscal.sqlite"));
+const sellador = new Sellador(carpetaDelCsd(dirname(RUTA_DB)));
+const pac = pacDelEntorno();
+const colaTimbrado = new ColaDeTimbrado(almacenFiscal, pac, registrar);
+
 const hub = new Hub({
   hub_id: HUB_ID,
   log: almacen.log,
   exigirAprobacion: EXIGIR_APROBACION,
   enlaces: enlacesEmparejamiento,
   registrar,
+  fiscal: { sellador, cola: colaTimbrado, nombrePac: pac?.nombre },
   guardarCatalogo: (catalogo) => {
     // Se guardan todos juntos: son pocos y así el archivo queda consistente.
     void almacen.estado.cargar<Catalogo[]>(CLAVE_CATALOGOS).then((previos) => {
@@ -184,6 +212,54 @@ const hub = new Hub({
     });
   },
 });
+
+/**
+ * Arma el PAC desde el entorno, si está configurado.
+ *
+ * `MOTREST_PAC_URL` y `MOTREST_PAC_TOKEN`. La credencial NUNCA va al
+ * repositorio ni a la base: es la llave para gastar el saldo de timbres del
+ * restaurante.
+ */
+function pacDelEntorno(): PacHttp | null {
+  const url = process.env.MOTREST_PAC_URL;
+  const token = process.env.MOTREST_PAC_TOKEN;
+  if (!url || !token) return null;
+
+  return new PacHttp({
+    nombre: process.env.MOTREST_PAC_NOMBRE ?? "PAC",
+    token,
+    mapeo: { ...MAPEO_REST_COMUN, url },
+  });
+}
+
+/**
+ * Reintenta lo pendiente cada pocos minutos.
+ *
+ * El intervalo es corto comparado con las 72 horas que da el SAT, y la espera
+ * creciente de la propia cola evita que esto se convierta en insistencia: si el
+ * PAC está caído, la mayoría de las facturas ni siquiera se tocarán.
+ */
+const CADA_CINCO_MINUTOS = 300_000;
+const relojDeTimbrado = setInterval(() => {
+  void colaTimbrado.procesar().catch((error: unknown) => {
+    registrar("error", `Fallo al procesar la cola de timbrado: ${String(error)}`);
+  });
+}, CADA_CINCO_MINUTOS);
+// Que este reloj no sea la razón por la que el proceso no termina.
+relojDeTimbrado.unref();
+
+if (sellador.listo) {
+  const estado = sellador.estado();
+  registrar("info", `CSD cargado: RFC ${estado.rfc}, vence en ${estado.dias_restantes} días.`);
+  if ((estado.dias_restantes ?? 0) < 30) {
+    registrar(
+      "aviso",
+      `El CSD vence en ${estado.dias_restantes} días. Tramita la renovación en el portal del SAT.`,
+    );
+  }
+} else {
+  registrar("info", "Sin CSD: se puede vender, todavía no facturar.");
+}
 
 // La carta del local sobrevive al reinicio del servicio.
 void almacen.estado.cargar<Catalogo[]>(CLAVE_CATALOGOS).then((guardados) => {

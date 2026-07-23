@@ -49,6 +49,7 @@ export type Accion =
   | "fin.costo.ver"
   | "fin.egreso.registrar"
   | "fin.factura.emitir"
+  | "fin.csd.administrar"
   // M6 · Personal
   | "rrhh.checada.registrar"
   | "rrhh.checada.ajustar"
@@ -156,6 +157,18 @@ export const CATALOGO_ACCIONES: GrupoAcciones[] = [
       def("fin.costo.ver", "m5", "Ver costos y márgenes", "Consultar food cost y margen de los platillos"),
       def("fin.egreso.registrar", "m5", "Registrar egresos", "Capturar gastos y salidas de dinero", true),
       def("fin.factura.emitir", "m5", "Emitir facturas", "Generar y timbrar comprobantes fiscales"),
+      /*
+       * Aparte de emitir facturas, y marcada como sensible: el CSD es la firma
+       * fiscal del negocio. Emitir una factura lo hace quien cobra; instalar el
+       * certificado con el que se firman todas, no.
+       */
+      def(
+        "fin.csd.administrar",
+        "m5",
+        "Administrar el CSD",
+        "Cargar o retirar el Certificado de Sello Digital del SAT",
+        true,
+      ),
     ],
   },
   {
