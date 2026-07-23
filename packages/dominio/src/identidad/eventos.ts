@@ -64,6 +64,14 @@ export type EventoIdentidad =
       tipo: "credencial_cambiada";
       usuario_id: ID;
       tipo_credencial: "contrasena" | "pin";
+      /**
+       * Quién firmó el restablecimiento, si no lo hizo el propio usuario.
+       *
+       * Distinguir «cambié mi contraseña» de «alguien me la restableció» es lo
+       * que hace útil esta línea de la bitácora: la segunda es la que hay que
+       * poder revisar si después aparece un movimiento raro con esa cuenta.
+       */
+      autorizador_id?: ID;
     })
   | (EventoBase & {
       tipo: "usuario_bloqueado";

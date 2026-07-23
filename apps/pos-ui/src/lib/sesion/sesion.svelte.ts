@@ -552,7 +552,18 @@ class Sesion {
     const problema = validarSecreto(datos.pin, "pin");
     if (problema) return { ok: false, error: problema };
 
-    const id = `usr-${uuidv7().slice(0, 8)}`;
+    /*
+     * El UUID completo, no un recorte.
+     *
+     * `slice(0, 8)` se quedaba con los primeros 8 caracteres, que en un UUIDv7
+     * son EXACTAMENTE la marca de tiempo en milisegundos y nada más: la parte
+     * aleatoria viene después. Dos altas en el mismo milisegundo —que es lo que
+     * ocurre al registrar al personal uno tras otro— recibían el mismo id, y el
+     * segundo usuario pisaba las credenciales del primero.
+     *
+     * Un id corto no vale ese riesgo: nadie lo teclea, solo lo lee la máquina.
+     */
+    const id = `usr-${uuidv7()}`;
     const nuevo: Usuario = {
       id,
       nombre,
@@ -562,6 +573,13 @@ class Sesion {
       sucursal_id: SUCURSAL_ID,
       permisos: datos.permisos,
       activo: true,
+      /*
+       * El PIN inicial lo eligió quien dio de alta al usuario, así que hay una
+       * persona más que lo conoce. Se pide cambiarlo al entrar por primera vez,
+       * y a partir de ahí la cuenta es solo suya — que es lo que hace que la
+       * bitácora signifique algo.
+       */
+      debe_cambiar_credencial: true,
     };
 
     this.credenciales.set(id, [await crearCredencial(id, datos.pin, "pin")]);
@@ -651,6 +669,104 @@ class Sesion {
     this.emitir("credencial_cambiada", { usuario_id: usuario.id, tipo_credencial: tipo });
     await this.guardarSecretos();
     return { ok: true };
+  }
+
+  /**
+   * ¿Alguien puede autorizar que ESTE usuario restablezca su credencial?
+   *
+   * Sirve para no ofrecer un botón que no lleva a ningún lado: si en el local
+   * no hay nadie con rango suficiente, más vale decirlo antes de que alguien
+   * pase dos minutos tecleando PIN ajenos.
+   */
+  hayQuienAutoriceCredencialDe(objetivo: Usuario): boolean {
+    return this.usuariosActivos.some(
+      (u) =>
+        puedeGestionarA(u, objetivo) &&
+        puedeAutorizar(u, "admin.credencial.autorizar") &&
+        !this.estaBloqueado(u.id),
+    );
+  }
+
+  /**
+   * Restablece la credencial de alguien que la olvidó, con la firma de un
+   * superior.
+   *
+   * Es el caso de todos los días: un mesero olvida su PIN a media tarde y no
+   * puede cobrar. Sin esto, la única salida es reinstalar o editarlo desde
+   * Administración, que exige que alguien deje la caja.
+   *
+   * DOS CANDADOS, y ninguno sobra:
+   *
+   *  1. Quien firma necesita el permiso «Autorizar cambio de PIN».
+   *  2. Quien firma tiene que ser de rango ESTRICTAMENTE mayor que el afectado.
+   *
+   * El segundo es el que evita una toma de control: sin él, un gerente podría
+   * restablecer la contraseña del dueño y entrar como él. La consecuencia
+   * deliberada es que **la credencial del propietario no la restablece nadie**;
+   * él la cambia estando dentro, y por eso esa otra ruta también existe.
+   */
+  async restablecerCredencial(
+    objetivoId: ID,
+    nuevoSecreto: string,
+    tipo: TipoCredencial,
+    pinAutorizador: string,
+  ): Promise<Resultado> {
+    const objetivo = this.usuarios.find((u) => u.id === objetivoId);
+    if (!objetivo) return { ok: false, error: "Usuario desconocido" };
+
+    const problema = validarSecreto(nuevoSecreto, tipo);
+    if (problema) return { ok: false, error: problema };
+
+    const politica = politicaIntentos(this.intentosAutorizacion, Date.now());
+    if (politica.bloqueado) {
+      return {
+        ok: false,
+        error: `Se agotaron los ${MAX_INTENTOS} intentos de autorización.`,
+      };
+    }
+    if (!politica.permitido) {
+      const segundos = Math.ceil(politica.espera_ms / 1000);
+      return { ok: false, error: `Demasiados intentos. Espera ${segundos} s` };
+    }
+
+    for (const autorizador of this.usuariosActivos) {
+      if (!puedeGestionarA(autorizador, objetivo)) continue;
+      if (!puedeAutorizar(autorizador, "admin.credencial.autorizar")) continue;
+      if (this.estaBloqueado(autorizador.id)) continue;
+
+      for (const credencial of this.credenciales.get(autorizador.id) ?? []) {
+        if (!(await verificarCredencial(pinAutorizador, credencial))) continue;
+
+        this.intentosAutorizacion = { fallos: 0, ultimo_fallo_ts: 0 };
+
+        const previas = (this.credenciales.get(objetivoId) ?? []).filter((c) => c.tipo !== tipo);
+        this.credenciales.set(objetivoId, [
+          await crearCredencial(objetivoId, nuevoSecreto, tipo),
+          ...previas,
+        ]);
+
+        // Restablecer la credencial levanta el bloqueo por intentos fallidos:
+        // quien olvidó su PIN suele haberlo agotado intentando recordarlo.
+        this.intentos = { ...this.intentos, [objetivoId]: { fallos: 0, ultimo_fallo_ts: 0 } };
+
+        this.emitir("credencial_cambiada", {
+          usuario_id: objetivoId,
+          tipo_credencial: tipo,
+          autorizador_id: autorizador.id,
+        });
+        await this.guardarSecretos();
+        return { ok: true };
+      }
+    }
+
+    this.intentosAutorizacion = {
+      fallos: this.intentosAutorizacion.fallos + 1,
+      ultimo_fallo_ts: Date.now(),
+    };
+    return {
+      ok: false,
+      error: "Esa clave no corresponde a nadie que pueda autorizar este cambio",
+    };
   }
 
   /** Plantilla de permisos de un rol, para arrancar el alta de un usuario. */

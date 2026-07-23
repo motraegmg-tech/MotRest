@@ -450,10 +450,35 @@
     border-color: var(--acento);
     color: #fff;
   }
+  /*
+   * El botón de entregar es lo único encendido del tablero, a propósito.
+   *
+   * El KDS vive apagado —fondo oscuro, tipografía tenue— para que la cocina lo
+   * mire de reojo sin que canse la vista en un turno de ocho horas. Pero cuando
+   * un platillo está listo, alguien tiene que recogerlo YA: cada segundo que
+   * espera bajo la lámpara es un plato que se enfría.
+   *
+   * Por eso este botón rompe la paleta y ninguno más: es el único que tiene
+   * prisa. Si se iluminara todo, no destacaría nada.
+   */
   .accion.entregar {
-    background: #6b8f57;
-    border-color: #6b8f57;
+    background: #57ad30;
+    border-color: #6fd440;
     color: #fff;
+    font-weight: 800;
+    letter-spacing: 0.02em;
+    text-shadow: 0 1px 2px rgba(0, 0, 0, 0.35);
+    box-shadow:
+      0 0 0 1px rgba(111, 212, 64, 0.35),
+      0 0 14px rgba(87, 173, 48, 0.55);
+  }
+  .accion.entregar:hover {
+    background: #6fd440;
+    border-color: #8ae85f;
+    color: #14181a;
+    box-shadow:
+      0 0 0 1px rgba(138, 232, 95, 0.5),
+      0 0 20px rgba(111, 212, 64, 0.75);
   }
   .accion.volver {
     flex: none;

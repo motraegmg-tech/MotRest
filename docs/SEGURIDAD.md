@@ -67,6 +67,47 @@ tenga el repositorio y sepa cuál es la contraseña puede confirmarlo. Por eso:
 están documentados en el código. Deben eliminarse antes de cualquier instalación
 real; hoy existen solo para poder probar el flujo de autorización.
 
+## Restablecer una credencial olvidada
+
+Un mesero olvida su PIN a media tarde y no puede cobrar. Pasa varias veces al
+mes y necesita una salida que no obligue a nadie a dejar la caja.
+
+Desde la pantalla de acceso, con el usuario ya elegido, aparece **«Olvidé mi
+PIN»**. Para completarlo hacen falta **dos** cosas de quien lo firma, y ninguna
+sobra:
+
+1. El permiso **«Autorizar cambio de PIN»** (`admin.credencial.autorizar`), que
+   se otorga por usuario y está separado de «Editar usuarios».
+2. Un rango **estrictamente mayor** que el del afectado.
+
+El segundo es el que evita una toma de control: sin él, un gerente con permiso
+de credenciales podría restablecer la contraseña del dueño y entrar como él.
+
+**Consecuencia deliberada: la credencial del propietario no la restablece
+nadie.** Por encima de él no hay rango, así que el botón ni siquiera se le
+ofrece. La cambia él mismo desde el menú de usuario, estando dentro — y por eso
+esa otra ruta existe.
+
+Restablecer también **borra los intentos fallidos** del afectado: quien olvidó
+su PIN suele haberlos gastado tratando de recordarlo, y dejarlo bloqueado
+resolvería la mitad del problema.
+
+Queda en la bitácora con `autorizador_id`. Distinguir «cambié mi contraseña» de
+«alguien me la restableció» es lo que hace útil esa línea si después aparece un
+movimiento raro con esa cuenta.
+
+### Sobre el cambio obligatorio en el primer inicio
+
+Un usuario recién dado de alta nace con la obligación de cambiar su PIN: lo
+eligió quien lo registró, así que hay una persona más que lo conoce, y la
+bitácora solo significa algo cuando la cuenta es de una sola persona.
+
+El propietario sembrado **ya no** la lleva. La tenía porque su contraseña
+inicial circuló fuera del sistema, pero en la práctica lograba lo contrario:
+como la obligación solo se levanta al completar el cambio, quien cerraba el
+diálogo se lo encontraba en cada inicio, y un aviso que se cierra sin leer no
+protege nada.
+
 ## Autorización
 
 - **Matriz rol × acción** con tres niveles: `ver`, `operar`, `autorizar`, más un

@@ -1,4 +1,5 @@
 <script lang="ts">
+  import CambioCredencial from "./sesion/CambioCredencial.svelte";
   import { MODULO_POR_CLAVE } from "./nav/modulos";
   import { rutas } from "./nav/rutas.svelte";
   import { pos } from "./pos.svelte";
@@ -20,7 +21,9 @@
   }
 
   let menuAbierto = $state(false);
+  let cambiandoClave = $state(false);
   const usuario = $derived(sesion.usuarioActual);
+  const esPin = $derived(usuario ? sesion.tipoCredencialDe(usuario.id) === "pin" : false);
 </script>
 
 <header class="hd">
@@ -29,7 +32,6 @@
   {#if enVenta}
     <span class="chip acento">Mesa {pos.nombreMesaActiva}</span>
   {/if}
-  <span class="chip gray">{cabecera.demo}</span>
   <!--
     El enlace solo se anuncia si hay un Hub configurado. Un local de una sola
     terminal no tiene por qué ver un aviso permanente de algo que no usa.
@@ -54,6 +56,9 @@
     {#if menuAbierto}
       <div class="velo" role="presentation" onclick={() => (menuAbierto = false)}></div>
       <div class="menu">
+        <button onclick={() => { menuAbierto = false; cambiandoClave = true; }}>
+          Cambiar mi {esPin ? "PIN" : "contraseña"}
+        </button>
         <button onclick={() => { menuAbierto = false; onAbrirAcceso(); }}>
           Cambiar de usuario
         </button>
@@ -73,6 +78,10 @@
     {/if}
   </div>
 </header>
+
+{#if cambiandoClave}
+  <CambioCredencial onCerrar={() => (cambiandoClave = false)} />
+{/if}
 
 <style>
   .hd {

@@ -22,6 +22,67 @@
   const bloqueado = $derived(elegido ? sesion.estaBloqueado(elegido.id) : false);
   const restantes = $derived(elegido ? sesion.intentosRestantes(elegido.id) : 0);
 
+  /*
+   * No se ofrece un botón que no lleva a ningún lado.
+   *
+   * Si en el local no hay nadie de rango superior con permiso para firmarlo, el
+   * restablecimiento no puede ocurrir; decirlo ahora ahorra dos minutos de
+   * teclear claves ajenas. Es también el caso del propietario: por encima de él
+   * no hay nadie, así que su contraseña la cambia él mismo desde dentro.
+   */
+  const hayQuienAutorice = $derived(
+    elegido ? sesion.hayQuienAutoriceCredencialDe(elegido) : false,
+  );
+
+  // --- Restablecer credencial olvidada ---
+  let restableciendo = $state(false);
+  let nuevoSecreto = $state("");
+  let confirmacion = $state("");
+  let claveAutorizador = $state("");
+  let errorRestablecer = $state("");
+  let restableciendoAhora = $state(false);
+
+  function cerrarRestablecer() {
+    restableciendo = false;
+    // Las claves no se quedan en memoria más de lo necesario.
+    nuevoSecreto = "";
+    confirmacion = "";
+    claveAutorizador = "";
+    errorRestablecer = "";
+  }
+
+  async function restablecer() {
+    if (!elegido || restableciendoAhora) return;
+    if (nuevoSecreto !== confirmacion) {
+      errorRestablecer = "Las dos claves no coinciden";
+      return;
+    }
+
+    restableciendoAhora = true;
+    errorRestablecer = "";
+    try {
+      const r = await sesion.restablecerCredencial(
+        elegido.id,
+        nuevoSecreto,
+        esContrasena ? "contrasena" : "pin",
+        claveAutorizador,
+      );
+      if (r.ok) {
+        cerrarRestablecer();
+        error = "";
+        secreto = "";
+        return;
+      }
+      errorRestablecer = r.error ?? "No se pudo restablecer";
+      claveAutorizador = "";
+    } catch (causa) {
+      console.error("Fallo al restablecer la credencial", causa);
+      errorRestablecer = motivoTecnico();
+    } finally {
+      restableciendoAhora = false;
+    }
+  }
+
   function elegir(u: Usuario) {
     elegido = u;
     secreto = "";
@@ -140,9 +201,70 @@
     {#if error}<p class="error" role="alert">{error}</p>{/if}
     {#if verificando}<p class="pista">Verificando…</p>{/if}
 
+    <!--
+      Olvidar el PIN a media tarde pasa varias veces al mes. Sin esta salida,
+      la única alternativa es que alguien deje la caja para editarlo desde
+      Administración — o que el mesero deje de cobrar.
+    -->
+    {#if hayQuienAutorice}
+      <button class="restablecer" onclick={() => (restableciendo = true)}>
+        {esContrasena ? "Olvidé mi contraseña" : "Olvidé mi PIN"}
+      </button>
+    {/if}
+
     <button class="volver" onclick={() => (elegido = null)}>← Elegir otro usuario</button>
   {/if}
 </div>
+
+<!-- Restablecer credencial, con la firma de un superior -->
+{#if restableciendo && elegido}
+  <div class="velo-2"></div>
+  <div class="dialogo" role="dialog" aria-label="Restablecer credencial">
+    <h2>Restablecer {esContrasena ? "contraseña" : "PIN"}</h2>
+    <p class="quien">{elegido.nombre} · {elegido.puesto}</p>
+
+    <p class="explica">
+      Necesitas que lo autorice alguien de rango superior con permiso para
+      hacerlo. Escribe primero tu clave nueva y pídele que la firme.
+    </p>
+
+    <label>
+      <span>{esContrasena ? "Contraseña nueva" : "PIN nuevo"}</span>
+      <input
+        type="password"
+        bind:value={nuevoSecreto}
+        inputmode={esContrasena ? "text" : "numeric"}
+        autocomplete="new-password"
+        placeholder={esContrasena ? "Al menos 8 caracteres" : "4 a 8 dígitos"}
+      />
+    </label>
+
+    <label>
+      <span>Repítela</span>
+      <input type="password" bind:value={confirmacion} autocomplete="new-password" />
+    </label>
+
+    <label>
+      <span>Clave de quien autoriza</span>
+      <input
+        type="password"
+        bind:value={claveAutorizador}
+        autocomplete="off"
+        placeholder="PIN o contraseña del superior"
+        onkeydown={(e) => e.key === "Enter" && restablecer()}
+      />
+    </label>
+
+    {#if errorRestablecer}<p class="error" role="alert">{errorRestablecer}</p>{/if}
+
+    <div class="botones">
+      <button class="secundario" onclick={cerrarRestablecer}>Cancelar</button>
+      <button class="entrar" onclick={restablecer} disabled={restableciendoAhora}>
+        {restableciendoAhora ? "Verificando…" : "Restablecer"}
+      </button>
+    </div>
+  </div>
+{/if}
 
 <style>
   .velo {
@@ -303,5 +425,101 @@
     font-size: 0.85rem;
     color: #b9c2bc;
     text-decoration: underline;
+  }
+
+  /* --- Restablecer credencial olvidada --- */
+
+  .restablecer {
+    margin-top: 1.1rem;
+    font-size: 0.9rem;
+    font-weight: 600;
+    color: var(--acento);
+    text-decoration: underline;
+  }
+
+  .velo-2 {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.55);
+    z-index: 52;
+  }
+  .dialogo {
+    position: fixed;
+    z-index: 53;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    width: min(26rem, calc(100vw - 2rem));
+    max-height: 92vh;
+    overflow-y: auto;
+    background: #1c2226;
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: var(--r-md);
+    padding: 1.4rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.7rem;
+    box-shadow: 0 18px 50px rgba(0, 0, 0, 0.55);
+  }
+  .dialogo h2 {
+    font-family: var(--font-titulo);
+    font-size: 1.15rem;
+    font-weight: 700;
+    color: #fff;
+  }
+  .quien {
+    font-size: 0.88rem;
+    color: var(--acento);
+    font-weight: 600;
+    margin-top: -0.4rem;
+  }
+  .explica {
+    font-size: 0.85rem;
+    color: #b9c2bc;
+    line-height: 1.5;
+  }
+  .dialogo label {
+    display: flex;
+    flex-direction: column;
+    gap: 0.3rem;
+  }
+  .dialogo label span {
+    font-size: 0.8rem;
+    font-weight: 600;
+    color: #8a969c;
+  }
+  .dialogo input {
+    width: 100%;
+    padding: 0.7rem 0.85rem;
+    border-radius: var(--r-sm);
+    border: 1.5px solid rgba(255, 255, 255, 0.2);
+    background: rgba(255, 255, 255, 0.06);
+    color: #fff;
+    font-size: 1rem;
+    font-family: var(--font-cuerpo);
+  }
+  .dialogo input:focus {
+    outline: none;
+    border-color: var(--acento);
+  }
+  .botones {
+    display: flex;
+    gap: 0.6rem;
+    margin-top: 0.4rem;
+  }
+  .botones .entrar,
+  .secundario {
+    width: auto;
+    flex: 1;
+    padding: 0.7rem;
+  }
+  .secundario {
+    border: 1.5px solid rgba(255, 255, 255, 0.2);
+    border-radius: var(--r-md);
+    background: transparent;
+    color: #b9c2bc;
+    font-family: var(--font-titulo);
+    font-size: 0.95rem;
+    font-weight: 600;
   }
 </style>

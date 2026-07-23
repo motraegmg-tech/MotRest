@@ -50,6 +50,7 @@ export type Accion =
   | "fin.egreso.registrar"
   | "fin.factura.emitir"
   | "fin.csd.administrar"
+  | "admin.credencial.autorizar"
   // M6 · Personal
   | "rrhh.checada.registrar"
   | "rrhh.checada.ajustar"
@@ -205,6 +206,21 @@ export const CATALOGO_ACCIONES: GrupoAcciones[] = [
       def("cat.area.editar", "m9", "Editar salones y mesas", "Configurar áreas, plano de piso y mesas"),
       def("admin.usuario.crear", "m9", "Crear usuarios", "Dar de alta personal con acceso al sistema", true),
       def("admin.usuario.editar", "m9", "Editar usuarios", "Modificar permisos y datos de acceso", true),
+      /*
+       * Aparte de «Editar usuarios» porque es otra cosa y con otro riesgo.
+       *
+       * Autorizar un PIN nuevo es lo que se hace cuando un mesero olvida el
+       * suyo a media tarde: pasa varias veces al mes y conviene que lo pueda
+       * resolver un gerente. Editar permisos, en cambio, es reorganizar quién
+       * puede qué, y eso no tiene por qué delegarse igual.
+       */
+      def(
+        "admin.credencial.autorizar",
+        "m9",
+        "Autorizar cambio de PIN",
+        "Permitir que alguien restablezca su PIN o contraseña olvidada",
+        true,
+      ),
       def("admin.rol.editar", "m9", "Editar roles", "Modificar las plantillas de permisos", true),
       def("admin.dispositivo.aprobar", "m9", "Aprobar dispositivos", "Autorizar terminales nuevas en el local", true),
       def("admin.bitacora.ver", "m9", "Ver la bitácora", "Consultar la auditoría de todo lo ocurrido"),

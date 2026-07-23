@@ -46,9 +46,19 @@ function usuario(
 
 export const USUARIOS_SEMILLA: UsuarioSembrado[] = [
   {
-    usuario: usuario("usr-gonzalo", "Gonzalo DJA", "G", "propietario", "Dirección General", {
-      debe_cambiar_credencial: true,
-    }),
+    /*
+     * SIN cambio de credencial obligatorio.
+     *
+     * Lo llevaba porque esta contraseña circuló fuera del sistema al sembrarla,
+     * y forzar el cambio en el primer inicio parecía prudente. En la práctica
+     * resultó lo contrario: como la obligación solo se levanta al completar el
+     * cambio, quien cerraba el diálogo se lo encontraba en cada inicio, y un
+     * aviso que se cierra sin leer no protege nada.
+     *
+     * El cambio de credencial ahora es una acción deliberada, disponible en el
+     * menú del usuario. Sigue siendo recomendable hacerlo.
+     */
+    usuario: usuario("usr-gonzalo", "Gonzalo DJA", "G", "propietario", "Dirección General"),
     credencial: {
       empleado_id: "usr-gonzalo",
       tipo: "contrasena",

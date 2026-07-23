@@ -14,7 +14,6 @@ export const EMPLEADO_ACTUAL: ID = "usr-lucia";
 export const cabecera = {
   titulo: "Punto de venta",
   sucursal: "Rodizio · Centro",
-  demo: "Datos de demostración",
 };
 
 /**
