@@ -149,6 +149,41 @@ autoriza sola —si no, nadie podría autorizar a nadie— y queda anotado. De a
 adelante toda alta exige la firma de una terminal ya autorizada. Listar y
 autorizar viajan por el canal cifrado, nunca por HTTP.
 
+## El CSD: la firma fiscal del restaurante (F2)
+
+El Certificado de Sello Digital es, en la práctica, la firma del contribuyente:
+quien tenga la llave privada puede emitir facturas a nombre del restaurante. Se
+trata en consecuencia.
+
+**Dónde vive.** Solo en la caja, en la carpeta de datos del local, con permisos
+de solo-el-dueño (0600). No se sincroniza, no viaja por el canal LAN y no se
+guarda en ninguna terminal. La única pieza que sella es el Hub.
+
+**Por qué no puede estar en el navegador.** Además de la razón de seguridad, hay
+una técnica que cierra la puerta: WebCrypto no descifra el PKCS#8 protegido con
+contraseña en que el SAT entrega el `.key`.
+
+**Qué protege ese 0600 y qué no.** Protege de otro usuario del mismo equipo y de
+una copia descuidada de la carpeta del programa. **No** protege de quien tenga
+acceso de administrador a la caja ni de quien se lleve el disco. La contraseña
+de la llave se guarda al lado, porque el Hub tiene que poder sellar sin que
+nadie la teclee cuando el restaurante reinicia el equipo un sábado por la noche.
+
+Cifrarla con otra llave guardada en el mismo disco sería ofuscación disfrazada
+de seguridad. Lo que de verdad protege esa carpeta es el control físico de la
+caja y el cifrado de disco del equipo. Queda escrito para que sea una decisión
+consciente y no un descuido.
+
+**Qué se comprueba al cargarlo**, todo antes de escribir nada en el disco:
+certificado y llave son pareja, el RFC del CSD coincide con el del emisor, el
+certificado está vigente y su número de serie tiene los 20 dígitos del Anexo 20
+—lo que distingue un CSD de una e.firma, que no sirve para facturar—. Cada
+comprobación existe porque su ausencia produce el mismo error opaco del PAC,
+"sello inválido", horas después y con el comensal esperando.
+
+**Qué se puede consultar desde la interfaz:** si hay CSD, de qué RFC es, su
+número de certificado y cuántos días le quedan. Nunca la llave ni la contraseña.
+
 ## Lo que todavía NO está protegido
 
 | Riesgo | Estado | Se resuelve en |
@@ -161,6 +196,7 @@ autorizar viajan por el canal cifrado, nunca por HTTP.
 | Los PIN de demostración están en el código | **Abierto por diseño** | Antes del primer piloto real |
 | Sin expiración de sesión por inactividad | **Abierto** | F2 (por perfil de dispositivo) |
 | Sin MFA para perfiles administrativos | **Abierto** | F2 (Supabase Auth) |
+| La contraseña del CSD se guarda junto a la llave | **Abierto por diseño** | Ver arriba: sellar sin intervención humana lo exige |
 
 ## Convenciones permanentes
 
