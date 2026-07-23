@@ -55,6 +55,8 @@ export interface OpcionesHub {
   usuarioDe?: (empleadoId: ID) => Usuario | undefined;
   /** Persiste un catálogo aceptado, para que sobreviva al reinicio del Hub. */
   guardarCatalogo?: (catalogo: Catalogo) => void;
+  /** Enlaces de emparejamiento, uno por dirección del Hub en la red. */
+  enlaces?: () => { etiqueta: string; url: string }[];
   registrar?: (nivel: "info" | "aviso" | "error", mensaje: string) => void;
 }
 
@@ -153,10 +155,39 @@ export class Hub {
       return;
     }
 
+    if (mensaje.accion === "enlace_emparejamiento") {
+      // Solo el Hub sabe sus direcciones en la red, así que él compone el
+      // enlace. Va cifrado porque lleva la clave del local.
+      sesion.conexion.enviar({ tipo: "enlace", enlaces: this.opciones.enlaces?.() ?? [] });
+      return;
+    }
+
     if (mensaje.accion === "autorizar") {
       if (!mensaje.device_id) return;
       this.log.aprobarDispositivo(mensaje.device_id);
       this.anotar("info", `Terminal ${mensaje.device_id} autorizada por ${sesion.device_id}`);
+    }
+
+    if (mensaje.accion === "revocar") {
+      if (!mensaje.device_id) return;
+      /*
+       * Nadie puede revocarse a sí mismo.
+       *
+       * Sin esta regla, la única terminal autorizada de un local podría
+       * quitarse el permiso por error y dejar al restaurante sin nadie capaz de
+       * autorizar a nadie — habría que reinstalar el Hub para salir de ahí.
+       */
+      if (mensaje.device_id === sesion.device_id) {
+        sesion.conexion.enviar({
+          tipo: "error",
+          codigo: "permiso_denegado",
+          mensaje: "Una terminal no puede revocarse a sí misma",
+        });
+        return;
+      }
+      this.log.revocarDispositivo(mensaje.device_id);
+      this.anotar("aviso", `Terminal ${mensaje.device_id} revocada por ${sesion.device_id}`);
+      this.expulsar(mensaje.device_id);
     }
 
     sesion.conexion.enviar({
@@ -207,6 +238,24 @@ export class Hub {
   /** Carga los catálogos guardados al arrancar el Hub. */
   cargarCatalogos(catalogos: readonly Catalogo[]): void {
     for (const catalogo of catalogos) this.catalogos.set(catalogo.clave, catalogo);
+  }
+
+  /**
+   * Corta las conexiones de una terminal revocada.
+   *
+   * Revocar sin expulsar no serviría de nada: la terminal ya está conectada y
+   * seguiría escribiendo en el registro de ventas hasta que alguien la apagara.
+   */
+  private expulsar(deviceId: ID): void {
+    for (const sesion of this.sesiones.values()) {
+      if (sesion.device_id !== deviceId) continue;
+      sesion.conexion.enviar({
+        tipo: "error",
+        codigo: "no_emparejado",
+        mensaje: "Esta terminal dejó de estar autorizada en el local",
+      });
+      sesion.conexion.cerrar();
+    }
   }
 
   /** Nadie escribe ni lee sin identificarse primero. */

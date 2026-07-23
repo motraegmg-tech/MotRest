@@ -28,10 +28,35 @@ Ese enlace lleva la clave: es una credencial.
 | Variable | Por omisión | Para qué |
 |---|---|---|
 | `MOTREST_HUB_PUERTO` | `8787` | Puerto HTTPS y WSS |
+| `MOTREST_HUB_PUERTO_LOCAL` | `8788` | Acceso sin certificado, solo desde el propio equipo |
 | `MOTREST_HUB_DB` | `./datos/hub.sqlite` | Archivo del event log |
 | `MOTREST_POS_DIST` | `../pos-ui/dist` | POS compilado que sirve el Hub |
 | `MOTREST_HUB_ID` | `hub-local` | Identificador del Hub |
+| `MOTREST_HUB_NOMBRE` | `motrest` | Nombre en la red: `<nombre>.local` |
 | `MOTREST_HUB_ABIERTO` | *(sin definir)* | `1` acepta cualquier terminal **que tenga la clave**, sin autorizar. Solo para pruebas. |
+
+## Cómo se abre cada terminal
+
+**El equipo del Hub (la caja)** usa `http://localhost:8788/…`. Sin avisos: el
+navegador confía en `localhost` por definición, y esa escucha está atada al
+loopback —desde la red no existe—.
+
+**Las demás terminales** escanean el **QR** desde *Administración → Hub del
+local → Mostrar código*. Aceptan el aviso del certificado una vez y quedan
+enlazadas. También sirve pegar el enlace a mano.
+
+## Descubrimiento en la red
+
+El Hub se anuncia por mDNS como **`motrest.local`**, y ese nombre va primero en
+los enlaces de emparejamiento. Importa porque el router reparte las IP por DHCP
+y puede cambiar la del equipo: el día que pase, un enlace con IP dejaría a todas
+las terminales sin Hub a la vez.
+
+Está implementado a mano sobre UDP (son unas decenas de líneas) en vez de traer
+una biblioteca de descubrimiento completa que este caso no usaría.
+
+*Límite:* Windows y macOS resuelven `.local` de fábrica; Android desde la
+versión 12. Para lo demás, el enlace con IP se mantiene.
 
 ## Por qué el Hub sirve el POS
 
@@ -100,12 +125,29 @@ caja. SQLite en modo WAL, como pide el TRD.
 El `id` del evento es la llave primaria: ahí vive la deduplicación de la que
 depende toda la sincronización.
 
-## Pendiente (etapa 12)
+## Que arranque solo con el equipo
 
-- **Descubrimiento mDNS** y **QR de emparejamiento**. Hoy el enlace se copia de
-  la consola del Hub o de otra terminal ya enlazada.
-- **Rotación de la clave del local** desde la interfaz, para cuando un enlace se
+```powershell
+# PowerShell COMO ADMINISTRADOR
+.\instalar-servicio.ps1
+```
+
+Registra una tarea programada que levanta el Hub al encender la computadora,
+antes de que nadie inicie sesión: el restaurante abre sin que alguien tenga que
+acordarse de arrancar nada. Se quita con `-Desinstalar`.
+
+Es una tarea programada y no un servicio de Windows porque un servicio exige un
+ejecutable que hable ese protocolo, lo que obliga a un envoltorio nativo. La
+tarea consigue lo mismo —arranca sin sesión, se reinicia si falla— sin una pieza
+más que mantener. El instalador nativo registrará un servicio de verdad.
+
+## Pendiente
+
+- **Instalador nativo (Tauri)**: un `.exe` que un tercero instala solo, con el
+  certificado ya en el almacén de confianza de Windows —así desaparece el aviso
+  incluso en las tablets—.
+- **APK del KDS** (Capacitor) para la pantalla de cocina en modo kiosco.
+- **Compilar a JavaScript**: en desarrollo corre con `tsx`; un servicio de
+  producción no debería transpilar en cada arranque.
+- **Rotar la clave del local** desde la interfaz, para cuando un enlace se
   filtre o salga una terminal del local.
-- **Compilar a JavaScript** y empaquetar como servicio de Windows (ADR-07). En
-  desarrollo corre con `tsx`; un servicio de producción no debería transpilar en
-  cada arranque.

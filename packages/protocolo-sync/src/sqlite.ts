@@ -258,6 +258,18 @@ export class LogHub implements RepositorioEventos {
     this.db.prepare("UPDATE dispositivos SET aprobado = 1 WHERE device_id = ?").run(deviceId);
   }
 
+  /**
+   * Retira la autorización de una terminal.
+   *
+   * El registro NO se borra: hay que poder ver que existió y hasta dónde
+   * sincronizó. Además, borrarla haría que volviera a aparecer como
+   * desconocida en su siguiente intento, y una terminal expulsada del local
+   * debe verse como expulsada, no como nueva.
+   */
+  revocarDispositivo(deviceId: ID): void {
+    this.db.prepare("UPDATE dispositivos SET aprobado = 0 WHERE device_id = ?").run(deviceId);
+  }
+
   anotarAvance(deviceId: ID, seq: number): void {
     this.db
       .prepare("UPDATE dispositivos SET ultimo_seq = ?, visto_ts = ? WHERE device_id = ?")

@@ -53,6 +53,8 @@ export interface OpcionesCliente {
   alRecibirTerminales?: (terminales: TerminalRegistrada[]) => void;
   /** El Hub no tiene ni un evento: este local todavía no ha abierto. */
   alEncontrarLocalVacio?: () => void;
+  /** Enlaces de emparejamiento que compone el Hub. Llevan la clave del local. */
+  alRecibirEnlaces?: (enlaces: { etiqueta: string; url: string }[]) => void;
   /** Devuelve los catálogos locales, para publicarlos al conectar. */
   catalogosLocales?: () => Catalogo[];
   alCambiarEstado?: (estado: EstadoEnlace, detalle?: string) => void;
@@ -212,6 +214,10 @@ export class ClienteSync {
         this.opciones.alRecibirTerminales?.(mensaje.terminales);
         break;
 
+      case "enlace":
+        this.opciones.alRecibirEnlaces?.(mensaje.enlaces);
+        break;
+
       case "acks":
         await this.opciones.almacen.eventos.confirmar(mensaje.acks);
         // Sigue empujando mientras queden pendientes: un corte largo puede
@@ -271,6 +277,18 @@ export class ClienteSync {
   autorizarTerminal(deviceId: string): void {
     if (!this.socket) return;
     this.enviar({ tipo: "admin", accion: "autorizar", device_id: deviceId });
+  }
+
+  /** Retira la autorización de una terminal y la desconecta del local. */
+  revocarTerminal(deviceId: string): void {
+    if (!this.socket) return;
+    this.enviar({ tipo: "admin", accion: "revocar", device_id: deviceId });
+  }
+
+  /** Pide el enlace de emparejamiento, para pintarlo como QR. */
+  pedirEnlace(): void {
+    if (!this.socket) return;
+    this.enviar({ tipo: "admin", accion: "enlace_emparejamiento" });
   }
 
   /** Envía lo que el Hub todavía no ha confirmado. */

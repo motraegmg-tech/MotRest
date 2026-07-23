@@ -8,18 +8,25 @@
    */
   import { hora } from "../../formato";
   import { sync } from "../../sync.svelte";
+  import CodigoQr from "./CodigoQr.svelte";
 
   let enlace = $state("");
   let error = $state("");
   let guardando = $state(false);
+  /** El QR lleva la clave del local: se muestra a petición, no de entrada. */
+  let mostrarQr = $state(false);
+  let cual = $state(0);
 
   const estado = $derived(sync.estado);
   const terminales = $derived(sync.terminales);
+  const enlaces = $derived(sync.enlaces);
+  const elegido = $derived(enlaces[Math.min(cual, enlaces.length - 1)]);
 
   // Se refresca cada 5 s: es una pantalla que se deja abierta mientras se
   // encienden las terminales del local, y hay que verlas aparecer.
   $effect(() => {
     sync.pedirTerminales();
+    sync.pedirEnlace();
     const t = setInterval(() => sync.pedirTerminales(), 5_000);
     return () => clearInterval(t);
   });
@@ -88,6 +95,46 @@
   </section>
 
   {#if sync.configurado}
+    <!-- Agregar una terminal -->
+    <section class="tarjeta">
+      <h2>Agregar una terminal</h2>
+      <p class="pista">
+        Escanea este código con la tablet o el celular y quedará enlazado al
+        local. No sembrará una demostración propia: recibirá la operación que ya
+        está en curso.
+      </p>
+
+      {#if enlaces.length === 0}
+        <p class="vacio">Pidiendo el enlace al Hub…</p>
+      {:else if !mostrarQr}
+        <button class="principal" onclick={() => (mostrarQr = true)}>Mostrar código</button>
+        <p class="pista tenue">
+          El código <b>lleva la clave del local</b>. Se muestra solo cuando lo
+          pides, para que no quede a la vista de quien pase junto a la caja.
+        </p>
+      {:else}
+        {#if enlaces.length > 1}
+          <div class="direcciones">
+            <span class="etiqueta-red">Red del local:</span>
+            {#each enlaces as e, i (e.etiqueta)}
+              <button class="red" class:on={i === cual} onclick={() => (cual = i)}>
+                {e.etiqueta}
+              </button>
+            {/each}
+          </div>
+        {/if}
+
+        <div class="qr">
+          <CodigoQr contenido={elegido?.url ?? ""} />
+          <div class="al-lado">
+            <p><b>1.</b> Abre la cámara de la tablet y apunta al código.</p>
+            <p><b>2.</b> Acepta el aviso del certificado, solo la primera vez.</p>
+            <p><b>3.</b> Vuelve aquí y autorízala en la lista de abajo.</p>
+            <button class="secundario" onclick={() => (mostrarQr = false)}>Ocultar código</button>
+          </div>
+        </div>
+      {/if}
+    </section>
 
     <!-- Terminales del local -->
     <section class="tarjeta">
@@ -128,6 +175,10 @@
                 <td class="num">
                   {#if !t.aprobado}
                     <button onclick={() => sync.autorizar(t.device_id)}>Autorizar</button>
+                  {:else if !sync.esEstaTerminal(t.device_id)}
+                    <button class="peligro" onclick={() => sync.revocar(t.device_id)}>
+                      Revocar
+                    </button>
                   {/if}
                 </td>
               </tr>
@@ -136,7 +187,8 @@
         </table>
         <p class="pista">
           Una terminal nace <b>sin autorizar</b>: alcanzar la red del local no da
-          derecho a escribir en el registro de ventas.
+          derecho a escribir en el registro de ventas. Revocar una la desconecta
+          en el acto; su registro se conserva para saber hasta dónde llegó.
         </p>
       {/if}
     </section>
@@ -313,6 +365,61 @@
   .pista.tenue {
     font-size: 0.76rem;
     font-style: italic;
+  }
+  .qr {
+    display: flex;
+    gap: 1.25rem;
+    align-items: flex-start;
+    flex-wrap: wrap;
+    margin-top: 0.85rem;
+  }
+  .al-lado {
+    flex: 1;
+    min-width: 14rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.4rem;
+  }
+  .al-lado p {
+    font-size: 0.85rem;
+    line-height: 1.45;
+  }
+  .al-lado button {
+    align-self: flex-start;
+    margin-top: 0.4rem;
+  }
+  .direcciones {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    flex-wrap: wrap;
+    margin-top: 0.7rem;
+  }
+  .etiqueta-red {
+    font-size: 0.74rem;
+    font-weight: 600;
+    color: var(--gris);
+  }
+  .red {
+    border: 1.5px solid var(--borde);
+    border-radius: var(--r-pill);
+    padding: 0.2rem 0.7rem;
+    font-size: 0.78rem;
+    font-weight: 600;
+    color: var(--gris);
+    background: #fff;
+  }
+  .red.on {
+    background: var(--acento);
+    border-color: var(--acento);
+    color: #fff;
+  }
+  .peligro {
+    color: var(--gris);
+  }
+  .peligro:hover {
+    border-color: var(--peligro) !important;
+    color: var(--peligro) !important;
   }
   table button {
     border: 1.5px solid var(--borde);

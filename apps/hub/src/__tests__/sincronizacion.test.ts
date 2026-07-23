@@ -637,6 +637,93 @@ describe("administrar las terminales del local", () => {
   });
 });
 
+describe("revocar una terminal", () => {
+  /** Una caja ya autorizada y una tablet autorizada por ella. */
+  function local() {
+    const caja = new ConexionPrueba("cx-caja");
+    saludar(caja, "dev-caja");
+    log.aprobarDispositivo("dev-caja");
+
+    const tablet = new ConexionPrueba("cx-tablet");
+    saludar(tablet, "dev-tablet");
+    log.aprobarDispositivo("dev-tablet");
+
+    return { caja, tablet };
+  }
+
+  it("la deja fuera del local", () => {
+    const { caja } = local();
+    hub.recibir(caja.id, { tipo: "admin", accion: "revocar", device_id: "dev-tablet" });
+    expect(log.dispositivo("dev-tablet")!.aprobado).toBe(false);
+  });
+
+  it("la desconecta en el acto, no en su próximo arranque", () => {
+    const { caja, tablet } = local();
+    hub.recibir(caja.id, { tipo: "admin", accion: "revocar", device_id: "dev-tablet" });
+
+    // Revocar sin expulsar no serviría: seguiría escribiendo hasta que
+    // alguien fuera a apagarla físicamente.
+    expect(tablet.ultimo("error")!.codigo).toBe("no_emparejado");
+    expect(tablet.cerrada).toBe(true);
+  });
+
+  it("conserva su registro: hay que poder ver que existió", () => {
+    const { caja } = local();
+    hub.recibir(caja.id, { tipo: "admin", accion: "revocar", device_id: "dev-tablet" });
+    expect(log.dispositivo("dev-tablet")).not.toBeNull();
+  });
+
+  it("una terminal NO puede revocarse a sí misma", () => {
+    const { caja } = local();
+    hub.recibir(caja.id, { tipo: "admin", accion: "revocar", device_id: "dev-caja" });
+
+    // Si pudiera, la única terminal autorizada de un local podría dejarlo sin
+    // nadie capaz de autorizar a nadie, y habría que reinstalar el Hub.
+    expect(caja.ultimo("error")!.codigo).toBe("permiso_denegado");
+    expect(log.dispositivo("dev-caja")!.aprobado).toBe(true);
+  });
+
+  it("una terminal sin autorizar no puede revocar a nadie", () => {
+    saludar(new ConexionPrueba("cx-caja"), "dev-caja");
+    const intrusa = new ConexionPrueba("cx-intrusa");
+    saludar(intrusa, "dev-intrusa");
+
+    hub.recibir(intrusa.id, { tipo: "admin", accion: "revocar", device_id: "dev-caja" });
+    expect(intrusa.ultimo("error")!.codigo).toBe("permiso_denegado");
+    expect(log.dispositivo("dev-caja")!.aprobado).toBe(true);
+  });
+});
+
+describe("enlace de emparejamiento", () => {
+  it("lo compone el Hub, que es quien conoce sus direcciones", () => {
+    const conEnlaces = new Hub({
+      hub_id: "hub-1",
+      log,
+      exigirAprobacion: false,
+      enlaces: () => [{ etiqueta: "192.168.1.50", url: "https://192.168.1.50:8787/?hub=…&k=…" }],
+    });
+
+    const caja = new ConexionPrueba("cx-caja");
+    conEnlaces.conectar(caja);
+    conEnlaces.recibir(caja.id, {
+      tipo: "hola", v: VERSION_PROTOCOLO, device_id: "dev-caja", sucursal_id: SUC, desde_seq: 0,
+    });
+    conEnlaces.recibir(caja.id, { tipo: "admin", accion: "enlace_emparejamiento" });
+
+    expect(caja.ultimo("enlace")!.enlaces).toHaveLength(1);
+  });
+
+  it("solo una terminal autorizada puede pedirlo: lleva la clave del local", () => {
+    saludar(new ConexionPrueba("cx-caja"), "dev-caja");
+    const intrusa = new ConexionPrueba("cx-intrusa");
+    saludar(intrusa, "dev-intrusa");
+
+    hub.recibir(intrusa.id, { tipo: "admin", accion: "enlace_emparejamiento" });
+    expect(intrusa.ultimo("error")!.codigo).toBe("permiso_denegado");
+    expect(intrusa.ultimo("enlace")).toBeUndefined();
+  });
+});
+
 // --- Revalidación de permisos ---------------------------------------------------------------
 
 describe("el Hub revalida permisos", () => {

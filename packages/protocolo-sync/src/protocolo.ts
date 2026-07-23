@@ -84,8 +84,20 @@ export interface MensajeCatalogo {
  */
 export interface MensajeAdmin {
   tipo: "admin";
-  accion: "listar_terminales" | "autorizar";
+  accion: "listar_terminales" | "autorizar" | "revocar" | "enlace_emparejamiento";
   device_id?: ID;
+}
+
+/**
+ * Lo que hace falta para emparejar otra terminal, listo para pintar en un QR.
+ *
+ * Lo compone el Hub y no la terminal, porque solo él sabe sus direcciones en la
+ * red. Viaja por el canal cifrado: **lleva la clave del local**.
+ */
+export interface MensajeEnlace {
+  tipo: "enlace";
+  /** Un enlace por cada dirección del Hub en la red. */
+  enlaces: { etiqueta: string; url: string }[];
 }
 
 export interface TerminalRegistrada {
@@ -164,7 +176,8 @@ export type MensajeHub =
   | MensajeError
   | MensajePong
   | MensajeCatalogo
-  | MensajeTerminales;
+  | MensajeTerminales
+  | MensajeEnlace;
 
 /**
  * ¿La versión entrante de un catálogo gana a la que ya se tiene?

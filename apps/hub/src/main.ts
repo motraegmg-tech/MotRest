@@ -35,6 +35,7 @@ import {
 import { almacenSqlite } from "@motrest/protocolo-sync/sqlite";
 import { Hub, type Conexion } from "./servidor.js";
 import { carpetaCertificados, certificadoTls } from "./certificado.js";
+import { anunciarEnLaRed } from "./descubrimiento.js";
 
 const PUERTO = Number(process.env.MOTREST_HUB_PUERTO ?? 8787);
 /** Puerto de la escucha local sin certificado. Solo responde a 127.0.0.1. */
@@ -49,6 +50,8 @@ const RUTA_DB = resolve(process.env.MOTREST_HUB_DB ?? "./datos/hub.sqlite");
  */
 const RUTA_POS = resolve(process.env.MOTREST_POS_DIST ?? "../pos-ui/dist");
 const HUB_ID = process.env.MOTREST_HUB_ID ?? "hub-local";
+/** Nombre con el que el Hub se anuncia en la red: `<nombre>.local`. */
+const NOMBRE_RED = process.env.MOTREST_HUB_NOMBRE ?? "motrest";
 // Por omisión SÍ se exige aprobación: es la postura segura. Se relaja solo si
 // quien instala lo pide explícitamente.
 const EXIGIR_APROBACION = process.env.MOTREST_HUB_ABIERTO !== "1";
@@ -102,10 +105,30 @@ const claveLocal =
 
 const clavesHub: ClavesCanal = await derivarClaves(claveLocal, "hub");
 
+/**
+ * Enlaces para emparejar otra terminal, uno por dirección del Hub.
+ *
+ * Se componen aquí porque solo el Hub conoce sus direcciones en la red. Van al
+ * QR que se muestra en la caja: la tablet lo escanea y queda enlazada, sin que
+ * nadie teclee una IP ni 43 caracteres de clave.
+ */
+function enlacesEmparejamiento(): { etiqueta: string; url: string }[] {
+  const enlace = (host: string) =>
+    `https://${host}:${PUERTO}/?hub=wss://${host}:${PUERTO}/sync&k=${claveLocal}`;
+
+  return [
+    // El nombre va PRIMERO: sobrevive a que el router cambie la IP del equipo,
+    // que es lo que rompería el emparejamiento de todas las terminales a la vez.
+    { etiqueta: `${NOMBRE_RED}.local`, url: enlace(`${NOMBRE_RED}.local`) },
+    ...direccionesLan().map((ip) => ({ etiqueta: ip, url: enlace(ip) })),
+  ];
+}
+
 const hub = new Hub({
   hub_id: HUB_ID,
   log: almacen.log,
   exigirAprobacion: EXIGIR_APROBACION,
+  enlaces: enlacesEmparejamiento,
   registrar,
   guardarCatalogo: (catalogo) => {
     // Se guardan todos juntos: son pocos y así el archivo queda consistente.
@@ -138,7 +161,7 @@ void almacen.estado.cargar<Catalogo[]>(CLAVE_CATALOGOS).then((guardados) => {
  * saber, desde fuera, si el servicio está vivo.
  */
 const lan = direccionesLan();
-const tls = await certificadoTls(carpetaCertificados(RUTA_DB), lan);
+const tls = await certificadoTls(carpetaCertificados(RUTA_DB), lan, `${NOMBRE_RED}.local`);
 
 const TIPOS: Record<string, string> = {
   ".html": "text/html; charset=utf-8",
@@ -338,8 +361,11 @@ servidor.listen(PUERTO, () => {
   if (lan.length > 0) {
     console.log("");
     console.log("  ── EN LAS DEMÁS TERMINALES (tablets, cocina) ────────────");
-    for (const ip of lan) {
-      console.log(`    https://${ip}:${PUERTO}/?hub=wss://${ip}:${PUERTO}/sync&k=${claveLocal}`);
+    console.log("    Lo más cómodo: Administración → Hub del local → Mostrar código,");
+    console.log("    y escanear el QR con la cámara de la tablet.");
+    console.log("");
+    for (const { url } of enlacesEmparejamiento()) {
+      console.log(`    ${url}`);
     }
     console.log("");
     console.log("    La primera vez el navegador avisará del certificado. En Chrome:");
@@ -355,7 +381,6 @@ servidor.listen(PUERTO, () => {
     registrar("aviso", "MODO ABIERTO: cualquier terminal con la clave sincroniza sin autorizar.");
   }
   registrar("info", "Canal CIFRADO con la clave del local (AES-256-GCM).");
-  registrar("aviso", "PENDIENTE: descubrimiento mDNS y QR de emparejamiento.");
 });
 
 // Atada a loopback: desde la red esta escucha no existe.
@@ -363,8 +388,15 @@ servidorLocal.listen(PUERTO_LOCAL, "127.0.0.1", () => {
   registrar("info", `Acceso local sin certificado en el puerto ${PUERTO_LOCAL} (solo 127.0.0.1)`);
 });
 
+/*
+ * Anuncio en la red. Si falla no pasa nada: el Hub sigue siendo alcanzable por
+ * IP y el enlace con IP se mantiene por eso.
+ */
+const anuncio = anunciarEnLaRed(NOMBRE_RED, lan, registrar);
+
 function apagar(senal: string): void {
   registrar("info", `Señal ${senal}: cerrando el Hub`);
+  anuncio?.detener();
   wss.close();
   wssLocal.close();
   servidorLocal.close();

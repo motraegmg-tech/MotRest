@@ -46,15 +46,35 @@ const DIAS_VIGENCIA = 3650;
 export async function certificadoTls(
   carpeta: string,
   direcciones: readonly string[],
+  nombreRed?: string,
 ): Promise<CertificadoTls> {
   mkdirSync(carpeta, { recursive: true });
   const rutaCert = join(carpeta, "hub.crt");
   const rutaKey = join(carpeta, "hub.key");
+  const rutaCubre = join(carpeta, "hub.cubre.json");
+
+  /*
+   * Qué nombres y direcciones tiene que cubrir el certificado hoy.
+   *
+   * Se guarda junto a él y se compara al arrancar, porque las dos cosas
+   * cambian: el router puede reasignar la IP del equipo, y el nombre de red se
+   * puede configurar. Un certificado que no cubre la dirección por la que se
+   * abre da un aviso ADICIONAL al de la autoridad, y entonces el personal se
+   * acostumbra a saltarse dos.
+   */
+  const cubre = [...(nombreRed ? [nombreRed] : []), ...direcciones].sort();
 
   if (existsSync(rutaCert) && existsSync(rutaKey)) {
-    const cert = readFileSync(rutaCert, "utf8");
-    const key = readFileSync(rutaKey, "utf8");
-    return { cert, key, huella: huellaDe(cert), nuevo: false };
+    const previo = leerCubre(rutaCubre);
+    const sigueSirviendo = cubre.every((d) => previo.includes(d));
+
+    if (sigueSirviendo) {
+      const cert = readFileSync(rutaCert, "utf8");
+      const key = readFileSync(rutaKey, "utf8");
+      return { cert, key, huella: huellaDe(cert), nuevo: false };
+    }
+    // Si no cubre lo de hoy se regenera. Cada terminal tendrá que aceptar el
+    // nuevo una vez; es preferible a que vean un aviso extra cada día.
   }
 
   // `type: 2` es un nombre DNS y `type: 7` una dirección IP, según el estándar
@@ -62,6 +82,9 @@ export async function certificadoTls(
   // además por no coincidir el nombre.
   const alternativos: { type: 2 | 7; value?: string; ip?: string }[] = [
     { type: 2, value: "localhost" },
+    // El nombre de red va dentro: si no, abrir por `motrest.local` daría un
+    // aviso extra por no coincidir el nombre, además del de la autoridad.
+    ...(nombreRed ? [{ type: 2 as const, value: nombreRed }] : []),
     { type: 7, ip: "127.0.0.1" },
     ...direcciones.map((ip) => ({ type: 7 as const, ip })),
   ];
@@ -92,6 +115,7 @@ export async function certificadoTls(
   writeFileSync(rutaCert, generado.cert, { mode: 0o600 });
   // La llave privada solo la puede leer quien corre el servicio.
   writeFileSync(rutaKey, generado.private, { mode: 0o600 });
+  writeFileSync(rutaCubre, JSON.stringify(cubre), { mode: 0o600 });
 
   return {
     cert: generado.cert,
@@ -99,6 +123,18 @@ export async function certificadoTls(
     huella: huellaDe(generado.cert),
     nuevo: true,
   };
+}
+
+/** Lo que cubría el certificado guardado. Vacío si no se sabe. */
+function leerCubre(ruta: string): string[] {
+  if (!existsSync(ruta)) return [];
+  try {
+    const dato: unknown = JSON.parse(readFileSync(ruta, "utf8"));
+    return Array.isArray(dato) ? (dato as string[]) : [];
+  } catch {
+    // Archivo corrupto: se trata como si no cubriera nada y se regenera.
+    return [];
+  }
 }
 
 /** Huella legible del certificado, en grupos de cuatro para cotejarla a ojo. */

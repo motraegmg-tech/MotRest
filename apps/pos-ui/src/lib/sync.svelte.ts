@@ -45,6 +45,8 @@ class StoreSync {
   catalogosRecibidos = $state(0);
   /** Terminales del local, según el Hub. Llegan por el canal cifrado. */
   terminales = $state<TerminalRegistrada[]>([]);
+  /** Enlaces para emparejar otra terminal. LLEVAN la clave del local. */
+  enlaces = $state<{ etiqueta: string; url: string }[]>([]);
 
   /** Clave del local. Nunca se muestra completa en pantalla. */
   private clave = $state("");
@@ -206,6 +208,7 @@ class StoreSync {
       alRecibirCatalogos: (catalogos) => this.aplicarCatalogos(catalogos),
       alRecibirTerminales: (terminales) => (this.terminales = terminales),
       alEncontrarLocalVacio: () => this.alLocalVacio?.(),
+      alRecibirEnlaces: (enlaces) => (this.enlaces = enlaces),
       alCambiarEstado: (estado, detalle) => {
         this.estado = estado;
         this.detalle = detalle ?? "";
@@ -279,6 +282,16 @@ class StoreSync {
   /** Autoriza una terminal. El Hub comprueba que ESTA ya lo esté. */
   autorizar(deviceId: string): void {
     this.cliente?.autorizarTerminal(deviceId);
+  }
+
+  /** Retira la autorización de una terminal y la saca del local. */
+  revocar(deviceId: string): void {
+    this.cliente?.revocarTerminal(deviceId);
+  }
+
+  /** Pide el enlace de emparejamiento para mostrarlo como QR. */
+  pedirEnlace(): void {
+    this.cliente?.pedirEnlace();
   }
 
   get deviceId(): string {
