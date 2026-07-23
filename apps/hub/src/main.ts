@@ -360,16 +360,28 @@ function atender(peticion: IncomingMessage, respuesta: ServerResponse): void {
   };
 
   if (url.pathname === "/salud") {
-    json(200, {
-      hub_id: HUB_ID,
-      seq: hub.seqActual,
-      conectados: hub.conectados,
-      exige_aprobacion: EXIGIR_APROBACION,
-      cifrado: "AES-256-GCM",
-      tls: tls.huella,
-      sirve_pos: existsSync(join(RUTA_POS, "index.html")),
-      ts: Date.now(),
-    });
+    /*
+     * Por la red se responde lo MÍNIMO: que el servicio vive y sirve el POS.
+     *
+     * El detalle —secuencia, terminales conectadas, huella del certificado— solo
+     * se entrega a quien pregunta desde este mismo equipo. Cualquiera en la wifi
+     * del local podía leer cuántas ventas lleva el Hub y con qué certificado
+     * opera; no es catastrófico, pero es información que no tiene por qué salir.
+     */
+    if (esLocal) {
+      json(200, {
+        hub_id: HUB_ID,
+        seq: hub.seqActual,
+        conectados: hub.conectados,
+        exige_aprobacion: EXIGIR_APROBACION,
+        cifrado: "AES-256-GCM",
+        tls: tls.huella,
+        sirve_pos: existsSync(join(RUTA_POS, "index.html")),
+        ts: Date.now(),
+      });
+    } else {
+      json(200, { ok: true, sirve_pos: existsSync(join(RUTA_POS, "index.html")) });
+    }
     return;
   }
 
@@ -665,7 +677,20 @@ function escuchar(): void {
     console.log("");
 
     if (!EXIGIR_APROBACION) {
-      registrar("aviso", "MODO ABIERTO: cualquier terminal con la clave sincroniza sin autorizar.");
+      /*
+       * Cartel, no una línea suelta.
+       *
+       * El modo abierto es una salida para el primer arranque y las pruebas;
+       * dejarlo puesto en un local real deja que cualquier equipo de la wifi
+       * escriba en el registro de ventas sin que nadie lo autorice. Un aviso de
+       * una línea se pierde en el arranque, así que va en marco.
+       */
+      const linea = "═".repeat(64);
+      console.log(`\n${linea}`);
+      registrar("aviso", "MODO ABIERTO ACTIVO (MOTREST_HUB_ABIERTO=1)");
+      registrar("aviso", "Cualquier equipo con la clave sincroniza SIN autorización.");
+      registrar("aviso", "En un local real, QUITA esta variable de entorno.");
+      console.log(`${linea}\n`);
     }
     registrar("info", "Canal CIFRADO con la clave del local (AES-256-GCM).");
   });

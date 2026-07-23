@@ -126,7 +126,9 @@ class Sesion {
       // Se restaura la sesión sin volver a emitir un inicio: no hubo uno nuevo.
       this.usuarioActual = usuario;
       this.fabrica.actualizarContexto({ empleado_id: usuario.id });
-    } else {
+    } else if (USUARIO_POR_DEFECTO) {
+      // Solo en demo hay un usuario por defecto. En producción esto es null y la
+      // app queda SIN sesión: la pantalla de acceso pide identificarse.
       const inicial = this.usuarioDe(USUARIO_POR_DEFECTO);
       if (inicial) this.establecerSesion(inicial, false);
     }

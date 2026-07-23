@@ -58,8 +58,21 @@ function usuario(
   };
 }
 
-export const USUARIOS_SEMILLA: UsuarioSembrado[] = [
-  {
+/**
+ * ¿Se siembran los usuarios de demostración?
+ *
+ * Solo fuera del paquete de producción. Marco y Lucía existen para probar el
+ * cambio rápido y el flujo de autorización sin dar de alta a nadie a mano; sus
+ * PIN de fábrica están en el código, y eso —un hash de un PIN de cuatro
+ * dígitos— es descifrable. En el instalador que llega al restaurante NO deben
+ * ir: el local arranca solo con el propietario y da de alta a su personal real.
+ *
+ * `import.meta.env.PROD` es `true` únicamente en el `vite build` que se empaqueta.
+ * En desarrollo y en las pruebas es `false`, así que ahí siguen presentes.
+ */
+const MODO_DEMO = import.meta.env.PROD !== true;
+
+const PROPIETARIO: UsuarioSembrado = {
     /*
      * SIN cambio de credencial obligatorio.
      *
@@ -93,7 +106,10 @@ export const USUARIOS_SEMILLA: UsuarioSembrado[] = [
       hash: "0uTMfxYldRSeyv6TYMj0yg4dJHXFcogA2NOsx19aPRw=",
       creada_ts: AHORA,
     },
-  },
+};
+
+/** Marco y Lucía: solo para probar sin dar de alta a nadie. NO van a producción. */
+const USUARIOS_DEMO: UsuarioSembrado[] = [
   {
     usuario: usuario("usr-marco", "Marco", "M", "gerente", "Gerente de sucursal"),
     // PIN de fábrica (usuario de demostración).
@@ -122,5 +138,15 @@ export const USUARIOS_SEMILLA: UsuarioSembrado[] = [
   },
 ];
 
-/** Usuario con el que arranca la sesión del POS mientras no se pida login. */
-export const USUARIO_POR_DEFECTO = "usr-lucia";
+export const USUARIOS_SEMILLA: UsuarioSembrado[] = MODO_DEMO
+  ? [PROPIETARIO, ...USUARIOS_DEMO]
+  : [PROPIETARIO];
+
+/**
+ * Con quién arranca el POS mientras no hay login.
+ *
+ * En demo entra directo como Lucía, que agiliza las pruebas. En producción es
+ * `null` a propósito: el local abre en la pantalla de acceso y nadie opera sin
+ * identificarse —arrancar ya dentro de una cuenta sería saltarse el login—.
+ */
+export const USUARIO_POR_DEFECTO: string | null = MODO_DEMO ? "usr-lucia" : null;

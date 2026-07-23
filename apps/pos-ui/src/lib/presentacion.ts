@@ -5,11 +5,14 @@ import type { ID } from "@motrest/dominio";
 export const SUCURSAL_ID: ID = "suc-rodizio-centro";
 
 /**
- * Empleado con el que se firma la semilla del salón. Coincide con el usuario
- * `usr-lucia` de `sesion/usuarios.ts`, de modo que la bitácora muestre su
- * nombre y no un identificador huérfano.
+ * Empleado con el que se sella la semilla del salón, y respaldo cuando aún no
+ * hay sesión.
+ *
+ * Es el propietario, no un usuario de demostración: el propietario existe en
+ * TODA instalación —también en la de producción, donde Marco y Lucía no se
+ * siembran—, así que la bitácora nunca queda con un identificador huérfano.
  */
-export const EMPLEADO_ACTUAL: ID = "usr-lucia";
+export const EMPLEADO_ACTUAL: ID = "usr-gonzalo";
 
 export const cabecera = {
   titulo: "Punto de venta",

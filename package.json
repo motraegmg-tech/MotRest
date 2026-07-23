@@ -13,5 +13,13 @@
     "test": "pnpm -r test",
     "lint": "pnpm -r lint",
     "dev:pos": "pnpm --filter pos-ui dev"
+  },
+  "comentarios": {
+    "pnpm.overrides.tar": "Forzado a la línea 7 parchada. `tar` entra por @capacitor/cli (build del KDS Android, solo desarrollo) y arrastraba varias travesías de ruta. No está en el producto —las deps de producción del Hub son selfsigned y ws— pero se cierra igual."
+  },
+  "pnpm": {
+    "overrides": {
+      "tar": "^7.4.3"
+    }
   }
 }

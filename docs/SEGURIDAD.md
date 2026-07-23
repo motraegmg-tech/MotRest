@@ -220,6 +220,12 @@ de seguridad. Lo que de verdad protege esa carpeta es el control físico de la
 caja y el cifrado de disco del equipo. Queda escrito para que sea una decisión
 consciente y no un descuido.
 
+**Acción de instalación (obligatoria en Rodizio):** activar el **cifrado de
+disco de Windows (BitLocker)** en la caja antes de cargar el CSD. Es la
+mitigación real de que la contraseña viva en el disco: con el disco cifrado,
+llevárselo no sirve de nada. La auditoría lo marca como CN-004; no es un bug de
+código, es un requisito de puesta en marcha.
+
 **Qué se comprueba al cargarlo**, todo antes de escribir nada en el disco:
 certificado y llave son pareja, el RFC del CSD coincide con el del emisor, el
 certificado está vigente y su número de serie tiene los 20 dígitos del Anexo 20
@@ -239,10 +245,12 @@ número de certificado y cuántos días le quedan. Nunca la llave ni la contrase
 | Sin secreto hacia adelante en el canal | **Abierto** | Intercambio de claves por sesión (F2) |
 | Una terminal enlazada puede suplantar a otra en el canal | **Abierto** | Clave por terminal en vez de clave del local (F2) |
 | Rotar la clave del local exige reinstalar el Hub | **Abierto** | Etapa 12 (rotación desde la interfaz) |
-| Los PIN de demostración están en el código | **Abierto por diseño** | Antes del primer piloto real |
+| Los usuarios de demostración están en el código | **Resuelto (CN-003)** | Solo se siembran fuera del build de producción; el instalador real arranca solo con el propietario |
+| `/salud` exponía detalle por la red | **Resuelto (CN-005)** | Por la red responde lo mínimo; el detalle solo a 127.0.0.1 |
+| El modo abierto podía quedar puesto sin avisar | **Resuelto (CN-006)** | Cartel de arranque imposible de ignorar si está activo |
 | Sin expiración de sesión por inactividad | **Abierto** | F2 (por perfil de dispositivo) |
 | Sin MFA para perfiles administrativos | **Abierto** | F2 (Supabase Auth) |
-| La contraseña del CSD se guarda junto a la llave | **Abierto por diseño** | Ver arriba: sellar sin intervención humana lo exige |
+| La contraseña del CSD se guarda junto a la llave | **Aceptado (CN-004)** | Sellar sin intervención lo exige; se mitiga con BitLocker en la caja (ver arriba) |
 
 ## Convenciones permanentes
 
