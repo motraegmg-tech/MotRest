@@ -46,6 +46,19 @@ export interface EstadoComanda {
   propina: Centavos;
 }
 
+/**
+ * Quita la marca de "la nota cambió".
+ *
+ * Se usa cuando cocina la da por vista y cuando el platillo queda listo: un
+ * plato terminado ya no puede incorporar el cambio, así que dejar la alarma
+ * encendida solo estorbaría al siguiente que mire el tablero.
+ */
+function sinMarcaDeCambio(renglon: RenglonComanda): RenglonComanda {
+  if (renglon.notas_cambiadas_ts === undefined) return renglon;
+  const { notas_cambiadas_ts: _visto, ...resto } = renglon;
+  return resto;
+}
+
 /** Cambia el estado de un renglón concreto, dejando el resto intacto. */
 function conEstadoRenglon(
   estado: EstadoComanda,
@@ -55,9 +68,18 @@ function conEstadoRenglon(
 ): EstadoComanda {
   return {
     ...estado,
-    renglones: estado.renglones.map((r) =>
-      r.id === renglonId ? { ...r, ...extra, estado: nuevo } : r,
-    ),
+    renglones: estado.renglones.map((r) => {
+      if (r.id !== renglonId) return r;
+      const base = { ...r, ...extra, estado: nuevo };
+      /*
+       * Un platillo terminado ya no puede incorporar un cambio de nota, así
+       * que la alarma se apaga sola al marcarlo listo. Dejarla encendida solo
+       * estorbaría al siguiente que mire el tablero.
+       */
+      return nuevo === "listo" || nuevo === "entregado" || nuevo === "cancelado"
+        ? sinMarcaDeCambio(base)
+        : base;
+    }),
   };
 }
 
@@ -124,14 +146,34 @@ export function aplicarEvento(
     case "item_modificado":
       return {
         ...estado,
+        renglones: estado.renglones.map((r) => {
+          if (r.id !== ev.renglon_id) return r;
+
+          /*
+           * Si la nota cambia cuando el platillo YA se fue a cocina, se marca.
+           * El cocinero leyó el ticket una vez y no vuelve a mirarlo: sin esta
+           * marca, un "sin tomate" dicho tarde se pierde y el plato regresa.
+           *
+           * Solo cuenta si la nota cambió de verdad. Reenviar la misma no es
+           * un cambio, y encender la alarma por nada enseña a ignorarla.
+           */
+          const cambioLaNota = ev.notas !== undefined && ev.notas !== r.notas;
+          const yaEnCocina = r.estado !== "capturado" && r.estado !== "cancelado";
+
+          return {
+            ...r,
+            ...(ev.cantidad === undefined ? {} : { cantidad: ev.cantidad }),
+            ...(ev.notas === undefined ? {} : { notas: ev.notas }),
+            ...(cambioLaNota && yaEnCocina ? { notas_cambiadas_ts: ev.ts } : {}),
+          };
+        }),
+      };
+
+    case "cambio_visto":
+      return {
+        ...estado,
         renglones: estado.renglones.map((r) =>
-          r.id === ev.renglon_id
-            ? {
-                ...r,
-                ...(ev.cantidad === undefined ? {} : { cantidad: ev.cantidad }),
-                ...(ev.notas === undefined ? {} : { notas: ev.notas }),
-              }
-            : r,
+          r.id === ev.renglon_id ? sinMarcaDeCambio(r) : r,
         ),
       };
 

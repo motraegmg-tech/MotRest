@@ -218,17 +218,30 @@
               <!-- El total viaja como entero por el canal; ya son centavos. -->
               <td class="num">{mxn(factura.total as Centavos)}</td>
               <td>
-                <span class="etiqueta {factura.estado}">
+                <!--
+                  "Recuperando" no es un error y no debe leerse como tal: la
+                  factura YA está timbrada ante el SAT y el sistema está yendo
+                  por el documento. Nadie tiene que hacer nada.
+                -->
+                <span
+                  class="etiqueta {factura.estado}"
+                  class:recuperando={factura.estado === "pendiente" && factura.modo === "recuperar"}
+                >
                   {factura.estado === "timbrado"
                     ? "Timbrada"
                     : factura.estado === "rechazado"
                       ? "Con problema"
-                      : "Por timbrar"}
+                      : factura.modo === "recuperar"
+                        ? "Recuperando"
+                        : "Por timbrar"}
                 </span>
               </td>
               <td class="detalle">
                 {#if factura.uuid}
                   <span class="mono">{factura.uuid}</span>
+                {:else if factura.estado === "pendiente" && factura.modo === "recuperar"}
+                  Esta factura ya está timbrada ante el SAT. Se está recuperando
+                  del PAC el documento; no hace falta hacer nada.
                 {:else if factura.problema}
                   {factura.problema}
                 {:else if factura.intentos > 0}
@@ -480,6 +493,10 @@
   .etiqueta.rechazado {
     color: #e0392b;
     border-color: color-mix(in srgb, #e0392b 45%, transparent);
+  }
+  .etiqueta.recuperando {
+    color: var(--acento);
+    border-color: color-mix(in srgb, var(--acento) 45%, transparent);
   }
 
   @media (max-width: 640px) {

@@ -84,14 +84,17 @@ describe("CFDI previamente timbrado (307)", () => {
   });
 
   /*
-   * Sin el timbre no hay nada que reintentar —siempre dará 307— y hay que
-   * recuperarlo del portal del PAC. Lo crítico es que el folio NO se reutilice.
+   * Sin el timbre NO es un rechazo: es una factura que existe y que aquí falta.
+   * Se distingue de los otros dos casos precisamente para que la cola pueda
+   * cambiar de operación e ir por ella, en vez de insistir en timbrarla.
    */
-  it("sin el timbre, no se reintenta y se dice dónde buscarlo", () => {
+  it("sin el timbre, no es rechazo ni reintento: es 'ya timbrado'", () => {
     const r = clasificar({ codigo: YA_TIMBRADO, mensaje: "CFDI previamente timbrado" });
-    expect(r.estado).toBe("rechazado");
-    expect(r.estado === "rechazado" && r.motivo).toMatch(/portal.*PAC/i);
-    expect(r.estado === "rechazado" && r.motivo).toMatch(/NO debe reutilizarse/);
+    expect(r.estado).toBe("ya_timbrado");
+  });
+
+  it("no se confunde con un error pasajero", () => {
+    expect(clasificar({ codigo: YA_TIMBRADO, mensaje: "x" }).estado).not.toBe("reintentable");
   });
 });
 

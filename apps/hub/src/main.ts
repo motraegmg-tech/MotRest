@@ -39,7 +39,7 @@ import { carpetaCertificados, certificadoTls, type CertificadoTls } from "./cert
 import { anunciarEnLaRed } from "./descubrimiento.js";
 import { Sellador, carpetaDelCsd } from "./fiscal/sellador.js";
 import { ColaDeTimbrado } from "./fiscal/cola-timbrado.js";
-import { MAPEO_REST_COMUN, PacHttp } from "./fiscal/pac-http.js";
+import { MAPEO_REST_COMUN, PacHttp, consultaPorFolio } from "./fiscal/pac-http.js";
 import type { DatabaseSync as TipoDatabaseSync } from "node:sqlite";
 
 const PUERTO = Number(process.env.MOTREST_HUB_PUERTO ?? 8787);
@@ -225,10 +225,28 @@ function pacDelEntorno(): PacHttp | null {
   const token = process.env.MOTREST_PAC_TOKEN;
   if (!url || !token) return null;
 
+  /*
+   * `MOTREST_PAC_URL_CONSULTA` es opcional pero conviene ponerla: es lo que
+   * permite recuperar sola una factura que el PAC ya timbró y cuyo acuse se
+   * perdió por un corte. Sin ella, ese caso acaba en una búsqueda manual en el
+   * portal del proveedor.
+   */
+  const urlConsulta = process.env.MOTREST_PAC_URL_CONSULTA;
+  if (!urlConsulta) {
+    registrar(
+      "aviso",
+      "Sin MOTREST_PAC_URL_CONSULTA: si una factura se timbra y el acuse se pierde, habrá que recuperarla a mano.",
+    );
+  }
+
   return new PacHttp({
     nombre: process.env.MOTREST_PAC_NOMBRE ?? "PAC",
     token,
-    mapeo: { ...MAPEO_REST_COMUN, url },
+    mapeo: {
+      ...MAPEO_REST_COMUN,
+      url,
+      ...(urlConsulta ? { recuperacion: consultaPorFolio(urlConsulta) } : {}),
+    },
   });
 }
 

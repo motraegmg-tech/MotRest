@@ -51,7 +51,19 @@ export interface RenglonComanda {
   porciones?: PorcionElegida[];
   /** Snapshot de los modificadores elegidos (término, extras, sin cebolla…). */
   modificadores?: SeleccionModificador[];
+  /** Indicaciones para cocina: "sin tomate", "bien cocido", alergias. */
   notas?: string;
+  /**
+   * Cuándo cambió la nota DESPUÉS de haberse mandado a cocina.
+   *
+   * Existe porque cambiarla en silencio no sirve: el cocinero ya leyó el
+   * ticket y no vuelve a mirarlo. Con esta marca el KDS puede señalar el
+   * renglón como modificado hasta que alguien en cocina lo dé por visto.
+   *
+   * `undefined` en el caso normal —la nota se puso al capturar—, que es lo que
+   * permite distinguir "así se pidió" de "esto cambió sobre la marcha".
+   */
+  notas_cambiadas_ts?: number;
 
   estado: EstadoRenglon;
   /** Estación de cocina a la que se ruteó. */

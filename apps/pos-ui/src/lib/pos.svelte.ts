@@ -375,6 +375,48 @@ class TiendaPOS {
     );
   }
 
+  /**
+   * Cambia las indicaciones de un platillo ya capturado.
+   *
+   * Existe porque el comensal casi nunca lo dice todo de una vez: pide la
+   * hamburguesa y, cuando el mesero ya la marcó, añade que la quiere sin
+   * tomate. Sin esto habría que cancelar el renglón y volver a capturarlo,
+   * que además falsea el reporte de cancelaciones.
+   *
+   * Si el platillo ya se fue a cocina, el dominio marca el cambio para que el
+   * tablero lo señale: quien leyó el ticket hace tres minutos no lo va a releer.
+   */
+  async cambiarNotas(renglonId: ID, notas: string): Promise<void> {
+    const orden_id = this.ordenActiva(this.mesaActiva);
+    const renglon = this.renglones.find((r) => r.id === renglonId);
+    if (!orden_id || !renglon) return;
+
+    const limpias = notas.trim();
+    if (limpias === (renglon.notas ?? "")) return;
+
+    this.sincronizarActor();
+    this.emitir(
+      this.mesaActiva,
+      fabrica.crear("item_modificado", orden_id, {
+        orden_id,
+        renglon_id: renglonId,
+        notas: limpias,
+      }),
+    );
+  }
+
+  /** Cocina se da por enterada de un cambio de indicaciones. */
+  async marcarCambioVisto(ordenId: ID, renglonId: ID): Promise<void> {
+    const mesa = this.mesaDeOrden(ordenId);
+    if (!mesa) return;
+
+    this.sincronizarActor();
+    this.emitir(
+      mesa,
+      fabrica.crear("cambio_visto", ordenId, { orden_id: ordenId, renglon_id: renglonId }),
+    );
+  }
+
   async cancelar(renglonId: ID): Promise<void> {
     const orden_id = this.ordenActiva(this.mesaActiva);
     if (!orden_id) return;

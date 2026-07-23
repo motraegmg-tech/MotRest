@@ -211,6 +211,56 @@ export function leerTimbre(xmlTimbrado: string): TimbreFiscal | null {
   };
 }
 
+/**
+ * Lo que identifica un comprobante ante el PAC.
+ *
+ * Sirve para pedirle un CFDI que él ya timbró y del que nosotros no tenemos el
+ * folio fiscal. Es la combinación que todos los PAC aceptan para buscar.
+ */
+export interface IdentidadCfdi {
+  serie?: string;
+  folio?: string;
+  rfc_emisor: string;
+  rfc_receptor: string;
+  /** Con dos decimales, tal como va en el XML. */
+  total: string;
+  fecha: string;
+}
+
+/**
+ * Lee del XML sellado los datos con los que se puede pedir su timbre.
+ *
+ * Se sacan del propio XML y no de la base porque es el documento que el PAC
+ * recibió: si hubiera cualquier diferencia, la búsqueda tiene que hacerse con
+ * lo que él vio.
+ */
+export function leerIdentidad(xml: string): IdentidadCfdi | null {
+  const comprobante = /<cfdi:Comprobante\b([^>]*)>/i.exec(xml);
+  if (!comprobante) return null;
+
+  const attr = (fuente: string, nombre: string): string => {
+    const hallado = new RegExp(`\\b${nombre}\\s*=\\s*"([^"]*)"`, "i").exec(fuente);
+    return hallado ? desescaparXml(hallado[1]!) : "";
+  };
+
+  const emisor = /<cfdi:Emisor\b([^>]*)\/?>/i.exec(xml);
+  const receptor = /<cfdi:Receptor\b([^>]*)\/?>/i.exec(xml);
+  if (!emisor || !receptor) return null;
+
+  const rfc_emisor = attr(emisor[1]!, "Rfc");
+  const rfc_receptor = attr(receptor[1]!, "Rfc");
+  if (!rfc_emisor || !rfc_receptor) return null;
+
+  return {
+    serie: attr(comprobante[1]!, "Serie") || undefined,
+    folio: attr(comprobante[1]!, "Folio") || undefined,
+    rfc_emisor,
+    rfc_receptor,
+    total: attr(comprobante[1]!, "Total"),
+    fecha: attr(comprobante[1]!, "Fecha"),
+  };
+}
+
 function desescaparXml(texto: string): string {
   return texto
     .replace(/&lt;/g, "<")

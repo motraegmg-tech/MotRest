@@ -57,7 +57,7 @@ timbres**, que se compran por paquete. Descartar un error pasajero, en cambio,
 pierde una factura. Ante la duda se reintenta: una factura que tarda se entrega
 tarde; una descartada por error, nunca.
 
-### El 307, que es un éxito disfrazado de error
+### El 307: la factura existe, hay que ir por ella
 
 Ocurre cuando la conexión se corta después de que el PAC timbró pero antes de
 que la respuesta llegara. Al reintentar, el PAC responde "CFDI previamente
@@ -65,9 +65,33 @@ timbrado" porque, en efecto, ese comprobante ya tiene UUID.
 
 Tratarlo como fallo produce el peor desenlace posible: **una factura que existe
 ante el SAT, que el restaurante no puede entregar, y un folio que se volvería a
-usar.** La mayoría de los PAC devuelven el timbre existente junto al error;
-cuando lo hacen, se toma y se da por timbrado. Cuando no, se marca para
-recuperarlo del portal del PAC y se deja escrito que ese folio no se reutiliza.
+usar.**
+
+Es su propio estado —ni éxito, ni reintento, ni rechazo— porque exige una
+respuesta distinta de las tres: **no hay que timbrarla, hay que traerla.**
+
+El sistema lo resuelve solo, en tres escalones:
+
+1. **El timbre viene con el error.** La mayoría de los PAC lo devuelven junto al
+   307. Se toma y se acabó, sin una llamada de más.
+2. **No viene: la factura cambia de modo.** Deja de estar "por timbrar" y pasa a
+   "por recuperar". A partir de ahí el sistema ya no pide timbrado —solo daría
+   más 307 y gastaría saldo— sino que le pide al PAC el CFDI que ya emitió,
+   buscándolo por serie, folio, RFC y total, que es lo único identificable
+   cuando el UUID es justo lo que falta.
+3. **El PAC tarda en verlo.** Su índice de búsqueda suele demorar unos segundos
+   sobre lo recién timbrado, así que "no lo encuentro" se trata como pasajero y
+   se reintenta con la misma espera creciente. Tras diez intentos —varias horas—
+   se deja de insistir y se llama a una persona, con instrucciones concretas.
+
+El resultado práctico: el caso que antes acababa en "búscala en el portal de tu
+PAC" ahora se resuelve sin que nadie se entere, y la pantalla lo muestra como
+**Recuperando**, no como problema. Solo escala a una persona cuando el PAC no
+ofrece consulta o cuando de verdad no la devuelve.
+
+Un detalle que parece menor y no lo es: **el reintento manual conserva el modo
+de recuperación**. Volver a mandarla a timbrar sería pedirle al PAC que timbre
+algo que ya timbró.
 
 ## Detalles que sostienen todo esto
 

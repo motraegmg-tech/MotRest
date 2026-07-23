@@ -285,3 +285,144 @@ describe("ruteo de la estación, del catálogo al KDS", () => {
     expect(enHorno[0]!.renglones[0]!.descripcion).toBe("Pizza margherita");
   });
 });
+
+// --- Indicaciones que cambian sobre la marcha ---------------------------------------
+
+/**
+ * El caso real: el comensal pide una hamburguesa y, cuando el mesero ya la
+ * capturó, dice que la quiere sin tomate.
+ *
+ * Lo delicado no es guardar el texto —eso es fácil— sino que llegue a quien ya
+ * leyó el ticket. Un cocinero mira la comanda una vez; si el cambio entra en
+ * silencio, la hamburguesa sale con tomate y se regresa entera.
+ */
+describe("cambiar la indicación de un platillo", () => {
+  it("una nota puesta al capturar NO se marca como cambio", () => {
+    const { f, orden_id, pizza, eventos } = comandaEnviada();
+    const conNota = proyectarComanda([
+      ...eventos.slice(0, 3),
+      f.crear("item_modificado", orden_id, {
+        orden_id, renglon_id: pizza.id, notas: "Sin aceitunas",
+      }),
+      eventos[3]!,
+    ]);
+
+    const renglon = conNota.renglones.find((r) => r.id === pizza.id)!;
+    expect(renglon.notas).toBe("Sin aceitunas");
+    // Se pidió así desde el principio: no hay nada que avisar.
+    expect(renglon.notas_cambiadas_ts).toBeUndefined();
+  });
+
+  it("cambiarla DESPUÉS de mandarla a cocina sí se marca", () => {
+    const { f, orden_id, pizza, eventos } = comandaEnviada();
+    const estado = proyectarComanda([
+      ...eventos,
+      f.crear("item_modificado", orden_id, {
+        orden_id, renglon_id: pizza.id, notas: "Sin tomate",
+      }),
+    ]);
+
+    const renglon = estado.renglones.find((r) => r.id === pizza.id)!;
+    expect(renglon.notas).toBe("Sin tomate");
+    expect(renglon.notas_cambiadas_ts).toBeDefined();
+  });
+
+  it("el tablero de cocina lo transporta para poder señalarlo", () => {
+    const { f, orden_id, pizza, eventos } = comandaEnviada();
+    const estado = proyectarComanda([
+      ...eventos,
+      f.crear("item_modificado", orden_id, {
+        orden_id, renglon_id: pizza.id, notas: "Sin tomate",
+      }),
+    ]);
+
+    const [ticket] = proyectarTablero([estado], { ahora: T0 + MINUTO, estaciones: ESTACIONES });
+    const enPantalla = ticket!.renglones.find((r) => r.renglon_id === pizza.id)!;
+
+    expect(enPantalla.notas).toBe("Sin tomate");
+    expect(enPantalla.notas_cambiadas).toBe(true);
+  });
+
+  /*
+   * Encender la alarma por nada enseña a ignorarla, que es peor que no tenerla.
+   */
+  it("reenviar la MISMA nota no cuenta como cambio", () => {
+    const { f, orden_id, pizza, eventos } = comandaEnviada();
+    const estado = proyectarComanda([
+      ...eventos,
+      f.crear("item_modificado", orden_id, {
+        orden_id, renglon_id: pizza.id, notas: "Sin tomate",
+      }),
+      f.crear("cambio_visto", orden_id, { orden_id, renglon_id: pizza.id }),
+      f.crear("item_modificado", orden_id, {
+        orden_id, renglon_id: pizza.id, notas: "Sin tomate",
+      }),
+    ]);
+
+    expect(estado.renglones.find((r) => r.id === pizza.id)!.notas_cambiadas_ts).toBeUndefined();
+  });
+
+  it("cambiar solo la cantidad no enciende la alarma de indicaciones", () => {
+    const { f, orden_id, pizza, eventos } = comandaEnviada();
+    const estado = proyectarComanda([
+      ...eventos,
+      f.crear("item_modificado", orden_id, { orden_id, renglon_id: pizza.id, cantidad: 3 }),
+    ]);
+
+    const renglon = estado.renglones.find((r) => r.id === pizza.id)!;
+    expect(renglon.cantidad).toBe(3);
+    expect(renglon.notas_cambiadas_ts).toBeUndefined();
+  });
+
+  it("cocina la da por vista y la alarma se apaga", () => {
+    const { f, orden_id, pizza, eventos } = comandaEnviada();
+    const estado = proyectarComanda([
+      ...eventos,
+      f.crear("item_modificado", orden_id, {
+        orden_id, renglon_id: pizza.id, notas: "Sin tomate",
+      }),
+      f.crear("cambio_visto", orden_id, { orden_id, renglon_id: pizza.id }),
+    ]);
+
+    const renglon = estado.renglones.find((r) => r.id === pizza.id)!;
+    // La indicación se queda; lo que se apaga es el aviso de que cambió.
+    expect(renglon.notas).toBe("Sin tomate");
+    expect(renglon.notas_cambiadas_ts).toBeUndefined();
+  });
+
+  /*
+   * Un plato terminado ya no puede incorporar el cambio. Dejar la alarma
+   * encendida solo estorbaría al siguiente que mire el tablero.
+   */
+  it("marcar el platillo listo también apaga la alarma", () => {
+    const { f, orden_id, pizza, eventos } = comandaEnviada();
+    const estado = proyectarComanda([
+      ...eventos,
+      f.crear("item_modificado", orden_id, {
+        orden_id, renglon_id: pizza.id, notas: "Sin tomate",
+      }),
+      f.crear("item_listo", orden_id, { orden_id, renglon_id: pizza.id }),
+    ]);
+
+    expect(estado.renglones.find((r) => r.id === pizza.id)!.notas_cambiadas_ts).toBeUndefined();
+  });
+
+  it("quitar la indicación también es un cambio que cocina debe ver", () => {
+    const { f, orden_id, pizza, eventos } = comandaEnviada();
+    const conNota = [
+      ...eventos,
+      f.crear("item_modificado", orden_id, {
+        orden_id, renglon_id: pizza.id, notas: "Sin tomate",
+      }),
+      f.crear("cambio_visto", orden_id, { orden_id, renglon_id: pizza.id }),
+    ];
+    const estado = proyectarComanda([
+      ...conNota,
+      f.crear("item_modificado", orden_id, { orden_id, renglon_id: pizza.id, notas: "" }),
+    ]);
+
+    const renglon = estado.renglones.find((r) => r.id === pizza.id)!;
+    expect(renglon.notas).toBe("");
+    expect(renglon.notas_cambiadas_ts).toBeDefined();
+  });
+});

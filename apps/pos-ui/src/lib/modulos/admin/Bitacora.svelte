@@ -70,8 +70,17 @@
         return { ...base,
           texto: ev.cantidad !== undefined
             ? `Cambió la cantidad de un renglón a ${ev.cantidad}`
-            : "Modificó las notas de un renglón",
+            : ev.notas
+              ? `Cambió las indicaciones de cocina: "${ev.notas}"`
+              : "Retiró las indicaciones de cocina de un renglón",
           tono: "normal" };
+      /*
+       * Queda en bitácora a propósito. Si un plato sale mal por una indicación
+       * tardía, la diferencia entre "no le avisaron" y "le avisaron y no lo
+       * aplicó" está exactamente aquí.
+       */
+      case "cambio_visto":
+        return { ...base, texto: "Cocina se dio por enterada de un cambio", tono: "normal" };
       case "item_transferido":
         return { ...base, texto: "Traspasó un renglón a otra cuenta", tono: "acento" };
       case "item_recibido":

@@ -26,7 +26,7 @@
  *   - **Ya estaba timbrado**: el caso traicionero. Se ve como error y es un
  *     éxito. Ver abajo.
  */
-import { leerTimbre, type TimbreFiscal } from "@motrest/dominio";
+import { leerTimbre, type IdentidadCfdi, type TimbreFiscal } from "@motrest/dominio";
 
 export interface Timbrado {
   timbre: TimbreFiscal;
@@ -37,11 +37,30 @@ export interface Timbrado {
 export type ResultadoTimbrado =
   | { estado: "timbrado"; timbrado: Timbrado }
   | { estado: "reintentable"; motivo: string }
-  | { estado: "rechazado"; codigo: string; motivo: string };
+  | { estado: "rechazado"; codigo: string; motivo: string }
+  /**
+   * El PAC dice que este comprobante ya está timbrado, pero no mandó el timbre.
+   *
+   * No es un fallo ni algo que se arregle reintentando el timbrado: la factura
+   * existe y hay que IR POR ELLA. Es su propio estado justamente para que nadie
+   * lo confunda con las otras dos cosas.
+   */
+  | { estado: "ya_timbrado"; motivo: string };
 
 export interface Pac {
   readonly nombre: string;
   timbrar(xmlSellado: string): Promise<ResultadoTimbrado>;
+  /**
+   * Recupera un CFDI que este PAC ya timbró.
+   *
+   * Opcional porque no todos los proveedores lo ofrecen, pero es lo que
+   * convierte un 307 de problema en trámite: en vez de mandar a alguien a
+   * buscar la factura al portal, el sistema va por ella.
+   *
+   * Devuelve `null` cuando el PAC no la encuentra —que puede ser transitorio:
+   * su índice de búsqueda suele tardar unos segundos en ver lo recién timbrado—.
+   */
+  recuperar?(identidad: IdentidadCfdi): Promise<Timbrado | null>;
 }
 
 /**
@@ -102,18 +121,16 @@ export function clasificar(entrada: {
   }
 
   /*
-   * Un 307 sin XML es el caso incómodo: el comprobante está timbrado en algún
-   * lado y aquí no se tiene el timbre. Reintentar no ayuda —siempre dará 307—,
-   * así que se marca como rechazo para que alguien lo recupere del portal del
-   * PAC. Lo importante es no volver a usar ese folio.
+   * Un 307 sin XML no es un fallo: es una factura que existe y que aquí falta.
+   *
+   * Reintentar el timbrado no sirve —siempre dará 307— y encima gasta llamadas.
+   * Lo que corresponde es cambiar de operación: dejar de pedir que la timbren y
+   * empezar a pedir la que ya timbraron. De eso se encarga la cola.
    */
   if (codigo === YA_TIMBRADO) {
     return {
-      estado: "rechazado",
-      codigo,
-      motivo:
-        "Este comprobante ya fue timbrado antes, pero el PAC no devolvió el timbre. " +
-        "Descárgalo del portal de tu PAC: la factura existe y el folio NO debe reutilizarse.",
+      estado: "ya_timbrado",
+      motivo: mensaje,
     };
   }
 

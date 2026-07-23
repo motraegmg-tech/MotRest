@@ -15,6 +15,13 @@ export interface RenglonKds {
   descripcion: string;
   detalle?: string;
   notas?: string;
+  /**
+   * true = la indicación cambió DESPUÉS de que este platillo llegó a cocina.
+   *
+   * El tablero tiene que gritarlo: quien lo leyó hace tres minutos no lo va a
+   * releer, y una hamburguesa que sale con tomate se regresa entera.
+   */
+  notas_cambiadas?: boolean;
   cantidad: number;
   estado: RenglonComanda["estado"];
   estacion_id?: ID;
@@ -71,6 +78,7 @@ export function proyectarTablero(
         descripcion: r.descripcion,
         detalle: r.detalle,
         notas: r.notas,
+        notas_cambiadas: r.notas_cambiadas_ts !== undefined,
         cantidad: r.cantidad,
         estado: r.estado,
         estacion_id: r.estacion_id,

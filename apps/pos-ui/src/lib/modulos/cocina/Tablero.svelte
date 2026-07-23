@@ -105,7 +105,42 @@
                   <span class="min">{minutos(renglon.minutos)}</span>
                 </div>
                 {#if renglon.detalle}<p class="detalle">{renglon.detalle}</p>{/if}
-                {#if renglon.notas}<p class="nota">⚠ {renglon.notas}</p>{/if}
+
+                <!--
+                  Las indicaciones van en recuadro, no como una línea más: es lo
+                  que más caro cuesta pasar por alto. Un platillo que sale con
+                  tomate cuando lo pidieron sin tomate se regresa entero.
+                -->
+                {#if renglon.notas}
+                  <div class="recuadro" class:cambiada={renglon.notas_cambiadas}>
+                    {#if renglon.notas_cambiadas}
+                      <span class="cambio">CAMBIÓ</span>
+                    {/if}
+                    <p>{renglon.notas}</p>
+                    {#if renglon.notas_cambiadas && puedeOperar}
+                      <button
+                        class="visto"
+                        onclick={() => pos.marcarCambioVisto(ticket.orden_id, renglon.renglon_id)}
+                      >
+                        Enterado
+                      </button>
+                    {/if}
+                  </div>
+                {:else if renglon.notas_cambiadas}
+                  <!-- Quitaron la indicación: también hay que enterarse. -->
+                  <div class="recuadro cambiada">
+                    <span class="cambio">CAMBIÓ</span>
+                    <p>Se retiró la indicación anterior.</p>
+                    {#if puedeOperar}
+                      <button
+                        class="visto"
+                        onclick={() => pos.marcarCambioVisto(ticket.orden_id, renglon.renglon_id)}
+                      >
+                        Enterado
+                      </button>
+                    {/if}
+                  </div>
+                {/if}
 
                 {#if puedeOperar}
                   <div class="acciones">
@@ -330,11 +365,66 @@
     color: #b9c2bc;
     margin-top: 0.15rem;
   }
-  .nota {
-    font-size: 0.85rem;
-    color: var(--acento-2);
-    font-weight: 600;
-    margin-top: 0.2rem;
+  /*
+   * El recuadro de indicaciones.
+   *
+   * Se lee de reojo, a metro y medio, con las manos ocupadas. Por eso va
+   * enmarcado y con tipografía grande en vez de como una línea más: el resto
+   * del ticket se puede releer, esto no se puede pasar por alto.
+   */
+  .recuadro {
+    margin-top: 0.4rem;
+    padding: 0.45rem 0.6rem;
+    border: 2px solid var(--acento-2);
+    border-radius: 6px;
+    background: color-mix(in srgb, var(--acento-2) 10%, transparent);
+  }
+  .recuadro p {
+    font-size: 0.95rem;
+    font-weight: 700;
+    line-height: 1.3;
+    text-transform: uppercase;
+  }
+  /* Un cambio tardío grita más que una indicación de origen: quien leyó el
+     ticket hace tres minutos no lo va a releer por su cuenta. */
+  .recuadro.cambiada {
+    border-color: #e0392b;
+    background: color-mix(in srgb, #e0392b 14%, transparent);
+    animation: latir 1.4s ease-in-out infinite;
+  }
+  @keyframes latir {
+    50% {
+      border-color: color-mix(in srgb, #e0392b 45%, transparent);
+    }
+  }
+  .cambio {
+    display: inline-block;
+    background: #e0392b;
+    color: #fff;
+    font-size: 0.68rem;
+    font-weight: 800;
+    letter-spacing: 0.06em;
+    padding: 0.1rem 0.4rem;
+    border-radius: 3px;
+    margin-bottom: 0.3rem;
+  }
+  .visto {
+    margin-top: 0.4rem;
+    width: 100%;
+    border: 1.5px solid #e0392b;
+    background: #fff;
+    color: #e0392b;
+    border-radius: 6px;
+    padding: 0.35rem;
+    font-size: 0.8rem;
+    font-weight: 700;
+    cursor: pointer;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .recuadro.cambiada {
+      animation: none;
+    }
   }
   .acciones {
     display: flex;

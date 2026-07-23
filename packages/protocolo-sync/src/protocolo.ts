@@ -141,6 +141,13 @@ export interface FacturaEnCola {
   folio: string;
   total: number;
   estado: "pendiente" | "timbrado" | "rechazado";
+  /**
+   * `recuperar` = el PAC ya la timbró y se está yendo por el documento.
+   *
+   * Se distingue en pantalla porque no es lo mismo "falta timbrarla" que "ya
+   * está timbrada y falta traerla": lo segundo no requiere que nadie haga nada.
+   */
+  modo: "timbrar" | "recuperar";
   intentos: number;
   creado_ts: number;
   uuid: string | null;

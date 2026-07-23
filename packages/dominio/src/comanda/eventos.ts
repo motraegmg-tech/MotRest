@@ -86,6 +86,19 @@ export type EventoComanda =
       notas?: string;
     })
   | (EventoBase & {
+      /**
+       * Cocina se dio por enterada de un cambio de indicaciones.
+       *
+       * Es un hecho del servicio y no ruido de interfaz: deja constancia de
+       * quién vio el cambio y cuándo. Si un plato sale mal por una indicación
+       * tardía, la diferencia entre "no le avisaron" y "le avisaron y no lo
+       * aplicó" está en este evento.
+       */
+      tipo: "cambio_visto";
+      orden_id: ID;
+      renglon_id: ID;
+    })
+  | (EventoBase & {
       /** Traspaso de renglones a otra cuenta (dividir o mover de mesa). */
       tipo: "item_transferido";
       orden_id: ID;

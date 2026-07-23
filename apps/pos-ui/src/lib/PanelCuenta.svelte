@@ -31,6 +31,66 @@
   let partes = $state(2);
   let renglonATraspasar = $state<string | null>(null);
 
+  /*
+   * Indicaciones para cocina, editables DESPUÉS de capturar el platillo.
+   *
+   * El comensal casi nunca lo dice todo de una vez: pide la hamburguesa y,
+   * cuando el mesero ya la marcó, añade que la quiere sin tomate. Sin esto
+   * habría que cancelar el renglón y recapturarlo, lo que además ensucia el
+   * reporte de cancelaciones.
+   */
+  let editandoIndicaciones = $state<string | null>(null);
+  let textoIndicaciones = $state("");
+
+  /*
+   * Las más frecuentes, a un toque. Teclear en una tablet con el comensal
+   * enfrente es lento, y lo lento se termina por no hacer.
+   */
+  const INDICACIONES_RAPIDAS = [
+    "Sin cebolla",
+    "Sin tomate",
+    "Sin queso",
+    "Sin picante",
+    "Bien cocido",
+    "Término medio",
+    "Para compartir",
+    "Sin gluten",
+    "ALERGIA",
+  ];
+
+  function abrirIndicaciones(renglonId: string, actuales: string) {
+    editandoIndicaciones = renglonId;
+    textoIndicaciones = actuales;
+  }
+
+  function agregarRapida(texto: string) {
+    const partes = textoIndicaciones
+      .split("·")
+      .map((p) => p.trim())
+      .filter(Boolean);
+    // Tocar dos veces la misma quita, para poder corregir sin borrar a mano.
+    textoIndicaciones = (
+      partes.includes(texto) ? partes.filter((p) => p !== texto) : [...partes, texto]
+    ).join(" · ");
+  }
+
+  async function guardarIndicaciones() {
+    if (!editandoIndicaciones) return;
+    await pos.cambiarNotas(editandoIndicaciones, textoIndicaciones);
+    editandoIndicaciones = null;
+    textoIndicaciones = "";
+  }
+
+  const renglonEnEdicion = $derived(
+    pos.renglones.find((r) => r.id === editandoIndicaciones) ?? null,
+  );
+  /** Ya está en cocina: cambiarlo ahora obliga a avisar, y conviene decirlo. */
+  const yaEnCocina = $derived(
+    renglonEnEdicion !== null &&
+      renglonEnEdicion.estado !== "capturado" &&
+      renglonEnEdicion.estado !== "cancelado",
+  );
+
   const t = $derived(pos.totales);
   const recibidoCentavos = $derived(pesos(Number(recibido) || 0));
   const cambio = $derived(
@@ -89,12 +149,22 @@
             <span class="n">
               {renglon.descripcion}
               {#if renglon.detalle}<small>{renglon.detalle}</small>{/if}
+              {#if renglon.notas}
+                <small class="indicacion">⚠ {renglon.notas}</small>
+              {/if}
               {#if etiquetaEstado[renglon.estado]}
                 <em class="est-r">{etiquetaEstado[renglon.estado]}</em>
               {/if}
             </span>
             <span class="p">{mxn(importeRenglon(renglon))}</span>
             <span class="acciones">
+              <button
+                class="mini"
+                class:activa={renglon.notas}
+                title="Indicaciones para cocina"
+                aria-label="Indicaciones para {renglon.descripcion}"
+                onclick={() => abrirIndicaciones(renglon.id, renglon.notas ?? "")}
+              >✎</button>
               <button
                 class="mini"
                 title="Traspasar a otra mesa"
@@ -248,6 +318,64 @@
 
 {#if facturando && pos.comanda}
   <DialogoFactura comanda={pos.comanda} onCerrar={() => (facturando = false)} />
+{/if}
+
+<!-- Indicaciones para cocina -->
+{#if renglonEnEdicion}
+  <div
+    class="velo"
+    role="button"
+    tabindex="-1"
+    onclick={() => (editandoIndicaciones = null)}
+    onkeydown={(e) => e.key === "Escape" && (editandoIndicaciones = null)}
+  >
+    <div
+      class="dialogo"
+      role="dialog"
+      aria-label="Indicaciones para cocina"
+      onclick={(e) => e.stopPropagation()}
+      onkeydown={(e) => e.stopPropagation()}
+      tabindex="-1"
+    >
+      <h3>Indicaciones para cocina</h3>
+      <p class="que">{renglonEnEdicion.cantidad}× {renglonEnEdicion.descripcion}</p>
+
+      {#if yaEnCocina}
+        <p class="ojo" role="alert">
+          Este platillo ya está en cocina. El cambio aparecerá marcado en el
+          tablero hasta que alguien allá lo dé por visto.
+        </p>
+      {/if}
+
+      <div class="rapidas">
+        {#each INDICACIONES_RAPIDAS as texto (texto)}
+          <button
+            type="button"
+            class="chip"
+            class:puesta={textoIndicaciones.includes(texto)}
+            onclick={() => agregarRapida(texto)}
+          >
+            {texto}
+          </button>
+        {/each}
+      </div>
+
+      <!-- svelte-ignore a11y_autofocus -->
+      <textarea
+        bind:value={textoIndicaciones}
+        rows="3"
+        autofocus
+        placeholder="Escribe lo que cocina necesita saber: alergias, término, cambios…"
+      ></textarea>
+
+      <div class="botones">
+        <button class="secundario" onclick={() => (editandoIndicaciones = null)}>Cancelar</button>
+        <button class="principal" onclick={guardarIndicaciones}>
+          {yaEnCocina ? "Avisar a cocina" : "Guardar"}
+        </button>
+      </div>
+    </div>
+  </div>
 {/if}
 
 <style>
@@ -581,5 +709,95 @@
     font-size: 0.88rem;
     text-align: center;
     box-shadow: var(--sombra-lg);
+  }
+
+  /* --- Indicaciones para cocina --- */
+
+  .indicacion {
+    display: block;
+    color: var(--acento);
+    font-weight: 600;
+  }
+  .acciones .mini.activa {
+    color: var(--acento);
+  }
+
+  .velo {
+    position: fixed;
+    inset: 0;
+    background: rgba(20, 24, 26, 0.5);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 1rem;
+    z-index: 40;
+  }
+  .dialogo {
+    background: #fff;
+    border-radius: var(--r-md);
+    padding: 1.25rem;
+    width: min(30rem, 100%);
+    box-shadow: var(--sombra-lg);
+    max-height: 90vh;
+    overflow-y: auto;
+  }
+  .dialogo h3 {
+    font-size: 1.05rem;
+    font-weight: 700;
+  }
+  .que {
+    color: var(--gris);
+    font-size: 0.9rem;
+    margin-top: 0.15rem;
+  }
+  .ojo {
+    margin-top: 0.9rem;
+    padding: 0.6rem 0.8rem;
+    border-radius: var(--r-sm);
+    background: var(--claro);
+    border: 1px solid var(--acento);
+    color: var(--pizarra);
+    font-size: 0.85rem;
+    line-height: 1.45;
+  }
+  .rapidas {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.4rem;
+    margin: 1rem 0 0.75rem;
+  }
+  .chip {
+    border: 1.5px solid var(--borde);
+    border-radius: var(--r-pill);
+    padding: 0.35rem 0.75rem;
+    font-size: 0.82rem;
+    font-weight: 600;
+    background: #fff;
+    color: var(--pizarra);
+    cursor: pointer;
+  }
+  .chip.puesta {
+    background: var(--acento);
+    border-color: var(--acento);
+    color: #fff;
+  }
+  .dialogo textarea {
+    width: 100%;
+    border: 1.5px solid var(--borde);
+    border-radius: var(--r-sm);
+    padding: 0.6rem 0.7rem;
+    font: inherit;
+    font-size: 0.95rem;
+    resize: vertical;
+  }
+  .dialogo textarea:focus {
+    outline: none;
+    border-color: var(--acento);
+  }
+  .dialogo .botones {
+    display: flex;
+    justify-content: flex-end;
+    gap: 0.6rem;
+    margin-top: 1rem;
   }
 </style>
