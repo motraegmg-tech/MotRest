@@ -7,8 +7,10 @@
    * en cola: el ticket sale al momento y la factura espera.
    */
   import {
+    MOTIVOS_CANCELACION,
     REGIMENES_FISCALES,
     etiquetaEstadoCfdi,
+    motivoRequiereSustitucion,
     problemaRfc,
     type DatosEmisor,
     type RegistroCfdi,
@@ -75,6 +77,34 @@
    */
   function imprimirFactura(registro: RegistroCfdi) {
     impresion.factura(fiscal.representacionDe(registro), `${registro.serie}-${registro.folio}`);
+  }
+
+  // --- Cancelación de un CFDI ---
+  let cancelando = $state<RegistroCfdi | null>(null);
+  let motivoCancel = $state("02");
+  let sustitucionCancel = $state("");
+  let errorCancel = $state("");
+
+  const requiereSustitucion = $derived(motivoRequiereSustitucion(motivoCancel));
+
+  function abrirCancelacion(registro: RegistroCfdi) {
+    cancelando = registro;
+    motivoCancel = "02";
+    sustitucionCancel = "";
+    errorCancel = "";
+  }
+
+  function confirmarCancelacion() {
+    if (!cancelando) return;
+    const r = fiscal.solicitarCancelacion(cancelando.cfdi_id, motivoCancel, {
+      uuidSustitucion: sustitucionCancel,
+      autorizadorId: sesion.usuarioActual?.id,
+    });
+    if (r.ok) {
+      cancelando = null;
+    } else {
+      errorCancel = r.error;
+    }
   }
 </script>
 
@@ -204,6 +234,9 @@
             <span class="estado">{etiquetaEstadoCfdi(registro.estado)}</span>
             <button class="mini" onclick={() => imprimirFactura(registro)}>Imprimir</button>
             <button class="mini" onclick={() => (verXml = registro)}>Ver XML</button>
+            {#if puedeEditar && registro.estado === "timbrado"}
+              <button class="mini peligro" onclick={() => abrirCancelacion(registro)}>Cancelar</button>
+            {/if}
           </div>
           {#if registro.error}
             <p class="error-cfdi">{registro.error} · intento {registro.intentos}</p>
@@ -228,6 +261,51 @@
       incorpora el PAC.
     </p>
     <pre>{fiscal.xmlDe(verXml.comprobante)}</pre>
+  </div>
+{/if}
+
+<!-- Cancelación de un CFDI, con el motivo del SAT -->
+{#if cancelando}
+  <div class="velo" role="presentation" onclick={() => (cancelando = null)}></div>
+  <div class="dialogo-cancel" role="dialog" aria-modal="true" aria-label="Cancelar comprobante">
+    <h2>Cancelar {cancelando.serie}-{cancelando.folio}</h2>
+    <p class="quien">{cancelando.comprobante.receptor.nombre} · {mxn(cancelando.comprobante.total)}</p>
+    <p class="explica">
+      La factura se cancela ante el SAT, no aquí: se manda la solicitud y el
+      resultado vuelve en un momento. Elige el motivo correcto —el SAT rechaza
+      la cancelación si no aplica—.
+    </p>
+
+    <label>
+      <span>Motivo de cancelación</span>
+      <select bind:value={motivoCancel}>
+        {#each MOTIVOS_CANCELACION as m (m.clave)}
+          <option value={m.clave}>{m.clave} · {m.descripcion}</option>
+        {/each}
+      </select>
+    </label>
+
+    {#if requiereSustitucion}
+      <label>
+        <span>Folio fiscal (UUID) del comprobante que lo sustituye</span>
+        <input
+          bind:value={sustitucionCancel}
+          placeholder="XXXXXXXX-XXXX-XXXX-XXXX-XXXXXXXXXXXX"
+          autocomplete="off"
+        />
+        <small class="pista">
+          El motivo 01 es para un comprobante con errores: debe existir ya la
+          factura correcta que lo reemplaza.
+        </small>
+      </label>
+    {/if}
+
+    {#if errorCancel}<p class="error" role="alert">{errorCancel}</p>{/if}
+
+    <div class="botones">
+      <button class="secundario" onclick={() => (cancelando = null)}>No cancelar</button>
+      <button class="peligro-solido" onclick={confirmarCancelacion}>Solicitar cancelación</button>
+    </div>
   </div>
 {/if}
 
@@ -413,6 +491,93 @@
   .mini:hover {
     border-color: var(--acento);
     color: var(--acento);
+  }
+  .mini.peligro {
+    color: #e0392b;
+  }
+  .mini.peligro:hover {
+    border-color: #e0392b;
+    color: #e0392b;
+  }
+
+  .dialogo-cancel {
+    position: fixed;
+    z-index: 61;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    width: min(30rem, calc(100vw - 2rem));
+    background: #fff;
+    border-radius: var(--r-md);
+    padding: 1.4rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.7rem;
+    box-shadow: var(--sombra-lg);
+  }
+  .dialogo-cancel h2 {
+    font-size: 1.1rem;
+    font-weight: 700;
+  }
+  .dialogo-cancel .quien {
+    color: var(--acento);
+    font-weight: 600;
+    font-size: 0.9rem;
+    margin-top: -0.4rem;
+  }
+  .dialogo-cancel .explica {
+    font-size: 0.85rem;
+    color: var(--gris);
+    line-height: 1.5;
+  }
+  .dialogo-cancel label {
+    display: flex;
+    flex-direction: column;
+    gap: 0.3rem;
+  }
+  .dialogo-cancel label span {
+    font-size: 0.8rem;
+    font-weight: 600;
+    color: var(--pizarra);
+  }
+  .dialogo-cancel select,
+  .dialogo-cancel input {
+    padding: 0.6rem 0.7rem;
+    border: 1.5px solid var(--borde);
+    border-radius: var(--r-sm);
+    font: inherit;
+  }
+  .dialogo-cancel .pista {
+    font-size: 0.78rem;
+    color: var(--gris);
+    line-height: 1.4;
+  }
+  .dialogo-cancel .error {
+    color: #e0392b;
+    font-size: 0.85rem;
+    line-height: 1.45;
+  }
+  .dialogo-cancel .botones {
+    display: flex;
+    justify-content: flex-end;
+    gap: 0.6rem;
+    margin-top: 0.4rem;
+  }
+  .dialogo-cancel .secundario {
+    border: 1.5px solid var(--borde);
+    border-radius: var(--r-sm);
+    background: #fff;
+    color: var(--pizarra);
+    padding: 0.6rem 1rem;
+    font-weight: 600;
+  }
+  .dialogo-cancel .peligro-solido {
+    background: #e0392b;
+    border: 1.5px solid #e0392b;
+    border-radius: var(--r-sm);
+    color: #fff;
+    padding: 0.6rem 1rem;
+    font-weight: 600;
   }
   .error {
     margin-top: 0.6rem;

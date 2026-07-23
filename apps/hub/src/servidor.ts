@@ -27,6 +27,7 @@ import {
 import type { LogHub } from "@motrest/protocolo-sync/sqlite";
 import type { ColaDeTimbrado } from "./fiscal/cola-timbrado.js";
 import type { Facturador } from "./fiscal/facturador.js";
+import type { Cancelador } from "./fiscal/cancelador.js";
 import type { Sellador } from "./fiscal/sellador.js";
 
 /** Lo mínimo que el Hub necesita de una conexión. */
@@ -71,6 +72,8 @@ export interface OpcionesHub {
     cola: ColaDeTimbrado;
     /** Sella y encola los comprobantes que la caja va generando. */
     facturador?: Facturador;
+    /** Manda al SAT las cancelaciones pedidas y publica su desenlace. */
+    cancelador?: Cancelador;
     nombrePac?: string;
   };
 }
@@ -439,6 +442,13 @@ export class Hub {
             this.anotar("error", `Fallo al timbrar: ${String(error)}`);
           });
       }
+    }
+
+    // Una cancelación pedida se atiende igual: en segundo plano, sin frenar nada.
+    if (aceptados.some((e) => e.tipo === "cfdi_cancelacion_solicitada")) {
+      void this.opciones.fiscal?.cancelador?.procesar().catch((error: unknown) => {
+        this.anotar("error", `Fallo al cancelar: ${String(error)}`);
+      });
     }
   }
 

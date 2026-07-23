@@ -40,6 +40,7 @@ import { anunciarEnLaRed } from "./descubrimiento.js";
 import { Sellador, carpetaDelCsd } from "./fiscal/sellador.js";
 import { ColaDeTimbrado } from "./fiscal/cola-timbrado.js";
 import { Facturador } from "./fiscal/facturador.js";
+import { Cancelador } from "./fiscal/cancelador.js";
 import { MAPEO_REST_COMUN, PacHttp, consultaPorFolio } from "./fiscal/pac-http.js";
 import type { DatabaseSync as TipoDatabaseSync } from "node:sqlite";
 
@@ -206,17 +207,20 @@ const facturador = new Facturador(
   { hub_id: HUB_ID, nombrePac: pac?.nombre },
 );
 
+const cancelador = new Cancelador(almacen.log, sellador, almacenFiscal, pac, registrar, HUB_ID);
+
 /**
- * Un ciclo completo de facturación: sellar lo nuevo, timbrar, y devolver el
- * resultado al registro del local.
+ * Un ciclo completo de facturación: sellar lo nuevo, timbrar, devolver el
+ * resultado al registro del local, y atender las cancelaciones pedidas.
  *
- * Los tres pasos van juntos siempre. Timbrar sin publicar dejaría el folio
- * fiscal encerrado en la base del Hub, y la caja no podría entregar la factura.
+ * Los pasos van juntos siempre. Timbrar sin publicar dejaría el folio fiscal
+ * encerrado en la base del Hub, y la caja no podría entregar la factura.
  */
 async function cicloFiscal(): Promise<void> {
   facturador.procesar();
   await colaTimbrado.procesar();
   facturador.publicarResultados();
+  await cancelador.procesar();
 }
 
 const hub = new Hub({
@@ -225,7 +229,7 @@ const hub = new Hub({
   exigirAprobacion: EXIGIR_APROBACION,
   enlaces: enlacesEmparejamiento,
   registrar,
-  fiscal: { sellador, cola: colaTimbrado, facturador, nombrePac: pac?.nombre },
+  fiscal: { sellador, cola: colaTimbrado, facturador, cancelador, nombrePac: pac?.nombre },
   guardarCatalogo: (catalogo) => {
     // Se guardan todos juntos: son pocos y así el archivo queda consistente.
     void almacen.estado.cargar<Catalogo[]>(CLAVE_CATALOGOS).then((previos) => {

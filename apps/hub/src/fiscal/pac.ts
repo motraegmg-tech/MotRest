@@ -61,7 +61,36 @@ export interface Pac {
    * su índice de búsqueda suele tardar unos segundos en ver lo recién timbrado—.
    */
   recuperar?(identidad: IdentidadCfdi): Promise<Timbrado | null>;
+
+  /**
+   * Cancela ante el SAT un CFDI ya timbrado.
+   *
+   * Opcional porque no todos los adaptadores lo implementan de entrada, pero es
+   * lo que cierra el ciclo fiscal: emitir sin poder cancelar deja al
+   * restaurante atado a facturas con errores.
+   */
+  cancelar?(peticion: PeticionCancelacion): Promise<ResultadoCancelacion>;
 }
+
+export interface PeticionCancelacion {
+  uuid: string;
+  rfc_emisor: string;
+  /** Código c_MotivoCancelacion (01–04). */
+  motivo: string;
+  /** UUID de sustitución, solo con motivo 01. */
+  uuid_sustitucion?: string;
+}
+
+export type ResultadoCancelacion =
+  | { estado: "cancelado"; fecha: string }
+  /**
+   * El SAT quedó a la espera de que el receptor acepte. Para el restaurante es,
+   * de momento, lo mismo que pendiente: se sigue consultando hasta que se
+   * resuelva. No se trata como cancelado porque la factura todavía vale.
+   */
+  | { estado: "en_espera"; motivo: string }
+  | { estado: "reintentable"; motivo: string }
+  | { estado: "rechazado"; codigo: string; motivo: string };
 
 /**
  * Códigos del SAT que NO tienen arreglo reintentando.

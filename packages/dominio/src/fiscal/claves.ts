@@ -94,3 +94,26 @@ export const RECEPTOR_PUBLICO_GENERAL = {
 export function descripcionDe(catalogo: ClaveSat[], clave: string): string {
   return catalogo.find((c) => c.clave === clave)?.descripcion ?? clave;
 }
+
+/**
+ * Motivos de cancelación del SAT (catálogo c_MotivoCancelacion).
+ *
+ * No es texto libre: el SAT solo acepta estos cuatro códigos, y el `01` tiene
+ * una regla propia —exige el folio fiscal del comprobante que lo sustituye—.
+ * Elegir mal el motivo hace que el SAT rechace la cancelación.
+ */
+export const MOTIVOS_CANCELACION: ClaveSat[] = [
+  { clave: "01", descripcion: "Comprobante emitido con errores con relación" },
+  { clave: "02", descripcion: "Comprobante emitido con errores sin relación" },
+  { clave: "03", descripcion: "No se llevó a cabo la operación" },
+  { clave: "04", descripcion: "Operación nominativa relacionada en una factura global" },
+];
+
+/**
+ * El motivo `01` obliga a indicar el UUID del comprobante que sustituye al que
+ * se cancela: se emitió con un error y el nuevo es la corrección. Los demás
+ * motivos NO llevan sustitución, y ponérsela también hace que el SAT rechace.
+ */
+export function motivoRequiereSustitucion(codigo: string): boolean {
+  return codigo === "01";
+}

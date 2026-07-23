@@ -10,6 +10,7 @@ import {
   colaDeTimbrado,
   comprobanteAXml,
   construirComprobante,
+  problemaCancelacion,
   proyectarCfdis,
   representacionImpresa,
   requierenAtencion,
@@ -178,14 +179,33 @@ class StoreFiscal {
     this.emitir(this.fabrica.crear("cfdi_rechazado", STREAM, { cfdi_id: cfdiId, codigo, motivo }));
   }
 
-  cancelar(cfdiId: ID, motivo: string, autorizadorId?: ID): void {
+  /**
+   * PIDE cancelar un comprobante. No lo cancela: eso lo confirma el SAT.
+   *
+   * Valida las reglas del SAT ANTES de emitir —motivo del catálogo, la regla
+   * del 01 con su sustitución— para no encolar una cancelación que el SAT
+   * rechazará. El Hub la manda al PAC y publica el desenlace.
+   */
+  solicitarCancelacion(
+    cfdiId: ID,
+    motivo: string,
+    opciones: { uuidSustitucion?: string; autorizadorId?: ID } = {},
+  ): { ok: true } | { ok: false; error: string } {
+    const registro = this.registros.find((r) => r.cfdi_id === cfdiId);
+    if (!registro) return { ok: false, error: "No se encontró el comprobante" };
+
+    const problema = problemaCancelacion(registro, motivo, opciones.uuidSustitucion);
+    if (problema) return { ok: false, error: problema };
+
     this.emitir(
-      this.fabrica.crear("cfdi_cancelado", STREAM, {
+      this.fabrica.crear("cfdi_cancelacion_solicitada", STREAM, {
         cfdi_id: cfdiId,
         motivo,
-        autorizador_id: autorizadorId,
+        uuid_sustitucion: opciones.uuidSustitucion?.trim() || undefined,
+        autorizador_id: opciones.autorizadorId,
       }),
     );
+    return { ok: true };
   }
 
   /** XML tal como se enviaría al PAC (sin sello ni certificado). */

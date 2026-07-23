@@ -11,8 +11,15 @@
 import type { ID } from "../comun/ids.js";
 import type { EventoBase } from "../evento.js";
 import type { Comprobante } from "./comprobante.js";
+import { MOTIVOS_CANCELACION, motivoRequiereSustitucion } from "./claves.js";
 
-export type EstadoCfdi = "generado" | "timbrado" | "rechazado" | "cancelado";
+export type EstadoCfdi =
+  | "generado"
+  | "timbrado"
+  | "rechazado"
+  | "cancelacion_solicitada"
+  | "cancelado"
+  | "cancelacion_rechazada";
 
 export type EventoFiscal =
   | (EventoBase & {
@@ -50,10 +57,38 @@ export type EventoFiscal =
       motivo: string;
     })
   | (EventoBase & {
+      /**
+       * Se PIDE cancelar. Es la solicitud local, antes de que el SAT responda —
+       * igual que `cfdi_generado` es la solicitud de timbrado, no el timbre.
+       */
+      tipo: "cfdi_cancelacion_solicitada";
+      cfdi_id: ID;
+      /** Código del catálogo c_MotivoCancelacion (01–04). */
+      motivo: string;
+      /** UUID del comprobante que lo sustituye. Obligatorio solo con motivo 01. */
+      uuid_sustitucion?: string;
+      autorizador_id?: ID;
+    })
+  | (EventoBase & {
+      /** El SAT confirmó la cancelación. Es el desenlace, no la petición. */
       tipo: "cfdi_cancelado";
       cfdi_id: ID;
       motivo: string;
+      fecha_cancelacion?: string;
       autorizador_id?: ID;
+    })
+  | (EventoBase & {
+      /**
+       * El SAT/PAC rechazó la cancelación. La factura SIGUE vigente.
+       *
+       * Pasa, por ejemplo, si el receptor no acepta la cancelación dentro del
+       * plazo, o si el motivo no aplica. No es lo mismo que "no se pudo enviar":
+       * esto es un no del SAT, no un problema de red.
+       */
+      tipo: "cfdi_cancelacion_rechazada";
+      cfdi_id: ID;
+      codigo: string;
+      motivo: string;
     });
 
 export type TipoEventoFiscal = EventoFiscal["tipo"];
@@ -77,6 +112,10 @@ export interface RegistroCfdi {
   error?: string;
   intentos: number;
   generado_ts: number;
+  /** Datos de la cancelación, cuando se solicitó o se canceló. */
+  motivo_cancelacion?: string;
+  uuid_sustitucion?: string;
+  fecha_cancelacion?: string;
 }
 
 export function aplicarEventoFiscal(
@@ -130,9 +169,43 @@ export function aplicarEventoFiscal(
           : r,
       );
 
+    case "cfdi_cancelacion_solicitada":
+      return registros.map((r) =>
+        r.cfdi_id === ev.cfdi_id
+          ? {
+              ...r,
+              estado: "cancelacion_solicitada" as const,
+              motivo_cancelacion: ev.motivo,
+              uuid_sustitucion: ev.uuid_sustitucion,
+              error: undefined,
+            }
+          : r,
+      );
+
     case "cfdi_cancelado":
       return registros.map((r) =>
-        r.cfdi_id === ev.cfdi_id ? { ...r, estado: "cancelado" as const } : r,
+        r.cfdi_id === ev.cfdi_id
+          ? {
+              ...r,
+              estado: "cancelado" as const,
+              motivo_cancelacion: ev.motivo,
+              fecha_cancelacion: ev.fecha_cancelacion,
+              error: undefined,
+            }
+          : r,
+      );
+
+    case "cfdi_cancelacion_rechazada":
+      return registros.map((r) =>
+        r.cfdi_id === ev.cfdi_id
+          ? {
+              // Vuelve a "timbrado": la factura sigue vigente y se puede
+              // reintentar la cancelación con otro motivo.
+              ...r,
+              estado: "timbrado" as const,
+              error: `Cancelación rechazada · ${ev.codigo}: ${ev.motivo}`,
+            }
+          : r,
       );
 
     default: {
@@ -184,7 +257,59 @@ export function etiquetaEstadoCfdi(estado: EstadoCfdi): string {
       return "Timbrado";
     case "rechazado":
       return "Rechazado";
+    case "cancelacion_solicitada":
+      return "Cancelación en trámite";
     case "cancelado":
       return "Cancelado";
+    case "cancelacion_rechazada":
+      return "Cancelación rechazada";
   }
+}
+
+/**
+ * ¿Se puede cancelar este comprobante con este motivo? Devuelve el problema en
+ * palabras, o `null` si procede.
+ *
+ * Concentra las reglas del SAT que, de romperse, hacen que la cancelación se
+ * rechace horas después: solo se cancela lo que llegó al SAT (timbrado), el
+ * motivo tiene que ser del catálogo, y el `01` —y solo el `01`— exige el UUID
+ * del comprobante que sustituye.
+ */
+export function problemaCancelacion(
+  registro: RegistroCfdi,
+  motivo: string,
+  uuidSustitucion?: string,
+): string | null {
+  if (registro.estado === "cancelado") return "Este comprobante ya está cancelado.";
+  if (registro.estado === "cancelacion_solicitada") {
+    return "Ya hay una cancelación en trámite para este comprobante.";
+  }
+  if (registro.estado !== "timbrado") {
+    return "Solo se puede cancelar un comprobante ya timbrado ante el SAT.";
+  }
+
+  if (!MOTIVOS_CANCELACION.some((m) => m.clave === motivo)) {
+    return "Elige un motivo de cancelación válido del catálogo del SAT.";
+  }
+
+  const sustitucion = uuidSustitucion?.trim() ?? "";
+  if (motivoRequiereSustitucion(motivo)) {
+    if (!sustitucion) {
+      return "El motivo 01 exige el folio fiscal (UUID) del comprobante que lo sustituye.";
+    }
+    if (!/^[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}$/.test(sustitucion)) {
+      return "El folio fiscal de sustitución no tiene forma de UUID.";
+    }
+  } else if (sustitucion) {
+    return "Este motivo NO lleva comprobante de sustitución; solo el 01 lo usa.";
+  }
+
+  return null;
+}
+
+/** Cancelaciones pedidas que el Hub todavía no ha mandado al SAT. */
+export function colaDeCancelacion(registros: readonly RegistroCfdi[]): RegistroCfdi[] {
+  return registros
+    .filter((r) => r.estado === "cancelacion_solicitada")
+    .sort((a, b) => a.generado_ts - b.generado_ts);
 }
