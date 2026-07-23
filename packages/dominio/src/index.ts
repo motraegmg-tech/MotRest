@@ -53,6 +53,7 @@ export * from "./inteligencia/reportes.js";
 export * from "./fiscal/claves.js";
 export * from "./fiscal/rfc.js";
 export * from "./fiscal/comprobante.js";
+export * from "./fiscal/cadena.js";
 export * from "./fiscal/xml.js";
 export * from "./fiscal/validacion.js";
 export * from "./fiscal/eventos.js";

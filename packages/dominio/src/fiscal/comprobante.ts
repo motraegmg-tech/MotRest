@@ -99,6 +99,19 @@ export interface Comprobante {
   total_impuestos_trasladados: Centavos;
   /** Cuenta que originó el comprobante. */
   orden_id: ID;
+
+  /**
+   * Número de serie del CSD con el que se firma.
+   *
+   * Se rellena al sellar, no al construir el comprobante: sale del certificado
+   * y hasta ese momento no se sabe cuál se usará. Forma parte de la cadena
+   * original, a diferencia del Sello y del Certificado.
+   */
+  no_certificado?: string;
+  /** Sello digital en base64. Lo pone quien tiene el CSD. */
+  sello?: string;
+  /** Certificado del CSD en base64. Lo pone quien sella. */
+  certificado?: string;
 }
 
 /** Traduce la forma de pago interna a la clave del SAT. */
