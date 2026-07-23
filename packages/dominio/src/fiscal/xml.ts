@@ -69,10 +69,26 @@ function conceptoXml(concepto: ConceptoCfdi, sangria: string): string {
 }
 
 /**
- * Serializa el comprobante a XML del SAT.
- * Faltan Sello, NoCertificado y Certificado: los agrega quien tiene el CSD.
+ * Lo que aporta quien tiene el CSD. Sin esto el comprobante está incompleto y
+ * el PAC no lo acepta.
  */
-export function comprobanteAXml(c: Comprobante): string {
+export interface SelloDelCsd {
+  sello: string;
+  no_certificado: string;
+  certificado: string;
+}
+
+/**
+ * Serializa el comprobante a XML del SAT.
+ *
+ * Sin `sello`, sale el comprobante en borrador —útil para previsualizar—. Con
+ * él, sale lo que se le manda al PAC.
+ *
+ * El orden de los atributos sigue el del Anexo 20 aunque XML no lo exija: los
+ * validadores del SAT y de los PAC se han cerrado alguna vez ante un
+ * comprobante correcto pero desordenado, y no hay nada que ganar apartándose.
+ */
+export function comprobanteAXml(c: Comprobante, sello?: SelloDelCsd): string {
   const encabezado = atributos({
     "xmlns:cfdi": "http://www.sat.gob.mx/cfd/4",
     "xmlns:xsi": "http://www.w3.org/2001/XMLSchema-instance",
@@ -82,7 +98,10 @@ export function comprobanteAXml(c: Comprobante): string {
     Serie: c.serie,
     Folio: c.folio,
     Fecha: c.fecha,
+    Sello: sello?.sello,
     FormaPago: c.forma_pago,
+    NoCertificado: sello?.no_certificado,
+    Certificado: sello?.certificado,
     SubTotal: importeSat(c.subtotal),
     Descuento: c.descuento > 0 ? importeSat(c.descuento) : undefined,
     Moneda: c.moneda,
@@ -146,4 +165,59 @@ export function comprobanteAXml(c: Comprobante): string {
   ]
     .filter((linea) => linea !== "")
     .join("\n");
+}
+
+/** El Timbre Fiscal Digital: lo que el PAC agrega y convierte el CFDI en factura. */
+export interface TimbreFiscal {
+  uuid: string;
+  fecha_timbrado: string;
+  sello_cfd: string;
+  no_certificado_sat: string;
+  sello_sat: string;
+  rfc_pac: string;
+}
+
+/**
+ * Lee el timbre del XML que devolvió el PAC.
+ *
+ * Se extrae del XML en vez de confiar en los campos sueltos que cada PAC
+ * devuelve a su manera: el XML timbrado es el documento fiscal, y lo que valga
+ * ahí es lo que vale ante el SAT. Si un PAC informara un UUID distinto del que
+ * puso en el XML, manda el XML.
+ *
+ * Es una lectura por expresión regular sobre un atributo, no un analizador de
+ * XML: alcanza para un elemento plano y sin contenido como este, y evita traer
+ * una dependencia entera al Hub para leer seis atributos.
+ */
+export function leerTimbre(xmlTimbrado: string): TimbreFiscal | null {
+  const bloque = /<tfd:TimbreFiscalDigital\b([^>]*)\/?>/i.exec(xmlTimbrado);
+  if (!bloque) return null;
+
+  const leer = (nombre: string): string => {
+    const encontrado = new RegExp(`\\b${nombre}\\s*=\\s*"([^"]*)"`, "i").exec(bloque[1]!);
+    return encontrado ? desescaparXml(encontrado[1]!) : "";
+  };
+
+  const uuid = leer("UUID");
+  if (!uuid) return null;
+
+  return {
+    uuid,
+    fecha_timbrado: leer("FechaTimbrado"),
+    sello_cfd: leer("SelloCFD"),
+    no_certificado_sat: leer("NoCertificadoSAT"),
+    sello_sat: leer("SelloSAT"),
+    rfc_pac: leer("RfcProvCertif"),
+  };
+}
+
+function desescaparXml(texto: string): string {
+  return texto
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, '"')
+    .replace(/&apos;/g, "'")
+    // El ampersand va al final: deshacerlo primero volvería a interpretar las
+    // entidades que él mismo produce.
+    .replace(/&amp;/g, "&");
 }

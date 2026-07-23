@@ -25,7 +25,7 @@ import {
 } from "../fiscal/eventos.js";
 import { codigoPostalValido, problemaRfc, rfcValido, tipoPersonaDe } from "../fiscal/rfc.js";
 import { listoParaTimbrar, validarComprobante } from "../fiscal/validacion.js";
-import { comprobanteAXml, escaparXml } from "../fiscal/xml.js";
+import { comprobanteAXml, escaparXml, leerTimbre } from "../fiscal/xml.js";
 
 const CTX = { device_id: "dev-1", empleado_id: "usr-1", sucursal_id: "suc-1" };
 
@@ -287,6 +287,32 @@ describe("serialización a XML", () => {
     expect(xml).not.toContain("TimbreFiscalDigital");
   });
 
+  describe("con el sello del CSD", () => {
+    const sellado = comprobanteAXml(cfdi, {
+      sello: "SELLO==",
+      no_certificado: "30001000000500003416",
+      certificado: "MIIF...",
+    });
+
+    it("agrega los tres atributos que aporta quien tiene el CSD", () => {
+      expect(sellado).toContain('Sello="SELLO=="');
+      expect(sellado).toContain('NoCertificado="30001000000500003416"');
+      expect(sellado).toContain('Certificado="MIIF..."');
+    });
+
+    /*
+     * XML no exige orden de atributos, pero los validadores del SAT y de los
+     * PAC se han cerrado alguna vez ante un comprobante correcto y desordenado.
+     * No hay nada que ganar apartándose del Anexo 20.
+     */
+    it("los coloca donde van en el Anexo 20", () => {
+      expect(sellado.indexOf("Sello=")).toBeGreaterThan(sellado.indexOf("Fecha="));
+      expect(sellado.indexOf("Sello=")).toBeLessThan(sellado.indexOf("FormaPago="));
+      expect(sellado.indexOf("NoCertificado=")).toBeGreaterThan(sellado.indexOf("FormaPago="));
+      expect(sellado.indexOf("Certificado=")).toBeLessThan(sellado.indexOf("SubTotal="));
+    });
+  });
+
   it("cierra todas las etiquetas que abre", () => {
     expect(xml).toContain("<cfdi:Comprobante ");
     expect(xml).toContain("</cfdi:Comprobante>");
@@ -402,5 +428,52 @@ describe("cola de timbrado offline", () => {
       cfdi_id: "c1", orden_id: cfdi.orden_id, serie: "A", folio: "1", comprobante: cfdi,
     });
     expect(proyectarCfdis([alta, alta])).toHaveLength(1);
+  });
+});
+
+// --- El timbre que devuelve el PAC -------------------------------------------------------
+
+describe("leer el timbre del XML timbrado", () => {
+  const timbrado = `<?xml version="1.0" encoding="UTF-8"?>
+<cfdi:Comprobante Version="4.0">
+  <cfdi:Complemento>
+    <tfd:TimbreFiscalDigital Version="1.1" UUID="A1B2C3D4-0000-1111-2222-333344445555" FechaTimbrado="2026-07-23T20:15:03" SelloCFD="abc==" NoCertificadoSAT="00001000000504465028" SelloSAT="def==" RfcProvCertif="SPR190613I52" />
+  </cfdi:Complemento>
+</cfdi:Comprobante>`;
+
+  /*
+   * Se lee del XML y no de los campos sueltos que cada PAC devuelve a su
+   * manera: el XML timbrado ES el documento fiscal, y lo que valga ahí es lo
+   * que vale ante el SAT.
+   */
+  it("saca el UUID y los datos del timbre", () => {
+    const timbre = leerTimbre(timbrado);
+    expect(timbre?.uuid).toBe("A1B2C3D4-0000-1111-2222-333344445555");
+    expect(timbre?.fecha_timbrado).toBe("2026-07-23T20:15:03");
+    expect(timbre?.no_certificado_sat).toBe("00001000000504465028");
+    expect(timbre?.rfc_pac).toBe("SPR190613I52");
+  });
+
+  it("un comprobante sin timbrar no tiene timbre", () => {
+    const recienGenerado = construirComprobante(cuentaCerrada().estado, cat, {
+      serie: "A", folio: "1", emisor: EMISOR, receptor: RECEPTOR,
+    });
+    expect(leerTimbre(comprobanteAXml(recienGenerado))).toBeNull();
+  });
+
+  it("un timbre sin UUID no cuenta: sin folio fiscal no hay factura", () => {
+    expect(leerTimbre('<tfd:TimbreFiscalDigital FechaTimbrado="2026-07-23T20:15:03" />')).toBeNull();
+  });
+
+  it("deshace las entidades XML del sello", () => {
+    const conEntidades =
+      '<tfd:TimbreFiscalDigital UUID="A1" SelloSAT="a&amp;b&lt;c" FechaTimbrado="x" />';
+    expect(leerTimbre(conEntidades)?.sello_sat).toBe("a&b<c");
+  });
+
+  it("tolera el prefijo en mayúsculas y el cierre en dos etiquetas", () => {
+    const variante =
+      '<TFD:TimbreFiscalDigital UUID="B2" FechaTimbrado="x"></TFD:TimbreFiscalDigital>';
+    expect(leerTimbre(variante)?.uuid).toBe("B2");
   });
 });
