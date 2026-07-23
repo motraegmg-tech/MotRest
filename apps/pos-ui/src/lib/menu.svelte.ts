@@ -53,7 +53,7 @@ import {
   type Receta,
   type ResumenMenu,
 } from "@motrest/dominio";
-import type { Almacen } from "@motrest/protocolo-sync";
+import { catalogoMasNuevo, type Almacen } from "@motrest/protocolo-sync";
 import { sesion } from "./sesion/sesion.svelte";
 
 export const CLAVE_MENU = "menu_local";
@@ -68,6 +68,7 @@ const SIN_PROBLEMAS: ResultadoMenu = { ok: true, problemas: [] };
 class StoreMenu {
   private datos = $state.raw<MenuLocal | null>(null);
   private almacen: Almacen | null = null;
+  private alCambiar: ((menu: MenuLocal) => void) | null = null;
 
   // --- Persistencia ------------------------------------------------------------------
 
@@ -98,6 +99,30 @@ class StoreMenu {
     void this.almacen?.estado.guardar(CLAVE_MENU, this.datos).catch((causa) => {
       console.error("No se pudo guardar el menú", causa);
     });
+    // La carta editada aquí tiene que llegar a las demás terminales: un mesero
+    // no puede seguir vendiendo un platillo que se acaba de agotar.
+    this.alCambiar?.(this.datos);
+  }
+
+  /** Avisa cuando el menú cambia, para replicarlo al resto del local. */
+  alPublicar(escucha: (menu: MenuLocal) => void): void {
+    this.alCambiar = escucha;
+  }
+
+  /**
+   * Adopta el menú de otra terminal si es más nuevo.
+   *
+   * La comparación vive en el protocolo (`catalogoMasNuevo`) y manda la
+   * versión, no el reloj: una terminal con la hora adelantada no debe pisar
+   * para siempre los cambios de las demás.
+   */
+  fusionar(entrante: MenuLocal): boolean {
+    if (!catalogoMasNuevo(entrante, this.datos)) return false;
+    this.datos = entrante;
+    void this.almacen?.estado.guardar(CLAVE_MENU, entrante).catch((causa) => {
+      console.error("No se pudo guardar el menú recibido", causa);
+    });
+    return true;
   }
 
   // --- Lectura -------------------------------------------------------------------------

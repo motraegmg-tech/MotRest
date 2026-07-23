@@ -15,6 +15,7 @@ import {
   VERSION_PROTOCOLO,
   interpretar,
   serializar,
+  type Catalogo,
   type EstadoEnlace,
   type MensajeHub,
   type MensajeCliente,
@@ -40,6 +41,10 @@ export interface OpcionesCliente {
   crearSocket?: (url: string) => SocketLike;
   /** Se llama con los eventos que llegan de otros dispositivos. */
   alRecibir?: (eventos: EventoBase[]) => void;
+  /** Se llama con los catálogos que llegan del Hub (menú, plano, impresoras). */
+  alRecibirCatalogos?: (catalogos: Catalogo[]) => void;
+  /** Devuelve los catálogos locales, para publicarlos al conectar. */
+  catalogosLocales?: () => Catalogo[];
   alCambiarEstado?: (estado: EstadoEnlace, detalle?: string) => void;
   /** Espera base entre reintentos, en ms. */
   reintentoBase?: number;
@@ -123,11 +128,23 @@ export class ClienteSync {
 
   private async recibir(mensaje: MensajeHub): Promise<void> {
     switch (mensaje.tipo) {
-      case "bienvenida":
+      case "bienvenida": {
         // Se empuja lo pendiente ANTES de pedir lo ajeno: lo que este
         // dispositivo vendió sin red es lo más urgente por publicar.
         await this.empujar();
+
+        // Los catálogos locales se publican también. El Hub se queda con el más
+        // nuevo de cada uno, así que mandar el propio no pisa nada: si el del
+        // local va más adelantado, lo descarta y devuelve el bueno.
+        const catalogos = this.opciones.catalogosLocales?.() ?? [];
+        if (catalogos.length > 0) this.enviar({ tipo: "catalogo", catalogos });
+
         this.enviar({ tipo: "pull", desde_seq: this.ultimoSeq });
+        break;
+      }
+
+      case "catalogo":
+        this.opciones.alRecibirCatalogos?.(mensaje.catalogos);
         break;
 
       case "acks":
@@ -171,6 +188,12 @@ export class ClienteSync {
       case "pong":
         break;
     }
+  }
+
+  /** Publica un catálogo que acaba de cambiar en este dispositivo. */
+  publicarCatalogo(catalogo: Catalogo): void {
+    if (!this.socket) return;
+    this.enviar({ tipo: "catalogo", catalogos: [catalogo] });
   }
 
   /** Envía lo que el Hub todavía no ha confirmado. */

@@ -26,6 +26,7 @@
   import { arranque } from "./lib/persistencia/arranque.svelte";
   import { autorizacion } from "./lib/sesion/autorizacion.svelte";
   import { sesion } from "./lib/sesion/sesion.svelte";
+  import { sync } from "./lib/sync.svelte";
 
   let mostrarAcceso = $state(false);
 
@@ -91,6 +92,24 @@
   </div>
 {/if}
 
+<!--
+  Terminal recién emparejada: no siembra una demostración propia, espera a que
+  el Hub le mande la operación del local. Si el Hub no responde, hay que decirlo
+  en vez de dejar una pantalla vacía sin explicación.
+-->
+{#if arranque.esperandoHub}
+  <div class="esperando" role="status">
+    {#if sync.estado === "sincronizado"}
+      Terminal enlazada. Este local todavía no tiene operación registrada.
+    {:else if sync.estado === "isla"}
+      Sin contacto con el Hub del local. Revisa que esté encendido: en cuanto
+      responda, esta terminal recibirá la operación en curso.
+    {:else}
+      Recibiendo la operación del local…
+    {/if}
+  </div>
+{/if}
+
 {#if mostrarAcceso || !sesion.autenticado}
   <Acceso onCerrar={() => (mostrarAcceso = false)} />
 {:else if sesion.debeCambiarCredencial}
@@ -136,7 +155,8 @@
   .cargando p {
     font-size: 0.9rem;
   }
-  .efimero {
+  .efimero,
+  .esperando {
     position: fixed;
     z-index: 44;
     top: 0.75rem;
@@ -149,6 +169,13 @@
     font-size: 0.8rem;
     font-weight: 600;
     box-shadow: var(--sombra-sm);
+  }
+  .esperando {
+    top: 3rem;
+    max-width: min(34rem, calc(100vw - 2rem));
+    border-radius: var(--r-md);
+    text-align: center;
+    line-height: 1.4;
   }
   .app {
     display: flex;

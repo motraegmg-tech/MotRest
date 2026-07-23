@@ -65,6 +65,11 @@ class Arranque {
   error = $state("");
   /** true = los datos viven solo en memoria (sin IndexedDB disponible). */
   efimero = $state(false);
+  /**
+   * true = terminal recién emparejada y todavía sin datos: espera a que el Hub
+   * le mande la operación del local en vez de sembrar una demostración propia.
+   */
+  esperandoHub = $state(false);
 
   private almacen: Almacen | null = null;
 
@@ -92,10 +97,22 @@ class Arranque {
       await menu.hidratar(almacen, menuSemilla);
       await impresion.hidratar(almacen);
 
+      // Con qué Hub trabaja esta terminal. Se resuelve ANTES de decidir si
+      // sembrar, porque de eso depende la decisión.
+      await sync.resolverDestino(almacen);
+
       const guardados = await almacen.eventos.leerTodos();
 
       if (guardados.length === 0) {
-        await this.sembrar();
+        // Una terminal que se une a un local existente NO inventa su propio
+        // salón: recibe el que ya está operando. Sembrar aquí crearía órdenes
+        // distintas para las mismas mesas en cada dispositivo, y el salón
+        // aparecería duplicado en cuanto ambos sincronizaran.
+        if (sync.configurado) {
+          this.esperandoHub = true;
+        } else {
+          await this.sembrar();
+        }
       } else {
         const ordenados = [...guardados].sort(compararEventos);
         const comanda = ordenados.filter((e) =>
@@ -143,11 +160,13 @@ class Arranque {
       // El almacén nace en la etapa 8: un dispositivo con operación anterior no
       // tiene ni un movimiento y abriría el inventario en ceros. Se carga aquí,
       // después de conectar, para que quede persistido como cualquier recepción.
-      this.cargarAlmacenInicial();
+      // Una terminal que espera al Hub no carga nada: el almacén del local ya
+      // existe y le llegará por sincronización.
+      if (!this.esperandoHub) this.cargarAlmacenInicial();
 
-      // El enlace con el Hub va al final y sin `await`: si no hay Hub, o está
-      // apagado, el POS ya quedó listo para operar en isla (TRD R3).
-      void sync.iniciar(almacen, (eventos) => this.aplicarDeOtros(eventos));
+      // El enlace con el Hub va al final: si no hay Hub, o está apagado, el POS
+      // ya quedó listo para operar en isla (TRD R3).
+      sync.iniciar((eventos) => this.aplicarDeOtros(eventos));
     } catch (causa) {
       this.error = causa instanceof Error ? causa.message : "Error al cargar los datos";
       console.error("Fallo al rehidratar", causa);
@@ -184,6 +203,8 @@ class Arranque {
    */
   private aplicarDeOtros(eventos: readonly EventoBase[]): void {
     if (eventos.length === 0) return;
+    // Ya llegó la operación del local: la terminal deja de estar en blanco.
+    this.esperandoHub = false;
     const ordenados = [...eventos].sort(compararEventos);
 
     const comanda = ordenados.filter((e) =>

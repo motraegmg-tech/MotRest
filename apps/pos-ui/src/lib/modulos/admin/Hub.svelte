@@ -6,18 +6,44 @@
    * compartan el mismo salón en vivo. Sin él, cada dispositivo opera en isla y
    * se reconcilia cuando vuelva (TRD R3).
    */
-  import { sync } from "../../sync.svelte";
+  import { hora } from "../../formato";
+  import { sync, type DispositivoHub } from "../../sync.svelte";
 
   let borrador = $state(sync.url);
   let guardando = $state(false);
+  let terminales = $state<DispositivoHub[]>([]);
 
   const estado = $derived(sync.estado);
+
+  // Se refresca cada 5 s: es una pantalla de configuración que se deja abierta
+  // mientras se encienden las terminales del local, y hay que verlas aparecer.
+  $effect(() => {
+    void refrescar();
+    const t = setInterval(() => void refrescar(), 5_000);
+    return () => clearInterval(t);
+  });
+
+  async function refrescar() {
+    terminales = await sync.dispositivos();
+  }
 
   async function guardar() {
     guardando = true;
     await sync.configurar(borrador);
     guardando = false;
+    await refrescar();
   }
+
+  async function aprobar(deviceId: string) {
+    if (await sync.aprobar(deviceId)) await refrescar();
+  }
+
+  /** Dirección para emparejar otra terminal: la que se teclea o se manda. */
+  const enlaceEmparejamiento = $derived(
+    sync.configurado
+      ? `${location.origin}/?hub=${encodeURIComponent(sync.url)}`
+      : "",
+  );
 </script>
 
 <div class="seccion">
@@ -53,12 +79,87 @@
     {#if sync.detalle}
       <p class="detalle">{sync.detalle}</p>
     {/if}
-    {#if sync.recibidos > 0}
+    {#if sync.recibidos > 0 || sync.catalogosRecibidos > 0}
       <p class="detalle ok">
-        {sync.recibidos} eventos recibidos de otras terminales en esta sesión.
+        {sync.recibidos} eventos recibidos de otras terminales en esta sesión{#if sync.catalogosRecibidos > 0}
+          · {sync.catalogosRecibidos} actualizaciones de catálogo{/if}.
       </p>
     {/if}
   </section>
+
+  {#if sync.configurado}
+    <!-- Emparejar otra terminal -->
+    <section class="tarjeta">
+      <h2>Agregar una terminal</h2>
+      <p class="pista">
+        Abre esta dirección en la otra terminal —tablet, caja o la pantalla de
+        cocina— y quedará enlazada al local. No sembrará una demostración propia:
+        recibirá la operación que ya está en curso.
+      </p>
+      <div class="enlace">
+        <code>{enlaceEmparejamiento}</code>
+        <button onclick={() => navigator.clipboard?.writeText(enlaceEmparejamiento)}>
+          Copiar
+        </button>
+      </div>
+      <p class="pista tenue">
+        En la etapa 12 esto será un código QR que se escanea. Hoy se teclea o se
+        manda por mensaje.
+      </p>
+    </section>
+
+    <!-- Terminales del local -->
+    <section class="tarjeta">
+      <h2>Terminales del local</h2>
+      {#if terminales.length === 0}
+        <p class="vacio">
+          {estado === "isla"
+            ? "Sin contacto con el Hub. Revisa que esté encendido y que la dirección sea correcta."
+            : "Ninguna terminal registrada todavía."}
+        </p>
+      {:else}
+        <table>
+          <thead>
+            <tr>
+              <th>Terminal</th>
+              <th>Estado</th>
+              <th class="num">Al día hasta</th>
+              <th class="num">Vista</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>
+            {#each terminales as t (t.device_id)}
+              <tr>
+                <td>
+                  <b>{t.nombre ?? t.device_id.slice(0, 12)}</b>
+                  {#if t.es_este}<small>esta terminal</small>{/if}
+                </td>
+                <td>
+                  {#if t.aprobado}
+                    <span class="chip ok">Autorizada</span>
+                  {:else}
+                    <span class="chip pendiente">Sin autorizar</span>
+                  {/if}
+                </td>
+                <td class="num tenue">seq {t.ultimo_seq}</td>
+                <td class="num tenue">{hora(t.visto_ts)}</td>
+                <td class="num">
+                  {#if !t.aprobado}
+                    <button onclick={() => aprobar(t.device_id)}>Autorizar</button>
+                  {/if}
+                </td>
+              </tr>
+            {/each}
+          </tbody>
+        </table>
+        <p class="pista">
+          Una terminal nace <b>sin autorizar</b>: alcanzar la red del local no da
+          derecho a escribir en el registro de ventas.
+        </p>
+      {/if}
+    </section>
+  {/if}
 
   <section class="tarjeta">
     <h2>Cómo funciona</h2>
@@ -214,6 +315,97 @@
   }
   .detalle.ok {
     color: #3f5c31;
+  }
+  .pista.tenue {
+    font-size: 0.76rem;
+    font-style: italic;
+  }
+  .enlace {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    background: var(--fondo);
+    border: 1px solid var(--borde);
+    border-radius: var(--r-md);
+    padding: 0.6rem 0.75rem;
+    margin-top: 0.6rem;
+  }
+  .enlace code {
+    flex: 1;
+    font-family: "Consolas", monospace;
+    font-size: 0.8rem;
+    word-break: break-all;
+  }
+  .enlace button,
+  table button {
+    border: 1.5px solid var(--borde);
+    border-radius: var(--r-sm);
+    padding: 0.3rem 0.75rem;
+    font-size: 0.8rem;
+    font-weight: 600;
+    color: var(--pizarra);
+    background: #fff;
+    white-space: nowrap;
+  }
+  .enlace button:hover,
+  table button:hover {
+    border-color: var(--acento);
+    color: var(--acento);
+  }
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.87rem;
+  }
+  th {
+    text-align: left;
+    font-size: 0.7rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--gris);
+    padding-bottom: 0.5rem;
+    border-bottom: 1px solid var(--borde);
+  }
+  th.num,
+  td.num {
+    text-align: right;
+    white-space: nowrap;
+  }
+  td {
+    padding: 0.5rem 0;
+    border-bottom: 1px solid var(--borde);
+  }
+  td small {
+    display: block;
+    font-size: 0.72rem;
+    color: var(--acento);
+  }
+  .tenue {
+    color: var(--gris);
+  }
+  .chip {
+    display: inline-block;
+    font-size: 0.74rem;
+    font-weight: 600;
+    border-radius: var(--r-pill);
+    padding: 0.1rem 0.6rem;
+    background: var(--fondo);
+    color: var(--gris);
+  }
+  .chip.ok {
+    background: #eef6e9;
+    color: #3f5c31;
+  }
+  .chip.pendiente {
+    background: #fdf1e5;
+    color: #8a5a1f;
+  }
+  .vacio {
+    font-size: 0.87rem;
+    color: var(--gris);
+    font-style: italic;
+    line-height: 1.5;
   }
   dl {
     display: flex;

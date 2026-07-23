@@ -20,6 +20,8 @@ import { LogHub } from "@motrest/protocolo-sync/sqlite";
 import { Hub, type Conexion } from "../servidor.js";
 
 const SUC = "suc-rodizio";
+const HORA = 3_600_000;
+const T0 = new Date(2026, 6, 22, 20, 0).getTime();
 
 /** Conexión de mentira: guarda lo que el Hub le manda. */
 class ConexionPrueba implements Conexion {
@@ -346,31 +348,58 @@ describe("el Hub no confía en el cliente", () => {
     expect(await log.contar()).toBe(0);
   });
 
-  it("con aprobación exigida, un dispositivo desconocido no puede sincronizar", () => {
+  it("la PRIMERA terminal del local se autoriza sola, o nadie podría autorizar a nadie", () => {
     const cerrado = new Hub({ hub_id: "hub-cerrado", log, exigirAprobacion: true });
-    const cx = new ConexionPrueba("cx-intruso");
-    cerrado.conectar(cx);
-    cerrado.recibir(cx.id, {
-      tipo: "hola",
-      v: VERSION_PROTOCOLO,
-      device_id: "dev-intruso",
-      sucursal_id: SUC,
-      desde_seq: 0,
+    const primera = new ConexionPrueba("cx-primera");
+    cerrado.conectar(primera);
+    cerrado.recibir(primera.id, {
+      tipo: "hola", v: VERSION_PROTOCOLO, device_id: "dev-caja", sucursal_id: SUC, desde_seq: 0,
     });
 
-    expect(cx.ultimo("error")!.codigo).toBe("no_emparejado");
-    expect(cx.cerrada).toBe(true);
+    expect(primera.ultimo("bienvenida")).toBeDefined();
+    expect(log.dispositivo("dev-caja")!.aprobado).toBe(true);
   });
 
-  it("tras aprobarlo, el mismo dispositivo entra", () => {
+  it("pero la SEGUNDA ya no: hace falta que alguien la autorice", () => {
     const cerrado = new Hub({ hub_id: "hub-cerrado", log, exigirAprobacion: true });
+
+    const primera = new ConexionPrueba("cx-primera");
+    cerrado.conectar(primera);
+    cerrado.recibir(primera.id, {
+      tipo: "hola", v: VERSION_PROTOCOLO, device_id: "dev-caja", sucursal_id: SUC, desde_seq: 0,
+    });
+
+    const intrusa = new ConexionPrueba("cx-intrusa");
+    cerrado.conectar(intrusa);
+    cerrado.recibir(intrusa.id, {
+      tipo: "hola", v: VERSION_PROTOCOLO, device_id: "dev-intrusa", sucursal_id: SUC, desde_seq: 0,
+    });
+
+    expect(intrusa.ultimo("error")!.codigo).toBe("no_emparejado");
+    expect(intrusa.cerrada).toBe(true);
+    // Queda registrada para que alguien pueda decidir sobre ella.
+    expect(log.dispositivo("dev-intrusa")!.aprobado).toBe(false);
+  });
+
+  it("tras autorizarla, la terminal rechazada entra al segundo intento", () => {
+    const cerrado = new Hub({ hub_id: "hub-cerrado", log, exigirAprobacion: true });
+
+    // La primera del local se autoriza sola y consume la confianza inicial.
+    const caja = new ConexionPrueba("cx-caja");
+    cerrado.conectar(caja);
+    cerrado.recibir(caja.id, {
+      tipo: "hola", v: VERSION_PROTOCOLO, device_id: "dev-caja", sucursal_id: SUC, desde_seq: 0,
+    });
+
+    // La siguiente llega y la rechazan.
     const primera = new ConexionPrueba("cx-1");
     cerrado.conectar(primera);
     cerrado.recibir(primera.id, {
       tipo: "hola", v: VERSION_PROTOCOLO, device_id: "dev-nuevo", sucursal_id: SUC, desde_seq: 0,
     });
-    expect(primera.ultimo("error")).toBeDefined();
+    expect(primera.ultimo("error")!.codigo).toBe("no_emparejado");
 
+    // Alguien la autoriza desde la caja, y vuelve a intentar.
     log.aprobarDispositivo("dev-nuevo");
 
     const segunda = new ConexionPrueba("cx-2");
@@ -387,6 +416,163 @@ describe("el Hub no confía en el cliente", () => {
     saludar(cx, "dev-caja");
     hub.recibir(cx.id, { tipo: "ping", ts: 1 });
     expect(cx.ultimo("pong")).toBeDefined();
+  });
+});
+
+// --- Catálogos del local -----------------------------------------------------------------
+
+describe("la carta del local se replica entre terminales", () => {
+  const carta = (version: number, updated_at = T0) => ({
+    clave: "menu_local",
+    version,
+    updated_at,
+    datos: { version, updated_at, productos: [{ id: "p1", precio: version * 100 }] },
+  });
+
+  it("el Hub reparte a las demás terminales lo que edita una", () => {
+    const caja = new ConexionPrueba("cx-caja");
+    const tablet = new ConexionPrueba("cx-tablet");
+    saludar(caja, "dev-caja");
+    saludar(tablet, "dev-tablet");
+
+    hub.recibir(caja.id, { tipo: "catalogo", catalogos: [carta(2)] });
+
+    const recibido = tablet.ultimo("catalogo");
+    expect(recibido?.catalogos).toHaveLength(1);
+    expect(recibido!.catalogos[0]!.version).toBe(2);
+  });
+
+  it("a quien la editó no se le devuelve su propia carta", () => {
+    const caja = new ConexionPrueba("cx-caja");
+    saludar(caja, "dev-caja");
+    hub.recibir(caja.id, { tipo: "catalogo", catalogos: [carta(2)] });
+    expect(caja.todos("catalogo")).toHaveLength(0);
+  });
+
+  it("una terminal que se enciende después recibe la carta vigente", () => {
+    const caja = new ConexionPrueba("cx-caja");
+    saludar(caja, "dev-caja");
+    hub.recibir(caja.id, { tipo: "catalogo", catalogos: [carta(5)] });
+
+    // Llega una terminal nueva: no debe atender con precios viejos.
+    const tarde = new ConexionPrueba("cx-tarde");
+    saludar(tarde, "dev-tarde");
+
+    const recibido = tarde.ultimo("catalogo");
+    expect(recibido?.catalogos[0]!.version).toBe(5);
+  });
+
+  it("una versión vieja NO pisa a la nueva, aunque llegue después", () => {
+    const caja = new ConexionPrueba("cx-caja");
+    const tablet = new ConexionPrueba("cx-tablet");
+    saludar(caja, "dev-caja");
+    saludar(tablet, "dev-tablet");
+
+    hub.recibir(caja.id, { tipo: "catalogo", catalogos: [carta(7)] });
+    // Una terminal que estuvo apagada reenvía su copia atrasada al reconectar.
+    hub.recibir(tablet.id, { tipo: "catalogo", catalogos: [carta(3)] });
+
+    const tercera = new ConexionPrueba("cx-tercera");
+    saludar(tercera, "dev-tercera");
+    expect(tercera.ultimo("catalogo")!.catalogos[0]!.version).toBe(7);
+  });
+
+  it("manda la versión sobre el reloj: un reloj adelantado no gana", () => {
+    const caja = new ConexionPrueba("cx-caja");
+    saludar(caja, "dev-caja");
+
+    hub.recibir(caja.id, { tipo: "catalogo", catalogos: [carta(4, T0)] });
+    // Terminal con la hora una semana adelantada, pero versión anterior.
+    hub.recibir(caja.id, {
+      tipo: "catalogo",
+      catalogos: [carta(2, T0 + 7 * 24 * HORA)],
+    });
+
+    const nueva = new ConexionPrueba("cx-nueva");
+    saludar(nueva, "dev-nueva");
+    expect(nueva.ultimo("catalogo")!.catalogos[0]!.version).toBe(4);
+  });
+
+  it("a igual versión desempata el reloj: eso es 'gana la última escritura'", () => {
+    const caja = new ConexionPrueba("cx-caja");
+    saludar(caja, "dev-caja");
+
+    hub.recibir(caja.id, { tipo: "catalogo", catalogos: [carta(4, T0)] });
+    hub.recibir(caja.id, { tipo: "catalogo", catalogos: [carta(4, T0 + HORA)] });
+
+    const nueva = new ConexionPrueba("cx-nueva");
+    saludar(nueva, "dev-nueva");
+    expect(nueva.ultimo("catalogo")!.catalogos[0]!.updated_at).toBe(T0 + HORA);
+  });
+
+  it("no se reparte la carta a otra sucursal", () => {
+    const caja = new ConexionPrueba("cx-caja");
+    saludar(caja, "dev-caja");
+
+    const ajena = new ConexionPrueba("cx-ajena");
+    hub.conectar(ajena);
+    hub.recibir(ajena.id, {
+      tipo: "hola", v: VERSION_PROTOCOLO, device_id: "dev-otro",
+      sucursal_id: "suc-otra", desde_seq: 0,
+    });
+
+    hub.recibir(caja.id, { tipo: "catalogo", catalogos: [carta(2)] });
+    expect(ajena.todos("catalogo")).toHaveLength(0);
+  });
+
+  it("descarta un catálogo malformado sin tumbar la conexión", () => {
+    const caja = new ConexionPrueba("cx-caja");
+    const tablet = new ConexionPrueba("cx-tablet");
+    saludar(caja, "dev-caja");
+    saludar(tablet, "dev-tablet");
+
+    hub.recibir(caja.id, {
+      tipo: "catalogo",
+      catalogos: [{ clave: 5, version: "x" } as never, carta(3)],
+    });
+
+    // El bueno pasó igual.
+    expect(tablet.ultimo("catalogo")!.catalogos).toHaveLength(1);
+    expect(caja.cerrada).toBe(false);
+  });
+
+  it("persiste lo aceptado, para sobrevivir al reinicio del Hub", () => {
+    const guardados: { clave: string; version: number }[] = [];
+    const conDisco = new Hub({
+      hub_id: "hub-1",
+      log,
+      exigirAprobacion: false,
+      guardarCatalogo: (c) => guardados.push({ clave: c.clave, version: c.version }),
+    });
+
+    const caja = new ConexionPrueba("cx-caja");
+    conDisco.conectar(caja);
+    conDisco.recibir(caja.id, {
+      tipo: "hola", v: VERSION_PROTOCOLO, device_id: "dev-caja", sucursal_id: SUC, desde_seq: 0,
+    });
+    conDisco.recibir(caja.id, { tipo: "catalogo", catalogos: [carta(9)] });
+
+    expect(guardados).toEqual([{ clave: "menu_local", version: 9 }]);
+  });
+
+  it("al arrancar, el Hub recupera la carta guardada", () => {
+    const reiniciado = new Hub({ hub_id: "hub-1", log, exigirAprobacion: false });
+    reiniciado.cargarCatalogos([carta(11)]);
+
+    const caja = new ConexionPrueba("cx-caja");
+    reiniciado.conectar(caja);
+    reiniciado.recibir(caja.id, {
+      tipo: "hola", v: VERSION_PROTOCOLO, device_id: "dev-caja", sucursal_id: SUC, desde_seq: 0,
+    });
+
+    expect(caja.ultimo("catalogo")!.catalogos[0]!.version).toBe(11);
+  });
+
+  it("exige presentarse antes de mandar catálogos", () => {
+    const cx = new ConexionPrueba("cx-1");
+    hub.conectar(cx);
+    hub.recibir(cx.id, { tipo: "catalogo", catalogos: [carta(2)] });
+    expect(cx.ultimo("error")!.codigo).toBe("no_emparejado");
   });
 });
 

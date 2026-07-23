@@ -24,3 +24,9 @@ pnpm-debug.log*
 Thumbs.db
 .vscode/*
 !.vscode/extensions.json
+
+# Datos de operación del Hub: el event log del local, nunca al repositorio
+apps/hub/datos/
+*.sqlite
+*.sqlite-wal
+*.sqlite-shm

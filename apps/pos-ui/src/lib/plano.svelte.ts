@@ -23,7 +23,7 @@ import {
   type PlanoLocal,
   type ProblemaPlano,
 } from "@motrest/dominio";
-import type { Almacen } from "@motrest/protocolo-sync";
+import { catalogoMasNuevo, type Almacen } from "@motrest/protocolo-sync";
 
 export const CLAVE_PLANO = "plano_local";
 
@@ -35,6 +35,7 @@ export interface Resultado {
 class StorePlano {
   private datos = $state.raw<PlanoLocal>(planoPorDefecto());
   private almacen: Almacen | null = null;
+  private alCambiar: ((plano: PlanoLocal) => void) | null = null;
 
   /** Área que se está viendo en el POS y en el editor. */
   areaActiva = $state<ID>("area-salon");
@@ -67,6 +68,30 @@ class StorePlano {
     void this.almacen?.estado.guardar(CLAVE_PLANO, this.datos).catch((causa) => {
       console.error("No se pudo guardar el plano", causa);
     });
+    this.alCambiar?.(this.datos);
+  }
+
+  /** Avisa cuando el plano cambia, para replicarlo al resto del local. */
+  alPublicar(escucha: (plano: PlanoLocal) => void): void {
+    this.alCambiar = escucha;
+  }
+
+  /**
+   * Adopta el plano de otra terminal si es más nuevo.
+   *
+   * Importa que se replique: las comandas se agrupan por mesa, y una terminal
+   * con un plano viejo no encontraría la mesa que otra acaba de crear.
+   */
+  fusionar(entrante: PlanoLocal): boolean {
+    if (!catalogoMasNuevo(entrante, this.datos)) return false;
+    this.datos = entrante;
+    if (!areaDe(this.datos, this.areaActiva)) {
+      this.areaActiva = this.areas[0]?.id ?? "";
+    }
+    void this.almacen?.estado.guardar(CLAVE_PLANO, entrante).catch((causa) => {
+      console.error("No se pudo guardar el plano recibido", causa);
+    });
+    return true;
   }
 
   // --- Consultas ------------------------------------------------------------------

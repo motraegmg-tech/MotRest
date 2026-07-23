@@ -18,7 +18,9 @@ import { evaluar, type Accion, type Usuario } from "@motrest/dominio";
 import type { EventoBase, ID } from "@motrest/dominio";
 import {
   VERSION_PROTOCOLO,
+  catalogoMasNuevo,
   eventoValido,
+  type Catalogo,
   type MensajeCliente,
   type MensajeHub,
 } from "@motrest/protocolo-sync";
@@ -51,6 +53,8 @@ export interface OpcionesHub {
   exigirAprobacion?: boolean;
   /** Resuelve un empleado para revalidar permisos. */
   usuarioDe?: (empleadoId: ID) => Usuario | undefined;
+  /** Persiste un catálogo aceptado, para que sobreviva al reinicio del Hub. */
+  guardarCatalogo?: (catalogo: Catalogo) => void;
   registrar?: (nivel: "info" | "aviso" | "error", mensaje: string) => void;
 }
 
@@ -67,6 +71,7 @@ const PERMISO_POR_EVENTO: Partial<Record<string, Accion>> = {
 
 export class Hub {
   private sesiones = new Map<string, Sesion>();
+  private catalogos = new Map<string, Catalogo>();
   private log: LogHub;
 
   constructor(private opciones: OpcionesHub) {
@@ -115,10 +120,51 @@ export class Hub {
           this.entregar(sesion, mensaje.desde_seq, mensaje.limite ?? 500);
         }
         break;
+      case "catalogo":
+        if (this.exigirSaludo(sesion)) this.recibirCatalogos(sesion, mensaje.catalogos);
+        break;
       case "ping":
         sesion.conexion.enviar({ tipo: "pong", ts: Date.now() });
         break;
     }
+  }
+
+  // --- Catálogos (menú, plano, impresoras) --------------------------------------------
+
+  /**
+   * Guarda un catálogo solo si es más nuevo que el que ya tiene, y lo reparte.
+   *
+   * El Hub es la copia de referencia: una terminal que se enciende después
+   * recibe la carta vigente del local, no la que traía de la última vez que
+   * estuvo encendida.
+   */
+  private recibirCatalogos(origen: Sesion, catalogos: readonly Catalogo[]): void {
+    const aceptados: Catalogo[] = [];
+
+    for (const catalogo of catalogos) {
+      if (typeof catalogo?.clave !== "string" || typeof catalogo.version !== "number") continue;
+
+      const actual = this.catalogos.get(catalogo.clave) ?? null;
+      if (!catalogoMasNuevo(catalogo, actual)) continue;
+
+      this.catalogos.set(catalogo.clave, catalogo);
+      this.opciones.guardarCatalogo?.(catalogo);
+      aceptados.push(catalogo);
+    }
+
+    if (aceptados.length === 0) return;
+    this.anotar("info", `Catálogo actualizado: ${aceptados.map((c) => c.clave).join(", ")}`);
+
+    for (const sesion of this.sesiones.values()) {
+      if (sesion.conexion.id === origen.conexion.id || !sesion.saludado) continue;
+      if (sesion.sucursal_id !== origen.sucursal_id) continue;
+      sesion.conexion.enviar({ tipo: "catalogo", catalogos: aceptados });
+    }
+  }
+
+  /** Carga los catálogos guardados al arrancar el Hub. */
+  cargarCatalogos(catalogos: readonly Catalogo[]): void {
+    for (const catalogo of catalogos) this.catalogos.set(catalogo.clave, catalogo);
   }
 
   /** Nadie escribe ni lee sin identificarse primero. */
@@ -143,9 +189,30 @@ export class Hub {
       return;
     }
 
-    const dispositivo =
-      this.log.dispositivo(mensaje.device_id) ??
-      this.log.registrarDispositivo(mensaje.device_id, mensaje.token ?? "");
+    /*
+     * Confianza en el primer uso.
+     *
+     * La primera terminal de un Hub recién instalado se aprueba sola: si no,
+     * nadie podría aprobar a nadie —la pantalla que autoriza vive dentro de una
+     * terminal que todavía no está autorizada—. A partir de ahí toda alta nueva
+     * exige la firma de una terminal ya autorizada.
+     *
+     * Es la postura razonable mientras no exista el emparejamiento por
+     * certificado de la etapa 12, y se registra en la bitácora del Hub para que
+     * quede constancia de quién quedó como terminal de confianza.
+     */
+    let dispositivo = this.log.dispositivo(mensaje.device_id);
+    if (!dispositivo) {
+      dispositivo = this.log.registrarDispositivo(mensaje.device_id, mensaje.token ?? "");
+      if (this.log.dispositivos().length === 1) {
+        this.log.aprobarDispositivo(mensaje.device_id);
+        dispositivo = this.log.dispositivo(mensaje.device_id)!;
+        this.anotar(
+          "aviso",
+          `Primera terminal del local: ${mensaje.device_id} queda autorizada. Las siguientes requieren su aprobación.`,
+        );
+      }
+    }
 
     if (this.opciones.exigirAprobacion && !dispositivo.aprobado) {
       this.anotar("aviso", `Dispositivo sin aprobar intentó sincronizar: ${mensaje.device_id}`);
@@ -170,6 +237,12 @@ export class Hub {
       seq_actual: this.log.seqActual,
       ts: Date.now(),
     });
+
+    // La carta vigente del local va de inmediato: una terminal que se enciende
+    // después no debe atender con los precios que traía de la última vez.
+    if (this.catalogos.size > 0) {
+      sesion.conexion.enviar({ tipo: "catalogo", catalogos: [...this.catalogos.values()] });
+    }
   }
 
   /**

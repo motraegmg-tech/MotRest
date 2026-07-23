@@ -55,7 +55,32 @@ export interface MensajePing {
   ts: number;
 }
 
-export type MensajeCliente = MensajeHola | MensajePush | MensajePull | MensajePing;
+/**
+ * Un catálogo del local: el menú, el plano de piso, las impresoras.
+ *
+ * Los catálogos NO son event sourcing (TRD §5.2): son instantáneas versionadas
+ * que se replican con CRUD/LWW. A nadie le importa el historial de cómo se
+ * llegó al precio actual de un platillo; sí le importa cada peso cobrado, y eso
+ * es lo que vive en el event log.
+ */
+export interface Catalogo {
+  clave: string;
+  version: number;
+  updated_at: number;
+  datos: unknown;
+}
+
+export interface MensajeCatalogo {
+  tipo: "catalogo";
+  catalogos: Catalogo[];
+}
+
+export type MensajeCliente =
+  | MensajeHola
+  | MensajePush
+  | MensajePull
+  | MensajePing
+  | MensajeCatalogo;
 
 // --- Hub → Dispositivo -----------------------------------------------------------------
 
@@ -110,7 +135,26 @@ export type MensajeHub =
   | MensajeAcks
   | MensajeEventos
   | MensajeError
-  | MensajePong;
+  | MensajePong
+  | MensajeCatalogo;
+
+/**
+ * ¿La versión entrante de un catálogo gana a la que ya se tiene?
+ *
+ * Manda la VERSIÓN, no el reloj: los dispositivos sellan con su propia hora
+ * (ADR-17) y una terminal con el reloj adelantado podría pisar para siempre los
+ * cambios de las demás. El `updated_at` solo desempata dos ediciones que
+ * partieron de la misma versión, y ahí sí gana la más reciente — es lo que
+ * significa "last write wins".
+ */
+export function catalogoMasNuevo(
+  entrante: { version: number; updated_at: number },
+  actual: { version: number; updated_at: number } | null,
+): boolean {
+  if (!actual) return true;
+  if (entrante.version !== actual.version) return entrante.version > actual.version;
+  return entrante.updated_at > actual.updated_at;
+}
 
 // --- Serialización -----------------------------------------------------------------------
 
