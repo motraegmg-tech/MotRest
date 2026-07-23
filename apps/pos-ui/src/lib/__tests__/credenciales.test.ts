@@ -10,6 +10,8 @@ import { beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { MAX_INTENTOS, permisosDePlantilla, type Permiso, type Usuario } from "@motrest/dominio";
 import { arranque } from "../persistencia/arranque.svelte";
 import { sesion } from "../sesion/sesion.svelte";
+// Clave de fábrica, no una credencial personal: nunca escribimos una real aquí.
+import { CONTRASENA_INICIAL_PROPIETARIO } from "../sesion/usuarios";
 
 /*
  * PIN distintos en cada prueba.
@@ -57,7 +59,7 @@ beforeAll(async () => {
 
 beforeEach(async () => {
   // El propietario es quien puede dar de alta a los demás.
-  await sesion.iniciarSesion("usr-gonzalo", "MotCEO21");
+  await sesion.iniciarSesion("usr-gonzalo", CONTRASENA_INICIAL_PROPIETARIO);
 
   contador += 1;
   PIN_GERENTE = `${contador}9`;
@@ -174,7 +176,7 @@ describe("los candados", () => {
     expect(r.ok).toBe(false);
 
     // La del propietario sigue siendo la suya.
-    expect((await sesion.iniciarSesion("usr-gonzalo", "MotCEO21")).ok).toBe(true);
+    expect((await sesion.iniciarSesion("usr-gonzalo", CONTRASENA_INICIAL_PROPIETARIO)).ok).toBe(true);
   });
 
   it("un gerente tampoco puede restablecer la de otro gerente", async () => {
@@ -224,13 +226,13 @@ describe("cambiar la propia credencial estando dentro", () => {
    * restablecimiento con firma le está vedado a todos.
    */
   it("el propietario puede cambiar la suya", async () => {
-    await sesion.iniciarSesion("usr-gonzalo", "MotCEO21");
+    await sesion.iniciarSesion("usr-gonzalo", CONTRASENA_INICIAL_PROPIETARIO);
 
     const r = await sesion.cambiarCredencialPropia("NuevaClave2026", "contrasena");
     expect(r.ok).toBe(true);
     expect((await sesion.iniciarSesion("usr-gonzalo", "NuevaClave2026")).ok).toBe(true);
 
     // Se deja como estaba para no afectar a las demás pruebas.
-    await sesion.cambiarCredencialPropia("MotCEO21", "contrasena");
+    await sesion.cambiarCredencialPropia(CONTRASENA_INICIAL_PROPIETARIO, "contrasena");
   });
 });

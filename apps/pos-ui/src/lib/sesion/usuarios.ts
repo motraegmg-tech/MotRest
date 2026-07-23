@@ -1,11 +1,16 @@
 /**
  * Semilla de usuarios del local.
  *
- * SEGURIDAD: aquí solo viven DERIVACIONES PBKDF2 (sal + hash), nunca el secreto
- * en claro. De un hash no se puede recuperar la contraseña. Aun así, el hash de
- * una contraseña conocida es un artefacto sensible, por eso el propietario nace
- * con `debe_cambiar_credencial: true`: la aplicación exige cambiarla en el
- * primer inicio de sesión. Ver `docs/SEGURIDAD.md`.
+ * SEGURIDAD: aquí solo viven DERIVACIONES PBKDF2 (sal + hash), nunca un secreto
+ * personal en claro. De un hash no se puede recuperar la contraseña.
+ *
+ * La contraseña del propietario NO es una credencial personal: es una **clave
+ * de fábrica** (`CONTRASENA_INICIAL_PROPIETARIO`), la misma para toda
+ * instalación nueva y pensada para cambiarse desde el menú de usuario en cuanto
+ * el local abre. Por eso puede vivir aquí sin ser un secreto filtrado —igual
+ * que un router sale con una clave por defecto que hay que cambiar—. La
+ * contraseña real de una persona jamás se escribe en este archivo ni en las
+ * pruebas.
  *
  * En la etapa 4 estos usuarios pasan a la persistencia local, y en la etapa 10
  * al Hub con argon2id, que es lo que pide el TRD §10.
@@ -14,6 +19,15 @@ import { permisosDePlantilla, type Credencial, type RolId, type Usuario } from "
 import { SUCURSAL_ID } from "../presentacion";
 
 const AHORA = Date.now();
+
+/**
+ * Clave de fábrica del propietario en una instalación nueva.
+ *
+ * No es la contraseña de nadie: es un valor por defecto conocido, que se cambia
+ * en el primer arranque desde «Cambiar mi contraseña». Se exporta para que las
+ * pruebas la usen sin escribir una credencial real en el código.
+ */
+export const CONTRASENA_INICIAL_PROPIETARIO = "MotRest.Inicio.2026";
 
 export interface UsuarioSembrado {
   usuario: Usuario;
@@ -59,16 +73,17 @@ export const USUARIOS_SEMILLA: UsuarioSembrado[] = [
      * menú del usuario. Sigue siendo recomendable hacerlo.
      */
     usuario: usuario("usr-gonzalo", "Gonzalo DJA", "G", "propietario", "Dirección General"),
+    // Hash de CONTRASENA_INICIAL_PROPIETARIO (clave de fábrica, no personal).
     credencial: {
       empleado_id: "usr-gonzalo",
       tipo: "contrasena",
       algoritmo: "PBKDF2-SHA256",
       iteraciones: 600_000,
-      sal: "iJf1HoicFDIu2K0h9cnS3A==",
-      hash: "NFSHjYhoj1hl5oem8W+NuW7rZdGb16FW1rlDa+b3WTk=",
+      sal: "5RwxxK/p7ufI4DfOR+j6lg==",
+      hash: "qdXfT5DaaNq5xERA7IfkZdzQcIUNqniHZDgSXiH2mGI=",
       creada_ts: AHORA,
     },
-    // PIN 2108: firma autorizaciones sin teclear la contraseña completa.
+    // PIN de fábrica para firmar autorizaciones sin teclear la contraseña.
     pin: {
       empleado_id: "usr-gonzalo",
       tipo: "pin",
@@ -81,7 +96,7 @@ export const USUARIOS_SEMILLA: UsuarioSembrado[] = [
   },
   {
     usuario: usuario("usr-marco", "Marco", "M", "gerente", "Gerente de sucursal"),
-    // PIN 1976 (usuario de demostración).
+    // PIN de fábrica (usuario de demostración).
     credencial: {
       empleado_id: "usr-marco",
       tipo: "pin",
@@ -94,7 +109,7 @@ export const USUARIOS_SEMILLA: UsuarioSembrado[] = [
   },
   {
     usuario: usuario("usr-lucia", "Lucía", "L", "mesero", "Mesera"),
-    // PIN 4821 (usuario de demostración).
+    // PIN de fábrica (usuario de demostración).
     credencial: {
       empleado_id: "usr-lucia",
       tipo: "pin",

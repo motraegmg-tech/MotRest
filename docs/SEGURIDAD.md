@@ -52,20 +52,25 @@ testigo**, no para proteger secretos.
 
 ## Credenciales sembradas
 
-El usuario propietario **Gonzalo DJA** se siembra con su contraseña ya
-derivada. En el repositorio vive **únicamente el par sal + hash**; el texto
-plano nunca se escribió en ningún archivo del proyecto.
+El usuario propietario **Gonzalo DJA** se siembra con una **clave de fábrica**,
+no con una contraseña personal. `CONTRASENA_INICIAL_PROPIETARIO` es un valor por
+defecto conocido —el mismo para toda instalación nueva—, y en el repositorio
+vive únicamente su par sal + hash. Es la misma lógica de un router que sale con
+una clave por defecto: sirve para el primer arranque y se cambia enseguida.
 
-Aun así, el hash de una contraseña *conocida* es un artefacto sensible: quien
-tenga el repositorio y sepa cuál es la contraseña puede confirmarlo. Por eso:
+**Ninguna contraseña personal se escribe jamás en un archivo**, ni en el código
+ni en las pruebas. Las pruebas que necesitan entrar como propietario usan la
+constante de fábrica, nunca un literal. Esta regla es la que revisa la
+auditoría de seguridad; romperla es un hallazgo.
 
-- el usuario nace con `debe_cambiar_credencial: true`, y
-- la aplicación **exige cambiarla en el primer inicio de sesión**, sin permitir
-  saltarse el paso.
+Cambiar la clave de fábrica se hace desde **«Cambiar mi contraseña»** en el menú
+de usuario. No se fuerza en el primer inicio —ese aviso, al cerrarse sin leer,
+reaparecía en cada arranque y no protegía nada (ver más abajo)—, pero es lo
+primero que debería hacer quien instala el local.
 
-**Los PIN de los usuarios de demostración (Marco y Lucía) son de juguete** y
-están documentados en el código. Deben eliminarse antes de cualquier instalación
-real; hoy existen solo para poder probar el flujo de autorización.
+**Los PIN de los usuarios de demostración (Marco y Lucía) también son de
+fábrica** y su hash está en el código. Deben eliminarse antes de cualquier
+instalación real; hoy existen solo para poder probar el flujo de autorización.
 
 ## Restablecer una credencial olvidada
 
