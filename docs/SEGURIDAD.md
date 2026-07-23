@@ -114,15 +114,52 @@ paralela que pueda desincronizarse. Cada evento lleva en su sobre:
 Las cancelaciones autorizadas guardan además el `autorizador_id`. Esto es
 exactamente el sustrato que consumirá el Centinela de mermas (C5) en F3.
 
+## El canal entre terminales (etapa 10)
+
+Todo lo que viaja entre las terminales y el Hub va **cifrado con AES-256-GCM**
+usando la clave del local, que el Hub genera al instalarse y que se entrega al
+emparejar. Cubre ventas, precios, importes de caja y datos del personal.
+
+**Por qué no es TLS.** Un Hub de LAN no tiene nombre de dominio, así que un
+certificado real es imposible y uno autofirmado obliga a cada terminal a
+saltarse la advertencia roja del navegador — el hábito exacto que no queremos
+crear en quien abre la caja. El razonamiento completo está en
+`packages/protocolo-sync/src/cifrado.ts`.
+
+**Qué protege**
+
+- Que alguien en el wifi del local lea la operación del restaurante.
+- Que inyecte comandas, pagos o cancelaciones falsas: sin la clave, el Hub
+  descarta el mensaje sin interpretarlo y corta la conexión tras tres intentos.
+- Que altere un mensaje a medio camino.
+
+**Qué NO protege**
+
+- No hay secreto hacia adelante: quien obtenga la clave y hubiera grabado el
+  tráfico anterior podría leerlo. Rotarla corta hacia adelante, no hacia atrás.
+- La clave es compartida: una terminal enlazada podría hacerse pasar por otra.
+  La atribución se apoya en el `empleado_id` del evento y en la revalidación de
+  permisos del Hub, no en el cifrado.
+- El enlace de emparejamiento **lleva la clave**. Es una credencial: se entrega
+  por un canal de confianza y no se publica. La terminal lo borra de la barra de
+  direcciones en cuanto lo guarda.
+
+**Autorización de terminales.** La primera de un Hub recién instalado se
+autoriza sola —si no, nadie podría autorizar a nadie— y queda anotado. De ahí en
+adelante toda alta exige la firma de una terminal ya autorizada. Listar y
+autorizar viajan por el canal cifrado, nunca por HTTP.
+
 ## Lo que todavía NO está protegido
 
 | Riesgo | Estado | Se resuelve en |
 |---|---|---|
-| Un usuario con acceso al navegador puede manipular el estado en memoria | **Abierto** | Etapa 10 (el Hub revalida todo) |
-| Los datos no están cifrados en reposo | **Abierto** | Etapa 4 (persistencia) y etapa 10 (SQLCipher en móviles) |
-| No hay canal cifrado entre dispositivos | No aplica aún | Etapa 10 (WebSocket TLS con fingerprint pineado) |
+| Un usuario con acceso al navegador puede manipular el estado en memoria | Mitigado | El Hub revalida permisos y rechaza lo que no corresponde |
+| Los datos no están cifrados en reposo | **Abierto** | SQLCipher en el Hub y en móviles (F2) |
+| Sin secreto hacia adelante en el canal | **Abierto** | Intercambio de claves por sesión (F2) |
+| Una terminal enlazada puede suplantar a otra en el canal | **Abierto** | Clave por terminal en vez de clave del local (F2) |
+| Rotar la clave del local exige reinstalar el Hub | **Abierto** | Etapa 12 (rotación desde la interfaz) |
 | Los PIN de demostración están en el código | **Abierto por diseño** | Antes del primer piloto real |
-| Sin expiración de sesión por inactividad | **Abierto** | Etapa 3 (por perfil de dispositivo) |
+| Sin expiración de sesión por inactividad | **Abierto** | F2 (por perfil de dispositivo) |
 | Sin MFA para perfiles administrativos | **Abierto** | F2 (Supabase Auth) |
 
 ## Convenciones permanentes

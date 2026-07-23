@@ -123,10 +123,52 @@ export class Hub {
       case "catalogo":
         if (this.exigirSaludo(sesion)) this.recibirCatalogos(sesion, mensaje.catalogos);
         break;
+      case "admin":
+        if (this.exigirSaludo(sesion)) this.administrar(sesion, mensaje);
+        break;
       case "ping":
         sesion.conexion.enviar({ tipo: "pong", ts: Date.now() });
         break;
     }
+  }
+
+  // --- Administración de terminales ----------------------------------------------------
+
+  /**
+   * Lista y autoriza terminales.
+   *
+   * Quien pide tiene que estar YA autorizado: sin eso, una terminal recién
+   * llegada podría autorizarse a sí misma y el permiso no valdría nada. Y como
+   * todo esto viaja por el canal cifrado, ni siquiera se puede formular la
+   * petición sin la clave del local.
+   */
+  private administrar(sesion: Sesion, mensaje: Extract<MensajeCliente, { tipo: "admin" }>): void {
+    const quienPide = this.log.dispositivo(sesion.device_id);
+    if (!quienPide?.aprobado) {
+      sesion.conexion.enviar({
+        tipo: "error",
+        codigo: "permiso_denegado",
+        mensaje: "Solo una terminal autorizada del local puede administrar las demás",
+      });
+      return;
+    }
+
+    if (mensaje.accion === "autorizar") {
+      if (!mensaje.device_id) return;
+      this.log.aprobarDispositivo(mensaje.device_id);
+      this.anotar("info", `Terminal ${mensaje.device_id} autorizada por ${sesion.device_id}`);
+    }
+
+    sesion.conexion.enviar({
+      tipo: "terminales",
+      terminales: this.log.dispositivos().map((d) => ({
+        device_id: d.device_id,
+        nombre: d.nombre,
+        aprobado: d.aprobado,
+        visto_ts: d.visto_ts,
+        ultimo_seq: d.ultimo_seq,
+      })),
+    });
   }
 
   // --- Catálogos (menú, plano, impresoras) --------------------------------------------
@@ -203,7 +245,7 @@ export class Hub {
      */
     let dispositivo = this.log.dispositivo(mensaje.device_id);
     if (!dispositivo) {
-      dispositivo = this.log.registrarDispositivo(mensaje.device_id, mensaje.token ?? "");
+      dispositivo = this.log.registrarDispositivo(mensaje.device_id, "");
       if (this.log.dispositivos().length === 1) {
         this.log.aprobarDispositivo(mensaje.device_id);
         dispositivo = this.log.dispositivo(mensaje.device_id)!;

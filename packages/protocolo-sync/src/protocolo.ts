@@ -34,8 +34,6 @@ export interface MensajeHola {
   sucursal_id: ID;
   /** Última secuencia que este dispositivo ya tiene. 0 = quiere todo. */
   desde_seq: number;
-  /** Credencial de emparejamiento del dispositivo. */
-  token?: string;
 }
 
 export interface MensajePush {
@@ -75,12 +73,41 @@ export interface MensajeCatalogo {
   catalogos: Catalogo[];
 }
 
+/**
+ * Administración de las terminales del local.
+ *
+ * Va por el canal CIFRADO y no por HTTP a propósito: listar las terminales o
+ * autorizar una nueva son operaciones sensibles, y por una ruta HTTP en claro
+ * cualquiera en la red del local podría leer los identificadores y usarlos para
+ * colarse. Aquí, quien no tiene la clave del local no puede ni formular la
+ * petición.
+ */
+export interface MensajeAdmin {
+  tipo: "admin";
+  accion: "listar_terminales" | "autorizar";
+  device_id?: ID;
+}
+
+export interface TerminalRegistrada {
+  device_id: ID;
+  nombre: string | null;
+  aprobado: boolean;
+  visto_ts: number;
+  ultimo_seq: number;
+}
+
+export interface MensajeTerminales {
+  tipo: "terminales";
+  terminales: TerminalRegistrada[];
+}
+
 export type MensajeCliente =
   | MensajeHola
   | MensajePush
   | MensajePull
   | MensajePing
-  | MensajeCatalogo;
+  | MensajeCatalogo
+  | MensajeAdmin;
 
 // --- Hub → Dispositivo -----------------------------------------------------------------
 
@@ -136,7 +163,8 @@ export type MensajeHub =
   | MensajeEventos
   | MensajeError
   | MensajePong
-  | MensajeCatalogo;
+  | MensajeCatalogo
+  | MensajeTerminales;
 
 /**
  * ¿La versión entrante de un catálogo gana a la que ya se tiene?

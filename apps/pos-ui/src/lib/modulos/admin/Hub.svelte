@@ -7,43 +7,30 @@
    * se reconcilia cuando vuelva (TRD R3).
    */
   import { hora } from "../../formato";
-  import { sync, type DispositivoHub } from "../../sync.svelte";
+  import { sync } from "../../sync.svelte";
 
-  let borrador = $state(sync.url);
+  let enlace = $state("");
+  let error = $state("");
   let guardando = $state(false);
-  let terminales = $state<DispositivoHub[]>([]);
 
   const estado = $derived(sync.estado);
+  const terminales = $derived(sync.terminales);
 
-  // Se refresca cada 5 s: es una pantalla de configuración que se deja abierta
-  // mientras se encienden las terminales del local, y hay que verlas aparecer.
+  // Se refresca cada 5 s: es una pantalla que se deja abierta mientras se
+  // encienden las terminales del local, y hay que verlas aparecer.
   $effect(() => {
-    void refrescar();
-    const t = setInterval(() => void refrescar(), 5_000);
+    sync.pedirTerminales();
+    const t = setInterval(() => sync.pedirTerminales(), 5_000);
     return () => clearInterval(t);
   });
 
-  async function refrescar() {
-    terminales = await sync.dispositivos();
-  }
-
-  async function guardar() {
+  async function emparejar() {
     guardando = true;
-    await sync.configurar(borrador);
+    const r = await sync.emparejar(enlace);
+    error = r.ok ? "" : (r.error ?? "");
+    if (r.ok) enlace = "";
     guardando = false;
-    await refrescar();
   }
-
-  async function aprobar(deviceId: string) {
-    if (await sync.aprobar(deviceId)) await refrescar();
-  }
-
-  /** Dirección para emparejar otra terminal: la que se teclea o se manda. */
-  const enlaceEmparejamiento = $derived(
-    sync.configurado
-      ? `${location.origin}/?hub=${encodeURIComponent(sync.url)}`
-      : "",
-  );
 </script>
 
 <div class="seccion">
@@ -62,23 +49,36 @@
   </div>
 
   <section class="tarjeta">
-    <h2>Dirección</h2>
-    <div class="campos">
-      <label>
-        <span>Canal de sincronización</span>
-        <input bind:value={borrador} placeholder="ws://192.168.1.50:8787/sync" />
-      </label>
-      <button class="principal" onclick={guardar} disabled={guardando}>
-        {sync.configurado ? "Reconectar" : "Conectar"}
-      </button>
-    </div>
-    <p class="pista">
-      Es la dirección del equipo donde corre el Hub, dentro de la red del local.
-      Déjala en blanco para trabajar solo con este dispositivo.
-    </p>
-    {#if sync.detalle}
-      <p class="detalle">{sync.detalle}</p>
+    <h2>{sync.configurado ? "Esta terminal" : "Emparejar esta terminal"}</h2>
+
+    {#if sync.configurado}
+      <div class="campos">
+        <div class="dato">
+          <span>Enlazada a</span>
+          <b>{sync.url}</b>
+        </div>
+        <div class="dato">
+          <span>Canal</span>
+          <b class="cifrado">🔒 Cifrado AES-256</b>
+        </div>
+        <button class="secundario" onclick={() => sync.olvidar()}>Desvincular</button>
+      </div>
+    {:else}
+      <p class="pista">
+        Pega el enlace que aparece en la consola del Hub, o el que te da otra
+        terminal ya enlazada. Sin enlace, esta terminal opera sola.
+      </p>
+      <div class="campos">
+        <label>
+          <span>Enlace de emparejamiento</span>
+          <input bind:value={enlace} placeholder="http://192.168.1.50:5173/?hub=…&k=…" />
+        </label>
+        <button class="principal" onclick={emparejar} disabled={guardando}>Enlazar</button>
+      </div>
     {/if}
+
+    {#if error}<p class="detalle mal" role="alert">{error}</p>{/if}
+    {#if sync.detalle}<p class="detalle">{sync.detalle}</p>{/if}
     {#if sync.recibidos > 0 || sync.catalogosRecibidos > 0}
       <p class="detalle ok">
         {sync.recibidos} eventos recibidos de otras terminales en esta sesión{#if sync.catalogosRecibidos > 0}
@@ -88,25 +88,6 @@
   </section>
 
   {#if sync.configurado}
-    <!-- Emparejar otra terminal -->
-    <section class="tarjeta">
-      <h2>Agregar una terminal</h2>
-      <p class="pista">
-        Abre esta dirección en la otra terminal —tablet, caja o la pantalla de
-        cocina— y quedará enlazada al local. No sembrará una demostración propia:
-        recibirá la operación que ya está en curso.
-      </p>
-      <div class="enlace">
-        <code>{enlaceEmparejamiento}</code>
-        <button onclick={() => navigator.clipboard?.writeText(enlaceEmparejamiento)}>
-          Copiar
-        </button>
-      </div>
-      <p class="pista tenue">
-        En la etapa 12 esto será un código QR que se escanea. Hoy se teclea o se
-        manda por mensaje.
-      </p>
-    </section>
 
     <!-- Terminales del local -->
     <section class="tarjeta">
@@ -133,7 +114,7 @@
               <tr>
                 <td>
                   <b>{t.nombre ?? t.device_id.slice(0, 12)}</b>
-                  {#if t.es_este}<small>esta terminal</small>{/if}
+                  {#if sync.esEstaTerminal(t.device_id)}<small>esta terminal</small>{/if}
                 </td>
                 <td>
                   {#if t.aprobado}
@@ -146,7 +127,7 @@
                 <td class="num tenue">{hora(t.visto_ts)}</td>
                 <td class="num">
                   {#if !t.aprobado}
-                    <button onclick={() => aprobar(t.device_id)}>Autorizar</button>
+                    <button onclick={() => sync.autorizar(t.device_id)}>Autorizar</button>
                   {/if}
                 </td>
               </tr>
@@ -187,13 +168,26 @@
     </dl>
   </section>
 
-  <section class="tarjeta aviso">
-    <h2>Lo que todavía falta</h2>
+  <section class="tarjeta seguridad">
+    <h2>🔒 Seguridad del canal</h2>
     <p>
-      El canal viaja <b>sin cifrar</b> por la red del local y hay que capturar la
-      dirección a mano. El cifrado con certificado fijado y el descubrimiento
-      automático del Hub llegan en la etapa 12. Mientras tanto, esto es para una
-      red de local controlada, no para exponerlo a internet.
+      Todo lo que viaja entre las terminales y el Hub va <b>cifrado</b> con la
+      clave del local (AES-256-GCM): ventas, precios, importes de caja y datos
+      del personal. Quien esté conectado al wifi del restaurante no puede leerlo
+      ni inyectar comandas falsas.
+    </p>
+    <p>
+      El <b>enlace de emparejamiento lleva la clave</b>: trátalo como una
+      contraseña. Si se filtra, basta con borrar la clave del Hub y volver a
+      emparejar las terminales.
+    </p>
+    <p class="limites">
+      Lo que esto no cubre: no hay secreto hacia atrás —quien obtenga la clave y
+      hubiera grabado tráfico anterior podría leerlo—, y como la clave es
+      compartida, una terminal enlazada podría hacerse pasar por otra. Quién
+      hizo qué se sigue apoyando en la sesión del empleado y en la revalidación
+      de permisos del Hub. Falta el descubrimiento automático y el QR de
+      emparejamiento (etapa 12).
     </p>
   </section>
 </div>
@@ -320,23 +314,6 @@
     font-size: 0.76rem;
     font-style: italic;
   }
-  .enlace {
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-    background: var(--fondo);
-    border: 1px solid var(--borde);
-    border-radius: var(--r-md);
-    padding: 0.6rem 0.75rem;
-    margin-top: 0.6rem;
-  }
-  .enlace code {
-    flex: 1;
-    font-family: "Consolas", monospace;
-    font-size: 0.8rem;
-    word-break: break-all;
-  }
-  .enlace button,
   table button {
     border: 1.5px solid var(--borde);
     border-radius: var(--r-sm);
@@ -347,7 +324,6 @@
     background: #fff;
     white-space: nowrap;
   }
-  .enlace button:hover,
   table button:hover {
     border-color: var(--acento);
     color: var(--acento);
@@ -422,13 +398,58 @@
     color: var(--gris);
     line-height: 1.55;
   }
-  .aviso {
-    border-color: var(--acento-2);
-    background: #fdf6ee;
+  .seguridad {
+    border-color: #6b8f57;
+    background: #f4f8f1;
   }
-  .aviso p {
+  .seguridad p {
     font-size: 0.85rem;
     line-height: 1.55;
+  }
+  .seguridad p + p {
+    margin-top: 0.6rem;
+  }
+  .seguridad .limites {
+    font-size: 0.8rem;
+    color: var(--gris);
+    border-top: 1px solid var(--borde);
+    padding-top: 0.6rem;
+  }
+  .dato {
+    display: flex;
+    flex-direction: column;
+    gap: 0.15rem;
+    min-width: 12rem;
+  }
+  .dato span {
+    font-size: 0.72rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--gris);
+  }
+  .dato b {
+    font-size: 0.88rem;
+    word-break: break-all;
+  }
+  .dato b.cifrado {
+    color: #3f5c31;
+  }
+  .detalle.mal {
+    color: var(--peligro);
+  }
+  .secundario {
+    border: 1.5px solid var(--borde);
+    border-radius: var(--r-md);
+    padding: 0.55rem 1.1rem;
+    font-weight: 600;
+    color: var(--pizarra);
+    background: #fff;
+    white-space: nowrap;
+  }
+  .secundario:hover {
+    border-color: var(--peligro);
+    color: var(--peligro);
   }
   .principal {
     background: var(--acento);

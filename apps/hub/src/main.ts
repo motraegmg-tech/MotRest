@@ -18,9 +18,12 @@ import { networkInterfaces } from "node:os";
 import { dirname, resolve } from "node:path";
 import { WebSocketServer, type WebSocket } from "ws";
 import {
-  interpretar,
-  serializar,
+  cifrar,
+  derivarClaves,
+  descifrar,
+  generarClaveLocal,
   type Catalogo,
+  type ClavesCanal,
   type MensajeCliente,
   type MensajeHub,
 } from "@motrest/protocolo-sync";
@@ -64,6 +67,26 @@ function direccionesLan(): string[] {
 
 /** Clave bajo la que se guardan los catálogos replicados. */
 const CLAVE_CATALOGOS = "catalogos";
+/** Clave bajo la que se guarda el secreto del local. */
+const CLAVE_SECRETO = "clave_local";
+
+/**
+ * Secreto del local: con él se cifra todo lo que viaja por la red.
+ *
+ * Se genera una sola vez, al instalar el Hub, y se guarda con el event log. Es
+ * la credencial que se entrega al emparejar una terminal — quien no la tiene no
+ * puede ni leer ni escribir en el canal.
+ */
+const claveLocal =
+  (await almacen.estado.cargar<string>(CLAVE_SECRETO)) ??
+  (await (async () => {
+    const nueva = generarClaveLocal();
+    await almacen.estado.guardar(CLAVE_SECRETO, nueva);
+    registrar("info", "Clave del local generada. Se usa para cifrar el canal.");
+    return nueva;
+  })());
+
+const clavesHub: ClavesCanal = await derivarClaves(claveLocal, "hub");
 
 const hub = new Hub({
   hub_id: HUB_ID,
@@ -87,29 +110,21 @@ void almacen.estado.cargar<Catalogo[]>(CLAVE_CATALOGOS).then((guardados) => {
   }
 });
 
-// --- HTTP: diagnóstico y administración de dispositivos --------------------------------
-
+/*
+ * HTTP: SOLO diagnóstico.
+ *
+ * Listar terminales y autorizarlas viajaba antes por aquí, y era un error: por
+ * una ruta en claro cualquiera en la red del local podía leer los
+ * identificadores de las terminales y usar uno autorizado para colarse. Toda
+ * la administración se movió al canal cifrado, donde sin la clave del local ni
+ * siquiera se puede formular la petición.
+ *
+ * Lo que queda aquí no revela nada que sirva para entrar: cuántos eventos lleva
+ * el local y cuántas terminales están conectadas. Es lo que se necesita para
+ * saber, desde fuera, si el servicio está vivo.
+ */
 const servidor = createServer((peticion: IncomingMessage, respuesta: ServerResponse) => {
   const url = new URL(peticion.url ?? "/", `http://${peticion.headers.host}`);
-
-  /*
-   * CORS abierto a la red del local.
-   *
-   * La pantalla de administración corre en el navegador de una terminal, en
-   * otro origen que el Hub, y necesita listar y aprobar dispositivos. Es
-   * aceptable porque el Hub vive en la LAN del restaurante y no se expone a
-   * internet; cuando llegue el TLS pineado de la etapa 12, el emparejamiento
-   * por certificado sustituye a esta apertura.
-   */
-  respuesta.setHeader("access-control-allow-origin", "*");
-  respuesta.setHeader("access-control-allow-methods", "GET, POST, OPTIONS");
-  respuesta.setHeader("access-control-allow-headers", "content-type");
-
-  if (peticion.method === "OPTIONS") {
-    respuesta.writeHead(204);
-    respuesta.end();
-    return;
-  }
 
   const json = (codigo: number, cuerpo: unknown): void => {
     respuesta.writeHead(codigo, { "content-type": "application/json; charset=utf-8" });
@@ -122,44 +137,9 @@ const servidor = createServer((peticion: IncomingMessage, respuesta: ServerRespo
       seq: hub.seqActual,
       conectados: hub.conectados,
       exige_aprobacion: EXIGIR_APROBACION,
+      cifrado: "AES-256-GCM",
       ts: Date.now(),
     });
-    return;
-  }
-
-  if (url.pathname === "/dispositivos") {
-    json(200, almacen.log.dispositivos());
-    return;
-  }
-
-  if (url.pathname === "/aprobar" && peticion.method === "POST") {
-    const deviceId = url.searchParams.get("device_id");
-    const por = url.searchParams.get("por");
-    if (!deviceId) {
-      json(400, { error: "Falta device_id" });
-      return;
-    }
-
-    /*
-     * Solo una terminal YA autorizada puede autorizar a otra.
-     *
-     * Sin esta regla, cualquiera que alcance la red del local podría darse de
-     * alta a sí mismo y escribir en el registro de ventas — que es justo lo que
-     * la aprobación pretende impedir. No sustituye al emparejamiento por
-     * certificado de la etapa 12, pero cierra la puerta obvia.
-     */
-    const avalista = por ? almacen.log.dispositivo(por) : null;
-    if (!avalista?.aprobado) {
-      registrar("aviso", `Intento de autorizar ${deviceId} sin una terminal de confianza`);
-      json(403, {
-        error: "La autorización tiene que venir de una terminal ya autorizada del local",
-      });
-      return;
-    }
-
-    almacen.log.aprobarDispositivo(deviceId);
-    registrar("info", `Terminal ${deviceId} autorizada por ${por}`);
-    json(200, { ok: true, device_id: deviceId });
     return;
   }
 
@@ -177,23 +157,43 @@ wss.on("connection", (socket: WebSocket) => {
   const conexion: Conexion = {
     id,
     enviar: (mensaje: MensajeHub) => {
-      if (socket.readyState === socket.OPEN) socket.send(serializar(mensaje));
+      if (socket.readyState !== socket.OPEN) return;
+      void cifrar(clavesHub.envio, mensaje)
+        .then((sobre) => socket.send(sobre))
+        .catch((causa) => registrar("error", `No se pudo cifrar la respuesta: ${String(causa)}`));
     },
     cerrar: () => socket.close(),
   };
 
   hub.conectar(conexion);
 
+  /** Cuántos mensajes ilegibles lleva esta conexión. */
+  let ilegibles = 0;
+
   socket.on("message", (datos) => {
-    const mensaje = interpretar<MensajeCliente>(datos.toString());
-    // Un mensaje ilegible se ignora: por el puerto puede llegar cualquier cosa
-    // y tumbar la conexión dejaría sin sincronizar a una terminal que sí trabaja.
-    if (!mensaje) return;
-    try {
-      hub.recibir(id, mensaje);
-    } catch (causa) {
-      registrar("error", `Fallo al procesar ${mensaje.tipo}: ${String(causa)}`);
-    }
+    void descifrar<MensajeCliente>(clavesHub.recepcion, datos.toString()).then((mensaje) => {
+      if (!mensaje) {
+        /*
+         * No se pudo descifrar: o es una terminal sin la clave del local, o
+         * alguien probando por el puerto. No se responde nada —decirle qué
+         * falló le diría por dónde va bien— y se corta tras unos pocos
+         * intentos, para no dejar abierto un canal por el que insistir.
+         */
+        ilegibles += 1;
+        if (ilegibles >= 3) {
+          registrar("aviso", `Conexión ${id} cerrada: mensajes que no se pueden descifrar`);
+          socket.close();
+        }
+        return;
+      }
+
+      ilegibles = 0;
+      try {
+        hub.recibir(id, mensaje);
+      } catch (causa) {
+        registrar("error", `Fallo al procesar ${mensaje.tipo}: ${String(causa)}`);
+      }
+    });
   });
 
   socket.on("close", () => hub.desconectar(id));
@@ -214,18 +214,20 @@ servidor.listen(PUERTO, () => {
     console.log("");
     console.log("  Para emparejar una terminal, ábrela con esta dirección:");
     for (const ip of lan) {
-      console.log(`    http://${ip}:${PUERTO_POS}/?hub=ws://${ip}:${PUERTO}/sync`);
+      console.log(
+        `    http://${ip}:${PUERTO_POS}/?hub=ws://${ip}:${PUERTO}/sync&k=${claveLocal}`,
+      );
     }
+    console.log("");
+    console.log("  Este enlace LLEVA LA CLAVE del local: trátalo como una contraseña.");
     console.log("");
   }
 
   if (!EXIGIR_APROBACION) {
     registrar("aviso", "MODO ABIERTO: cualquier dispositivo de la red puede sincronizar.");
   }
-  registrar(
-    "aviso",
-    "PENDIENTE de la etapa 12: TLS pineado y descubrimiento mDNS. Hoy el canal viaja en claro por la LAN.",
-  );
+  registrar("info", "Canal CIFRADO con la clave del local (AES-256-GCM).");
+  registrar("aviso", "PENDIENTE de la etapa 12: descubrimiento mDNS y QR de emparejamiento.");
 });
 
 function apagar(senal: string): void {

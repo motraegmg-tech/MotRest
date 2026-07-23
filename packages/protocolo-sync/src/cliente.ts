@@ -11,6 +11,7 @@
  */
 import type { EventoBase } from "@motrest/dominio";
 import type { Almacen } from "./repositorio.js";
+import { cifrar, derivarClaves, descifrar, type ClavesCanal } from "./cifrado.js";
 import {
   VERSION_PROTOCOLO,
   interpretar,
@@ -19,6 +20,7 @@ import {
   type EstadoEnlace,
   type MensajeHub,
   type MensajeCliente,
+  type TerminalRegistrada,
 } from "./protocolo.js";
 
 /** Mínimo que necesita el cliente de un WebSocket: sirve el nativo y uno falso. */
@@ -35,7 +37,11 @@ export interface OpcionesCliente {
   url: string;
   device_id: string;
   sucursal_id: string;
-  token?: string;
+  /**
+   * Clave del local, entregada al emparejar. Sin ella la terminal no puede
+   * hablar con el Hub: el canal va cifrado de extremo a extremo.
+   */
+  clave: string;
   almacen: Almacen;
   /** Fábrica de sockets. Inyectable para poder probar sin red. */
   crearSocket?: (url: string) => SocketLike;
@@ -43,6 +49,8 @@ export interface OpcionesCliente {
   alRecibir?: (eventos: EventoBase[]) => void;
   /** Se llama con los catálogos que llegan del Hub (menú, plano, impresoras). */
   alRecibirCatalogos?: (catalogos: Catalogo[]) => void;
+  /** Se llama con la lista de terminales del local. */
+  alRecibirTerminales?: (terminales: TerminalRegistrada[]) => void;
   /** Devuelve los catálogos locales, para publicarlos al conectar. */
   catalogosLocales?: () => Catalogo[];
   alCambiarEstado?: (estado: EstadoEnlace, detalle?: string) => void;
@@ -55,6 +63,7 @@ const CLAVE_ULTIMO_SEQ = "sync_ultimo_seq";
 
 export class ClienteSync {
   private socket: SocketLike | null = null;
+  private claves: ClavesCanal | null = null;
   private temporizador: ReturnType<typeof setTimeout> | null = null;
   private intentos = 0;
   private cerradoAPropósito = false;
@@ -70,20 +79,39 @@ export class ClienteSync {
     this.opciones.alCambiarEstado?.(estado, detalle);
   }
 
+  /**
+   * Manda un mensaje cifrado.
+   *
+   * Es asíncrono porque cifrar lo es, pero no se espera: un envío que falla no
+   * es un error del negocio —el evento sigue en el outbox local y saldrá al
+   * reconectar—, así que nada de la venta depende de esto.
+   */
   private enviar(mensaje: MensajeCliente): void {
-    try {
-      this.socket?.send(serializar(mensaje));
-    } catch (causa) {
-      // Un envío fallido no es un error del negocio: el evento sigue en el
-      // outbox local y se reenviará al reconectar.
-      console.warn("No se pudo enviar al Hub; queda pendiente", causa);
-    }
+    const claves = this.claves;
+    const socket = this.socket;
+    if (!claves || !socket) return;
+
+    void cifrar(claves.envio, mensaje)
+      .then((sobre) => socket.send(sobre))
+      .catch((causa) => {
+        console.warn("No se pudo enviar al Hub; queda pendiente", causa);
+      });
   }
 
   async conectar(): Promise<void> {
     this.cerradoAPropósito = false;
     this.ultimoSeq =
       (await this.opciones.almacen.estado.cargar<number>(CLAVE_ULTIMO_SEQ)) ?? 0;
+
+    try {
+      this.claves = await derivarClaves(this.opciones.clave, "cliente");
+    } catch {
+      // Sin clave válida no hay enlace posible. Se avisa y se opera en isla:
+      // el restaurante sigue vendiendo, que es lo que no puede fallar.
+      this.avisar("isla", "La clave del local no es válida. Vuelve a emparejar la terminal.");
+      return;
+    }
+
     this.abrir();
   }
 
@@ -106,20 +134,35 @@ export class ClienteSync {
     socket.onopen = () => {
       this.intentos = 0;
       this.avisar("sincronizando");
+      // El saludo va cifrado como todo lo demás: poder formularlo de modo que
+      // el Hub lo entienda YA prueba que esta terminal tiene la clave del local.
       this.enviar({
         tipo: "hola",
         v: VERSION_PROTOCOLO,
         device_id: this.opciones.device_id,
         sucursal_id: this.opciones.sucursal_id,
         desde_seq: this.ultimoSeq,
-        ...(this.opciones.token ? { token: this.opciones.token } : {}),
       });
     };
 
     socket.onmessage = (evento) => {
       if (typeof evento.data !== "string") return;
-      const mensaje = interpretar<MensajeHub>(evento.data);
-      if (mensaje) void this.recibir(mensaje);
+      const claves = this.claves;
+      if (!claves) return;
+
+      void descifrar<MensajeHub>(claves.recepcion, evento.data).then((mensaje) => {
+        if (mensaje) {
+          void this.recibir(mensaje);
+          return;
+        }
+        // No se pudo descifrar: o el Hub usa otra clave del local, o alguien
+        // está hablando por el canal sin tenerla. En ambos casos hay que
+        // decirlo, no callarlo: el operador tiene que volver a emparejar.
+        this.avisar(
+          "isla",
+          "El Hub respondió con otra clave del local. Vuelve a emparejar esta terminal.",
+        );
+      });
     };
 
     socket.onclose = () => this.caer("Se perdió el enlace con el Hub");
@@ -145,6 +188,10 @@ export class ClienteSync {
 
       case "catalogo":
         this.opciones.alRecibirCatalogos?.(mensaje.catalogos);
+        break;
+
+      case "terminales":
+        this.opciones.alRecibirTerminales?.(mensaje.terminales);
         break;
 
       case "acks":
@@ -194,6 +241,18 @@ export class ClienteSync {
   publicarCatalogo(catalogo: Catalogo): void {
     if (!this.socket) return;
     this.enviar({ tipo: "catalogo", catalogos: [catalogo] });
+  }
+
+  /** Pide la lista de terminales del local. Llega por `alRecibirTerminales`. */
+  pedirTerminales(): void {
+    if (!this.socket) return;
+    this.enviar({ tipo: "admin", accion: "listar_terminales" });
+  }
+
+  /** Autoriza una terminal. El Hub responde con la lista ya actualizada. */
+  autorizarTerminal(deviceId: string): void {
+    if (!this.socket) return;
+    this.enviar({ tipo: "admin", accion: "autorizar", device_id: deviceId });
   }
 
   /** Envía lo que el Hub todavía no ha confirmado. */

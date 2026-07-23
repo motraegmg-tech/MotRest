@@ -14,4 +14,5 @@ export * from "./repositorio.js";
 export * from "./memoria.js";
 export * from "./indexeddb.js";
 export * from "./protocolo.js";
+export * from "./cifrado.js";
 export * from "./cliente.js";

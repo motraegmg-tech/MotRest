@@ -576,6 +576,67 @@ describe("la carta del local se replica entre terminales", () => {
   });
 });
 
+// --- Administración de terminales -----------------------------------------------------
+
+describe("administrar las terminales del local", () => {
+  it("una terminal autorizada puede listar las demás", () => {
+    const caja = new ConexionPrueba("cx-caja");
+    saludar(caja, "dev-caja");
+    log.aprobarDispositivo("dev-caja");
+
+    hub.recibir(caja.id, { tipo: "admin", accion: "listar_terminales" });
+    expect(caja.ultimo("terminales")!.terminales).toHaveLength(1);
+  });
+
+  it("una terminal SIN autorizar no puede ni listar ni autorizar", () => {
+    // Con una ya registrada, la siguiente no hereda la confianza inicial.
+    saludar(new ConexionPrueba("cx-caja"), "dev-caja");
+
+    const intrusa = new ConexionPrueba("cx-intrusa");
+    saludar(intrusa, "dev-intrusa");
+
+    hub.recibir(intrusa.id, { tipo: "admin", accion: "listar_terminales" });
+    expect(intrusa.ultimo("error")!.codigo).toBe("permiso_denegado");
+    expect(intrusa.ultimo("terminales")).toBeUndefined();
+  });
+
+  it("una terminal sin autorizar NO puede autorizarse a sí misma", () => {
+    saludar(new ConexionPrueba("cx-caja"), "dev-caja");
+
+    const intrusa = new ConexionPrueba("cx-intrusa");
+    saludar(intrusa, "dev-intrusa");
+
+    hub.recibir(intrusa.id, {
+      tipo: "admin", accion: "autorizar", device_id: "dev-intrusa",
+    });
+
+    expect(intrusa.ultimo("error")!.codigo).toBe("permiso_denegado");
+    expect(log.dispositivo("dev-intrusa")!.aprobado).toBe(false);
+  });
+
+  it("una autorizada sí puede autorizar a otra, y recibe la lista al día", () => {
+    const caja = new ConexionPrueba("cx-caja");
+    saludar(caja, "dev-caja");
+    log.aprobarDispositivo("dev-caja");
+
+    const tablet = new ConexionPrueba("cx-tablet");
+    saludar(tablet, "dev-tablet");
+
+    hub.recibir(caja.id, { tipo: "admin", accion: "autorizar", device_id: "dev-tablet" });
+
+    expect(log.dispositivo("dev-tablet")!.aprobado).toBe(true);
+    const lista = caja.ultimo("terminales")!.terminales;
+    expect(lista.find((t) => t.device_id === "dev-tablet")!.aprobado).toBe(true);
+  });
+
+  it("exige presentarse antes de administrar", () => {
+    const cx = new ConexionPrueba("cx-1");
+    hub.conectar(cx);
+    hub.recibir(cx.id, { tipo: "admin", accion: "listar_terminales" });
+    expect(cx.ultimo("error")!.codigo).toBe("no_emparejado");
+  });
+});
+
 // --- Revalidación de permisos ---------------------------------------------------------------
 
 describe("el Hub revalida permisos", () => {

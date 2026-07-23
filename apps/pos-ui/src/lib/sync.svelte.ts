@@ -11,10 +11,12 @@
  */
 import {
   ClienteSync,
+  claveValida,
   etiquetaEnlace,
   type Almacen,
   type Catalogo,
   type EstadoEnlace,
+  type TerminalRegistrada,
 } from "@motrest/protocolo-sync";
 import type { EventoBase, MenuLocal, PlanoLocal } from "@motrest/dominio";
 import { CLAVE_MENU, menu } from "./menu.svelte";
@@ -22,17 +24,14 @@ import { CLAVE_PLANO, plano } from "./plano.svelte";
 import { SUCURSAL_ID, obtenerDeviceId } from "./presentacion";
 
 export const CLAVE_HUB = "hub_url";
-
-/** Una terminal registrada en el Hub. */
-export interface DispositivoHub {
-  device_id: string;
-  nombre: string | null;
-  aprobado: boolean;
-  visto_ts: number;
-  ultimo_seq: number;
-  /** true = es este mismo dispositivo. */
-  es_este?: boolean;
-}
+/**
+ * Dónde vive la clave del local en este dispositivo.
+ *
+ * Va en el almacén de estado, junto a las credenciales, y NUNCA en el event
+ * log: el log es la bitácora del negocio y se replica; un secreto ahí se
+ * repartiría a todo el que sincronice.
+ */
+export const CLAVE_SECRETO = "clave_local";
 
 class StoreSync {
   estado = $state<EstadoEnlace>("isla");
@@ -44,13 +43,19 @@ class StoreSync {
   emparejadoAhora = $state(false);
   /** Catálogos adoptados del local (menú, plano) en esta sesión. */
   catalogosRecibidos = $state(0);
+  /** Terminales del local, según el Hub. Llegan por el canal cifrado. */
+  terminales = $state<TerminalRegistrada[]>([]);
+
+  /** Clave del local. Nunca se muestra completa en pantalla. */
+  private clave = $state("");
 
   private cliente: ClienteSync | null = null;
   private almacen: Almacen | null = null;
   private alLlegar: ((eventos: EventoBase[]) => void) | null = null;
 
+  /** Hay enlace posible cuando se sabe a dónde ir Y con qué clave hablar. */
   get configurado(): boolean {
-    return this.url.trim().length > 0;
+    return this.url.trim().length > 0 && claveValida(this.clave);
   }
 
   get etiqueta(): string {
@@ -65,13 +70,19 @@ class StoreSync {
    * que codificará el QR de emparejamiento de la etapa 12; hoy se teclea o se
    * manda por mensaje.
    */
-  static hubEnLaUrl(): string {
-    if (typeof location === "undefined") return "";
-    const parametro = new URLSearchParams(location.search).get("hub")?.trim();
-    if (!parametro) return "";
+  static hubEnLaUrl(): { url: string; clave: string } | null {
+    if (typeof location === "undefined") return null;
+    const parametros = new URLSearchParams(location.search);
+    const url = parametros.get("hub")?.trim() ?? "";
+    const clave = parametros.get("k")?.trim() ?? "";
+
     // Solo WebSocket: cualquier otra cosa en ese parámetro es un error o un
     // intento de que la terminal hable con algo que no es un Hub.
-    return /^wss?:\/\//.test(parametro) ? parametro : "";
+    if (!/^wss?:\/\//.test(url)) return null;
+    // Sin clave del local no hay canal: el enlace está incompleto.
+    if (!claveValida(clave)) return null;
+
+    return { url, clave };
   }
 
   /**
@@ -86,13 +97,27 @@ class StoreSync {
 
     const deLaUrl = StoreSync.hubEnLaUrl();
     if (deLaUrl) {
-      this.url = deLaUrl;
+      this.url = deLaUrl.url;
+      this.clave = deLaUrl.clave;
       this.emparejadoAhora = true;
-      await almacen.estado.guardar(CLAVE_HUB, deLaUrl);
+      await almacen.estado.guardar(CLAVE_HUB, deLaUrl.url);
+      await almacen.estado.guardar(CLAVE_SECRETO, deLaUrl.clave);
+
+      /*
+       * La clave sale de la barra de direcciones en cuanto se guarda.
+       *
+       * Es una credencial: dejarla ahí la mete en el historial del navegador y
+       * queda a la vista de quien pase junto a la terminal. Ya está a salvo en
+       * el almacenamiento del dispositivo.
+       */
+      if (typeof history !== "undefined") {
+        history.replaceState(null, "", location.pathname);
+      }
       return;
     }
 
     this.url = (await almacen.estado.cargar<string>(CLAVE_HUB)) ?? "";
+    this.clave = (await almacen.estado.cargar<string>(CLAVE_SECRETO)) ?? "";
   }
 
   /**
@@ -104,14 +129,58 @@ class StoreSync {
     if (this.configurado) this.conectar();
   }
 
-  /** Guarda la dirección del Hub y reconecta. */
-  async configurar(url: string): Promise<void> {
-    this.url = url.trim();
-    await this.almacen?.estado.guardar(CLAVE_HUB, this.url);
+  /**
+   * Empareja la terminal con un enlace completo del Hub.
+   *
+   * Se acepta el enlace entero —dirección y clave juntas— porque es lo que
+   * genera el Hub y lo que codificará el QR: pedir los dos campos por separado
+   * invita a teclear mal 43 caracteres de clave.
+   */
+  async emparejar(enlace: string): Promise<{ ok: boolean; error?: string }> {
+    const limpio = enlace.trim();
+    if (limpio.length === 0) {
+      await this.olvidar();
+      return { ok: true };
+    }
+
+    let url = "";
+    let clave = "";
+    try {
+      const partes = new URL(limpio);
+      url = partes.searchParams.get("hub") ?? "";
+      clave = partes.searchParams.get("k") ?? "";
+    } catch {
+      return { ok: false, error: "Ese no es un enlace de emparejamiento válido" };
+    }
+
+    if (!/^wss?:\/\//.test(url)) {
+      return { ok: false, error: "El enlace no trae la dirección del Hub" };
+    }
+    if (!claveValida(clave)) {
+      return { ok: false, error: "El enlace no trae la clave del local, o está incompleta" };
+    }
+
+    this.url = url;
+    this.clave = clave;
+    await this.almacen?.estado.guardar(CLAVE_HUB, url);
+    await this.almacen?.estado.guardar(CLAVE_SECRETO, clave);
+
     this.cliente?.desconectar();
     this.cliente = null;
-    if (this.configurado) this.conectar();
-    else this.estado = "isla";
+    this.conectar();
+    return { ok: true };
+  }
+
+  /** Desliga la terminal del local y borra su clave. */
+  async olvidar(): Promise<void> {
+    this.cliente?.desconectar();
+    this.cliente = null;
+    this.url = "";
+    this.clave = "";
+    this.terminales = [];
+    await this.almacen?.estado.eliminar(CLAVE_HUB);
+    await this.almacen?.estado.eliminar(CLAVE_SECRETO);
+    this.estado = "isla";
   }
 
   private conectar(): void {
@@ -120,6 +189,7 @@ class StoreSync {
 
     this.cliente = new ClienteSync({
       url: this.url,
+      clave: this.clave,
       device_id: obtenerDeviceId(),
       sucursal_id: SUCURSAL_ID,
       almacen,
@@ -129,6 +199,7 @@ class StoreSync {
       },
       catalogosLocales: () => this.catalogosLocales(),
       alRecibirCatalogos: (catalogos) => this.aplicarCatalogos(catalogos),
+      alRecibirTerminales: (terminales) => (this.terminales = terminales),
       alCambiarEstado: (estado, detalle) => {
         this.estado = estado;
         this.detalle = detalle ?? "";
@@ -188,49 +259,29 @@ class StoreSync {
     void this.cliente?.empujar();
   }
 
-  /** La dirección HTTP del Hub, derivada del canal WebSocket. */
-  get base(): string {
-    if (!this.configurado) return "";
-    return this.url.replace(/^ws/, "http").replace(/\/sync$/, "");
-  }
-
-  /** Terminales que conoce el Hub, para aprobarlas o revisarlas. */
-  async dispositivos(): Promise<DispositivoHub[]> {
-    if (!this.configurado) return [];
-    try {
-      const respuesta = await fetch(`${this.base}/dispositivos`);
-      if (!respuesta.ok) return [];
-      const lista = (await respuesta.json()) as DispositivoHub[];
-      const propio = obtenerDeviceId();
-      return lista.map((d) => ({ ...d, es_este: d.device_id === propio }));
-    } catch {
-      // El Hub apagado no es un error que reportar: ya lo dice el indicador.
-      return [];
-    }
-  }
-
   /**
-   * Autoriza una terminal a escribir en el log de ventas del local.
+   * Pide al Hub la lista de terminales.
    *
-   * Va firmada con el identificador de ESTA terminal: el Hub solo acepta la
-   * autorización si quien la pide ya está autorizado.
+   * Va por el canal CIFRADO, no por HTTP: los identificadores de las terminales
+   * son lo que alguien necesitaría para hacerse pasar por una de ellas, y por
+   * una ruta en claro estarían a la vista de cualquiera en la red del local.
    */
-  async aprobar(deviceId: string): Promise<boolean> {
-    if (!this.configurado) return false;
-    const parametros = new URLSearchParams({
-      device_id: deviceId,
-      por: obtenerDeviceId(),
-    });
-    try {
-      const respuesta = await fetch(`${this.base}/aprobar?${parametros}`, { method: "POST" });
-      return respuesta.ok;
-    } catch {
-      return false;
-    }
+  pedirTerminales(): void {
+    this.cliente?.pedirTerminales();
+  }
+
+  /** Autoriza una terminal. El Hub comprueba que ESTA ya lo esté. */
+  autorizar(deviceId: string): void {
+    this.cliente?.autorizarTerminal(deviceId);
   }
 
   get deviceId(): string {
     return obtenerDeviceId();
+  }
+
+  /** ¿Es esta misma terminal? Para señalarla en la lista. */
+  esEstaTerminal(deviceId: string): boolean {
+    return deviceId === obtenerDeviceId();
   }
 
   desconectar(): void {

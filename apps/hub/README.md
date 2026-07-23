@@ -20,25 +20,48 @@ secuencia total** del event log: los dispositivos sellan con su propio reloj
 corepack pnpm@9.15.0 --filter @motrest/hub start
 ```
 
+Al arrancar imprime el **enlace de emparejamiento** con la IP del equipo en la
+red del local. Ese enlace lleva la clave: es una credencial.
+
 | Variable | Por omisión | Para qué |
 |---|---|---|
 | `MOTREST_HUB_PUERTO` | `8787` | Puerto HTTP y WebSocket |
 | `MOTREST_HUB_DB` | `./datos/hub.sqlite` | Archivo del event log |
 | `MOTREST_HUB_ID` | `hub-local` | Identificador del Hub |
-| `MOTREST_HUB_ABIERTO` | *(sin definir)* | `1` acepta cualquier dispositivo de la red. **Solo para pruebas.** |
+| `MOTREST_POS_PUERTO` | `5173` | Solo para componer el enlace de emparejamiento |
+| `MOTREST_HUB_ABIERTO` | *(sin definir)* | `1` acepta cualquier terminal **que tenga la clave**, sin autorizar. Solo para pruebas. |
 
-Por omisión se **exige aprobación**: alcanzar la red del local no da derecho a
-escribir en el log de ventas. Un dispositivo nuevo queda registrado sin aprobar
-hasta que un responsable lo autorice.
+## Seguridad del canal
+
+**Todo lo que viaja va cifrado** con la clave del local (AES-256-GCM): ventas,
+precios, importes de caja y datos del personal. Quien esté en el wifi del
+restaurante no puede leerlo ni inyectar comandas falsas — sin la clave no puede
+ni formular un mensaje que el Hub entienda.
+
+No se usa TLS porque un Hub de LAN no tiene nombre de dominio: un certificado
+autofirmado obligaría a cada terminal a saltarse la advertencia roja del
+navegador, y ese es justo el hábito que no queremos crear. Ver `cifrado.ts` para
+el razonamiento completo.
+
+**Qué no cubre:** no hay secreto hacia atrás, y la clave es compartida —una
+terminal enlazada podría hacerse pasar por otra—. Quién hizo qué se apoya en el
+`empleado_id` del evento y en la revalidación de permisos, no en el cifrado.
+
+**Autorización de terminales.** La primera terminal de un Hub recién instalado
+se autoriza sola: si no, nadie podría autorizar a nadie, porque la pantalla que
+autoriza vive dentro de una terminal sin autorizar. Queda anotado en la bitácora.
+De ahí en adelante toda alta exige la firma de una terminal ya autorizada.
 
 ## Endpoints
 
 | Ruta | Método | Qué hace |
 |---|---|---|
-| `/salud` | GET | Secuencia actual, conexiones abiertas, si exige aprobación |
-| `/dispositivos` | GET | Terminales conocidas y hasta dónde tiene cada una |
-| `/aprobar?device_id=…` | POST | Autoriza una terminal |
-| `/sync` | WebSocket | El canal de sincronización |
+| `/salud` | GET | Secuencia actual, conexiones abiertas, algoritmo de cifrado |
+| `/sync` | WebSocket | El canal de sincronización, **cifrado** |
+
+Listar y autorizar terminales viaja por el canal cifrado, no por HTTP: por una
+ruta en claro cualquiera en la red podría leer los identificadores de las
+terminales y usar uno autorizado para colarse.
 
 ## Cómo está partido
 
@@ -63,10 +86,10 @@ depende toda la sincronización.
 
 ## Pendiente (etapa 12)
 
-- **TLS con certificado fijado.** Hoy el canal viaja en claro por la LAN. Esto
-  sirve para una red de local controlada, no para exponerse a internet.
-- **Descubrimiento mDNS** y emparejamiento por QR. Hoy la dirección se captura
-  a mano desde Administración → Hub del local.
+- **Descubrimiento mDNS** y **QR de emparejamiento**. Hoy el enlace se copia de
+  la consola del Hub o de otra terminal ya enlazada.
+- **Rotación de la clave del local** desde la interfaz, para cuando un enlace se
+  filtre o salga una terminal del local.
 - **Compilar a JavaScript** y empaquetar como servicio de Windows (ADR-07). En
   desarrollo corre con `tsx`; un servicio de producción no debería transpilar en
   cada arranque.
