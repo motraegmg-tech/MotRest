@@ -49,9 +49,25 @@ arranque fallaría sin explicación.
 
 ## Firma del instalador
 
-**Pendiente.** Sin firma, Windows SmartScreen muestra un aviso de "editor
-desconocido" la primera vez. Se resuelve con un certificado de firma de código a
-nombre de MOTRAE, que es un trámite comercial, no técnico.
+**Pendiente del trámite comercial.** Sin firma, Windows SmartScreen muestra
+"editor desconocido" la primera vez.
+
+El trámite completo —qué certificado conviene, qué documentos necesita MOTRAE y
+cuánto cuesta— está en [`docs/FIRMA-DEL-INSTALADOR.md`](../../docs/FIRMA-DEL-INSTALADOR.md).
+
+Cuando llegue el certificado, se firma automáticamente al compilar añadiendo a
+`tauri.conf.json`:
+
+```json
+"windows": {
+  "certificateThumbprint": "LA-HUELLA-DEL-CERTIFICADO",
+  "digestAlgorithm": "sha256",
+  "timestampUrl": "http://timestamp.sectigo.com"
+}
+```
+
+El `timestampUrl` no es opcional: sin sellado de tiempo, el instalador deja de
+validar cuando el certificado caduca. Con él, sigue siendo válido para siempre.
 
 ## Pendiente: fijar el certificado del Hub
 

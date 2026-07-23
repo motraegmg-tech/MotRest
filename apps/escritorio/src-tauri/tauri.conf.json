@@ -45,7 +45,7 @@
       "nsis": {
         "languages": ["Spanish", "SpanishInternational"],
         "displayLanguageSelector": false,
-        "installMode": "perMachine"
+        "installMode": "currentUser"
       }
     }
   }

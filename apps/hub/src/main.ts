@@ -19,6 +19,7 @@ import {
 } from "node:http";
 import { createServer } from "node:https";
 import { createReadStream, existsSync, mkdirSync, statSync } from "node:fs";
+import { createRequire } from "node:module";
 import { networkInterfaces } from "node:os";
 import { dirname, extname, join, normalize, resolve } from "node:path";
 import { WebSocketServer, type WebSocket } from "ws";
@@ -40,15 +41,50 @@ import { anunciarEnLaRed } from "./descubrimiento.js";
 const PUERTO = Number(process.env.MOTREST_HUB_PUERTO ?? 8787);
 /** Puerto de la escucha local sin certificado. Solo responde a 127.0.0.1. */
 const PUERTO_LOCAL = Number(process.env.MOTREST_HUB_PUERTO_LOCAL ?? PUERTO + 1);
-const RUTA_DB = resolve(process.env.MOTREST_HUB_DB ?? "./datos/hub.sqlite");
+
+/** ¿Corre desde el instalador, o desde el repositorio en desarrollo? */
+const INSTALADO = esEjecutableEmpaquetado();
+
+function esEjecutableEmpaquetado(): boolean {
+  try {
+    // `node:sea` solo existe cuando el código va incrustado en un ejecutable.
+    return (createRequire(import.meta.url)("node:sea") as { isSea(): boolean }).isSea();
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Dónde vive el registro del local.
+ *
+ * Instalado, va a los datos del usuario y NUNCA junto al ejecutable: Windows
+ * protege `Program Files` contra escritura, así que el Hub no podría ni crear
+ * su base y el restaurante se quedaría sin caja el primer día. En desarrollo se
+ * queda junto al código, que es donde conviene tenerlo a la vista.
+ */
+function carpetaDeDatos(): string {
+  if (!INSTALADO) return "./datos/hub.sqlite";
+  const base =
+    process.env.LOCALAPPDATA ?? process.env.APPDATA ?? process.env.HOME ?? ".";
+  return join(base, "MotRest", "datos", "hub.sqlite");
+}
+
+const RUTA_DB = resolve(process.env.MOTREST_HUB_DB ?? carpetaDeDatos());
+
 /**
  * POS ya compilado. Si está, el Hub lo sirve desde su mismo puerto.
  *
  * Servirlo aquí y no aparte tiene una razón concreta: la aplicación y el canal
  * de sincronización comparten origen y certificado, así que cada terminal
  * acepta el aviso UNA sola vez en vez de dos.
+ *
+ * Instalado, el POS viaja junto al ejecutable —de solo lectura, que es lo
+ * correcto para archivos de programa—.
  */
-const RUTA_POS = resolve(process.env.MOTREST_POS_DIST ?? "../pos-ui/dist");
+const RUTA_POS = resolve(
+  process.env.MOTREST_POS_DIST ??
+    (INSTALADO ? join(dirname(process.execPath), "pos") : "../pos-ui/dist"),
+);
 const HUB_ID = process.env.MOTREST_HUB_ID ?? "hub-local";
 /** Nombre con el que el Hub se anuncia en la red: `<nombre>.local`. */
 const NOMBRE_RED = process.env.MOTREST_HUB_NOMBRE ?? "motrest";
