@@ -4,6 +4,7 @@
    * el personal de piso con PIN.
    */
   import { MAX_INTENTOS, type Usuario } from "@motrest/dominio";
+  import { contextoSeguro, explicacionContextoInseguro } from "../entorno";
   import { sesion } from "./sesion.svelte";
   import TecladoPin from "./TecladoPin.svelte";
 
@@ -31,14 +32,41 @@
     if (!elegido || verificando) return;
     verificando = true;
     error = "";
-    const r = await sesion.iniciarSesion(elegido.id, secreto);
-    verificando = false;
-    if (r.ok) {
-      onCerrar();
-    } else {
+
+    /*
+     * El `finally` no es adorno: sin él, un fallo al verificar dejaba el botón
+     * en "Verificando…" para siempre, sin decir qué pasó. Quien abre la caja
+     * no tiene forma de saber que el problema es el navegador y no su
+     * contraseña.
+     */
+    try {
+      const r = await sesion.iniciarSesion(elegido.id, secreto);
+      if (r.ok) {
+        onCerrar();
+        return;
+      }
       error = r.error ?? "No se pudo iniciar sesión";
       secreto = "";
+    } catch (causa) {
+      console.error("Fallo al verificar la credencial", causa);
+      error = motivoTecnico();
+      secreto = "";
+    } finally {
+      verificando = false;
     }
+  }
+
+  /**
+   * Explica un fallo que no es culpa de quien teclea.
+   *
+   * El caso real: el navegador solo permite comprobar contraseñas en una
+   * dirección segura. Abrir el POS por la IP de la red en `http://` deja sin
+   * esa capacidad a toda la aplicación, y el síntoma —"no me deja entrar"— no
+   * apunta a la causa por ningún lado.
+   */
+  function motivoTecnico(): string {
+    if (!contextoSeguro()) return explicacionContextoInseguro();
+    return "No se pudo verificar la credencial en este dispositivo. Revisa la consola del navegador.";
   }
 </script>
 

@@ -64,6 +64,8 @@ const CLAVE_ULTIMO_SEQ = "sync_ultimo_seq";
 export class ClienteSync {
   private socket: SocketLike | null = null;
   private claves: ClavesCanal | null = null;
+  /** Cadena de envíos, para que salgan en el orden en que se pidieron. */
+  private cola: Promise<void> = Promise.resolve();
   private temporizador: ReturnType<typeof setTimeout> | null = null;
   private intentos = 0;
   private cerradoAPropósito = false;
@@ -82,20 +84,25 @@ export class ClienteSync {
   /**
    * Manda un mensaje cifrado.
    *
-   * Es asíncrono porque cifrar lo es, pero no se espera: un envío que falla no
-   * es un error del negocio —el evento sigue en el outbox local y saldrá al
-   * reconectar—, así que nada de la venta depende de esto.
+   * Los envíos se encadenan porque cifrar es asíncrono: sin la cola, dos
+   * mensajes seguidos podrían salir en orden invertido, y el protocolo depende
+   * del orden —el saludo va antes que todo lo demás—.
+   *
+   * No se espera el resultado: un envío que falla no es un error del negocio,
+   * el evento sigue en el outbox local y saldrá al reconectar.
    */
   private enviar(mensaje: MensajeCliente): void {
     const claves = this.claves;
     const socket = this.socket;
     if (!claves || !socket) return;
 
-    void cifrar(claves.envio, mensaje)
-      .then((sobre) => socket.send(sobre))
-      .catch((causa) => {
+    this.cola = this.cola.then(async () => {
+      try {
+        socket.send(await cifrar(claves.envio, mensaje));
+      } catch (causa) {
         console.warn("No se pudo enviar al Hub; queda pendiente", causa);
-      });
+      }
+    });
   }
 
   async conectar(): Promise<void> {

@@ -23,6 +23,7 @@
   import Acceso from "./lib/sesion/Acceso.svelte";
   import CambioCredencial from "./lib/sesion/CambioCredencial.svelte";
   import DialogoAutorizacion from "./lib/sesion/DialogoAutorizacion.svelte";
+  import { contextoSeguro, explicacionContextoInseguro } from "./lib/entorno";
   import { arranque } from "./lib/persistencia/arranque.svelte";
   import { autorizacion } from "./lib/sesion/autorizacion.svelte";
   import { sesion } from "./lib/sesion/sesion.svelte";
@@ -85,6 +86,17 @@
     {/if}
   </div>
 </div>
+
+<!--
+  Sin motor criptográfico no se puede entrar ni cifrar nada. Se avisa ANTES de
+  que alguien teclee su contraseña y se quede sin saber por qué no funciona.
+-->
+{#if !contextoSeguro()}
+  <div class="inseguro" role="alert">
+    <b>Esta terminal no puede verificar credenciales</b>
+    {explicacionContextoInseguro()}
+  </div>
+{/if}
 
 {#if arranque.efimero}
   <div class="efimero" role="status">
@@ -176,6 +188,29 @@
     border-radius: var(--r-md);
     text-align: center;
     line-height: 1.4;
+  }
+  /*
+   * Este aviso va por ENCIMA del diálogo de acceso (z-index 60): si quedara
+   * detrás, quien no puede entrar tampoco podría leer por qué.
+   */
+  .inseguro {
+    position: fixed;
+    z-index: 60;
+    top: 0;
+    left: 0;
+    right: 0;
+    background: var(--peligro);
+    color: #fff;
+    padding: 0.7rem 1.25rem;
+    font-size: 0.85rem;
+    line-height: 1.45;
+    text-align: center;
+    box-shadow: var(--sombra-sm);
+  }
+  .inseguro b {
+    display: block;
+    font-size: 0.92rem;
+    margin-bottom: 0.15rem;
   }
   .app {
     display: flex;

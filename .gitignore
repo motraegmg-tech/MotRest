@@ -30,3 +30,8 @@ apps/hub/datos/
 *.sqlite
 *.sqlite-wal
 *.sqlite-shm
+
+# Certificado TLS del Hub: la llave privada nunca al repositorio
+apps/hub/datos/tls/
+*.crt
+*.key

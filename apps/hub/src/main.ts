@@ -12,10 +12,11 @@
  * TLS y mDNS quedan explícitamente PENDIENTES; están anotados abajo en vez de
  * dar por buena una seguridad que no existe.
  */
-import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
-import { mkdirSync } from "node:fs";
+import type { IncomingMessage, ServerResponse } from "node:http";
+import { createServer } from "node:https";
+import { createReadStream, existsSync, mkdirSync, statSync } from "node:fs";
 import { networkInterfaces } from "node:os";
-import { dirname, resolve } from "node:path";
+import { dirname, extname, join, normalize, resolve } from "node:path";
 import { WebSocketServer, type WebSocket } from "ws";
 import {
   cifrar,
@@ -29,11 +30,18 @@ import {
 } from "@motrest/protocolo-sync";
 import { almacenSqlite } from "@motrest/protocolo-sync/sqlite";
 import { Hub, type Conexion } from "./servidor.js";
+import { carpetaCertificados, certificadoTls } from "./certificado.js";
 
 const PUERTO = Number(process.env.MOTREST_HUB_PUERTO ?? 8787);
-/** Solo para imprimir la dirección de emparejamiento; el Hub no sirve el POS. */
-const PUERTO_POS = Number(process.env.MOTREST_POS_PUERTO ?? 5173);
 const RUTA_DB = resolve(process.env.MOTREST_HUB_DB ?? "./datos/hub.sqlite");
+/**
+ * POS ya compilado. Si está, el Hub lo sirve desde su mismo puerto.
+ *
+ * Servirlo aquí y no aparte tiene una razón concreta: la aplicación y el canal
+ * de sincronización comparten origen y certificado, así que cada terminal
+ * acepta el aviso UNA sola vez en vez de dos.
+ */
+const RUTA_POS = resolve(process.env.MOTREST_POS_DIST ?? "../pos-ui/dist");
 const HUB_ID = process.env.MOTREST_HUB_ID ?? "hub-local";
 // Por omisión SÍ se exige aprobación: es la postura segura. Se relaja solo si
 // quien instala lo pide explícitamente.
@@ -51,9 +59,9 @@ function registrar(nivel: "info" | "aviso" | "error", mensaje: string): void {
 /**
  * Direcciones IPv4 del equipo en la red del local.
  *
- * Es lo que hay que teclear en cada terminal para emparejarla. Mientras no
- * exista el descubrimiento mDNS (etapa 12), imprimirlas al arrancar evita que
- * quien instala tenga que ir a buscar la IP a la configuración de Windows.
+ * Sirven para dos cosas: componer el enlace de emparejamiento y meterlas en el
+ * certificado, para que el navegador no se queje además de que el nombre no
+ * coincide.
  */
 function direccionesLan(): string[] {
   const encontradas: string[] = [];
@@ -123,28 +131,86 @@ void almacen.estado.cargar<Catalogo[]>(CLAVE_CATALOGOS).then((guardados) => {
  * el local y cuántas terminales están conectadas. Es lo que se necesita para
  * saber, desde fuera, si el servicio está vivo.
  */
-const servidor = createServer((peticion: IncomingMessage, respuesta: ServerResponse) => {
-  const url = new URL(peticion.url ?? "/", `http://${peticion.headers.host}`);
+const lan = direccionesLan();
+const tls = await certificadoTls(carpetaCertificados(RUTA_DB), lan);
 
-  const json = (codigo: number, cuerpo: unknown): void => {
-    respuesta.writeHead(codigo, { "content-type": "application/json; charset=utf-8" });
-    respuesta.end(JSON.stringify(cuerpo, null, 2));
-  };
+const TIPOS: Record<string, string> = {
+  ".html": "text/html; charset=utf-8",
+  ".js": "text/javascript; charset=utf-8",
+  ".css": "text/css; charset=utf-8",
+  ".json": "application/json; charset=utf-8",
+  ".svg": "image/svg+xml",
+  ".png": "image/png",
+  ".jpg": "image/jpeg",
+  ".webp": "image/webp",
+  ".woff": "font/woff",
+  ".woff2": "font/woff2",
+  ".ico": "image/x-icon",
+};
 
-  if (url.pathname === "/salud") {
-    json(200, {
-      hub_id: HUB_ID,
-      seq: hub.seqActual,
-      conectados: hub.conectados,
-      exige_aprobacion: EXIGIR_APROBACION,
-      cifrado: "AES-256-GCM",
-      ts: Date.now(),
+const servidor = createServer(
+  { cert: tls.cert, key: tls.key },
+  (peticion: IncomingMessage, respuesta: ServerResponse) => {
+    const url = new URL(peticion.url ?? "/", `https://${peticion.headers.host}`);
+
+    const json = (codigo: number, cuerpo: unknown): void => {
+      respuesta.writeHead(codigo, { "content-type": "application/json; charset=utf-8" });
+      respuesta.end(JSON.stringify(cuerpo, null, 2));
+    };
+
+    if (url.pathname === "/salud") {
+      json(200, {
+        hub_id: HUB_ID,
+        seq: hub.seqActual,
+        conectados: hub.conectados,
+        exige_aprobacion: EXIGIR_APROBACION,
+        cifrado: "AES-256-GCM",
+        tls: tls.huella,
+        sirve_pos: existsSync(join(RUTA_POS, "index.html")),
+        ts: Date.now(),
+      });
+      return;
+    }
+
+    servirPos(url.pathname, respuesta, json);
+  },
+);
+
+/**
+ * Entrega los archivos del POS compilado.
+ *
+ * Lo que no exista cae a `index.html`, porque la aplicación enruta por hash y
+ * cualquier ruta profunda tiene que devolver la misma página.
+ */
+function servirPos(
+  ruta: string,
+  respuesta: ServerResponse,
+  json: (codigo: number, cuerpo: unknown) => void,
+): void {
+  const indice = join(RUTA_POS, "index.html");
+  if (!existsSync(indice)) {
+    json(404, {
+      error: "El POS no está compilado en este equipo",
+      pista: "Ejecuta: corepack pnpm@9.15.0 --filter pos-ui build",
     });
     return;
   }
 
-  json(404, { error: "No encontrado" });
-});
+  /*
+   * `normalize` sobre la ruta pedida y comprobación de que el resultado sigue
+   * dentro de la carpeta del POS: sin eso, una petición con `..` podría leer
+   * la base de datos del local o la llave privada del certificado.
+   */
+  const pedido = normalize(join(RUTA_POS, decodeURIComponent(ruta)));
+  const dentro = pedido.startsWith(RUTA_POS);
+  const archivo =
+    dentro && existsSync(pedido) && statSync(pedido).isFile() ? pedido : indice;
+
+  respuesta.writeHead(200, {
+    "content-type": TIPOS[extname(archivo).toLowerCase()] ?? "application/octet-stream",
+  });
+  createReadStream(archivo).pipe(respuesta);
+}
 
 // --- WebSocket: el canal de sincronización ----------------------------------------------
 
@@ -154,15 +220,34 @@ let contador = 0;
 wss.on("connection", (socket: WebSocket) => {
   const id = `cx-${++contador}`;
 
+  /*
+   * Cola de envío en serie.
+   *
+   * Cifrar es asíncrono, así que dos `enviar` seguidos podrían salir en orden
+   * invertido —y el protocolo depende del orden: la bienvenida va antes que los
+   * catálogos y que los eventos—. Encadenar los envíos lo garantiza.
+   *
+   * También arregla algo que se vio en pruebas: al rechazar una terminal, el
+   * `cerrar()` ganaba la carrera al mensaje de error y la terminal se quedaba
+   * desconectada sin saber por qué. Ahora el cierre espera a que salga.
+   */
+  let cola: Promise<void> = Promise.resolve();
+
   const conexion: Conexion = {
     id,
     enviar: (mensaje: MensajeHub) => {
-      if (socket.readyState !== socket.OPEN) return;
-      void cifrar(clavesHub.envio, mensaje)
-        .then((sobre) => socket.send(sobre))
-        .catch((causa) => registrar("error", `No se pudo cifrar la respuesta: ${String(causa)}`));
+      cola = cola.then(async () => {
+        if (socket.readyState !== socket.OPEN) return;
+        try {
+          socket.send(await cifrar(clavesHub.envio, mensaje));
+        } catch (causa) {
+          registrar("error", `No se pudo enviar la respuesta: ${String(causa)}`);
+        }
+      });
     },
-    cerrar: () => socket.close(),
+    cerrar: () => {
+      void cola.then(() => socket.close());
+    },
   };
 
   hub.conectar(conexion);
@@ -204,30 +289,38 @@ wss.on("connection", (socket: WebSocket) => {
 });
 
 servidor.listen(PUERTO, () => {
-  registrar("info", `Hub escuchando en el puerto ${PUERTO}`);
+  registrar("info", `Hub escuchando en el puerto ${PUERTO} (HTTPS + WSS)`);
   registrar("info", `Base de datos: ${RUTA_DB} · secuencia actual: ${hub.seqActual}`);
+  registrar(
+    tls.nuevo ? "aviso" : "info",
+    `Certificado ${tls.nuevo ? "generado" : "cargado"} · huella ${tls.huella}`,
+  );
 
-  const lan = direccionesLan();
+  if (!existsSync(join(RUTA_POS, "index.html"))) {
+    registrar("aviso", `Sin POS compilado en ${RUTA_POS}.`);
+    registrar("aviso", "Compílalo con: corepack pnpm@9.15.0 --filter pos-ui build");
+  }
+
   if (lan.length === 0) {
-    registrar("aviso", "Sin red detectada: solo se podrá conectar desde este mismo equipo.");
+    registrar("aviso", "Sin red detectada: solo se podrá abrir desde este mismo equipo.");
   } else {
     console.log("");
-    console.log("  Para emparejar una terminal, ábrela con esta dirección:");
+    console.log("  Abre esto en cada terminal del local:");
     for (const ip of lan) {
-      console.log(
-        `    http://${ip}:${PUERTO_POS}/?hub=ws://${ip}:${PUERTO}/sync&k=${claveLocal}`,
-      );
+      console.log(`    https://${ip}:${PUERTO}/?hub=wss://${ip}:${PUERTO}/sync&k=${claveLocal}`);
     }
     console.log("");
-    console.log("  Este enlace LLEVA LA CLAVE del local: trátalo como una contraseña.");
+    console.log("  · La PRIMERA vez el navegador avisará del certificado: acéptalo.");
+    console.log("    Es de este Hub, y sin él la terminal no puede cifrar nada.");
+    console.log("  · Ese enlace LLEVA LA CLAVE del local: trátalo como una contraseña.");
     console.log("");
   }
 
   if (!EXIGIR_APROBACION) {
-    registrar("aviso", "MODO ABIERTO: cualquier dispositivo de la red puede sincronizar.");
+    registrar("aviso", "MODO ABIERTO: cualquier terminal con la clave sincroniza sin autorizar.");
   }
   registrar("info", "Canal CIFRADO con la clave del local (AES-256-GCM).");
-  registrar("aviso", "PENDIENTE de la etapa 12: descubrimiento mDNS y QR de emparejamiento.");
+  registrar("aviso", "PENDIENTE: descubrimiento mDNS y QR de emparejamiento.");
 });
 
 function apagar(senal: string): void {

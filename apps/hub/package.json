@@ -16,6 +16,7 @@
   "dependencies": {
     "@motrest/dominio": "workspace:*",
     "@motrest/protocolo-sync": "workspace:*",
+    "selfsigned": "^5.5.0",
     "ws": "^8.18.0"
   },
   "devDependencies": {

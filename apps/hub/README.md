@@ -17,19 +17,34 @@ secuencia total** del event log: los dispositivos sellan con su propio reloj
 ## Arrancar
 
 ```bash
+corepack pnpm@9.15.0 --filter pos-ui build     # una vez, y tras cada cambio
 corepack pnpm@9.15.0 --filter @motrest/hub start
 ```
 
-Al arrancar imprime el **enlace de emparejamiento** con la IP del equipo en la
-red del local. Ese enlace lleva la clave: es una credencial.
+El Hub **sirve también el POS** desde su mismo puerto, por HTTPS. Al arrancar
+imprime el enlace para abrir en cada terminal del local, con la IP del equipo.
+Ese enlace lleva la clave: es una credencial.
 
 | Variable | Por omisión | Para qué |
 |---|---|---|
-| `MOTREST_HUB_PUERTO` | `8787` | Puerto HTTP y WebSocket |
+| `MOTREST_HUB_PUERTO` | `8787` | Puerto HTTPS y WSS |
 | `MOTREST_HUB_DB` | `./datos/hub.sqlite` | Archivo del event log |
+| `MOTREST_POS_DIST` | `../pos-ui/dist` | POS compilado que sirve el Hub |
 | `MOTREST_HUB_ID` | `hub-local` | Identificador del Hub |
-| `MOTREST_POS_PUERTO` | `5173` | Solo para componer el enlace de emparejamiento |
 | `MOTREST_HUB_ABIERTO` | *(sin definir)* | `1` acepta cualquier terminal **que tenga la clave**, sin autorizar. Solo para pruebas. |
+
+## Por qué el Hub sirve el POS
+
+No es comodidad: es lo que hace que **cada terminal acepte el aviso del
+certificado una sola vez**. La aplicación y el canal de sincronización comparten
+origen y certificado, así que aceptarlo al abrir la app habilita también el
+WebSocket. Servirlos por separado obligaría a aceptar dos.
+
+Y hay algo que sin HTTPS simplemente no funciona: los navegadores solo exponen
+`crypto.subtle` en contextos seguros. Sin él, una terminal **no puede verificar
+contraseñas, ni cifrar el canal, ni sellar el corte** — y el único síntoma es
+"no me deja entrar". El certificado es autofirmado (un equipo de LAN no tiene
+dominio) y se guarda para no obligar a aceptarlo cada mañana.
 
 ## Seguridad del canal
 
@@ -56,8 +71,9 @@ De ahí en adelante toda alta exige la firma de una terminal ya autorizada.
 
 | Ruta | Método | Qué hace |
 |---|---|---|
-| `/salud` | GET | Secuencia actual, conexiones abiertas, algoritmo de cifrado |
+| `/salud` | GET | Secuencia, conexiones, cifrado y huella del certificado |
 | `/sync` | WebSocket | El canal de sincronización, **cifrado** |
+| `/*` | GET | El POS compilado |
 
 Listar y autorizar terminales viaja por el canal cifrado, no por HTTP: por una
 ruta en claro cualquiera en la red podría leer los identificadores de las
