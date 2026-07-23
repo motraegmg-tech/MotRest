@@ -24,6 +24,7 @@ import type { DatabaseSync } from "node:sqlite";
 import {
   comprobanteAXml,
   FabricaEventos,
+  leerTimbre,
   streamFiscal,
   type Comprobante,
   type EventoBase,
@@ -215,13 +216,22 @@ export class Facturador {
       this.fabrica.actualizarContexto({ sucursal_id: fila.sucursal_id });
       const stream = streamFiscal(fila.sucursal_id);
 
+      // Los sellos salen del XML timbrado guardado, no se recalculan.
+      const factura = fila.estado === "timbrado" ? this.cola.facturaDe(fila.orden_id) : null;
+      const timbre = factura ? leerTimbre(factura.xml) : null;
+
       const evento =
         fila.estado === "timbrado"
           ? this.fabrica.crear("cfdi_timbrado", stream, {
               cfdi_id: fila.cfdi_id,
               uuid: fila.uuid ?? "",
-              fecha_timbrado: new Date().toISOString(),
+              fecha_timbrado: timbre?.fecha_timbrado || new Date().toISOString(),
               pac: this.nombrePac,
+              // Del XML timbrado que ya está guardado: la caja los necesita para
+              // imprimir la representación con su QR de verificación.
+              sello_cfd: timbre?.sello_cfd,
+              sello_sat: timbre?.sello_sat,
+              no_certificado_sat: timbre?.no_certificado_sat,
             })
           : this.fabrica.crear("cfdi_rechazado", stream, {
               cfdi_id: fila.cfdi_id,

@@ -14,6 +14,7 @@
     type RegistroCfdi,
   } from "@motrest/dominio";
   import { fiscal } from "../fiscal.svelte";
+  import { impresion } from "../impresion.svelte";
   import { hora, mxn } from "../formato";
   import { sesion } from "../sesion/sesion.svelte";
   import { sync } from "../sync.svelte";
@@ -63,6 +64,17 @@
 
   function copiarXml(registro: RegistroCfdi) {
     void navigator.clipboard?.writeText(fiscal.xmlDe(registro.comprobante));
+  }
+
+  /**
+   * Imprime la representación del comprobante.
+   *
+   * Timbrado, sale la factura con su QR de verificación del SAT; sin timbrar,
+   * un borrador para revisar. La vista previa hace de papel cuando no hay
+   * impresora configurada.
+   */
+  function imprimirFactura(registro: RegistroCfdi) {
+    impresion.factura(fiscal.representacionDe(registro), `${registro.serie}-${registro.folio}`);
   }
 </script>
 
@@ -190,6 +202,7 @@
             </span>
             <span class="importe">{mxn(registro.comprobante.total)}</span>
             <span class="estado">{etiquetaEstadoCfdi(registro.estado)}</span>
+            <button class="mini" onclick={() => imprimirFactura(registro)}>Imprimir</button>
             <button class="mini" onclick={() => (verXml = registro)}>Ver XML</button>
           </div>
           {#if registro.error}

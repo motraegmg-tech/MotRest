@@ -9,7 +9,7 @@
  * un total al imprimir abriría la puerta a que el papel diga una cosa y la
  * cuenta otra — y el papel es el que se lleva el cliente.
  */
-import { aPesos, type Centavos } from "@motrest/dominio";
+import { aPesos, type Centavos, type RepresentacionImpresa } from "@motrest/dominio";
 import { Ticket, type Alineacion } from "./escpos.js";
 
 export const VERSION_PLANTILLAS = 1;
@@ -281,5 +281,127 @@ export function corteCaja(datos: DatosCorte, columnas: AnchoPapel = 42): Ticket 
   t.salto();
   t.linea(`MotRest v${VERSION_PLANTILLAS}`, centrado);
 
+  return t.cortar();
+}
+
+// --- Representación impresa del CFDI ------------------------------------------------
+
+/**
+ * Parte una cadena larga en trozos del ancho del papel.
+ *
+ * Los sellos y la cadena original del SAT miden cientos de caracteres; en un
+ * papel de 80 mm hay que envolverlos o se pierden por el borde derecho.
+ */
+function envolver(texto: string, ancho: number): string[] {
+  const trozos: string[] = [];
+  for (let i = 0; i < texto.length; i += ancho) trozos.push(texto.slice(i, i + ancho));
+  return trozos;
+}
+
+/**
+ * Envuelve un texto por palabras, para lo que se lee —no para sellos.
+ *
+ * Un sello se parte a lo bruto (`envolver`), pero una leyenda o una dirección
+ * cortada a mitad de palabra se lee mal. Aquí se respeta el espacio.
+ */
+function envolverPalabras(texto: string, ancho: number): string[] {
+  const lineas: string[] = [];
+  let actual = "";
+  for (const palabra of texto.split(" ")) {
+    if (actual.length === 0) actual = palabra;
+    else if (actual.length + 1 + palabra.length <= ancho) actual += ` ${palabra}`;
+    else {
+      lineas.push(actual);
+      actual = palabra;
+    }
+  }
+  if (actual) lineas.push(actual);
+  return lineas;
+}
+
+/**
+ * La representación impresa de un CFDI 4.0.
+ *
+ * Recibe el modelo YA ARMADO por el dominio (`representacionImpresa`), nunca el
+ * comprobante crudo: los importes, el total en letra y la URL del QR se calculan
+ * en un solo lugar, y el papel imprime exactamente lo que dice el XML.
+ *
+ * Si el comprobante todavía no está timbrado, sale marcado como BORRADOR y sin
+ * QR: no es una factura hasta que el SAT la certifica.
+ */
+export function representacionCfdi(
+  rep: RepresentacionImpresa,
+  columnas: AnchoPapel = 42,
+): Ticket {
+  const t = new Ticket(columnas);
+  const centrado: { alineacion: Alineacion } = { alineacion: "centro" };
+
+  if (!rep.timbre) {
+    t.linea("** BORRADOR - SIN TIMBRAR **", { ...centrado, negrita: true });
+    t.salto();
+  }
+
+  t.linea(rep.emisor.nombre, { ...centrado, negrita: true, doble_alto: true });
+  t.linea(`RFC ${rep.emisor.rfc}`, centrado);
+  t.linea(`Regimen ${rep.emisor.regimen_fiscal}`, centrado);
+  t.linea(`Lugar de expedicion: ${rep.comprobante.lugar_expedicion}`, centrado);
+  t.separador("=");
+
+  t.linea("CFDI 4.0 - Ingreso", { negrita: true });
+  t.columnasDobles("Folio", rep.comprobante.serie_folio);
+  t.columnasDobles("Fecha", rep.comprobante.fecha);
+  t.columnasDobles("Forma pago", rep.comprobante.forma_pago);
+  t.columnasDobles("Metodo pago", rep.comprobante.metodo_pago);
+  t.separador();
+
+  t.linea("RECEPTOR", { negrita: true });
+  t.linea(rep.receptor.nombre);
+  t.columnasDobles("RFC", rep.receptor.rfc);
+  t.columnasDobles("CP", rep.receptor.codigo_postal);
+  t.columnasDobles("Regimen", rep.receptor.regimen_fiscal);
+  t.columnasDobles("Uso CFDI", rep.receptor.uso_cfdi);
+  t.separador();
+
+  t.linea("CONCEPTOS", { negrita: true });
+  for (const c of rep.conceptos) {
+    t.linea(`${c.cantidad} x ${c.descripcion}`);
+    t.columnasDobles(`  ${c.clave_prod_serv} @ ${c.valor_unitario}`, c.importe);
+  }
+  t.separador();
+
+  t.columnasDobles("Subtotal", rep.subtotal);
+  if (rep.descuento) t.columnasDobles("Descuento", `-${rep.descuento}`);
+  t.columnasDobles("Impuestos", rep.total_impuestos);
+  t.columnasDobles("TOTAL", rep.total, { negrita: true, doble_alto: true });
+  t.salto();
+  t.linea("Importe con letra:", { negrita: true });
+  t.linea(rep.total_en_letra);
+
+  if (rep.timbre) {
+    t.separador("=");
+    t.linea("TIMBRE FISCAL DIGITAL", { ...centrado, negrita: true });
+    t.linea("Folio fiscal (UUID):");
+    t.linea(rep.timbre.uuid);
+    t.columnasDobles("Timbrado", rep.timbre.fecha_timbrado);
+    t.columnasDobles("No. cert. SAT", rep.timbre.no_certificado_sat);
+    t.columnasDobles("No. cert. emisor", rep.timbre.no_certificado_emisor);
+    t.columnasDobles("RFC del PAC", rep.timbre.rfc_pac);
+
+    t.salto();
+    t.linea("Sello digital del CFDI:");
+    for (const linea of envolver(rep.timbre.sello_cfd, columnas)) t.linea(linea);
+    t.linea("Sello del SAT:");
+    for (const linea of envolver(rep.timbre.sello_sat, columnas)) t.linea(linea);
+    t.linea("Cadena original del complemento:");
+    for (const linea of envolver(rep.timbre.cadena_original, columnas)) t.linea(linea);
+
+    t.salto();
+    t.linea("Verifica esta factura:", { ...centrado, negrita: true });
+    t.qr(rep.timbre.url_qr);
+  }
+
+  t.salto();
+  for (const linea of envolverPalabras(rep.leyenda, columnas)) t.linea(linea, centrado);
+  t.linea(`MotRest v${VERSION_PLANTILLAS}`, centrado);
   return t.cortar();
 }

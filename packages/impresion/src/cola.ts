@@ -36,7 +36,7 @@ export interface Impresora {
   activa: boolean;
 }
 
-export type TipoDocumento = "comanda" | "ticket" | "corte" | "prueba";
+export type TipoDocumento = "comanda" | "ticket" | "corte" | "prueba" | "factura";
 
 export type EstadoTrabajo = "pendiente" | "imprimiendo" | "impreso" | "fallido";
 

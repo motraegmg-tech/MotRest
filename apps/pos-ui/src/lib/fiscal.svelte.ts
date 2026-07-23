@@ -11,11 +11,14 @@ import {
   comprobanteAXml,
   construirComprobante,
   proyectarCfdis,
+  representacionImpresa,
   requierenAtencion,
   streamFiscal,
   uuidv7,
   validarComprobante,
   type Comprobante,
+  type RepresentacionImpresa,
+  type TimbreFiscal,
   type DatosEmisor,
   type DatosReceptor,
   type EstadoComanda,
@@ -188,6 +191,28 @@ class StoreFiscal {
   /** XML tal como se enviaría al PAC (sin sello ni certificado). */
   xmlDe(comprobante: Comprobante): string {
     return comprobanteAXml(comprobante);
+  }
+
+  /**
+   * Arma la representación impresa de un comprobante.
+   *
+   * Si el registro ya trae los sellos del timbre —los publicó el Hub al
+   * timbrar— sale la factura completa con QR. Si no, sale el borrador: útil
+   * para revisar antes de que el SAT la certifique.
+   */
+  representacionDe(registro: RegistroCfdi): RepresentacionImpresa {
+    const timbre: TimbreFiscal | undefined =
+      registro.estado === "timbrado" && registro.uuid && registro.sello_cfd
+        ? {
+            uuid: registro.uuid,
+            fecha_timbrado: registro.fecha_timbrado ?? "",
+            sello_cfd: registro.sello_cfd,
+            sello_sat: registro.sello_sat ?? "",
+            no_certificado_sat: registro.no_certificado_sat ?? "",
+            rfc_pac: registro.pac ?? "",
+          }
+        : undefined;
+    return representacionImpresa(registro.comprobante, timbre);
   }
 }
 

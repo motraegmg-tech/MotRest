@@ -120,7 +120,7 @@ function cobrarYFacturar(ordenId: string, folio: string): void {
 
 function xmlTimbrado(uuid: string): string {
   return `<?xml version="1.0" encoding="UTF-8"?>
-<cfdi:Comprobante Version="4.0"><cfdi:Complemento><tfd:TimbreFiscalDigital UUID="${uuid}" FechaTimbrado="2026-07-23T21:20:00" /></cfdi:Complemento></cfdi:Comprobante>`;
+<cfdi:Comprobante Version="4.0"><cfdi:Complemento><tfd:TimbreFiscalDigital UUID="${uuid}" FechaTimbrado="2026-07-23T21:20:00" SelloCFD="SELLOCFD123==" NoCertificadoSAT="00001000000504465028" SelloSAT="SELLOSAT456==" RfcProvCertif="SPR190613I52" /></cfdi:Complemento></cfdi:Comprobante>`;
 }
 
 class PacFalso implements Pac {
@@ -363,6 +363,16 @@ describe("publicar el desenlace en el registro del local", () => {
 
     const [evento] = fiscalesDelLog();
     expect(evento).toMatchObject({ tipo: "cfdi_timbrado", cfdi_id: "cfdi-1001", uuid: UUID });
+    /*
+     * Los sellos viajan en el evento —leídos del XML timbrado, no
+     * recalculados— para que la caja pueda imprimir la representación con su QR
+     * de verificación sin volver a pedirle nada al Hub.
+     */
+    expect(evento).toMatchObject({
+      sello_cfd: "SELLOCFD123==",
+      sello_sat: "SELLOSAT456==",
+      no_certificado_sat: "00001000000504465028",
+    });
   });
 
   it("un rechazo también, para que nadie tenga que ir a buscarlo", async () => {

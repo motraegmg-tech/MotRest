@@ -420,3 +420,81 @@ describe("cola de impresión", () => {
     expect(cola.todos[0]!.id).toBe("t2");
   });
 });
+
+// --- Representación impresa del CFDI ------------------------------------------------
+
+import { representacionImpresa, type Comprobante, type TimbreFiscal } from "@motrest/dominio";
+import { representacionCfdi } from "../plantillas.js";
+
+function comprobanteFiscal(): Comprobante {
+  return {
+    version: "4.0", serie: "A", folio: "1001", fecha: "2026-07-23T21:15:00",
+    forma_pago: "01", metodo_pago: "PUE", lugar_expedicion: "06000", moneda: "MXN",
+    tipo_comprobante: "I", exportacion: "01",
+    subtotal: pesos(500), descuento: pesos(0) as never, total: pesos(580),
+    no_certificado: "30001000000500003416",
+    emisor: { rfc: "AAA010101AAA", nombre: "RODIZIO SA DE CV", regimen_fiscal: "601", codigo_postal: "06000" },
+    receptor: { rfc: "XEXX010101000", nombre: "PUBLICO EN GENERAL", regimen_fiscal: "616", codigo_postal: "06000", uso_cfdi: "S01" },
+    conceptos: [{
+      clave_prod_serv: "90101501", cantidad: 1, clave_unidad: "E48", descripcion: "Pizza familiar",
+      valor_unitario: pesos(500), importe: pesos(500), descuento: pesos(0) as never, objeto_imp: "02",
+      traslados: [{ base: pesos(500), impuesto: "002", tipo_factor: "Tasa", tasa_o_cuota: 0.16, importe: pesos(80) }],
+    }],
+    traslados: [{ base: pesos(500), impuesto: "002", tipo_factor: "Tasa", tasa_o_cuota: 0.16, importe: pesos(80) }],
+    total_impuestos_trasladados: pesos(80), orden_id: "ord-1",
+  } as Comprobante;
+}
+
+const timbreFiscal: TimbreFiscal = {
+  uuid: "A1B2C3D4-1111-2222-3333-444455556666",
+  fecha_timbrado: "2026-07-23T21:20:00",
+  sello_cfd: "SELLOCFDbase64muylargoparaenvolver0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ==",
+  no_certificado_sat: "00001000000504465028",
+  sello_sat: "SELLOSATbase64",
+  rfc_pac: "SPR190613I52",
+};
+
+describe("representación impresa del CFDI", () => {
+  it("imprime emisor, receptor, total y total con letra", () => {
+    const texto = representacionCfdi(representacionImpresa(comprobanteFiscal(), timbreFiscal)).aTexto();
+    expect(texto).toContain("RODIZIO SA DE CV");
+    expect(texto).toContain("AAA010101AAA");
+    expect(texto).toContain("PUBLICO EN GENERAL");
+    expect(texto).toContain("QUINIENTOS OCHENTA PESOS 00/100 M.N.");
+  });
+
+  it("un comprobante timbrado lleva UUID, sellos y leyenda", () => {
+    const texto = representacionCfdi(representacionImpresa(comprobanteFiscal(), timbreFiscal)).aTexto();
+    expect(texto).toContain("A1B2C3D4-1111-2222-3333-444455556666");
+    expect(texto).toContain("TIMBRE FISCAL DIGITAL");
+    // La leyenda se envuelve en varias líneas; se normaliza el salto para cotejarla.
+    expect(texto.replace(/\s+/g, " ")).toMatch(/representaci.n impresa de un CFDI/i);
+  });
+
+  /*
+   * El QR es el corazón de esto: si la impresora no recibe el comando GS ( k con
+   * la URL del SAT, el comensal no puede verificar la factura. Se comprueba en
+   * los BYTES, porque aTexto() salta los comandos.
+   */
+  it("emite el comando QR con la URL de verificación del SAT", () => {
+    const bytes = representacionCfdi(representacionImpresa(comprobanteFiscal(), timbreFiscal)).construir();
+    const comoTexto = Array.from(bytes).map((b) => String.fromCharCode(b)).join("");
+    expect(comoTexto).toContain("verificacfdi.facturaelectronica.sat.gob.mx");
+    expect(comoTexto).toContain("id=A1B2C3D4-1111-2222-3333-444455556666");
+  });
+
+  it("un comprobante sin timbrar sale como BORRADOR y sin QR", () => {
+    const ticket = representacionCfdi(representacionImpresa(comprobanteFiscal()));
+    expect(ticket.aTexto()).toContain("BORRADOR");
+    const comoTexto = Array.from(ticket.construir()).map((b) => String.fromCharCode(b)).join("");
+    expect(comoTexto).not.toContain("verificacfdi");
+  });
+
+  it("envuelve el sello largo en vez de perderlo por el borde", () => {
+    // El sello mide más de 42 columnas: tiene que aparecer partido en varias líneas.
+    const lineas = representacionCfdi(representacionImpresa(comprobanteFiscal(), timbreFiscal), 42)
+      .aTexto()
+      .split("\n");
+    expect(lineas.every((l) => l.length <= 42)).toBe(true);
+  });
+});

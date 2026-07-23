@@ -31,6 +31,16 @@ export type EventoFiscal =
       /** Fecha de timbrado que devuelve el PAC. */
       fecha_timbrado: string;
       pac: string;
+      /**
+       * Sellos del Timbre Fiscal Digital.
+       *
+       * Van en el evento —y no solo en la cola del Hub— porque la caja los
+       * necesita para imprimir la representación con su QR de verificación. Son
+       * opcionales por compatibilidad con eventos anteriores a esta columna.
+       */
+      sello_cfd?: string;
+      sello_sat?: string;
+      no_certificado_sat?: string;
     })
   | (EventoBase & {
       tipo: "cfdi_rechazado";
@@ -59,6 +69,10 @@ export interface RegistroCfdi {
   uuid?: string;
   fecha_timbrado?: string;
   pac?: string;
+  /** Sellos del timbre, para imprimir la representación con su QR. */
+  sello_cfd?: string;
+  sello_sat?: string;
+  no_certificado_sat?: string;
   /** Último error del PAC, si lo hubo. */
   error?: string;
   intentos: number;
@@ -96,6 +110,9 @@ export function aplicarEventoFiscal(
               uuid: ev.uuid,
               fecha_timbrado: ev.fecha_timbrado,
               pac: ev.pac,
+              sello_cfd: ev.sello_cfd,
+              sello_sat: ev.sello_sat,
+              no_certificado_sat: ev.no_certificado_sat,
               error: undefined,
             }
           : r,

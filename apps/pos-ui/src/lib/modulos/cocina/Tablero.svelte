@@ -293,7 +293,8 @@
     box-shadow: 0 0 0 3px rgba(224, 57, 43, 0.18);
   }
   .ticket.listo {
-    border-color: #6b8f57;
+    border-color: #57ad30;
+    box-shadow: 0 0 0 2px rgba(87, 173, 48, 0.25);
   }
   .cabecera {
     display: flex;
@@ -332,8 +333,18 @@
     border-top: 1px solid #2a3237;
     padding-top: 0.55rem;
   }
-  .platillo.hecho {
-    opacity: 0.5;
+  /*
+   * Un platillo listo NO se apaga.
+   *
+   * Antes bajaba al 50% de opacidad, y una comanda entera lista para entregar
+   * terminaba tan descolorida que costaba leerla de reojo —justo cuando hay que
+   * recogerla YA—. El estado ya se ve por el borde verde del ticket, el botón
+   * de entregar y el semáforo; el texto se queda a plena luz, igual que el de
+   * una comanda recién pedida.
+   */
+  .platillo.hecho .nombre {
+    text-decoration: line-through;
+    text-decoration-color: #57ad30;
   }
   .linea {
     display: flex;

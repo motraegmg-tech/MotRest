@@ -10,13 +10,14 @@
  * transporte real llega con el empaquetado Tauri (etapa 12), donde sí hay
  * acceso a la red y al USB; la cola y las plantillas ya están listas para él.
  */
-import { uuidv7, type Centavos, type ID } from "@motrest/dominio";
+import { uuidv7, type Centavos, type ID, type RepresentacionImpresa } from "@motrest/dominio";
 import {
   ColaImpresion,
   TransporteSimulado,
   comandaCocina,
   corteCaja,
   impresoraPara,
+  representacionCfdi,
   sellarCorte,
   ticketVenta,
   type CifrasCorte,
@@ -169,6 +170,25 @@ class StoreImpresion {
     const ticket = ticketVenta(datos, impresora.ancho);
     this.encolar(impresora, "ticket", ticket, datos.folio);
     this.vistaPrevia = { titulo: `Ticket ${datos.folio}`, texto: ticket.aTexto() };
+    return true;
+  }
+
+  /**
+   * Imprime la representación impresa de un CFDI, con su QR de verificación.
+   *
+   * Si el comprobante aún no está timbrado, la plantilla lo marca BORRADOR y
+   * omite el QR: no es una factura hasta que el SAT la certifica. Como todo lo
+   * demás, si no hay impresora se deja en la vista previa y la caja sigue.
+   */
+  factura(rep: RepresentacionImpresa, folio: string): boolean {
+    const impresora = impresoraPara(this.impresoras, "caja");
+    if (!impresora) {
+      this.vistaPrevia = { titulo: `Factura ${folio}`, texto: representacionCfdi(rep).aTexto() };
+      return false;
+    }
+    const ticket = representacionCfdi(rep, impresora.ancho);
+    this.encolar(impresora, "factura", ticket, folio);
+    this.vistaPrevia = { titulo: `Factura ${folio}`, texto: ticket.aTexto() };
     return true;
   }
 
