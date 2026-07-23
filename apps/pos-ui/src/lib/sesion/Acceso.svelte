@@ -178,10 +178,21 @@
           {verificando ? "Verificando…" : "Entrar"}
         </button>
       {:else}
-        <div class="puntos">
-          {#each Array(8) as _, i (i)}
-            <span class="punto" class:lleno={i < secreto.length}></span>
+        <!--
+          Un punto naranja por dígito tecleado, y nada más.
+
+          Antes había ocho huecos fijos que dejaban ver de un vistazo la
+          longitud del PIN —una pista de más para quien mira por encima del
+          hombro—. Ahora los puntos aparecen conforme se escribe: no se anuncia
+          cuántos faltan ni cuántos son.
+        -->
+        <div class="puntos" aria-hidden="true">
+          {#each Array(secreto.length) as _, i (i)}
+            <span class="punto"></span>
           {/each}
+          {#if secreto.length === 0}
+            <span class="punto-guia"></span>
+          {/if}
         </div>
         <TecladoPin
           valor={secreto}
@@ -378,17 +389,36 @@
   }
   .puntos {
     display: flex;
-    gap: 0.4rem;
+    align-items: center;
+    gap: 0.5rem;
+    min-height: 0.8rem;
   }
+  /* Cada dígito tecleado enciende un punto naranja. */
   .punto {
-    width: 0.7rem;
-    height: 0.7rem;
+    width: 0.8rem;
+    height: 0.8rem;
     border-radius: 50%;
-    border: 1.5px solid rgba(255, 255, 255, 0.3);
-  }
-  .punto.lleno {
     background: var(--acento);
-    border-color: var(--acento);
+    box-shadow: 0 0 8px color-mix(in srgb, var(--acento) 60%, transparent);
+    animation: aparecer 0.12s ease-out;
+  }
+  /* Una marca tenue mientras no se ha escrito nada, para que el campo no quede vacío. */
+  .punto-guia {
+    width: 0.5rem;
+    height: 0.5rem;
+    border-radius: 50%;
+    border: 1.5px solid rgba(255, 255, 255, 0.22);
+  }
+  @keyframes aparecer {
+    from {
+      transform: scale(0.4);
+      opacity: 0;
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .punto {
+      animation: none;
+    }
   }
   .error {
     font-size: 0.85rem;

@@ -461,24 +461,33 @@
    * Por eso este botón rompe la paleta y ninguno más: es el único que tiene
    * prisa. Si se iluminara todo, no destacaría nada.
    */
+  /*
+   * Verde vivo, no olivo.
+   *
+   * El color plano `#57ad30` a este tamaño y sobre fondo oscuro se apaga y
+   * parece deshabilitado —justo lo que NO puede parecer el botón que hay que
+   * pulsar—. Un degradado hacia un verde más claro le da volumen, y quitar la
+   * sombra oscura del texto deja de ensuciarlo. Es lo único encendido del
+   * tablero: tiene que verse como un semáforo en verde, no como una etiqueta.
+   */
   .accion.entregar {
-    background: #57ad30;
-    border-color: #6fd440;
-    color: #fff;
+    background: linear-gradient(180deg, #6fd440 0%, #57ad30 100%);
+    border-color: #7ee84a;
+    color: #0d2a05;
     font-weight: 800;
     letter-spacing: 0.02em;
-    text-shadow: 0 1px 2px rgba(0, 0, 0, 0.35);
     box-shadow:
-      0 0 0 1px rgba(111, 212, 64, 0.35),
-      0 0 14px rgba(87, 173, 48, 0.55);
+      inset 0 1px 0 rgba(255, 255, 255, 0.35),
+      0 0 0 1px rgba(126, 232, 74, 0.5),
+      0 0 18px rgba(111, 212, 64, 0.65);
   }
   .accion.entregar:hover {
-    background: #6fd440;
-    border-color: #8ae85f;
-    color: #14181a;
+    background: linear-gradient(180deg, #8ae85f 0%, #6fd440 100%);
+    border-color: #9dff6b;
     box-shadow:
-      0 0 0 1px rgba(138, 232, 95, 0.5),
-      0 0 20px rgba(111, 212, 64, 0.75);
+      inset 0 1px 0 rgba(255, 255, 255, 0.45),
+      0 0 0 1px rgba(157, 255, 107, 0.6),
+      0 0 26px rgba(126, 232, 74, 0.85);
   }
   .accion.volver {
     flex: none;

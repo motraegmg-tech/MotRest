@@ -28,7 +28,7 @@
 
 <header class="hd">
   <h1>{moduloActual?.titulo ?? cabecera.titulo}</h1>
-  <span class="chip">{cabecera.sucursal} ▾</span>
+  <span class="chip">{cabecera.sucursal}</span>
   {#if enVenta}
     <span class="chip acento">Mesa {pos.nombreMesaActiva}</span>
   {/if}

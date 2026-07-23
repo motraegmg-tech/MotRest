@@ -13,7 +13,15 @@ export const EMPLEADO_ACTUAL: ID = "usr-lucia";
 
 export const cabecera = {
   titulo: "Punto de venta",
-  sucursal: "Rodizio · Centro",
+  /*
+   * Solo el nombre del restaurante, por ahora.
+   *
+   * Cuando el alta del restaurante se capture desde Administración, aquí irá el
+   * nombre real del negocio y la sucursal en la que está esta caja
+   * ("Rodizio · Centro"). Hasta entonces, media etiqueta inventada confunde más
+   * que un nombre a secas.
+   */
+  sucursal: "Rodizio",
 };
 
 /**

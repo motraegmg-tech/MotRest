@@ -58,10 +58,14 @@
     {/each}
   </p>
 
-  <div class="puntos" aria-label="PIN">
-    {#each Array(8) as _, i (i)}
-      <span class="punto" class:lleno={i < pin.length}></span>
+  <!-- Un punto naranja por dígito, sin anunciar cuántos faltan. Igual que en el acceso. -->
+  <div class="puntos" aria-hidden="true">
+    {#each Array(pin.length) as _, i (i)}
+      <span class="punto"></span>
     {/each}
+    {#if pin.length === 0}
+      <span class="punto-guia"></span>
+    {/if}
   </div>
 
   {#if error}<p class="error" role="alert">{error}</p>{/if}
@@ -128,18 +132,35 @@
   }
   .puntos {
     display: flex;
-    gap: 0.4rem;
+    align-items: center;
+    gap: 0.5rem;
     margin: 0.4rem 0;
+    min-height: 0.8rem;
   }
   .punto {
-    width: 0.7rem;
-    height: 0.7rem;
+    width: 0.8rem;
+    height: 0.8rem;
+    border-radius: 50%;
+    background: var(--acento);
+    box-shadow: 0 0 8px color-mix(in srgb, var(--acento) 60%, transparent);
+    animation: aparecer 0.12s ease-out;
+  }
+  .punto-guia {
+    width: 0.5rem;
+    height: 0.5rem;
     border-radius: 50%;
     border: 1.5px solid var(--borde);
   }
-  .punto.lleno {
-    background: var(--acento);
-    border-color: var(--acento);
+  @keyframes aparecer {
+    from {
+      transform: scale(0.4);
+      opacity: 0;
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .punto {
+      animation: none;
+    }
   }
   .error {
     font-size: 0.82rem;
