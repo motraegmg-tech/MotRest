@@ -16,6 +16,8 @@ import {
   type Almacen,
   type Catalogo,
   type EstadoEnlace,
+  type EstadoFiscal,
+  type FacturaEnCola,
   type TerminalRegistrada,
 } from "@motrest/protocolo-sync";
 import type { EventoBase, MenuLocal, PlanoLocal } from "@motrest/dominio";
@@ -47,6 +49,11 @@ class StoreSync {
   terminales = $state<TerminalRegistrada[]>([]);
   /** Enlaces para emparejar otra terminal. LLEVAN la clave del local. */
   enlaces = $state<{ etiqueta: string; url: string }[]>([]);
+  /** Facturación: el CSD de esta caja y cómo va la cola de timbrado. */
+  fiscal = $state<EstadoFiscal | null>(null);
+  colaFiscal = $state<FacturaEnCola[]>([]);
+  /** Qué salió mal en la última operación fiscal, en palabras que orienten. */
+  problemaFiscal = $state<string>("");
 
   /** Clave del local. Nunca se muestra completa en pantalla. */
   private clave = $state("");
@@ -235,6 +242,13 @@ class StoreSync {
       alRecibirTerminales: (terminales) => (this.terminales = terminales),
       alEncontrarLocalVacio: () => this.alLocalVacio?.(),
       alRecibirEnlaces: (enlaces) => (this.enlaces = enlaces),
+      alRecibirFiscal: (estado, cola, problema) => {
+        this.fiscal = estado;
+        // La lista solo llega cuando se pide; conservar la anterior evita que
+        // la pantalla parpadee a vacío tras cada consulta de estado.
+        if (cola) this.colaFiscal = cola;
+        this.problemaFiscal = problema ?? "";
+      },
       alCambiarEstado: (estado, detalle) => {
         this.estado = estado;
         this.detalle = detalle ?? "";
@@ -320,6 +334,51 @@ class StoreSync {
     this.cliente?.pedirEnlace();
   }
 
+  // --- Facturación ---------------------------------------------------------------------
+
+  /** Cómo está el CSD de esta caja y cómo va la cola de timbrado. */
+  pedirEstadoFiscal(empleadoId: string, conCola = false): void {
+    this.problemaFiscal = "";
+    this.cliente?.fiscal({ accion: conCola ? "listar_cola" : "estado", empleado_id: empleadoId });
+  }
+
+  /**
+   * Instala el CSD del SAT.
+   *
+   * Los archivos viajan cifrados por el canal del local, igual que la
+   * contraseña. El Hub revalida el permiso: que esta pantalla se haya abierto
+   * no autoriza nada por sí solo.
+   */
+  instalarCsd(entrada: {
+    empleadoId: string;
+    cer: Uint8Array;
+    key: Uint8Array;
+    contrasena: string;
+    rfcEmisor: string;
+  }): void {
+    this.problemaFiscal = "";
+    this.cliente?.fiscal({
+      accion: "instalar_csd",
+      empleado_id: entrada.empleadoId,
+      cer: aBase64(entrada.cer),
+      key: aBase64(entrada.key),
+      contrasena: entrada.contrasena,
+      rfc_emisor: entrada.rfcEmisor,
+    });
+  }
+
+  /** Retira el CSD. Después de esto la caja vende pero no factura. */
+  desinstalarCsd(empleadoId: string): void {
+    this.problemaFiscal = "";
+    this.cliente?.fiscal({ accion: "desinstalar_csd", empleado_id: empleadoId });
+  }
+
+  /** Reencola una factura rechazada, después de arreglar la causa. */
+  reintentarFactura(empleadoId: string, ordenId: string): void {
+    this.problemaFiscal = "";
+    this.cliente?.fiscal({ accion: "reintentar", empleado_id: empleadoId, orden_id: ordenId });
+  }
+
   get deviceId(): string {
     return obtenerDeviceId();
   }
@@ -334,6 +393,22 @@ class StoreSync {
     this.cliente = null;
     this.estado = "isla";
   }
+}
+
+/**
+ * Bytes a base64, que es como viajan los archivos por un canal que lleva JSON.
+ *
+ * Por trozos y no de una: `String.fromCharCode(...bytes)` con un `.key` de
+ * varios kilobytes desborda la pila de argumentos en algunos navegadores, y
+ * fallaría justo con los archivos reales y no con los de prueba.
+ */
+function aBase64(bytes: Uint8Array): string {
+  const TROZO = 8192;
+  let texto = "";
+  for (let i = 0; i < bytes.length; i += TROZO) {
+    texto += String.fromCharCode(...bytes.subarray(i, i + TROZO));
+  }
+  return btoa(texto);
 }
 
 export const sync = new StoreSync();

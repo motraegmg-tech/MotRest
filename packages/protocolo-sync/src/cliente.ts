@@ -18,6 +18,9 @@ import {
   serializar,
   type Catalogo,
   type EstadoEnlace,
+  type EstadoFiscal,
+  type FacturaEnCola,
+  type MensajeFiscal,
   type MensajeHub,
   type MensajeCliente,
   type TerminalRegistrada,
@@ -55,6 +58,12 @@ export interface OpcionesCliente {
   alEncontrarLocalVacio?: () => void;
   /** Enlaces de emparejamiento que compone el Hub. Llevan la clave del local. */
   alRecibirEnlaces?: (enlaces: { etiqueta: string; url: string }[]) => void;
+  /** Estado de la facturación: el CSD y la cola de timbrado. */
+  alRecibirFiscal?: (
+    estado: EstadoFiscal,
+    cola: FacturaEnCola[] | undefined,
+    problema: string | undefined,
+  ) => void;
   /** Devuelve los catálogos locales, para publicarlos al conectar. */
   catalogosLocales?: () => Catalogo[];
   alCambiarEstado?: (estado: EstadoEnlace, detalle?: string) => void;
@@ -241,6 +250,10 @@ export class ClienteSync {
         this.opciones.alRecibirEnlaces?.(mensaje.enlaces);
         break;
 
+      case "fiscal":
+        this.opciones.alRecibirFiscal?.(mensaje.estado, mensaje.cola, mensaje.problema);
+        break;
+
       case "acks":
         await this.opciones.almacen.eventos.confirmar(mensaje.acks);
         // Sigue empujando mientras queden pendientes: un corte largo puede
@@ -306,6 +319,23 @@ export class ClienteSync {
   revocarTerminal(deviceId: string): void {
     if (!this.socket) return;
     this.enviar({ tipo: "admin", accion: "revocar", device_id: deviceId });
+  }
+
+  // --- Facturación ---------------------------------------------------------------------
+
+  /**
+   * Consulta o cambia la facturación del local.
+   *
+   * Todo va por el canal cifrado, y aquí importa más que en ningún otro sitio:
+   * al instalar un CSD viaja la contraseña de la llave privada, que es la firma
+   * fiscal del restaurante.
+   *
+   * `empleado_id` no es informativo: el Hub vuelve a evaluar el permiso contra
+   * su propia tabla de usuarios antes de tocar nada.
+   */
+  fiscal(peticion: Omit<MensajeFiscal, "tipo">): void {
+    if (!this.socket) return;
+    this.enviar({ tipo: "fiscal", ...peticion });
   }
 
   /** Pide el enlace de emparejamiento, para pintarlo como QR. */

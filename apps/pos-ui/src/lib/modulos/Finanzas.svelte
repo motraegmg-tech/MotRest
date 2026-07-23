@@ -16,8 +16,20 @@
   import { fiscal } from "../fiscal.svelte";
   import { hora, mxn } from "../formato";
   import { sesion } from "../sesion/sesion.svelte";
+  import { sync } from "../sync.svelte";
+  import Csd from "./finanzas/Csd.svelte";
 
   const puedeEditar = $derived(sesion.puedeOperar("fin.factura.emitir"));
+
+  /*
+   * Se pregunta al Hub al abrir la pantalla. El estado del CSD vive en la caja,
+   * no en esta terminal: preguntarlo cada vez evita mostrar un certificado que
+   * ya retiraron desde otro dispositivo.
+   */
+  $effect(() => {
+    const id = sesion.usuarioActual?.id;
+    if (id && sync.estado !== "isla") sync.pedirEstadoFiscal(id, true);
+  });
 
   let editando = $state(false);
   let borrador = $state<DatosEmisor>({ ...fiscal.emisor });
@@ -65,17 +77,24 @@
     </div>
   </div>
 
-  <!-- Aviso honesto sobre el estado del timbrado -->
-  <div class="aviso">
-    <b>Timbrado pendiente de conectar</b>
-    <p>
-      Todo lo que depende del restaurante está resuelto: los comprobantes se
-      generan completos y validados, listos para enviarse. Para timbrarlos ante
-      el SAT hacen falta dos cosas que se contratan aparte: un <b>PAC</b>
-      (Facturama, SW Sapien o Finkok) y tu <b>Certificado de Sello Digital</b>.
-      En cuanto existan, la cola se timbra sola.
-    </p>
-  </div>
+  <!--
+    El aviso solo aparece mientras falte algo. Cuando el CSD está cargado y hay
+    PAC, dejar un cartel de "pendiente" sería mentir sobre el estado del sistema.
+  -->
+  {#if !sync.fiscal?.csd_cargado || !sync.fiscal?.pac}
+    <div class="aviso">
+      <b>Falta un paso para timbrar</b>
+      <p>
+        Los comprobantes ya se generan completos y validados, y esperan en la
+        cola. Para timbrarlos ante el SAT hacen falta dos cosas que se contratan
+        aparte:
+        {#if !sync.fiscal?.csd_cargado}tu <b>Certificado de Sello Digital</b>{/if}
+        {#if !sync.fiscal?.csd_cargado && !sync.fiscal?.pac}y{/if}
+        {#if !sync.fiscal?.pac}un <b>PAC</b> que timbre{/if}. En cuanto existan,
+        la cola se timbra sola.
+      </p>
+    </div>
+  {/if}
 
   <!-- Datos fiscales del emisor -->
   <section class="tarjeta">
@@ -134,6 +153,14 @@
       </p>
     {/if}
   </section>
+
+  <!--
+    El CSD va DESPUÉS de los datos fiscales y no antes: el certificado se coteja
+    contra el RFC del emisor, así que ese dato tiene que existir primero.
+  -->
+  {#if fiscal.emisorCompleto}
+    <Csd rfcEmisor={fiscal.emisor.rfc} />
+  {/if}
 
   <!-- Comprobantes -->
   <section class="tarjeta">
