@@ -250,8 +250,27 @@ function servirPos(
 
   respuesta.writeHead(200, {
     "content-type": TIPOS[extname(archivo).toLowerCase()] ?? "application/octet-stream",
+    "cache-control": cacheDe(archivo, indice),
   });
   createReadStream(archivo).pipe(respuesta);
+}
+
+/**
+ * Cuánto puede guardar el navegador cada archivo.
+ *
+ * Sin esto —que es como estaba— el navegador aplica su propia heurística y
+ * puede quedarse con un `index.html` viejo indefinidamente. El síntoma es
+ * desconcertante: el Hub sirve la versión nueva, pero la terminal sigue
+ * mostrando la anterior y ninguna función nueva aparece. Le pasó a Gonzalo con
+ * la pantalla del QR.
+ *
+ * La regla es la estándar para una aplicación con archivos versionados por
+ * nombre: el índice se revalida SIEMPRE, y los assets —que llevan un hash en el
+ * nombre— se guardan para siempre, porque un cambio produce otro nombre.
+ */
+function cacheDe(archivo: string, indice: string): string {
+  if (archivo === indice) return "no-cache";
+  return archivo.includes("assets") ? "public, max-age=31536000, immutable" : "no-cache";
 }
 
 // --- WebSocket: el canal de sincronización ----------------------------------------------
