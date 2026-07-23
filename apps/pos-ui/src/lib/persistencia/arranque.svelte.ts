@@ -22,6 +22,7 @@ import { EXISTENCIAS_INICIALES } from "../insumos";
 import { inventario } from "../inventario.svelte";
 import { menu } from "../menu.svelte";
 import { plano } from "../plano.svelte";
+import { MODO_DEMO } from "../presentacion";
 import { pos, fabricaPos } from "../pos.svelte";
 import { sembrarSalon } from "../semilla";
 import { sesion } from "../sesion/sesion.svelte";
@@ -182,15 +183,25 @@ class Arranque {
     const almacen = this.almacen;
     if (!almacen) return;
 
-    const logs = sembrarSalon({
-      catalogo,
-      impuestoPorDefecto: impuestos[0]!,
-      fabrica: fabricaPos,
-    });
+    /*
+     * El salón sembrado con comandas de ejemplo es SOLO para la demostración.
+     * Una instalación real arranca con las mesas vacías: el restaurante dibuja
+     * su propio plano y toma sus propios pedidos. Meterle mesa-12 con una pasta
+     * al pesto a Rodizio sería confuso el primer día.
+     */
+    if (MODO_DEMO) {
+      const logs = sembrarSalon({
+        catalogo,
+        impuestoPorDefecto: impuestos[0]!,
+        fabrica: fabricaPos,
+      });
+      const eventos = Object.values(logs).flat();
+      await almacen.eventos.anexar(eventos);
+      pos.hidratar(eventos.sort(compararEventos));
+    } else {
+      pos.hidratar([]);
+    }
 
-    const eventos = Object.values(logs).flat();
-    await almacen.eventos.anexar(eventos);
-    pos.hidratar(eventos.sort(compararEventos));
     await sesion.hidratar([], almacen);
     await fiscal.hidratar([], almacen);
     inventario.hidratar([]);

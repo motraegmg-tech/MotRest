@@ -5,6 +5,16 @@ import type { ID } from "@motrest/dominio";
 export const SUCURSAL_ID: ID = "suc-rodizio-centro";
 
 /**
+ * ¿Es una instalación de demostración?
+ *
+ * `true` en desarrollo y en las pruebas; `false` únicamente en el `vite build`
+ * que se empaqueta para el restaurante. De aquí cuelga todo lo que existe solo
+ * para probar —usuarios de juguete, salón sembrado con comandas falsas— y que
+ * NO debe llegar al instalador real, que arranca limpio.
+ */
+export const MODO_DEMO = import.meta.env.PROD !== true;
+
+/**
  * Empleado con el que se sella la semilla del salón, y respaldo cuando aún no
  * hay sesión.
  *

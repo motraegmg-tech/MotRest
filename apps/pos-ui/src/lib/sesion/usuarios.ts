@@ -16,7 +16,7 @@
  * al Hub con argon2id, que es lo que pide el TRD §10.
  */
 import { permisosDePlantilla, type Credencial, type RolId, type Usuario } from "@motrest/dominio";
-import { SUCURSAL_ID } from "../presentacion";
+import { MODO_DEMO, SUCURSAL_ID } from "../presentacion";
 
 const AHORA = Date.now();
 
@@ -67,11 +67,9 @@ function usuario(
  * dígitos— es descifrable. En el instalador que llega al restaurante NO deben
  * ir: el local arranca solo con el propietario y da de alta a su personal real.
  *
- * `import.meta.env.PROD` es `true` únicamente en el `vite build` que se empaqueta.
- * En desarrollo y en las pruebas es `false`, así que ahí siguen presentes.
+ * `MODO_DEMO` (de `presentacion.ts`) es `false` únicamente en el build que se
+ * empaqueta. En desarrollo y en las pruebas es `true`, así que ahí siguen.
  */
-const MODO_DEMO = import.meta.env.PROD !== true;
-
 const PROPIETARIO: UsuarioSembrado = {
     /*
      * SIN cambio de credencial obligatorio.
