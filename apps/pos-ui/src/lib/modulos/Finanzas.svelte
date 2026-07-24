@@ -21,6 +21,7 @@
   import { sesion } from "../sesion/sesion.svelte";
   import { sync } from "../sync.svelte";
   import Csd from "./finanzas/Csd.svelte";
+  import Resultado from "./finanzas/Resultado.svelte";
 
   const puedeEditar = $derived(sesion.puedeOperar("fin.factura.emitir"));
 
@@ -137,6 +138,12 @@
       </p>
     </div>
   {/if}
+
+  <!--
+    El resultado va PRIMERO: es lo que el dueño abre a ver. Los datos fiscales y
+    los comprobantes se consultan de vez en cuando; "¿ganamos hoy?", todos los días.
+  -->
+  <Resultado />
 
   <!-- Datos fiscales del emisor -->
   <section class="tarjeta">

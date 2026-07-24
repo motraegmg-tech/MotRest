@@ -48,6 +48,7 @@ export * from "./personal/asistencia.js";
 
 // Inteligencia (reportes)
 export * from "./inteligencia/reportes.js";
+export * from "./finanzas/egresos.js";
 
 // Fiscal (CFDI 4.0)
 export * from "./fiscal/claves.js";
