@@ -65,7 +65,12 @@ class TiendaPOS {
   private logs = $state.raw<Record<ID, readonly EventoComanda[]>>({});
   private almacen: Almacen | null = null;
 
-  mesaActiva = $state<ID>("mesa-12");
+  /**
+   * Arranca vacía a propósito: `hidratar()` elige la mesa real del local. Traer
+   * "mesa-12" de fábrica metía una mesa de la demostración al instalador del
+   * restaurante, que no tiene esa mesa.
+   */
+  mesaActiva = $state<ID>("");
   mensaje = $state<string>("");
   private temporizador: ReturnType<typeof setTimeout> | undefined;
 

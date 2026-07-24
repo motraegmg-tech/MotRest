@@ -7,7 +7,8 @@
   "scripts": {
     "dev": "tauri dev",
     "//build": "`tauri build` NO reconstruye lo que empaqueta: toma el POS de pos-ui/dist y el Hub de binarios/ tal como estén. Sin estos dos pasos previos el instalador sale con código viejo y en silencio — pasó, y costó dos ciclos de diagnóstico creyendo que un arreglo no funcionaba.",
-    "build": "pnpm --filter pos-ui build && pnpm --filter @motrest/hub empaquetar && tauri build",
+    "//corepack": "Se invoca por corepack y no por `pnpm` a secas: en las máquinas del equipo pnpm no está en el PATH, solo se alcanza por corepack, y un `pnpm` suelto aquí rompe el build con «no se reconoce como un comando».",
+    "build": "corepack pnpm@9.15.0 --filter pos-ui build && corepack pnpm@9.15.0 --filter @motrest/hub empaquetar && tauri build",
     "build:solo-caja": "tauri build",
     "icono": "tauri icon"
   },

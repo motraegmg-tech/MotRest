@@ -175,13 +175,20 @@ class StoreInventario {
     return eventos.length;
   }
 
-  /** Registra un movimiento manual: recepción, merma, ajuste… */
+  /**
+   * Registra un movimiento manual: recepción, merma, ajuste…
+   *
+   * `referencia` ata el movimiento a lo que lo originó —una orden de compra,
+   * por ejemplo—. Sin ella, un conteo que no cuadra no se puede rastrear hasta
+   * la entrega que lo causó.
+   */
   registrar(
     insumoId: ID,
     cantidad: number,
     motivo: MotivoMovimiento,
     nota: string,
     empleadoId?: ID,
+    referencia?: string,
   ): Resultado {
     const insumo = this.insumo(insumoId);
     if (!insumo) return { ok: false, error: "Insumo no encontrado" };
@@ -200,6 +207,7 @@ class StoreInventario {
         unidad: insumo.unidad_base,
         motivo,
         nota: nota.trim() || undefined,
+        referencia,
       }),
     ]);
     return { ok: true };

@@ -106,38 +106,49 @@ const PROPIETARIO: UsuarioSembrado = {
     },
 };
 
-/** Marco y Lucía: solo para probar sin dar de alta a nadie. NO van a producción. */
-const USUARIOS_DEMO: UsuarioSembrado[] = [
-  {
-    usuario: usuario("usr-marco", "Marco", "M", "gerente", "Gerente de sucursal"),
-    // PIN de fábrica (usuario de demostración).
-    credencial: {
-      empleado_id: "usr-marco",
-      tipo: "pin",
-      algoritmo: "PBKDF2-SHA256",
-      iteraciones: 310_000,
-      sal: "mxvL4aRXAh9MUv+ZJGzphg==",
-      hash: "cBPP+oKjskUtXf1hvsFLdTgW681486PzGP7RtexHfCY=",
-      creada_ts: AHORA,
+/**
+ * Marco y Lucía: solo para probar sin dar de alta a nadie. NO van a producción.
+ *
+ * Va dentro de una FUNCIÓN, no de una constante, y eso no es estilo: una
+ * constante con llamadas dentro sobrevive al empaquetado aunque nadie la use
+ * —el empaquetador no puede probar que construirla no tenga efectos— y sus
+ * hashes de PIN terminaban viajando al instalador del restaurante. Una función
+ * que nadie llama se elimina entera. Verificado sobre el bundle: sin el
+ * `MODO_DEMO` no queda ni el nombre.
+ */
+function usuariosDemo(): UsuarioSembrado[] {
+  return [
+    {
+      usuario: usuario("usr-marco", "Marco", "M", "gerente", "Gerente de sucursal"),
+      // PIN de fábrica (usuario de demostración).
+      credencial: {
+        empleado_id: "usr-marco",
+        tipo: "pin",
+        algoritmo: "PBKDF2-SHA256",
+        iteraciones: 310_000,
+        sal: "mxvL4aRXAh9MUv+ZJGzphg==",
+        hash: "cBPP+oKjskUtXf1hvsFLdTgW681486PzGP7RtexHfCY=",
+        creada_ts: AHORA,
+      },
     },
-  },
-  {
-    usuario: usuario("usr-lucia", "Lucía", "L", "mesero", "Mesera"),
-    // PIN de fábrica (usuario de demostración).
-    credencial: {
-      empleado_id: "usr-lucia",
-      tipo: "pin",
-      algoritmo: "PBKDF2-SHA256",
-      iteraciones: 310_000,
-      sal: "J6SloW5AyxgPVGgM7itUqQ==",
-      hash: "yssNRcmD6YzaOw+Y/Dx/mTxCblYi2lqcYzQUbum3wFY=",
-      creada_ts: AHORA,
+    {
+      usuario: usuario("usr-lucia", "Lucía", "L", "mesero", "Mesera"),
+      // PIN de fábrica (usuario de demostración).
+      credencial: {
+        empleado_id: "usr-lucia",
+        tipo: "pin",
+        algoritmo: "PBKDF2-SHA256",
+        iteraciones: 310_000,
+        sal: "J6SloW5AyxgPVGgM7itUqQ==",
+        hash: "yssNRcmD6YzaOw+Y/Dx/mTxCblYi2lqcYzQUbum3wFY=",
+        creada_ts: AHORA,
+      },
     },
-  },
-];
+  ];
+}
 
 export const USUARIOS_SEMILLA: UsuarioSembrado[] = MODO_DEMO
-  ? [PROPIETARIO, ...USUARIOS_DEMO]
+  ? [PROPIETARIO, ...usuariosDemo()]
   : [PROPIETARIO];
 
 /**

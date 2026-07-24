@@ -110,8 +110,8 @@ export const MODULOS: EntradaModulo[] = [
     titulo: "Compras",
     fase: "F2",
     permiso: "compras.proveedor.editar",
-    operativo: false,
-    secciones: [],
+    operativo: true,
+    secciones: [{ clave: "compras", titulo: "Proveedores y órdenes", permiso: "compras.proveedor.editar" }],
     resumen:
       "Proveedores, órdenes de compra, recepción de mercancía y captura automática desde CFDI.",
     funciones: [
@@ -119,8 +119,8 @@ export const MODULOS: EntradaModulo[] = [
       "Registro de compras por CFDI XML (ingesta automática)",
       "Evaluación de desempeño de proveedores",
     ],
-    enF1: "Proveedores y la lista de insumos por reponer según stock mínimo.",
-    etapa: "Fase F2.",
+    enF1: "Proveedores, qué pedir según el stock mínimo, órdenes de compra y recepción que carga el almacén sola.",
+    etapa: "La ingesta automática desde el CFDI XML del proveedor llega en F2.",
   },
   {
     id: "m5",

@@ -50,6 +50,10 @@ export * from "./personal/asistencia.js";
 export * from "./inteligencia/reportes.js";
 export * from "./finanzas/egresos.js";
 
+// Compras (M4)
+export * from "./compras/eventos.js";
+export * from "./compras/reducers.js";
+
 // Fiscal (CFDI 4.0)
 export * from "./fiscal/claves.js";
 export * from "./fiscal/rfc.js";

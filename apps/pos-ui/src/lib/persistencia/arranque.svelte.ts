@@ -9,6 +9,7 @@ import {
   type EventoBase,
   type EventoAsistencia,
   type EventoComanda,
+  type EventoCompra,
   type EventoEgreso,
   type EventoFiscal,
   type EventoIdentidad,
@@ -17,6 +18,7 @@ import {
 import { almacenEnMemoria, almacenIndexedDB, type Almacen } from "@motrest/protocolo-sync";
 import { asistencia } from "../asistencia.svelte";
 import { egresos } from "../egresos.svelte";
+import { compras } from "../compras.svelte";
 import { catalogo, impuestos, menuSemilla } from "../catalogo";
 import { fiscal } from "../fiscal.svelte";
 import { impresion } from "../impresion.svelte";
@@ -65,6 +67,16 @@ const TIPOS_INVENTARIO = new Set(["movimiento_inventario", "conteo_registrado"])
 /** Eventos del checador. */
 const TIPOS_ASISTENCIA = new Set(["checada_registrada"]);
 const TIPOS_EGRESO = new Set(["egreso_registrado", "egreso_anulado"]);
+
+/** Eventos de compras (proveedores y ordenes). */
+const TIPOS_COMPRA = new Set([
+  "proveedor_registrado",
+  "proveedor_actualizado",
+  "proveedor_desactivado",
+  "orden_compra_creada",
+  "orden_compra_recibida",
+  "orden_compra_cancelada",
+]);
 
 class Arranque {
   cargando = $state(true);
@@ -135,7 +147,8 @@ class Arranque {
               !TIPOS_FISCALES.has(e.tipo) &&
               !TIPOS_INVENTARIO.has(e.tipo) &&
               !TIPOS_ASISTENCIA.has(e.tipo) &&
-              !TIPOS_EGRESO.has(e.tipo),
+              !TIPOS_EGRESO.has(e.tipo) &&
+              !TIPOS_COMPRA.has(e.tipo),
           ) as EventoIdentidad[],
           almacen,
         );
@@ -158,6 +171,11 @@ class Arranque {
             TIPOS_EGRESO.has((e as EventoEgreso).tipo),
           ) as EventoEgreso[],
         );
+        compras.hidratar(
+          ordenados.filter((e) =>
+            TIPOS_COMPRA.has((e as EventoCompra).tipo),
+          ) as EventoCompra[],
+        );
       }
 
       // A partir de aquí, cada evento emitido se persiste.
@@ -169,6 +187,7 @@ class Arranque {
       menu.conectarAlmacen(almacen);
       asistencia.conectarAlmacen(almacen);
       egresos.conectarAlmacen(almacen);
+      compras.conectarAlmacen(almacen);
 
       // El almacén nace en la etapa 8: un dispositivo con operación anterior no
       // tiene ni un movimiento y abriría el inventario en ceros. Se carga aquí,
@@ -218,6 +237,7 @@ class Arranque {
     await fiscal.hidratar([], almacen);
     inventario.hidratar([]);
     egresos.hidratar([]);
+    compras.hidratar([]);
   }
 
   /**
@@ -253,6 +273,11 @@ class Arranque {
       TIPOS_EGRESO.has((e as EventoEgreso).tipo),
     ) as EventoEgreso[];
     if (salidas.length > 0) egresos.integrar(salidas);
+
+    const compra = ordenados.filter((e) =>
+      TIPOS_COMPRA.has((e as EventoCompra).tipo),
+    ) as EventoCompra[];
+    if (compra.length > 0) compras.integrar(compra);
   }
 
   /**
