@@ -49,6 +49,7 @@ export * from "./personal/asistencia.js";
 
 // Inteligencia (reportes)
 export * from "./inteligencia/reportes.js";
+export * from "./inteligencia/pronostico.js";
 export * from "./finanzas/egresos.js";
 
 // Compras (M4)

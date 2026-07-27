@@ -9,6 +9,7 @@
   import {
     CONSEJOS_CLASE,
     ETIQUETAS_CLASE,
+    DIAS_SEMANA,
     centinelaMermas,
     conteoPorClase,
     consejoMerma,
@@ -16,6 +17,7 @@
     diaDe,
     formatearCantidad,
     menuEngineering,
+    pronosticoDemanda,
     resumenVentas,
     ventasPorHora,
     ventasPorMesero,
@@ -54,6 +56,21 @@
   const centinela = $derived(
     verCostos ? centinelaMermas(eventosInv, inventario.insumos) : null,
   );
+
+  // Pronóstico (C3): aprende de TODA la historia, no del periodo elegido — un
+  // patrón semanal necesita varias semanas para verse.
+  const pronostico = $derived(pronosticoDemanda(cuentasCerradasEn(pos.todasLasComandas)));
+  const ventaPico = $derived(Math.max(1, ...pronostico.proximos.map((d) => d.venta_esperada)));
+
+  function horaTexto(h: number | null): string {
+    return h === null ? "—" : `${String(h).padStart(2, "0")}:00`;
+  }
+  function diaCorto(dow: number): string {
+    return DIAS_SEMANA[dow]!.slice(0, 3);
+  }
+  function fechaCorta(ts: number): string {
+    return new Date(ts).toLocaleDateString("es-MX", { day: "2-digit", month: "short" });
+  }
 
   /** Escala de las barras: la hora más fuerte marca el 100 %. */
   const pico = $derived(Math.max(1, ...horas.map((h) => h.importe)));
@@ -113,6 +130,49 @@
         en cortesías. El IVA se calcula sobre lo efectivamente cobrado.
       </p>
     {/if}
+
+    <!-- Pronóstico de demanda (C3) -->
+    <section class="tarjeta">
+      <div class="cab-centinela">
+        <h2>Pronóstico de demanda</h2>
+        {#if !pronostico.listo}
+          <span class="aprendiendo">
+            Aprendiendo · {pronostico.dias_observados}
+            {pronostico.dias_observados === 1 ? "día observado" : "días observados"}
+          </span>
+        {/if}
+      </div>
+      <p class="ayuda">
+        Lo que viene, aprendido del patrón del propio local: cada día se proyecta
+        con el promedio de los días de ese tipo ya vistos. Un viernes no se dota
+        como un martes. {#if !pronostico.listo}Con una semana completa gana confianza.{/if}
+      </p>
+
+      <div class="semana">
+        {#each pronostico.proximos as d, i (d.fecha)}
+          <div class="dia-pron" class:hoy={i === 0} class:sin-dato={d.cuentas_esperadas === 0}>
+            <div class="dia-cab">
+              <b>{i === 0 ? "Hoy" : diaCorto(d.dia_semana)}</b>
+              <small>{fechaCorta(d.fecha)}</small>
+            </div>
+            {#if d.cuentas_esperadas > 0}
+              <div class="barra-pron">
+                <div class="relleno" style="height: {(d.venta_esperada / ventaPico) * 100}%"></div>
+              </div>
+              <div class="dia-num">
+                <span class="cuentas-pron">{d.cuentas_esperadas} <em>cuentas</em></span>
+                <span class="venta-pron">{mxn(d.venta_esperada)}</span>
+                <span class="pico-pron">pico {horaTexto(d.hora_pico)}</span>
+                <span class="conf {d.confianza}">{d.confianza}</span>
+              </div>
+            {:else}
+              <div class="barra-pron"><div class="relleno vacio-barra"></div></div>
+              <div class="dia-num"><span class="sin">Sin historia</span></div>
+            {/if}
+          </div>
+        {/each}
+      </div>
+    </section>
 
     <div class="columnas">
       <!-- Curva del día -->
@@ -627,5 +687,124 @@
     line-height: 1.4;
     max-width: 20rem;
     white-space: normal;
+  }
+  .aprendiendo {
+    font-size: 0.74rem;
+    font-weight: 600;
+    color: var(--acento-2);
+    background: #fff5ec;
+    border: 1px solid var(--acento-2);
+    border-radius: 999px;
+    padding: 0.25rem 0.7rem;
+    white-space: nowrap;
+  }
+  .semana {
+    display: grid;
+    grid-template-columns: repeat(7, 1fr);
+    gap: 0.5rem;
+    margin-top: 0.5rem;
+  }
+  @media (max-width: 720px) {
+    .semana {
+      grid-template-columns: repeat(4, 1fr);
+    }
+  }
+  .dia-pron {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.4rem;
+    border: 1px solid var(--borde);
+    border-radius: var(--r-md);
+    padding: 0.6rem 0.4rem;
+  }
+  .dia-pron.hoy {
+    border-color: var(--acento);
+    background: #fbfff8;
+  }
+  .dia-pron.sin-dato {
+    opacity: 0.6;
+  }
+  .dia-cab {
+    text-align: center;
+  }
+  .dia-cab b {
+    display: block;
+    font-family: var(--font-titulo);
+    font-size: 0.9rem;
+    text-transform: capitalize;
+  }
+  .dia-cab small {
+    font-size: 0.7rem;
+    color: var(--gris);
+  }
+  .barra-pron {
+    width: 100%;
+    height: 3rem;
+    display: flex;
+    align-items: flex-end;
+    justify-content: center;
+  }
+  .relleno {
+    width: 1.6rem;
+    min-height: 3px;
+    background: var(--acento);
+    border-radius: 3px 3px 0 0;
+  }
+  .relleno.vacio-barra {
+    background: var(--borde);
+    height: 3px;
+  }
+  .dia-num {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.1rem;
+    text-align: center;
+  }
+  .cuentas-pron {
+    font-family: var(--font-titulo);
+    font-weight: 700;
+    font-size: 0.95rem;
+  }
+  .cuentas-pron em {
+    font-style: normal;
+    font-weight: 400;
+    font-size: 0.68rem;
+    color: var(--gris);
+  }
+  .venta-pron {
+    font-size: 0.78rem;
+    font-weight: 600;
+  }
+  .pico-pron {
+    font-size: 0.7rem;
+    color: var(--gris);
+  }
+  .conf {
+    font-size: 0.62rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    padding: 0.1rem 0.4rem;
+    border-radius: 999px;
+    margin-top: 0.15rem;
+  }
+  .conf.alta {
+    background: #eef7e8;
+    color: #3f6b2c;
+  }
+  .conf.media {
+    background: #fff5ec;
+    color: var(--acento-2);
+  }
+  .conf.baja {
+    background: var(--fondo);
+    color: var(--gris);
+  }
+  .sin {
+    font-size: 0.72rem;
+    color: var(--gris);
+    font-style: italic;
   }
 </style>
