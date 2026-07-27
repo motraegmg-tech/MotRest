@@ -51,6 +51,7 @@ export * from "./personal/prenomina.js";
 // Inteligencia (reportes)
 export * from "./inteligencia/reportes.js";
 export * from "./inteligencia/pronostico.js";
+export * from "./inteligencia/simulador.js";
 export * from "./finanzas/egresos.js";
 
 // Compras (M4)

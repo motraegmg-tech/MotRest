@@ -199,8 +199,8 @@ export const MODULOS: EntradaModulo[] = [
       "Centinela de mermas y anomalías",
       "Voz del cliente omnicanal",
     ],
-    enF1: "Ventas por producto, mesero y hora; ticket promedio, food cost e ingeniería de menú.",
-    etapa: "Las 5 capacidades AI llegan en F3, sobre este mismo event log.",
+    enF1: "Ventas por producto, mesero y hora; ingeniería de menú, centinela de mermas, pronóstico de demanda y simulador de escenarios.",
+    etapa: "Faltan la voz del cliente y el copiloto por WhatsApp, en F3.",
   },
   {
     id: "m9",

@@ -19,6 +19,7 @@
     menuEngineering,
     pronosticoDemanda,
     resumenVentas,
+    simular,
     ventasPorHora,
     ventasPorMesero,
     ventasPorProducto,
@@ -70,6 +71,44 @@
   }
   function fechaCorta(ts: number): string {
     return new Date(ts).toLocaleDateString("es-MX", { day: "2-digit", month: "short" });
+  }
+
+  // --- Simulador de escenarios (C1) ---------------------------------------------------
+  let simProducto = $state("");
+  let simPrecio = $state(0);
+  let simCosto = $state(0);
+  let simVolumen = $state(0);
+
+  /** Días que cubre el periodo, para poder proyectar el efecto a un mes. */
+  const diasPeriodo = $derived.by(() => {
+    if (periodo === "hoy") return 1;
+    const cerradas = comandas.map((c) => c.cerrada_ts ?? c.abierta_ts);
+    if (cerradas.length === 0) return 1;
+    const span = Math.max(...cerradas) - Math.min(...cerradas);
+    return Math.max(1, Math.ceil(span / 86_400_000));
+  });
+
+  const escenario = $derived(
+    simular(
+      productos,
+      {
+        producto_id: simProducto || undefined,
+        precio_pct: simPrecio,
+        costo_pct: simCosto,
+        volumen_pct: simVolumen,
+      },
+      { dias: diasPeriodo },
+    ),
+  );
+
+  const hayCambio = $derived(simPrecio !== 0 || simCosto !== 0 || simVolumen !== 0);
+  const afectados = $derived(escenario.renglones.filter((r) => r.afectado && r.delta !== 0));
+
+  function limpiarSim() {
+    simProducto = "";
+    simPrecio = 0;
+    simCosto = 0;
+    simVolumen = 0;
   }
 
   /** Escala de las barras: la hora más fuerte marca el 100 %. */
@@ -354,6 +393,119 @@
               {/each}
             </tbody>
           </table>
+        {/if}
+      </section>
+    {/if}
+
+    <!-- Gemelo digital: simulador de escenarios (C1) -->
+    {#if verCostos && productos.length > 0}
+      <section class="tarjeta">
+        <h2>Simulador de escenarios</h2>
+        <p class="ayuda">
+          «¿Y si le subo diez pesos a la pizza?» Se aplica el cambio a lo que de
+          verdad se vendió en el periodo y se ve qué pasa con el margen.
+        </p>
+
+        <div class="palancas">
+          <label>
+            <span>Sobre</span>
+            <select bind:value={simProducto}>
+              <option value="">Toda la carta</option>
+              {#each productos as p (p.producto_id)}
+                <option value={p.producto_id}>{p.descripcion}</option>
+              {/each}
+            </select>
+          </label>
+          <label>
+            <span>Precio {simPrecio > 0 ? "+" : ""}{simPrecio} %</span>
+            <input type="range" min="-30" max="30" step="1" bind:value={simPrecio} />
+          </label>
+          <label>
+            <span>Costo {simCosto > 0 ? "+" : ""}{simCosto} %</span>
+            <input type="range" min="-30" max="30" step="1" bind:value={simCosto} />
+          </label>
+          <label>
+            <span>Volumen {simVolumen > 0 ? "+" : ""}{simVolumen} %</span>
+            <input type="range" min="-50" max="50" step="1" bind:value={simVolumen} />
+          </label>
+        </div>
+
+        {#if !hayCambio}
+          <p class="vacio">Mueve una palanca para ver el escenario.</p>
+        {:else}
+          <div class="resultado-sim" class:gana={escenario.delta > 0} class:pierde={escenario.delta < 0}>
+            <div>
+              <span class="etiqueta">Margen del periodo</span>
+              <b>{mxn(escenario.margen_base)} → {mxn(escenario.margen_sim)}</b>
+            </div>
+            <div class="delta-sim">
+              <span class="etiqueta">Diferencia</span>
+              <b>{escenario.delta > 0 ? "+" : ""}{mxn(escenario.delta)}</b>
+              {#if escenario.delta_mensual !== null}
+                <small>
+                  ≈ {escenario.delta_mensual > 0 ? "+" : ""}{mxn(escenario.delta_mensual)} al mes
+                </small>
+              {/if}
+            </div>
+          </div>
+
+          <!--
+            El aviso más importante de la pantalla: sin un supuesto de volumen,
+            el escenario asume que subir el precio no espanta a nadie — y eso
+            casi nunca es cierto.
+          -->
+          {#if escenario.volumen_constante && simPrecio !== 0}
+            <p class="nota advertencia-sim">
+              Este escenario supone que se vende <b>lo mismo</b> al precio nuevo.
+              Cuánto se dejará de vender no se puede saber desde el punto de
+              venta; por eso abajo está el dato que sí es exacto: cuánta venta
+              puedes perder antes de que el cambio deje de convenir.
+            </p>
+          {/if}
+
+          {#if afectados.length > 0}
+            <table>
+              <thead>
+                <tr>
+                  <th>Producto</th>
+                  <th class="num">Precio</th>
+                  <th class="num">Unidades</th>
+                  <th class="num">Margen</th>
+                  <th class="num">Aguanta perder</th>
+                </tr>
+              </thead>
+              <tbody>
+                {#each afectados as r (r.producto_id)}
+                  <tr>
+                    <td><b>{r.descripcion}</b></td>
+                    <td class="num">
+                      {mxn(r.precio_base)}
+                      {#if r.precio_sim !== r.precio_base}<small>→ {mxn(r.precio_sim)}</small>{/if}
+                    </td>
+                    <td class="num tenue">
+                      {r.unidades_base}
+                      {#if r.unidades_sim !== r.unidades_base}<small>→ {r.unidades_sim}</small>{/if}
+                    </td>
+                    <td class="num" class:alerta={r.delta < 0}>
+                      {r.delta > 0 ? "+" : ""}{mxn(r.delta)}
+                    </td>
+                    <td class="num">
+                      {#if r.caida_tolerable !== null}
+                        <b class="tolera">{pct(r.caida_tolerable)}</b>
+                        <small>de la venta</small>
+                      {:else}
+                        <span class="tenue">—</span>
+                      {/if}
+                    </td>
+                  </tr>
+                {/each}
+              </tbody>
+            </table>
+          {/if}
+
+          <div class="botones-sim">
+            <button class="mini" onclick={limpiarSim}>Reiniciar</button>
+          </div>
         {/if}
       </section>
     {/if}
@@ -806,5 +958,107 @@
     font-size: 0.72rem;
     color: var(--gris);
     font-style: italic;
+  }
+
+  /* --- Simulador --- */
+  .palancas {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr));
+    gap: 0.85rem;
+    margin: 0.5rem 0 1rem;
+  }
+  .palancas label {
+    display: flex;
+    flex-direction: column;
+    gap: 0.3rem;
+  }
+  .palancas span {
+    font-size: 0.76rem;
+    font-weight: 600;
+    color: var(--gris);
+  }
+  .palancas select {
+    padding: 0.5rem 0.65rem;
+    border: 1.5px solid var(--borde);
+    border-radius: var(--r-sm);
+    font: inherit;
+    background: #fff;
+  }
+  .palancas select:focus {
+    outline: none;
+    border-color: var(--acento);
+  }
+  .palancas input[type="range"] {
+    accent-color: var(--acento);
+    width: 100%;
+  }
+  .resultado-sim {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    flex-wrap: wrap;
+    border: 1.5px solid var(--borde);
+    border-radius: var(--r-md);
+    padding: 0.8rem 1rem;
+  }
+  .resultado-sim.gana {
+    border-color: #b6d9a0;
+    background: #f6fbf2;
+  }
+  .resultado-sim.pierde {
+    border-color: var(--peligro);
+    background: #fdf4f3;
+  }
+  .resultado-sim b {
+    display: block;
+    font-family: var(--font-titulo);
+    font-size: 1.05rem;
+    margin-top: 0.15rem;
+  }
+  .delta-sim {
+    text-align: right;
+  }
+  .delta-sim b {
+    font-size: 1.5rem;
+  }
+  .resultado-sim.gana .delta-sim b {
+    color: #3f6b2c;
+  }
+  .resultado-sim.pierde .delta-sim b {
+    color: var(--peligro);
+  }
+  .delta-sim small {
+    font-size: 0.75rem;
+    color: var(--gris);
+  }
+  .advertencia-sim {
+    margin-top: 0.8rem;
+    background: #fff5ec;
+    border-color: var(--acento-2);
+    color: var(--pizarra);
+  }
+  .tolera {
+    font-family: var(--font-titulo);
+    font-size: 1rem;
+    color: var(--acento);
+  }
+  .botones-sim {
+    display: flex;
+    justify-content: flex-end;
+    margin-top: 0.85rem;
+  }
+  .mini {
+    border: 1.5px solid var(--borde);
+    border-radius: var(--r-sm);
+    padding: 0.35rem 0.75rem;
+    font-size: 0.8rem;
+    font-weight: 600;
+    color: var(--pizarra);
+    background: #fff;
+  }
+  .mini:hover {
+    border-color: var(--acento);
+    color: var(--acento);
   }
 </style>
