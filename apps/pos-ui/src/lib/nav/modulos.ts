@@ -149,15 +149,18 @@ export const MODULOS: EntradaModulo[] = [
     fase: "F1",
     permiso: "rrhh.checada.registrar",
     operativo: true,
-    secciones: [{ clave: "checador", titulo: "Checador", permiso: "rrhh.checada.registrar" }],
+    secciones: [
+      { clave: "checador", titulo: "Checador", permiso: "rrhh.checada.registrar" },
+      { clave: "prenomina", titulo: "Prenómina", permiso: "rrhh.empleado.editar" },
+    ],
     resumen: "Checador de asistencia, turnos, propinas, prenómina y desempeño del equipo.",
     funciones: [
       "Reloj checador / control de asistencia por PIN",
       "Prenómina con horas, propinas e incidencias",
       "Desempeño de meseros (venta, propinas, tiempos)",
     ],
-    enF1: "Checador por PIN con turnos, descansos y corrección auditada de checadas olvidadas.",
-    etapa: "La prenómina completa llega en F2.",
+    enF1: "Checador por PIN con turnos y descansos, y prenómina semanal: horas por tarifa más el reparto de propinas.",
+    etapa: "La nómina fiscal completa —IMSS, ISR, finiquitos— llega en F2.",
   },
   {
     id: "m7",

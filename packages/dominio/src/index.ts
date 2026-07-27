@@ -46,6 +46,7 @@ export * from "./inventario/explosion.js";
 
 // Personal (checador)
 export * from "./personal/asistencia.js";
+export * from "./personal/prenomina.js";
 
 // Inteligencia (reportes)
 export * from "./inteligencia/reportes.js";

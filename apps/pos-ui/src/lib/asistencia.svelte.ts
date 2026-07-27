@@ -75,6 +75,24 @@ class StoreAsistencia {
     return resumenAsistencia(this.eventos, trabajadorId, ahora);
   }
 
+  /**
+   * Resumen acotado a un periodo, para la prenómina.
+   *
+   * Se filtra por `momento` —el sello efectivo— y no por el `ts` del evento:
+   * una checada corregida se capturó después, pero pertenece al día que se
+   * trabajó. Pagar por la fecha de captura movería horas de una raya a otra.
+   */
+  resumenEn(
+    trabajadorId: ID,
+    rango: { desde: number; hasta: number },
+    ahora = Date.now(),
+  ): ResumenAsistencia {
+    const dentro = this.eventos.filter(
+      (e) => e.momento >= rango.desde && e.momento < rango.hasta,
+    );
+    return resumenAsistencia(dentro, trabajadorId, Math.min(ahora, rango.hasta));
+  }
+
   /** Qué le toca checar a alguien ahora mismo. */
   siguiente(trabajadorId: ID): TipoChecada {
     return siguienteChecada(this.checadas(trabajadorId));

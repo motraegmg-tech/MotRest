@@ -5,9 +5,18 @@
    * El checador está pensado para una tablet en la entrada: la sesión abierta es
    * la del dispositivo, y cada quien marca su hora con su PIN sin cambiarla.
    */
-  import { etiquetaChecada, formatearJornada, type TipoChecada } from "@motrest/dominio";
+  import {
+    MODOS_PROPINA,
+    etiquetaChecada,
+    formatearJornada,
+    pesos,
+    semanaDe,
+    type ModoPropina,
+    type TipoChecada,
+  } from "@motrest/dominio";
   import { asistencia } from "../asistencia.svelte";
-  import { hora } from "../formato";
+  import { hora, mxn } from "../formato";
+  import { prenomina } from "../prenomina.svelte";
   import { sesion } from "../sesion/sesion.svelte";
 
   let seleccionado = $state<string>("");
@@ -65,6 +74,47 @@
   function teclear(digito: string) {
     if (pin.length < 8) pin += digito;
   }
+
+  // --- Prenómina --------------------------------------------------------------------
+
+  type Vista = "checador" | "prenomina";
+  let vista = $state<Vista>("checador");
+
+  const puedeNomina = $derived(sesion.puedeOperar("rrhh.empleado.editar"));
+
+  /** Cuántas semanas hacia atrás: 0 = la semana en curso. */
+  let semanasAtras = $state(0);
+  const rango = $derived(semanaDe(ahora - semanasAtras * 7 * 86_400_000));
+  const raya = $derived(prenomina.calcular(equipo, rango, ahora));
+
+  let editandoTarifa = $state<string>("");
+  let tarifaTexto = $state("");
+  let errorTarifa = $state("");
+
+  function abrirTarifa(id: string) {
+    editandoTarifa = id;
+    const actual = prenomina.tarifaDe(id);
+    tarifaTexto = actual ? (actual / 100).toFixed(2) : "";
+    errorTarifa = "";
+  }
+
+  function guardarTarifa() {
+    errorTarifa = "";
+    prenomina.actuarComo(sesion.usuarioActual?.id ?? "sistema");
+    const r = prenomina.asignarTarifa(editandoTarifa, pesos(Number(tarifaTexto) || 0));
+    if (!r.ok) {
+      errorTarifa = r.error ?? "No se pudo guardar";
+      return;
+    }
+    editandoTarifa = "";
+    tarifaTexto = "";
+  }
+
+  function rangoTexto(r: { desde: number; hasta: number }): string {
+    const f = (ts: number) =>
+      new Date(ts).toLocaleDateString("es-MX", { day: "2-digit", month: "short" });
+    return `${f(r.desde)} — ${f(r.hasta - 86_400_000)}`;
+  }
 </script>
 
 <div class="seccion">
@@ -76,10 +126,137 @@
         dejando rastro de quién la autorizó.
       </p>
     </div>
+    {#if puedeNomina}
+      <div class="pestanas">
+        <button class:on={vista === "checador"} onclick={() => (vista = "checador")}>
+          Checador
+        </button>
+        <button class:on={vista === "prenomina"} onclick={() => (vista = "prenomina")}>
+          Prenómina
+        </button>
+      </div>
+    {/if}
   </div>
 
   {#if mensaje}<p class="ok" role="status">{mensaje}</p>{/if}
 
+  {#if vista === "prenomina" && puedeNomina}
+    <!--
+      Prenómina: horas del checador por su tarifa, más las propinas del POS.
+      No es nómina fiscal —sin IMSS ni ISR, eso es F2—: es el número con el que
+      se paga la raya.
+    -->
+    <section class="tarjeta">
+      <div class="cab-raya">
+        <div>
+          <h2>Prenómina de la semana</h2>
+          <p class="pista">{rangoTexto(rango)}</p>
+        </div>
+        <div class="controles-raya">
+          <button class="mini" onclick={() => (semanasAtras += 1)}>← Anterior</button>
+          <button class="mini" disabled={semanasAtras === 0} onclick={() => (semanasAtras -= 1)}>
+            Siguiente →
+          </button>
+        </div>
+      </div>
+
+      <label class="modo">
+        <span>Reparto de propinas</span>
+        <select
+          value={prenomina.modoPropina}
+          onchange={(e) => (prenomina.modoPropina = e.currentTarget.value as ModoPropina)}
+        >
+          {#each MODOS_PROPINA as m (m.valor)}
+            <option value={m.valor}>{m.etiqueta}</option>
+          {/each}
+        </select>
+      </label>
+      <p class="pista">
+        {MODOS_PROPINA.find((m) => m.valor === prenomina.modoPropina)?.descripcion}
+      </p>
+
+      {#if raya.turnos_abiertos > 0}
+        <p class="aviso-raya" role="alert">
+          {raya.turnos_abiertos}
+          {raya.turnos_abiertos === 1 ? "persona tiene" : "personas tienen"} un turno
+          sin checar salida: sus horas se miden hasta ahora y están infladas.
+          Corrige la checada antes de pagar.
+        </p>
+      {/if}
+      {#if raya.sin_tarifa > 0}
+        <p class="aviso-raya" role="alert">
+          {raya.sin_tarifa}
+          {raya.sin_tarifa === 1 ? "persona trabajó" : "personas trabajaron"} sin
+          tarifa capturada: su sueldo sale en cero hasta que se les asigne.
+        </p>
+      {/if}
+
+      {#if raya.renglones.length === 0}
+        <p class="vacio">Nadie registró horas ni propinas en esta semana.</p>
+      {:else}
+        <table>
+          <thead>
+            <tr>
+              <th>Trabajador</th>
+              <th class="num">Horas</th>
+              <th class="num">Tarifa</th>
+              <th class="num">Sueldo</th>
+              <th class="num">Propinas</th>
+              <th class="num">Total</th>
+            </tr>
+          </thead>
+          <tbody>
+            {#each raya.renglones as r (r.trabajador_id)}
+              <tr>
+                <td>
+                  <b>{r.nombre}</b>
+                  {#if r.turnoAbierto}<small class="ojo">turno sin cerrar</small>{/if}
+                </td>
+                <td class="num" class:alerta={r.turnoAbierto}>{r.horas.toFixed(2)}</td>
+                <td class="num">
+                  {#if editandoTarifa === r.trabajador_id}
+                    <input
+                      class="celda"
+                      inputmode="decimal"
+                      bind:value={tarifaTexto}
+                      placeholder="0.00"
+                    />
+                  {:else}
+                    <button class="tarifa" onclick={() => abrirTarifa(r.trabajador_id)}>
+                      {r.sinTarifa ? "Asignar" : mxn(r.tarifa_hora)}
+                    </button>
+                  {/if}
+                </td>
+                <td class="num">{mxn(r.sueldo)}</td>
+                <td class="num">{mxn(r.propinas)}</td>
+                <td class="num"><b>{mxn(r.total)}</b></td>
+              </tr>
+            {/each}
+          </tbody>
+          <tfoot>
+            <tr>
+              <td colspan="3"><b>Total a pagar</b></td>
+              <td class="num">{mxn(raya.total_sueldos)}</td>
+              <td class="num">{mxn(raya.total_propinas)}</td>
+              <td class="num total-raya">{mxn(raya.total)}</td>
+            </tr>
+          </tfoot>
+        </table>
+
+        {#if editandoTarifa}
+          <div class="guardar-tarifa">
+            {#if errorTarifa}<span class="error">{errorTarifa}</span>{/if}
+            <span class="pista">
+              Tarifa por hora de {sesion.nombreDe(editandoTarifa)}. Queda en la
+              bitácora: cuándo cambió y quién lo hizo.
+            </span>
+            <button class="mini" onclick={() => (editandoTarifa = "")}>Cancelar</button>
+            <button class="principal mini" onclick={guardarTarifa}>Guardar tarifa</button>
+          </div>
+        {/if}
+      {/if}
+    </section>
+  {:else}
   <div class="columnas">
     <!-- Checador -->
     <section class="tarjeta checador">
@@ -200,6 +377,7 @@
       </div>
     {/if}
   </section>
+  {/if}
 </div>
 
 <style>
@@ -460,5 +638,150 @@
     font-size: 0.85rem;
     font-weight: 600;
     color: var(--peligro);
+  }
+
+  /* --- Prenómina --- */
+  .pestanas {
+    display: flex;
+    gap: 0.3rem;
+    background: var(--fondo);
+    border: 1px solid var(--borde);
+    border-radius: var(--r-md);
+    padding: 0.2rem;
+    flex: none;
+  }
+  .pestanas button {
+    padding: 0.4rem 0.9rem;
+    border-radius: var(--r-sm);
+    font-size: 0.83rem;
+    font-weight: 600;
+    color: var(--gris);
+  }
+  .pestanas button.on {
+    background: var(--acento);
+    color: #fff;
+  }
+  .cab-raya {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 1rem;
+    flex-wrap: wrap;
+    margin-bottom: 0.75rem;
+  }
+  .controles-raya {
+    display: flex;
+    gap: 0.4rem;
+  }
+  .mini {
+    border: 1.5px solid var(--borde);
+    border-radius: var(--r-sm);
+    padding: 0.35rem 0.7rem;
+    font-size: 0.8rem;
+    font-weight: 600;
+    color: var(--pizarra);
+    background: #fff;
+  }
+  .mini:disabled {
+    opacity: 0.45;
+    cursor: default;
+  }
+  .mini.principal {
+    background: var(--acento);
+    border-color: var(--acento);
+    color: #fff;
+  }
+  .modo {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+    max-width: 22rem;
+    margin-top: 0.5rem;
+  }
+  .modo span {
+    font-size: 0.76rem;
+    font-weight: 600;
+    color: var(--gris);
+  }
+  .modo select {
+    padding: 0.55rem 0.7rem;
+    border: 1.5px solid var(--borde);
+    border-radius: var(--r-sm);
+    font: inherit;
+    background: #fff;
+  }
+  .modo select:focus {
+    outline: none;
+    border-color: var(--acento);
+  }
+  .aviso-raya {
+    margin-top: 0.8rem;
+    background: #fdeae8;
+    border: 1px solid var(--peligro);
+    border-radius: var(--r-md);
+    padding: 0.7rem 0.95rem;
+    font-size: 0.85rem;
+    line-height: 1.5;
+  }
+  .celda {
+    width: 5.5rem;
+    padding: 0.3rem 0.45rem;
+    border: 1.5px solid var(--acento);
+    border-radius: var(--r-sm);
+    font: inherit;
+    text-align: right;
+  }
+  .celda:focus {
+    outline: none;
+  }
+  .tarifa {
+    border: 1px dashed var(--borde);
+    border-radius: var(--r-sm);
+    padding: 0.2rem 0.5rem;
+    font-size: 0.84rem;
+    font-weight: 600;
+    color: var(--pizarra);
+    background: transparent;
+  }
+  .tarifa:hover {
+    border-color: var(--acento);
+    color: var(--acento);
+  }
+  .ojo {
+    display: block;
+    font-size: 0.72rem;
+    color: var(--peligro);
+    font-weight: 600;
+  }
+  .alerta {
+    color: var(--peligro);
+    font-weight: 700;
+  }
+  tfoot td {
+    border-top: 2px solid var(--borde);
+    border-bottom: none;
+    padding-top: 0.6rem;
+    font-size: 0.9rem;
+  }
+  .total-raya {
+    font-family: var(--font-titulo);
+    font-size: 1.15rem;
+    font-weight: 700;
+    color: var(--acento);
+  }
+  .guardar-tarifa {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    justify-content: flex-end;
+    flex-wrap: wrap;
+    margin-top: 0.9rem;
+    padding-top: 0.8rem;
+    border-top: 1px dashed var(--borde);
+  }
+  .guardar-tarifa .pista {
+    flex: 1;
+    min-width: 12rem;
+    margin: 0;
   }
 </style>

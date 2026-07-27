@@ -16,6 +16,7 @@ import {
   type EventoFiscal,
   type EventoIdentidad,
   type EventoInventario,
+  type EventoPrenomina,
 } from "@motrest/dominio";
 import { almacenEnMemoria, almacenIndexedDB, type Almacen } from "@motrest/protocolo-sync";
 import { asistencia } from "../asistencia.svelte";
@@ -23,6 +24,7 @@ import { caja } from "../caja.svelte";
 import { clientes } from "../clientes.svelte";
 import { egresos } from "../egresos.svelte";
 import { compras } from "../compras.svelte";
+import { prenomina } from "../prenomina.svelte";
 import { catalogo, impuestos, menuSemilla } from "../catalogo";
 import { fiscal } from "../fiscal.svelte";
 import { impresion } from "../impresion.svelte";
@@ -70,6 +72,9 @@ const TIPOS_INVENTARIO = new Set(["movimiento_inventario", "conteo_registrado"])
 
 /** Eventos del checador. */
 const TIPOS_ASISTENCIA = new Set(["checada_registrada"]);
+
+/** Condiciones laborales: la tarifa por hora de cada quien. */
+const TIPOS_PRENOMINA = new Set(["tarifa_asignada"]);
 const TIPOS_EGRESO = new Set(["egreso_registrado", "egreso_anulado"]);
 
 /** Eventos de compras (proveedores y ordenes). */
@@ -169,7 +174,8 @@ class Arranque {
               !TIPOS_EGRESO.has(e.tipo) &&
               !TIPOS_COMPRA.has(e.tipo) &&
               !TIPOS_CAJA.has(e.tipo) &&
-              !TIPOS_CLIENTE.has(e.tipo),
+              !TIPOS_CLIENTE.has(e.tipo) &&
+              !TIPOS_PRENOMINA.has(e.tipo),
           ) as EventoIdentidad[],
           almacen,
         );
@@ -207,6 +213,11 @@ class Arranque {
             TIPOS_CLIENTE.has((e as EventoCliente).tipo),
           ) as EventoCliente[],
         );
+        prenomina.hidratar(
+          ordenados.filter((e) =>
+            TIPOS_PRENOMINA.has((e as EventoPrenomina).tipo),
+          ) as EventoPrenomina[],
+        );
       }
 
       // A partir de aquí, cada evento emitido se persiste.
@@ -221,6 +232,7 @@ class Arranque {
       compras.conectarAlmacen(almacen);
       caja.conectarAlmacen(almacen);
       clientes.conectarAlmacen(almacen);
+      prenomina.conectarAlmacen(almacen);
 
       // El almacén nace en la etapa 8: un dispositivo con operación anterior no
       // tiene ni un movimiento y abriría el inventario en ceros. Se carga aquí,
@@ -273,6 +285,7 @@ class Arranque {
     compras.hidratar([]);
     caja.hidratar([]);
     clientes.hidratar([]);
+    prenomina.hidratar([]);
   }
 
   /**
@@ -323,6 +336,11 @@ class Arranque {
       TIPOS_CLIENTE.has((e as EventoCliente).tipo),
     ) as EventoCliente[];
     if (clientesEv.length > 0) clientes.integrar(clientesEv);
+
+    const nomina = ordenados.filter((e) =>
+      TIPOS_PRENOMINA.has((e as EventoPrenomina).tipo),
+    ) as EventoPrenomina[];
+    if (nomina.length > 0) prenomina.integrar(nomina);
   }
 
   /**

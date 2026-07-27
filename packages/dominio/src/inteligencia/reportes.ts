@@ -31,6 +31,24 @@ export function diaDe(ts: number): Rango {
 }
 
 /**
+ * La semana que contiene un instante, de LUNES a domingo.
+ *
+ * Arranca en lunes porque es el periodo con el que se paga la raya en México, y
+ * porque cortar en domingo partiría el fin de semana —el turno más fuerte de un
+ * restaurante— entre dos periodos distintos.
+ */
+export function semanaDe(ts: number): Rango {
+  const inicio = new Date(ts);
+  inicio.setHours(0, 0, 0, 0);
+  // getDay(): 0 = domingo. Se retrocede al lunes anterior.
+  const retroceso = (inicio.getDay() + 6) % 7;
+  inicio.setDate(inicio.getDate() - retroceso);
+  const fin = new Date(inicio);
+  fin.setDate(fin.getDate() + 7);
+  return { desde: inicio.getTime(), hasta: fin.getTime() };
+}
+
+/**
  * Las cuentas ya cobradas dentro del rango.
  *
  * Solo cuentan las CERRADAS: una mesa en servicio todavía puede cambiar, y meter
