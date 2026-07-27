@@ -24,6 +24,8 @@ import {
   rolesAsignablesPor,
   streamIdentidad,
   uuidv7,
+  generarCodigoRescate,
+  normalizarCodigo,
   validarSecreto,
   verificarCredencial,
   type Accion,
@@ -39,6 +41,14 @@ import {
   type Veredicto,
 } from "@motrest/dominio";
 import { CLAVES, type Almacen } from "@motrest/protocolo-sync";
+
+/**
+ * Dueño ficticio del hash del código de rescate.
+ *
+ * El código no pertenece a una persona sino al LOCAL: si se atara al id del
+ * propietario, cambiar de dueño invalidaría la llave de repuesto del negocio.
+ */
+const RESCATE_ID = "local:rescate";
 import { SUCURSAL_ID, obtenerDeviceId } from "../presentacion";
 import { USUARIOS_SEMILLA, USUARIO_POR_DEFECTO } from "./usuarios";
 
@@ -58,6 +68,15 @@ class Sesion {
 
   /** Credenciales por usuario. No es estado reactivo: no se muestra jamás. */
   private credenciales = new Map<ID, Credencial[]>();
+  /** Hash del código de rescate. El código en claro nunca se guarda. */
+  private rescate = $state.raw<Credencial | null>(null);
+  /**
+   * El código recién generado, para enseñarlo UNA vez.
+   *
+   * Vive solo en memoria y se borra al confirmarse: si se guardara, dejaría en
+   * el disco justo lo que este mecanismo protege.
+   */
+  codigoRescateNuevo = $state<string | null>(null);
 
   /** Intentos fallidos por usuario. Reactivo: la UI muestra los restantes. */
   private intentos = $state<Record<ID, EstadoIntentos>>({});
@@ -107,6 +126,15 @@ class Sesion {
       this.credenciales = new Map(Object.entries(guardadas));
     }
 
+    this.rescate = (await almacen.estado.cargar<Credencial>(CLAVES.rescate)) ?? null;
+    /*
+     * Si este dispositivo todavía no tiene llave de repuesto, se emite ahora y
+     * la pantalla la enseña una vez. Es por DISPOSITIVO, igual que las
+     * credenciales: cada terminal guarda sus propios hashes, así que el código
+     * que sirve para recuperar el acceso aquí es el que se emitió aquí.
+     */
+    if (!this.rescate) await this.emitirCodigoRescate();
+
     const intentos = await almacen.estado.cargar<Record<ID, EstadoIntentos>>(CLAVES.intentos);
     if (intentos) this.intentos = intentos;
 
@@ -149,6 +177,7 @@ class Sesion {
         Object.fromEntries(this.credenciales),
       );
       await this.almacen.estado.guardar(CLAVES.intentos, this.intentos);
+      if (this.rescate) await this.almacen.estado.guardar(CLAVES.rescate, this.rescate);
     } catch (causa) {
       console.error("No se pudieron guardar las credenciales", causa);
     }
@@ -769,6 +798,98 @@ class Sesion {
       ok: false,
       error: "Esa clave no corresponde a nadie que pueda autorizar este cambio",
     };
+  }
+
+
+  // --- Código de rescate ---------------------------------------------------------------
+
+
+  /** ¿Ya hay un código de rescate emitido para este local? */
+  get hayCodigoRescate(): boolean {
+    return this.rescate !== null;
+  }
+
+  /**
+   * Emite un código de rescate nuevo y devuelve el texto para enseñarlo UNA vez.
+   *
+   * Se guarda solo el hash, con las mismas iteraciones que una contraseña. El
+   * código en claro vive en memoria hasta que se confirma que fue anotado.
+   */
+  async emitirCodigoRescate(): Promise<string> {
+    const codigo = generarCodigoRescate();
+    this.rescate = await crearCredencial(
+      RESCATE_ID,
+      normalizarCodigo(codigo),
+      "contrasena",
+    );
+    this.codigoRescateNuevo = codigo;
+    await this.guardarSecretos();
+    return codigo;
+  }
+
+  /** El dueño confirmó que lo anotó: se borra de memoria. */
+  olvidarCodigoMostrado(): void {
+    this.codigoRescateNuevo = null;
+  }
+
+  /**
+   * Recupera el acceso del propietario con el código de rescate.
+   *
+   * Es el único camino que NO firma otra persona, así que lleva sus propios
+   * candados: la misma política de intentos que todo lo demás, y el código se
+   * consume —al usarlo se emite otro—, para que un papel viejo no siga sirviendo.
+   *
+   * Al terminar, el código nuevo queda en `codigoRescateNuevo` para enseñarlo:
+   * quien acaba de recuperar el acceso se queda sin llave de repuesto si no se
+   * le entrega otra en ese momento.
+   */
+  async recuperarAcceso(
+    codigo: string,
+    nuevaContrasena: string,
+  ): Promise<Resultado> {
+    const propietario = this.usuarios.find((u) => u.rol_id === "propietario" && u.activo);
+    if (!propietario) return { ok: false, error: "No hay un propietario activo en este local" };
+    if (!this.rescate) {
+      return { ok: false, error: "Este local no tiene código de rescate emitido" };
+    }
+
+    const problema = validarSecreto(nuevaContrasena, "contrasena");
+    if (problema) return { ok: false, error: problema };
+
+    const politica = politicaIntentos(this.intentosAutorizacion, Date.now());
+    if (politica.bloqueado) {
+      return { ok: false, error: `Se agotaron los ${MAX_INTENTOS} intentos.` };
+    }
+    if (!politica.permitido) {
+      const segundos = Math.ceil(politica.espera_ms / 1000);
+      return { ok: false, error: `Demasiados intentos. Espera ${segundos} s` };
+    }
+
+    if (!(await verificarCredencial(normalizarCodigo(codigo), this.rescate))) {
+      this.intentosAutorizacion = {
+        fallos: this.intentosAutorizacion.fallos + 1,
+        ultimo_fallo_ts: Date.now(),
+      };
+      return { ok: false, error: "Ese código de rescate no es correcto" };
+    }
+
+    this.intentosAutorizacion = { fallos: 0, ultimo_fallo_ts: 0 };
+
+    const previas = (this.credenciales.get(propietario.id) ?? []).filter(
+      (c) => c.tipo !== "contrasena",
+    );
+    this.credenciales.set(propietario.id, [
+      await crearCredencial(propietario.id, nuevaContrasena, "contrasena"),
+      ...previas,
+    ]);
+    this.intentos = { ...this.intentos, [propietario.id]: { fallos: 0, ultimo_fallo_ts: 0 } };
+
+    // Queda en la bitácora: recuperar el acceso no puede ser silencioso.
+    this.emitir("acceso_recuperado", { usuario_id: propietario.id });
+
+    // El código usado se quema y se entrega otro en el acto.
+    await this.emitirCodigoRescate();
+    return { ok: true };
   }
 
   /** Plantilla de permisos de un rol, para arrancar el alta de un usuario. */

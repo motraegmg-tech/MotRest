@@ -150,6 +150,34 @@
 {/if}
 {/if}
 
+
+<!--
+  La llave de repuesto del local, enseñada UNA vez.
+
+  Va aquí y no en un rincón de Administración porque es el único momento en que
+  existe en claro: en cuanto se cierra, solo queda su hash. Un dueño que no la
+  anote se queda sin forma de volver a entrar si olvida su contraseña.
+-->
+{#if sesion.codigoRescateNuevo}
+  <div class="velo-rescate"></div>
+  <div class="tarjeta-rescate" role="dialog" aria-modal="true" aria-label="Código de rescate">
+    <h2>Anota tu código de rescate</h2>
+    <p>
+      Es la <b>única</b> forma de volver a entrar si olvidas tu contraseña: por
+      encima del propietario no hay nadie que pueda restablecerla.
+    </p>
+    <p class="codigo-rescate">{sesion.codigoRescateNuevo}</p>
+    <p class="letra-chica">
+      Guárdalo <b>fuera de esta computadora</b> —en papel, en una caja fuerte—.
+      Aquí solo se conserva cifrado, así que no se puede volver a mostrar: si lo
+      pierdes, hay que emitir otro desde Administración.
+    </p>
+    <button class="principal-rescate" onclick={() => sesion.olvidarCodigoMostrado()}>
+      Ya lo anoté
+    </button>
+  </div>
+{/if}
+
 <style>
   .cargando {
     height: 100vh;
@@ -281,5 +309,60 @@
     .app :global(.sb .foot) {
       display: none;
     }
+  }
+  .velo-rescate {
+    position: fixed;
+    inset: 0;
+    background: rgba(20, 24, 26, 0.75);
+    z-index: 80;
+  }
+  .tarjeta-rescate {
+    position: fixed;
+    z-index: 81;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    width: min(30rem, calc(100vw - 2rem));
+    background: #fff;
+    border-radius: var(--r-xl);
+    padding: 1.6rem;
+    box-shadow: var(--sombra-lg);
+    text-align: center;
+  }
+  .tarjeta-rescate h2 {
+    font-size: 1.25rem;
+    font-weight: 700;
+    margin-bottom: 0.5rem;
+  }
+  .tarjeta-rescate p {
+    font-size: 0.88rem;
+    color: var(--gris);
+    line-height: 1.55;
+  }
+  .codigo-rescate {
+    font-family: ui-monospace, Consolas, monospace;
+    font-size: 1.6rem;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    color: var(--acento) !important;
+    background: #fffaf5;
+    border: 1.5px dashed var(--acento);
+    border-radius: var(--r-md);
+    padding: 0.9rem 0.5rem;
+    margin: 1rem 0 0.8rem;
+    user-select: all;
+    word-break: break-all;
+  }
+  .letra-chica {
+    font-size: 0.8rem !important;
+  }
+  .principal-rescate {
+    margin-top: 1.1rem;
+    background: var(--acento);
+    color: #fff;
+    border-radius: var(--r-md);
+    padding: 0.7rem 1.4rem;
+    font-family: var(--font-titulo);
+    font-weight: 600;
   }
 </style>

@@ -81,4 +81,6 @@ export const CLAVES = {
   intentos: "intentos",
   sesion: "sesion_activa",
   versionSemilla: "version_semilla",
+  /** Hash del código de rescate del propietario. Nunca el código en claro. */
+  rescate: "rescate",
 } as const;

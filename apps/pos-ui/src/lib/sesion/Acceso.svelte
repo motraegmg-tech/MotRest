@@ -34,6 +34,47 @@
     elegido ? sesion.hayQuienAutoriceCredencialDe(elegido) : false,
   );
 
+  // --- Recuperar con código de rescate (solo el propietario) ---
+  let rescatando = $state(false);
+  let codigoRescate = $state("");
+  let claveNueva = $state("");
+  let claveNuevaOtra = $state("");
+  let errorRescate = $state("");
+  let rescatandoAhora = $state(false);
+  /** El código nuevo que reemplaza al usado, para anotarlo antes de seguir. */
+  let codigoEmitido = $state<string | null>(null);
+
+  function cerrarRescate() {
+    rescatando = false;
+    codigoRescate = "";
+    claveNueva = "";
+    claveNuevaOtra = "";
+    errorRescate = "";
+    codigoEmitido = null;
+    sesion.olvidarCodigoMostrado();
+  }
+
+  async function recuperar() {
+    if (rescatandoAhora) return;
+    if (claveNueva !== claveNuevaOtra) {
+      errorRescate = "Las dos contraseñas no coinciden";
+      return;
+    }
+    rescatandoAhora = true;
+    errorRescate = "";
+    const r = await sesion.recuperarAcceso(codigoRescate, claveNueva);
+    rescatandoAhora = false;
+    if (!r.ok) {
+      errorRescate = r.error ?? "No se pudo recuperar el acceso";
+      return;
+    }
+    // El código usado se quemó; se entrega el nuevo ANTES de cerrar.
+    codigoEmitido = sesion.codigoRescateNuevo;
+    codigoRescate = "";
+    claveNueva = "";
+    claveNuevaOtra = "";
+  }
+
   // --- Restablecer credencial olvidada ---
   let restableciendo = $state(false);
   let nuevoSecreto = $state("");
@@ -221,6 +262,16 @@
       <button class="restablecer" onclick={() => (restableciendo = true)}>
         {esContrasena ? "Olvidé mi contraseña" : "Olvidé mi PIN"}
       </button>
+    {:else if elegido.rol_id === "propietario" && sesion.hayCodigoRescate}
+      <!--
+        Por encima del propietario no hay nadie que pueda firmarle un
+        restablecimiento. Su salida es el código de rescate que se emitió al
+        instalar: sin ella, olvidar la contraseña lo dejaba fuera de su propio
+        negocio para siempre.
+      -->
+      <button class="restablecer" onclick={() => (rescatando = true)}>
+        Olvidé mi contraseña · usar código de rescate
+      </button>
     {/if}
 
     <button class="volver" onclick={() => (elegido = null)}>← Elegir otro usuario</button>
@@ -274,6 +325,64 @@
         {restableciendoAhora ? "Verificando…" : "Restablecer"}
       </button>
     </div>
+  </div>
+{/if}
+
+
+<!-- Recuperar el acceso del propietario con el código de rescate -->
+{#if rescatando}
+  <div class="velo-2"></div>
+  <div class="dialogo" role="dialog" aria-modal="true" aria-label="Recuperar acceso">
+    {#if codigoEmitido}
+      <!--
+        Se entrega el código NUEVO antes de dejar salir: el usado se quemó, y
+        quien acaba de recuperar el acceso se quedaría sin llave de repuesto.
+      -->
+      <h2>Listo. Anota tu nuevo código</h2>
+      <p class="explica">
+        Tu contraseña quedó cambiada. El código que usaste ya no sirve; este es
+        el nuevo. <b>Guárdalo fuera de la computadora</b> —en papel, en una caja
+        fuerte—: es la única forma de volver a entrar si olvidas la contraseña.
+      </p>
+      <p class="codigo">{codigoEmitido}</p>
+      <div class="botones">
+        <button class="principal" onclick={cerrarRescate}>Ya lo anoté</button>
+      </div>
+    {:else}
+      <h2>Recuperar el acceso</h2>
+      <p class="explica">
+        Teclea el código de rescate que se te entregó al instalar MotRest y
+        elige una contraseña nueva. Da igual si lo escribes con guiones o sin
+        ellos.
+      </p>
+
+      <label>
+        <span>Código de rescate</span>
+        <input
+          bind:value={codigoRescate}
+          placeholder="A7K2M-9PQRS-3TVWX-YZ4BC"
+          autocomplete="off"
+          spellcheck="false"
+        />
+      </label>
+      <label>
+        <span>Contraseña nueva</span>
+        <input type="password" bind:value={claveNueva} autocomplete="new-password" />
+      </label>
+      <label>
+        <span>Repítela</span>
+        <input type="password" bind:value={claveNuevaOtra} autocomplete="new-password" />
+      </label>
+
+      {#if errorRescate}<p class="error" role="alert">{errorRescate}</p>{/if}
+
+      <div class="botones">
+        <button class="secundario" onclick={cerrarRescate}>Cancelar</button>
+        <button class="principal" disabled={rescatandoAhora} onclick={recuperar}>
+          {rescatandoAhora ? "Comprobando…" : "Recuperar acceso"}
+        </button>
+      </div>
+    {/if}
   </div>
 {/if}
 
@@ -551,5 +660,20 @@
     font-family: var(--font-titulo);
     font-size: 0.95rem;
     font-weight: 600;
+  }
+  .codigo {
+    font-family: ui-monospace, Consolas, monospace;
+    font-size: 1.5rem;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-align: center;
+    color: var(--acento);
+    background: #fffaf5;
+    border: 1.5px dashed var(--acento);
+    border-radius: var(--r-md);
+    padding: 0.9rem 0.5rem;
+    margin: 0.9rem 0 0.2rem;
+    user-select: all;
+    word-break: break-all;
   }
 </style>

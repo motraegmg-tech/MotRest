@@ -54,6 +54,14 @@ export function aplicarEventoIdentidad(
         ),
       };
 
+    // Recuperar el acceso levanta el bloqueo: quien llegó al código de rescate
+    // ya agotó sus intentos intentando recordar la contraseña.
+    case "acceso_recuperado": {
+      const bloqueados = new Set(estado.bloqueados);
+      bloqueados.delete(ev.usuario_id);
+      return { ...estado, bloqueados };
+    }
+
     case "credencial_cambiada":
       // El hash vive fuera del log; aquí solo se levanta la obligación de cambio.
       return {

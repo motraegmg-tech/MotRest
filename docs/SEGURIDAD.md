@@ -113,6 +113,49 @@ como la obligación solo se levanta al completar el cambio, quien cerraba el
 diálogo se lo encontraba en cada inicio, y un aviso que se cierra sin leer no
 protege nada.
 
+## El código de rescate: la llave de repuesto del propietario
+
+Restablecer una credencial exige un rango **estrictamente mayor**, y por encima
+del propietario no hay nadie. Esa consecuencia era deliberada —evita que un
+gerente tome control de la cuenta del dueño— pero dejaba un agujero operativo
+serio: si el dueño olvidaba su contraseña y agotaba sus siete intentos, quedaba
+fuera de su propio negocio **para siempre**, con años de operación y de
+comprobantes fiscales dentro. Un candado sin llave de repuesto no es seguridad,
+es una bomba de tiempo.
+
+**Cómo funciona.** Al instalar, cada dispositivo emite un código de ~98 bits de
+entropía y lo enseña **una sola vez**:
+
+```
+A7K2M-9PQRS-3TVWX-YZ4BC
+```
+
+- Se guarda **solo su hash** PBKDF2, con las mismas iteraciones que una
+  contraseña. Ni el disco ni el respaldo lo contienen en claro.
+- Es de **un solo uso**: al gastarlo se emite otro en el acto, para que un
+  código anotado en un papel viejo no siga sirviendo. El nuevo se muestra antes
+  de dejar salir de la pantalla.
+- Está sujeto a la **misma política de intentos** que todo lo demás.
+- Deja un evento `acceso_recuperado` en la bitácora, marcado como **alerta**:
+  es el único cambio de credencial que no firma otra persona, así que tiene que
+  poder auditarse por sí solo. Si el dueño ve uno que no reconoce, hay que actuar.
+
+**Por qué no es una puerta trasera.** La llave es el código, no la presencia
+física ni un identificador adivinable. El alfabeto excluye caracteres ambiguos
+(`I`, `L`, `O`, `U`, `0`, `1`) porque va a viajar en papel, y al teclearlo se
+corrigen las confusiones clásicas — eso mejora la usabilidad sin reducir la
+entropía, que vive en los 20 caracteres elegidos al azar con el generador
+criptográfico del entorno.
+
+**Es por dispositivo.** Las credenciales se guardan localmente en cada terminal,
+así que el código que recupera el acceso *aquí* es el que se emitió *aquí*. En
+la práctica se recupera en la caja, que es donde está el Hub.
+
+**Lo que NO protege**, dicho sin adornos: a quien tenga acceso físico al disco
+de la caja. Esa persona ya puede leer y alterar `hub.sqlite` directamente sin
+pasar por aquí. El código de rescate protege del resto —la red, el personal, una
+terminal prestada—, no del dueño del hardware.
+
 ## Autorización
 
 - **Matriz rol × acción** con tres niveles: `ver`, `operar`, `autorizar`, más un

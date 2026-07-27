@@ -74,6 +74,17 @@ export type EventoIdentidad =
       autorizador_id?: ID;
     })
   | (EventoBase & {
+      /**
+       * Alguien recuperó el acceso con el código de rescate.
+       *
+       * Va aparte de `credencial_cambiada` a propósito: es el único camino que
+       * no lo firma otra persona, así que tiene que poder auditarse por sí solo.
+       * Si aparece una de estas y el dueño no la reconoce, hay que actuar.
+       */
+      tipo: "acceso_recuperado";
+      usuario_id: ID;
+    })
+  | (EventoBase & {
       tipo: "usuario_bloqueado";
       usuario_id: ID;
       /** Intentos fallidos que dispararon el bloqueo. */

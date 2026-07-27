@@ -46,6 +46,11 @@
         return { ...base, texto: `Modificó al usuario ${sesion.nombreDe(ev.usuario_id)}`, tono: "acento" };
       case "credencial_cambiada":
         return { ...base, texto: `Cambió su ${ev.tipo_credencial}`, tono: "acento" };
+      // En alerta a propósito: es el único cambio de credencial que NO firma
+      // otra persona. Si el dueño no lo reconoce, hay que actuar.
+      case "acceso_recuperado":
+        return { ...base, actor: sesion.nombreDe(ev.usuario_id),
+          texto: "Recuperó el acceso con el código de rescate", tono: "alerta" };
       case "usuario_bloqueado":
         return { ...base, actor: sesion.nombreDe(ev.usuario_id),
           texto: `Cuenta bloqueada tras ${ev.intentos} intentos fallidos`, tono: "alerta" };
