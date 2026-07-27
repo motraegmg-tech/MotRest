@@ -9,9 +9,12 @@
   import {
     CONSEJOS_CLASE,
     ETIQUETAS_CLASE,
+    centinelaMermas,
     conteoPorClase,
+    consejoMerma,
     cuentasCerradasEn,
     diaDe,
+    formatearCantidad,
     menuEngineering,
     resumenVentas,
     ventasPorHora,
@@ -19,6 +22,7 @@
     ventasPorProducto,
   } from "@motrest/dominio";
   import { mxn, pct } from "../formato";
+  import { inventario } from "../inventario.svelte";
   import { pos } from "../pos.svelte";
   import { sesion } from "../sesion/sesion.svelte";
 
@@ -27,8 +31,10 @@
 
   const verCostos = $derived(sesion.puedeVer("fin.costo.ver"));
 
+  const rango = $derived(periodo === "hoy" ? diaDe(Date.now()) : null);
+
   const comandas = $derived(
-    cuentasCerradasEn(pos.todasLasComandas, periodo === "hoy" ? diaDe(Date.now()) : undefined),
+    cuentasCerradasEn(pos.todasLasComandas, rango ?? undefined),
   );
 
   const resumen = $derived(resumenVentas(comandas));
@@ -37,6 +43,17 @@
   const horas = $derived(ventasPorHora(comandas));
   const clasificados = $derived(menuEngineering(productos));
   const conteo = $derived(conteoPorClase(clasificados));
+
+  // Centinela de mermas (C5): se calcula sobre los movimientos del mismo
+  // periodo, para que la fuga cuadre con las ventas que se están mirando.
+  const eventosInv = $derived(
+    rango
+      ? inventario.movimientos.filter((e) => e.ts >= rango.desde && e.ts < rango.hasta)
+      : inventario.movimientos,
+  );
+  const centinela = $derived(
+    verCostos ? centinelaMermas(eventosInv, inventario.insumos) : null,
+  );
 
   /** Escala de las barras: la hora más fuerte marca el 100 %. */
   const pico = $derived(Math.max(1, ...horas.map((h) => h.importe)));
@@ -211,6 +228,74 @@
       <p class="nota">
         La ingeniería de menú necesita costos, y tu perfil no tiene acceso a ellos.
       </p>
+    {/if}
+
+    <!-- Centinela de mermas (C5) -->
+    {#if centinela}
+      <section class="tarjeta">
+        <div class="cab-centinela">
+          <h2>Centinela de mermas</h2>
+          <div class="marcador" class:sano={centinela.perdida_total === 0}>
+            <span>Fuga del periodo</span>
+            <b>{mxn(centinela.perdida_total)}</b>
+          </div>
+        </div>
+        <p class="ayuda">
+          Dónde se está yendo el dinero. Separa la <b>merma declarada</b> —lo que
+          alguien registró como desperdicio— del <b>faltante de conteo</b>, que es
+          lo que nadie registró y suele ser la fuga cara: sobre-porción, derrame,
+          robo.
+        </p>
+
+        {#if centinela.alertas.length === 0}
+          <p class="vacio">Sin mermas ni faltantes en el periodo. Nada que vigilar.</p>
+        {:else}
+          {#if centinela.costo_faltante_total > 0}
+            <p class="nota alerta-nota">
+              Hay <b>{mxn(centinela.costo_faltante_total)}</b> de faltante que el
+              conteo encontró y nadie registró.
+              {#if centinela.criticos > 0}
+                {centinela.criticos}
+                {centinela.criticos === 1 ? "insumo lo tiene" : "insumos lo tienen"}
+                en nivel crítico.
+              {/if}
+            </p>
+          {/if}
+          <table>
+            <thead>
+              <tr>
+                <th>Insumo</th>
+                <th class="num">Merma</th>
+                <th class="num">Faltante</th>
+                <th class="num">Pérdida</th>
+                <th class="num">Fuga</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody>
+              {#each centinela.alertas as a (a.insumo_id)}
+                <tr>
+                  <td>
+                    <span class="punto {a.severidad}"></span>
+                    <b>{a.nombre}</b>
+                  </td>
+                  <td class="num tenue">
+                    {a.merma > 0 ? formatearCantidad(a.merma, a.unidad) : "—"}
+                    {#if a.costo_merma > 0}<small>{mxn(a.costo_merma)}</small>{/if}
+                  </td>
+                  <td class="num" class:alerta={a.costo_faltante > 0}>
+                    {a.faltante > 0 ? formatearCantidad(a.faltante, a.unidad) : "—"}
+                    {#if a.costo_faltante > 0}<small>{mxn(a.costo_faltante)}</small>{/if}
+                  </td>
+                  <td class="num"><b>{mxn(a.perdida)}</b></td>
+                  <td class="num" class:alerta={a.severidad === "alta"}>{pct(a.tasa)}</td>
+                  <td class="consejo-celda">{consejoMerma(a)}</td>
+                </tr>
+              {/each}
+            </tbody>
+          </table>
+        {/if}
+      </section>
     {/if}
   {/if}
 </div>
@@ -471,5 +556,76 @@
     font-size: 0.9rem;
     color: var(--gris);
     font-style: italic;
+  }
+  .cab-centinela {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 1rem;
+    flex-wrap: wrap;
+  }
+  .marcador {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    background: #fdeae8;
+    border: 1px solid var(--peligro);
+    border-radius: var(--r-md);
+    padding: 0.4rem 0.85rem;
+  }
+  .marcador.sano {
+    background: #eef7e8;
+    border-color: #b6d9a0;
+  }
+  .marcador span {
+    font-size: 0.68rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--gris);
+  }
+  .marcador b {
+    font-family: var(--font-titulo);
+    font-size: 1.25rem;
+    color: var(--peligro);
+  }
+  .marcador.sano b {
+    color: #3f6b2c;
+  }
+  .alerta-nota {
+    background: #fdeae8;
+    border-color: var(--peligro);
+    color: var(--pizarra);
+  }
+  .punto {
+    display: inline-block;
+    width: 0.6rem;
+    height: 0.6rem;
+    border-radius: 50%;
+    margin-right: 0.45rem;
+    background: var(--gris);
+    vertical-align: middle;
+  }
+  .punto.alta {
+    background: var(--peligro);
+  }
+  .punto.media {
+    background: var(--acento-2);
+  }
+  .punto.ok {
+    background: #b6d9a0;
+  }
+  td small {
+    display: block;
+    font-size: 0.72rem;
+    color: var(--gris);
+    margin-top: 0.05rem;
+  }
+  .consejo-celda {
+    font-size: 0.78rem;
+    color: var(--gris);
+    line-height: 1.4;
+    max-width: 20rem;
+    white-space: normal;
   }
 </style>
