@@ -11,9 +11,11 @@
     REGIMENES_FISCALES,
     USOS_CFDI,
     problemaRfc,
+    type Cliente,
     type DatosReceptor,
     type EstadoComanda,
   } from "@motrest/dominio";
+  import { clientes } from "./clientes.svelte";
   import { fiscal } from "./fiscal.svelte";
 
   interface Props {
@@ -32,6 +34,16 @@
   let error = $state("");
   let problemas = $state<string[]>([]);
   let emitido = $state<{ serie: string; folio: string } | null>(null);
+
+  // Clientes con RFC guardado: prellenar evita volver a dictar la constancia.
+  const guardados = $derived(clientes.conFiscal);
+  let clienteId = $state("");
+
+  function prellenar(id: string) {
+    clienteId = id;
+    const c: Cliente | undefined = guardados.find((x) => x.cliente_id === id);
+    if (c?.fiscal) receptor = { ...c.fiscal };
+  }
 
   function emitir(datos: DatosReceptor) {
     error = "";
@@ -79,6 +91,17 @@
         <b>Finanzas → Facturación</b> antes de emitir.
       </p>
     {:else}
+      {#if guardados.length > 0}
+        <label class="cliente-guardado">
+          <span>Cliente guardado</span>
+          <select value={clienteId} onchange={(e) => prellenar(e.currentTarget.value)}>
+            <option value="">Capturar a mano…</option>
+            {#each guardados as c (c.cliente_id)}
+              <option value={c.cliente_id}>{c.nombre} · {c.fiscal!.rfc}</option>
+            {/each}
+          </select>
+        </label>
+      {/if}
       <div class="campos">
         <label>
           <span>RFC del cliente</span>
@@ -165,6 +188,29 @@
     font-size: 1.5rem;
     color: var(--gris);
     line-height: 1;
+  }
+  .cliente-guardado {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+    margin-bottom: 0.85rem;
+  }
+  .cliente-guardado span {
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: var(--gris);
+  }
+  .cliente-guardado select {
+    padding: 0.6rem 0.75rem;
+    border: 1.5px solid var(--borde);
+    border-radius: var(--r-sm);
+    font-size: 0.9rem;
+    font-family: var(--font-cuerpo);
+    background: #fff;
+  }
+  .cliente-guardado select:focus {
+    outline: none;
+    border-color: var(--acento);
   }
   .campos {
     display: flex;

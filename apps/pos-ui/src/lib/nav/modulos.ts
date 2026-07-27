@@ -165,8 +165,8 @@ export const MODULOS: EntradaModulo[] = [
     titulo: "Clientes",
     fase: "F3",
     permiso: "crm.cliente.ver",
-    operativo: false,
-    secciones: [],
+    operativo: true,
+    secciones: [{ clave: "clientes", titulo: "Ficha del comensal", permiso: "crm.cliente.ver" }],
     resumen:
       "Ficha 360° del comensal, reservas, lealtad, monedero y campañas de retención.",
     funciones: [
@@ -175,8 +175,8 @@ export const MODULOS: EntradaModulo[] = [
       "Programa de lealtad, monedero y tarjetas de regalo",
       "Encuestas de satisfacción y reseñas verificadas",
     ],
-    enF1: "Ficha básica del cliente con sus datos fiscales, para domicilio y facturación.",
-    etapa: "Fase F3.",
+    enF1: "Ficha del comensal con contacto, domicilio para entregas y datos fiscales que prellenan la factura.",
+    etapa: "Lealtad, monedero, reservas y CRM 360° llegan en F3.",
   },
   {
     id: "m8",
