@@ -31,6 +31,7 @@ import { fiscal } from "../fiscal.svelte";
 import { impresion } from "../impresion.svelte";
 import { existenciasDemo } from "../insumos";
 import { inventario } from "../inventario.svelte";
+import { local } from "../local.svelte";
 import { menu } from "../menu.svelte";
 import { plano } from "../plano.svelte";
 import { MODO_DEMO } from "../presentacion";
@@ -156,6 +157,7 @@ class Arranque {
         await menu.hidratar(almacen, cartaVacia());
       }
       await impresion.hidratar(almacen);
+      await local.hidratar(almacen);
 
       // Con qué Hub trabaja esta terminal. Se resuelve ANTES de decidir si
       // sembrar, porque de eso depende la decisión.

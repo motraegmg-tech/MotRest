@@ -17,6 +17,7 @@
   } from "@motrest/dominio";
   import { mxn } from "../../formato";
   import { inventario } from "../../inventario.svelte";
+  import { local } from "../../local.svelte";
   import { menu } from "../../menu.svelte";
 
   type Vista = "insumos" | "estaciones" | "carta";
@@ -156,7 +157,7 @@
         Estaciones
       </button>
       <button class:on={vista === "carta"} onclick={() => { vista = "carta"; problemas = []; }}>
-        Cargar carta
+        Local y carta
       </button>
     </div>
   </div>
@@ -346,6 +347,35 @@
       </p>
     </section>
   {:else}
+    <!--
+      La jornada operativa. Vive junto a la carta porque las dos son ajustes del
+      LOCAL, no operación.
+    -->
+    <section class="tarjeta">
+      <h2>Jornada del local</h2>
+      <p class="pista">
+        A qué hora cierra contablemente el día. Un servicio que termina a la una
+        de la madrugada pertenece a la noche en que empezó: con el corte a las
+        <b>5:00</b>, el viernes cuenta como viernes en el resultado del día y en
+        el pronóstico. Cortar a medianoche partiría el servicio en dos.
+      </p>
+      {#if puedeEditar}
+        <label class="jornada">
+          <span>Cierre de la jornada</span>
+          <select
+            value={String(local.horaCorte)}
+            onchange={(e) => local.fijarHoraCorte(Number(e.currentTarget.value))}
+          >
+            {#each Array.from({ length: 24 }, (_, h) => h) as h (h)}
+              <option value={String(h)}>
+                {String(h).padStart(2, "0")}:00{h === 5 ? " (recomendado)" : ""}
+              </option>
+            {/each}
+          </select>
+        </label>
+      {/if}
+    </section>
+
     <!--
       Cargar la carta en bloque. Nunca se importa a ciegas: primero se muestra
       renglón por renglón lo que va a quedar, y solo entonces se confirma.
@@ -733,5 +763,28 @@
     font-size: 0.86rem;
     font-weight: 600;
     color: #3f6b2c;
+  }
+  .jornada {
+    display: flex;
+    flex-direction: column;
+    gap: 0.3rem;
+    max-width: 18rem;
+    margin-top: 0.85rem;
+  }
+  .jornada span {
+    font-size: 0.76rem;
+    font-weight: 600;
+    color: var(--gris);
+  }
+  .jornada select {
+    padding: 0.55rem 0.7rem;
+    border: 1.5px solid var(--borde);
+    border-radius: var(--r-sm);
+    font: inherit;
+    background: #fff;
+  }
+  .jornada select:focus {
+    outline: none;
+    border-color: var(--acento);
   }
 </style>

@@ -12,10 +12,13 @@
  * viernes de historia el pronóstico se muestra, pero avisando que es tentativo.
  *
  * No inventa una hora ni un reloj: bucketea con `cerrada_ts`, el momento del
- * cobro, en la hora local del dispositivo (ADR-17).
+ * cobro, en la hora local del dispositivo (ADR-17). Y agrupa por JORNADA, no por
+ * día natural: un viernes que cierra a la una de la madrugada es viernes, y
+ * cortar a medianoche le inventaría al sábado un pico fantasma.
  */
 import { CERO, sumar, deCentavos, type Centavos } from "../comun/dinero.js";
 import { renglonesActivos, type EstadoComanda } from "../comanda/reducers.js";
+import { HORA_CORTE_POR_DEFECTO, diaOperativoDe } from "./reportes.js";
 import { totalesComanda } from "../comanda/totales.js";
 
 export type Confianza = "alta" | "media" | "baja";
@@ -45,7 +48,7 @@ export interface DemandaDia {
 }
 
 export interface PronosticoDia {
-  /** Medianoche local del día pronosticado. */
+  /** Instante en que abre la jornada pronosticada. */
   fecha: number;
   dia_semana: number;
   cuentas_esperadas: number;
@@ -71,12 +74,6 @@ interface TotalDia {
   platillos: number;
 }
 
-function inicioDelDia(ts: number): number {
-  const d = new Date(ts);
-  d.setHours(0, 0, 0, 0);
-  return d.getTime();
-}
-
 function confianzaDe(servicios: number): Confianza {
   if (servicios >= 3) return "alta";
   if (servicios === 2) return "media";
@@ -92,23 +89,25 @@ function promedioCentavos(total: Centavos, entre: number): Centavos {
  *
  * @param comandas Cuentas cerradas; las abiertas no cuentan como venta.
  * @param opciones `ahora` para fijar el punto de partida (pruebas); `dias` es
- *   cuántos proyectar hacia adelante, contando hoy.
+ *   cuántos proyectar hacia adelante, contando hoy; `horaCorte` es la hora a la
+ *   que el local cierra su jornada contable.
  */
 export function pronosticoDemanda(
   comandas: readonly EstadoComanda[],
-  opciones: { ahora?: number; dias?: number } = {},
+  opciones: { ahora?: number; dias?: number; horaCorte?: number } = {},
 ): Pronostico {
   const ahora = opciones.ahora ?? Date.now();
   const diasAdelante = opciones.dias ?? 7;
+  const horaCorte = opciones.horaCorte ?? HORA_CORTE_POR_DEFECTO;
 
-  // 1. Cada cuenta cerrada, a su día natural y su hora.
+  // 1. Cada cuenta cerrada, a su jornada y su hora.
   const porDia = new Map<number, TotalDia>();
   // venta por (dia_semana, hora), para el pico.
   const porHora = new Map<number, Centavos[]>(); // dia_semana -> [24]
 
   for (const c of comandas) {
     if (!c.cerrada || c.cerrada_ts === undefined) continue;
-    const dia = inicioDelDia(c.cerrada_ts);
+    const dia = diaOperativoDe(c.cerrada_ts, horaCorte);
     const total = totalesComanda(c).total;
     const platillos = renglonesActivos(c).reduce((n, r) => n + r.cantidad, 0);
 
@@ -157,7 +156,7 @@ export function pronosticoDemanda(
   // 3. Proyectar los próximos días desde hoy.
   const porDiaSemana = new Map(patron.map((p) => [p.dia_semana, p]));
   const proximos: PronosticoDia[] = [];
-  const hoy = inicioDelDia(ahora);
+  const hoy = diaOperativoDe(ahora, horaCorte);
   for (let i = 0; i < diasAdelante; i++) {
     const fecha = new Date(hoy);
     fecha.setDate(fecha.getDate() + i);

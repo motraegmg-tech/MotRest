@@ -123,3 +123,40 @@ describe("proyección", () => {
     expect(r.proximos.every((p) => p.cuentas_esperadas === 0)).toBe(true);
   });
 });
+
+// --- El servicio que cruza la medianoche ---------------------------------------------------
+
+describe("la jornada, no el día natural", () => {
+  /*
+   * El caso de Rodizio: el viernes se sirve hasta la una de la madrugada.
+   * Agrupando por día natural, esas cuentas caerían en sábado y el pronóstico
+   * aprendería un patrón falso —viernes flojo, sábado con pico de madrugada—.
+   */
+  function nocheDeViernes(): EstadoComanda[] {
+    return [
+      cuenta(new Date(2026, 0, 2, 22).getTime(), 249, 2), // viernes 10 pm
+      cuenta(new Date(2026, 0, 3, 0, 30).getTime(), 249, 2), // sábado 00:30
+      cuenta(new Date(2026, 0, 3, 1, 15).getTime(), 180), // sábado 01:15
+    ];
+  }
+
+  it("las tres cuentas cuentan como UN viernes", () => {
+    const { patron } = pronosticoDemanda(nocheDeViernes());
+
+    expect(patron).toHaveLength(1);
+    const vie = patron[0]!;
+    expect(vie.dia_semana).toBe(5); // viernes
+    expect(vie.cuentas_prom).toBe(3);
+    expect(vie.servicios).toBe(1); // una sola jornada, no dos
+  });
+
+  it("no le inventa al sábado un pico de madrugada", () => {
+    const { patron } = pronosticoDemanda(nocheDeViernes());
+    expect(patron.find((p) => p.dia_semana === 6)).toBeUndefined();
+  });
+
+  it("con corte a medianoche vuelve a partirse en dos, como antes", () => {
+    const { patron } = pronosticoDemanda(nocheDeViernes(), { horaCorte: 0 });
+    expect(patron.map((p) => p.dia_semana).sort()).toEqual([5, 6]);
+  });
+});

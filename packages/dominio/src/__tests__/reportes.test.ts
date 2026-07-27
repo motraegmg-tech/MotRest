@@ -7,9 +7,12 @@ import { proyectarComanda, type EstadoComanda } from "../comanda/reducers.js";
 import type { RenglonComanda } from "../comanda/renglon.js";
 import { FabricaEventos } from "../evento.js";
 import {
+  HORA_CORTE_POR_DEFECTO,
   conteoPorClase,
   cuentasCerradasEn,
   diaDe,
+  diaOperativoDe,
+  jornadaDe,
   menuEngineering,
   resumenVentas,
   ventasPorHora,
@@ -276,5 +279,56 @@ describe("menu engineering", () => {
       },
     ]);
     expect(clasificados).toEqual([]);
+  });
+});
+
+// --- La jornada operativa ------------------------------------------------------------------
+
+describe("jornada operativa", () => {
+  /*
+   * EL CASO DE RODIZIO. Un viernes de servicio termina a la una de la
+   * madrugada. Esas ventas son del VIERNES para quien las hizo; cortar a
+   * medianoche las manda al sábado.
+   */
+  it("la venta de la 1 a.m. del sábado pertenece a la jornada del viernes", () => {
+    const madrugada = new Date(2026, 6, 25, 1, 30).getTime(); // sábado 1:30 a.m.
+    const j = jornadaDe(madrugada);
+
+    expect(new Date(j.desde).getDay()).toBe(5); // viernes
+    expect(new Date(j.desde).getDate()).toBe(24);
+    expect(new Date(j.desde).getHours()).toBe(HORA_CORTE_POR_DEFECTO);
+  });
+
+  it("una venta de la noche y otra de la madrugada caen en la misma jornada", () => {
+    const antes = new Date(2026, 6, 24, 23, 40).getTime(); // viernes 23:40
+    const despues = new Date(2026, 6, 25, 0, 20).getTime(); // sábado 00:20
+
+    expect(diaOperativoDe(despues)).toBe(diaOperativoDe(antes));
+  });
+
+  it("después de la hora de corte ya es la jornada nueva", () => {
+    const temprano = new Date(2026, 6, 25, 4, 59).getTime(); // aún viernes contable
+    const tarde = new Date(2026, 6, 25, 5, 1).getTime(); // ya sábado contable
+
+    expect(diaOperativoDe(temprano)).not.toBe(diaOperativoDe(tarde));
+    expect(new Date(diaOperativoDe(tarde)).getDay()).toBe(6); // sábado
+  });
+
+  it("dura exactamente 24 horas", () => {
+    const j = jornadaDe(new Date(2026, 6, 24, 21).getTime());
+    expect(j.hasta - j.desde).toBe(24 * 3600_000);
+  });
+
+  it("la hora de corte es configurable", () => {
+    const madrugada = new Date(2026, 6, 25, 3).getTime();
+    // Con corte a las 5, las 3 a.m. son del día anterior…
+    expect(new Date(jornadaDe(madrugada, 5).desde).getDate()).toBe(24);
+    // …y con corte a medianoche, del mismo día.
+    expect(new Date(jornadaDe(madrugada, 0).desde).getDate()).toBe(25);
+  });
+
+  it("con corte a medianoche se comporta como el día natural", () => {
+    const ts = new Date(2026, 6, 24, 15).getTime();
+    expect(jornadaDe(ts, 0)).toEqual(diaDe(ts));
   });
 });

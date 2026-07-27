@@ -14,7 +14,6 @@
     conteoPorClase,
     consejoMerma,
     cuentasCerradasEn,
-    diaDe,
     formatearCantidad,
     menuEngineering,
     pronosticoDemanda,
@@ -26,6 +25,7 @@
   } from "@motrest/dominio";
   import { mxn, pct } from "../formato";
   import { inventario } from "../inventario.svelte";
+  import { local } from "../local.svelte";
   import { pos } from "../pos.svelte";
   import { sesion } from "../sesion/sesion.svelte";
 
@@ -34,7 +34,9 @@
 
   const verCostos = $derived(sesion.puedeVer("fin.costo.ver"));
 
-  const rango = $derived(periodo === "hoy" ? diaDe(Date.now()) : null);
+  // La jornada del local, no el día natural: el servicio que cruza la
+  // medianoche pertenece a la noche en que empezó.
+  const rango = $derived(periodo === "hoy" ? local.jornadaActual : null);
 
   const comandas = $derived(
     cuentasCerradasEn(pos.todasLasComandas, rango ?? undefined),
@@ -60,7 +62,11 @@
 
   // Pronóstico (C3): aprende de TODA la historia, no del periodo elegido — un
   // patrón semanal necesita varias semanas para verse.
-  const pronostico = $derived(pronosticoDemanda(cuentasCerradasEn(pos.todasLasComandas)));
+  const pronostico = $derived(
+    pronosticoDemanda(cuentasCerradasEn(pos.todasLasComandas), {
+      horaCorte: local.horaCorte,
+    }),
+  );
   const ventaPico = $derived(Math.max(1, ...pronostico.proximos.map((d) => d.venta_esperada)));
 
   function horaTexto(h: number | null): string {

@@ -13,12 +13,12 @@
   import {
     CATEGORIAS_EGRESO,
     cuentasCerradasEn,
-    diaDe,
     pesos,
     resumenVentas,
     type CategoriaEgreso,
   } from "@motrest/dominio";
   import { egresos } from "../../egresos.svelte";
+  import { local } from "../../local.svelte";
   import { pos } from "../../pos.svelte";
   import { mxn, hora } from "../../formato";
   import { sesion } from "../../sesion/sesion.svelte";
@@ -26,7 +26,12 @@
   const puedeRegistrar = $derived(sesion.puedeOperar("fin.egreso.registrar"));
   const puedeVerCostos = $derived(sesion.puedeVer("fin.costo.ver"));
 
-  const rango = $derived(diaDe(Date.now()));
+  /*
+   * La JORNADA, no el día natural: un viernes que cierra a la una de la
+   * madrugada es viernes. Cortar a medianoche partía el servicio en dos y hacía
+   * que el viernes pareciera flojo y el sábado tuviera ventas fantasma.
+   */
+  const rango = $derived(local.jornadaActual);
   // Solo las cuentas CERRADAS del día: una mesa abierta todavía no es venta.
   const ventas = $derived(resumenVentas(cuentasCerradasEn(pos.todasLasComandas, rango)));
   const resultado = $derived(egresos.resultado(ventas, rango));

@@ -21,6 +21,46 @@ export interface Rango {
   hasta: number;
 }
 
+/**
+ * A qué hora empieza contablemente el día en un restaurante.
+ *
+ * Las 5 de la mañana, no la medianoche. Un viernes de servicio termina a la una
+ * o las dos de la madrugada, y esas ventas son **del viernes** para quien las
+ * hizo: cortar a medianoche las manda al sábado, hace que el viernes parezca
+ * flojo y que el sábado tenga un pico fantasma de madrugada. Con un corte a las
+ * 5 el día operativo coincide con la jornada real, porque a esa hora ya no hay
+ * un restaurante abierto que confundir.
+ */
+export const HORA_CORTE_POR_DEFECTO = 5;
+
+/**
+ * La JORNADA que contiene un instante: de la hora de corte a la del día
+ * siguiente.
+ *
+ * Es lo que hay que usar para "hoy" en todo lo que mire la operación. `diaDe`
+ * sigue existiendo para lo que de verdad es un día natural.
+ */
+export function jornadaDe(ts: number, horaCorte = HORA_CORTE_POR_DEFECTO): Rango {
+  const inicio = new Date(ts);
+  // Antes de la hora de corte todavía se está en la jornada que abrió ayer.
+  if (inicio.getHours() < horaCorte) inicio.setDate(inicio.getDate() - 1);
+  inicio.setHours(horaCorte, 0, 0, 0);
+
+  const fin = new Date(inicio);
+  fin.setDate(fin.getDate() + 1);
+  return { desde: inicio.getTime(), hasta: fin.getTime() };
+}
+
+/**
+ * El instante en que abrió la jornada a la que pertenece `ts`.
+ *
+ * Sirve para AGRUPAR: dos ventas de la misma noche —una a las 23:40 y otra a
+ * las 00:20— devuelven el mismo valor y caen en el mismo cubo.
+ */
+export function diaOperativoDe(ts: number, horaCorte = HORA_CORTE_POR_DEFECTO): number {
+  return jornadaDe(ts, horaCorte).desde;
+}
+
 /** El día natural que contiene un instante, en hora local del dispositivo. */
 export function diaDe(ts: number): Rango {
   const inicio = new Date(ts);
