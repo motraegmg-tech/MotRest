@@ -43,6 +43,12 @@ import { Facturador } from "./fiscal/facturador.js";
 import { Cancelador } from "./fiscal/cancelador.js";
 import { MAPEO_REST_COMUN, PacHttp, consultaPorFolio } from "./fiscal/pac-http.js";
 import { enviarARed } from "./impresion/transporte-red.js";
+import {
+  INTERVALO_RESPALDO_MS,
+  crearRespaldo,
+  listarRespaldos,
+  rotarRespaldos,
+} from "./respaldo.js";
 import type { DatabaseSync as TipoDatabaseSync } from "node:sqlite";
 
 const PUERTO = Number(process.env.MOTREST_HUB_PUERTO ?? 8787);
@@ -77,6 +83,18 @@ function carpetaDeDatos(): string {
 }
 
 const RUTA_DB = resolve(process.env.MOTREST_HUB_DB ?? carpetaDeDatos());
+
+/**
+ * Dónde se guardan las copias del registro del local.
+ *
+ * Por defecto, junto a la base. Eso salva de una corrupción o de un borrado,
+ * pero NO de que el disco se muera: para eso hay que apuntar
+ * `MOTREST_RESPALDOS` a una unidad externa o a una carpeta sincronizada. El
+ * estado se reporta en `/salud` para poder comprobar que de verdad se respalda.
+ */
+const RUTA_RESPALDOS = resolve(
+  process.env.MOTREST_RESPALDOS ?? join(dirname(RUTA_DB), "respaldos"),
+);
 
 /**
  * POS ya compilado. Si está, el Hub lo sirve desde su mismo puerto.
@@ -403,10 +421,16 @@ function atender(peticion: IncomingMessage, respuesta: ServerResponse): void {
      * opera; no es catastrófico, pero es información que no tiene por qué salir.
      */
     if (esLocal) {
+      // El último respaldo se informa para que se pueda COMPROBAR que existe,
+      // en vez de suponerlo. Un respaldo que nadie mira es el que falla.
+      const copias = listarRespaldos(RUTA_RESPALDOS);
       json(200, {
         hub_id: HUB_ID,
         seq: hub.seqActual,
         conectados: hub.conectados,
+        respaldo: copias[0]
+          ? { ultimo: copias[0].ts, copias: copias.length, carpeta: RUTA_RESPALDOS }
+          : { ultimo: null, copias: 0, carpeta: RUTA_RESPALDOS },
         exige_aprobacion: EXIGIR_APROBACION,
         cifrado: "AES-256-GCM",
         tls: tls.huella,
@@ -736,6 +760,38 @@ function alFallarEscucha(causa: NodeJS.ErrnoException, puerto: number): void {
   process.exit(1);
 }
 
+/**
+ * Respalda el registro del local, rota las copias viejas y lo reporta.
+ *
+ * Corre al arrancar y una vez al día: nadie en un restaurante se va a acordar
+ * de respaldar un viernes a las once de la noche. Si falla, se avisa fuerte —un
+ * respaldo que se cree que existe y no existe es peor que no tener ninguno—
+ * pero NO se tumba el Hub: quedarse sin vender por no poder copiar un archivo
+ * sería un remedio peor que la enfermedad.
+ */
+function respaldar(): void {
+  const r = crearRespaldo(RUTA_DB, RUTA_RESPALDOS);
+  if (!r.ok) {
+    registrar("error", `No se pudo respaldar el registro del local: ${r.error}`);
+    registrar("error", `Revisa que exista y se pueda escribir en ${RUTA_RESPALDOS}.`);
+    return;
+  }
+
+  const borrados = rotarRespaldos(RUTA_RESPALDOS);
+  const kb = Math.round((r.bytes ?? 0) / 1024);
+  registrar(
+    "info",
+    `Respaldo verificado: ${r.ruta} (${kb} KB)` +
+      (borrados > 0 ? ` · ${borrados} copia(s) antigua(s) borrada(s)` : ""),
+  );
+}
+
+function iniciarRespaldos(): void {
+  respaldar();
+  // `unref` para que este temporizador no impida que el proceso termine.
+  setInterval(respaldar, INTERVALO_RESPALDO_MS).unref();
+}
+
 function escuchar(): void {
   servidor.on("error", (causa: NodeJS.ErrnoException) => alFallarEscucha(causa, PUERTO));
   servidorLocal.on("error", (causa: NodeJS.ErrnoException) =>
@@ -745,6 +801,7 @@ function escuchar(): void {
   servidor.listen(PUERTO, () => {
     registrar("info", `Hub escuchando en el puerto ${PUERTO} (HTTPS + WSS)`);
     registrar("info", `Base de datos: ${RUTA_DB} · secuencia actual: ${hub.seqActual}`);
+    iniciarRespaldos();
     registrar(
       tls.nuevo ? "aviso" : "info",
       `Certificado ${tls.nuevo ? "generado" : "cargado"} · huella ${tls.huella}`,

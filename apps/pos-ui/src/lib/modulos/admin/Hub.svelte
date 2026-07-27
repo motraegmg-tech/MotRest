@@ -38,6 +38,50 @@
     if (r.ok) enlace = "";
     guardando = false;
   }
+
+  // --- Estado del respaldo ------------------------------------------------------------
+
+  interface EstadoRespaldo {
+    ultimo: number | null;
+    copias: number;
+    carpeta: string;
+  }
+  let respaldo = $state<EstadoRespaldo | null>(null);
+
+  /*
+   * Solo la CAJA puede leer esto: `/salud` entrega el detalle únicamente a quien
+   * pregunta desde el propio equipo, y desde una terminal de la red la consulta
+   * ni siquiera es del mismo origen. Si no se puede leer, no se muestra nada en
+   * vez de inventar un estado.
+   */
+  $effect(() => {
+    let vivo = true;
+    const consultar = async () => {
+      try {
+        const r = await fetch("/salud", { cache: "no-store" });
+        if (!r.ok) return;
+        const datos = (await r.json()) as { respaldo?: EstadoRespaldo };
+        if (vivo && datos.respaldo) respaldo = datos.respaldo;
+      } catch {
+        // Terminal de la red: no es la caja y no le toca ver esto.
+      }
+    };
+    void consultar();
+    const t = setInterval(consultar, 60_000);
+    return () => {
+      vivo = false;
+      clearInterval(t);
+    };
+  });
+
+  /** Un respaldo de hace más de dos días ya es un problema que hay que ver. */
+  const respaldoViejo = $derived(
+    respaldo?.ultimo ? Date.now() - respaldo.ultimo > 2 * 86_400_000 : false,
+  );
+
+  function fechaHora(ts: number): string {
+    return `${new Date(ts).toLocaleDateString("es-MX", { day: "2-digit", month: "short" })} ${hora(ts)}`;
+  }
 </script>
 
 <div class="seccion">
@@ -54,6 +98,46 @@
       {sync.etiqueta}
     </div>
   </div>
+
+  <!--
+    Respaldo del registro del local. Se muestra solo en la caja, que es donde
+    corre el Hub y el único equipo al que /salud le entrega el detalle.
+  -->
+  {#if respaldo}
+    <section class="tarjeta respaldo" class:mal={respaldo.copias === 0 || respaldoViejo}>
+      <div class="cab-respaldo">
+        <h2>Respaldo del registro</h2>
+        {#if respaldo.copias === 0}
+          <span class="sello malo">Sin respaldo</span>
+        {:else if respaldoViejo}
+          <span class="sello malo">Atrasado</span>
+        {:else}
+          <span class="sello bien">Al día</span>
+        {/if}
+      </div>
+
+      {#if respaldo.ultimo}
+        <p class="dato-respaldo">
+          Último: <b>{fechaHora(respaldo.ultimo)}</b> · {respaldo.copias}
+          {respaldo.copias === 1 ? "copia guardada" : "copias guardadas"}
+        </p>
+      {:else}
+        <p class="dato-respaldo alerta">
+          Todavía no hay ninguna copia. Revisa que el Hub pueda escribir en la
+          carpeta de respaldos.
+        </p>
+      {/if}
+
+      <p class="ruta-respaldo">{respaldo.carpeta}</p>
+      <p class="aclaracion">
+        Se respalda solo, al encender y una vez al día, y cada copia se verifica
+        antes de darla por buena. <b>Ojo:</b> si las copias están en el mismo
+        disco que la base, protegen de un borrado o una corrupción, pero no de
+        que el disco se dañe. Para eso, apunta los respaldos a una USB o a una
+        carpeta sincronizada.
+      </p>
+    </section>
+  {/if}
 
   <section class="tarjeta">
     <h2>{sync.configurado ? "Esta terminal" : "Emparejar esta terminal"}</h2>
@@ -568,5 +652,57 @@
   }
   .principal:disabled {
     opacity: 0.5;
+  }
+
+  /* --- Respaldo --- */
+  .respaldo {
+    border-left: 4px solid #57ad30;
+  }
+  .respaldo.mal {
+    border-left-color: var(--peligro);
+  }
+  .cab-respaldo {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    margin-bottom: 0.5rem;
+  }
+  .sello {
+    font-size: 0.7rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    padding: 0.2rem 0.6rem;
+    border-radius: 999px;
+    white-space: nowrap;
+  }
+  .sello.bien {
+    background: #eef7e8;
+    color: #3f6b2c;
+  }
+  .sello.malo {
+    background: #fdeae8;
+    color: var(--peligro);
+  }
+  .dato-respaldo {
+    font-size: 0.88rem;
+  }
+  .dato-respaldo.alerta {
+    color: var(--peligro);
+    font-weight: 600;
+  }
+  .ruta-respaldo {
+    margin-top: 0.3rem;
+    font-family: ui-monospace, Consolas, monospace;
+    font-size: 0.74rem;
+    color: var(--gris);
+    word-break: break-all;
+  }
+  .aclaracion {
+    margin-top: 0.7rem;
+    font-size: 0.8rem;
+    color: var(--gris);
+    line-height: 1.55;
   }
 </style>
