@@ -45,3 +45,9 @@ apps/kds-android/www/
 apps/kds-android/android/
 entregables/*.exe
 entregables/*.apk
+
+# Notas del dueño con secretos: el código de rescate, contraseñas apuntadas.
+# Nunca al repositorio, ni siquiera vacías — el archivo existe para llenarse.
+Codigo rescate.txt
+codigo-rescate*.txt
+*rescate*.txt
