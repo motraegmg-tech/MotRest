@@ -8,7 +8,12 @@
 import { CERO, restar, sumar, type Centavos } from "../comun/dinero.js";
 import type { ID } from "../comun/ids.js";
 import type { EventoComanda, FormaPago } from "../comanda/eventos.js";
-import type { EventoCaja, MotivoMovimientoCaja, VentasPorForma } from "./eventos.js";
+import type {
+  EventoCaja,
+  MotivoMovimientoCaja,
+  ResumenCorte,
+  VentasPorForma,
+} from "./eventos.js";
 
 export interface Movimiento {
   motivo: MotivoMovimientoCaja;
@@ -25,8 +30,12 @@ export interface EstadoCaja {
   fondo_inicial: Centavos;
   movimientos: Movimiento[];
   cerrada: boolean;
+  cerrada_ts?: number;
   declarado?: Centavos;
   diferencia?: Centavos;
+  /** Cifras congeladas y su sello, una vez cerrada. */
+  resumen?: ResumenCorte;
+  sello?: string;
 }
 
 export function aplicarEventoCaja(
@@ -68,7 +77,18 @@ export function aplicarEventoCaja(
       return { ...estado, declarado: ev.declarado };
 
     case "caja_cerrada":
-      return { ...estado, cerrada: true, diferencia: ev.diferencia };
+      // Un turno cerrado no se reabre: el primer cierre manda. Reaplicarlo (una
+      // resincronización, por ejemplo) no puede pisar las cifras ya selladas.
+      if (estado.cerrada) return estado;
+      return {
+        ...estado,
+        cerrada: true,
+        cerrada_ts: ev.ts,
+        diferencia: ev.diferencia,
+        declarado: ev.resumen.declarado,
+        resumen: ev.resumen,
+        sello: ev.sello,
+      };
 
     default: {
       const _exhaustivo: never = ev;
@@ -81,6 +101,35 @@ export function proyectarCaja(eventos: readonly EventoCaja[]): EstadoCaja | null
   let estado: EstadoCaja | null = null;
   for (const ev of eventos) estado = aplicarEventoCaja(estado, ev);
   return estado;
+}
+
+/**
+ * Todas las sesiones de caja, cada una reconstruida por separado.
+ *
+ * Los eventos se agrupan por `sesion_id` antes de proyectar: un solo log lleva
+ * un turno tras otro, y reducirlos juntos mezclaría el fondo de uno con las
+ * ventas de otro. Se ordenan por apertura, de la más reciente a la más antigua,
+ * que es como se leen los arqueos.
+ */
+export function proyectarSesiones(eventos: readonly EventoCaja[]): EstadoCaja[] {
+  const porSesion = new Map<ID, EventoCaja[]>();
+  for (const ev of eventos) {
+    const grupo = porSesion.get(ev.sesion_id) ?? [];
+    grupo.push(ev);
+    porSesion.set(ev.sesion_id, grupo);
+  }
+
+  const sesiones: EstadoCaja[] = [];
+  for (const grupo of porSesion.values()) {
+    const estado = proyectarCaja(grupo);
+    if (estado) sesiones.push(estado);
+  }
+  return sesiones.sort((a, b) => b.abierta_ts - a.abierta_ts);
+}
+
+/** La sesión abierta ahora, si la hay. A lo sumo una a la vez. */
+export function sesionAbierta(eventos: readonly EventoCaja[]): EstadoCaja | undefined {
+  return proyectarSesiones(eventos).find((s) => !s.cerrada);
 }
 
 // --- Corte del turno ------------------------------------------------------------

@@ -20,6 +20,7 @@
   import { hora, mxn } from "../formato";
   import { sesion } from "../sesion/sesion.svelte";
   import { sync } from "../sync.svelte";
+  import Caja from "./finanzas/Caja.svelte";
   import Csd from "./finanzas/Csd.svelte";
   import Resultado from "./finanzas/Resultado.svelte";
 
@@ -144,6 +145,12 @@
     los comprobantes se consultan de vez en cuando; "¿ganamos hoy?", todos los días.
   -->
   <Resultado />
+
+  <!--
+    El corte de caja va junto al resultado: ambos se hacen al cerrar el día. El
+    resultado dice si se ganó; el corte, si el efectivo del cajón cuadra.
+  -->
+  <Caja />
 
   <!-- Datos fiscales del emisor -->
   <section class="tarjeta">

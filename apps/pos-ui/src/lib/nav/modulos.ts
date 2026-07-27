@@ -139,8 +139,8 @@ export const MODULOS: EntradaModulo[] = [
       "Estado de resultados consultable",
       "Enlace contable (CONTPAQi, Aspel, Microsip)",
     ],
-    enF1: "Corte del día real: ventas por forma de pago, propinas, descuentos y food cost.",
-    etapa: "Etapa 7 trae la facturación CFDI completa, lista para timbrar.",
+    enF1: "Resultado del día, corte de caja sellado con arqueo contra el efectivo real, y facturación CFDI.",
+    etapa: "El enlace contable y el estado de resultados completo llegan en F2.",
   },
   {
     id: "m6",

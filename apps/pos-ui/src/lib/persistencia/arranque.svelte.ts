@@ -8,6 +8,7 @@ import {
   compararEventos,
   type EventoBase,
   type EventoAsistencia,
+  type EventoCaja,
   type EventoComanda,
   type EventoCompra,
   type EventoEgreso,
@@ -17,6 +18,7 @@ import {
 } from "@motrest/dominio";
 import { almacenEnMemoria, almacenIndexedDB, type Almacen } from "@motrest/protocolo-sync";
 import { asistencia } from "../asistencia.svelte";
+import { caja } from "../caja.svelte";
 import { egresos } from "../egresos.svelte";
 import { compras } from "../compras.svelte";
 import { catalogo, impuestos, menuSemilla } from "../catalogo";
@@ -76,6 +78,14 @@ const TIPOS_COMPRA = new Set([
   "orden_compra_creada",
   "orden_compra_recibida",
   "orden_compra_cancelada",
+]);
+
+/** Eventos de caja (sesión de turno y corte). */
+const TIPOS_CAJA = new Set([
+  "caja_abierta",
+  "movimiento_efectivo",
+  "arqueo_registrado",
+  "caja_cerrada",
 ]);
 
 class Arranque {
@@ -148,7 +158,8 @@ class Arranque {
               !TIPOS_INVENTARIO.has(e.tipo) &&
               !TIPOS_ASISTENCIA.has(e.tipo) &&
               !TIPOS_EGRESO.has(e.tipo) &&
-              !TIPOS_COMPRA.has(e.tipo),
+              !TIPOS_COMPRA.has(e.tipo) &&
+              !TIPOS_CAJA.has(e.tipo),
           ) as EventoIdentidad[],
           almacen,
         );
@@ -176,6 +187,11 @@ class Arranque {
             TIPOS_COMPRA.has((e as EventoCompra).tipo),
           ) as EventoCompra[],
         );
+        caja.hidratar(
+          ordenados.filter((e) =>
+            TIPOS_CAJA.has((e as EventoCaja).tipo),
+          ) as EventoCaja[],
+        );
       }
 
       // A partir de aquí, cada evento emitido se persiste.
@@ -188,6 +204,7 @@ class Arranque {
       asistencia.conectarAlmacen(almacen);
       egresos.conectarAlmacen(almacen);
       compras.conectarAlmacen(almacen);
+      caja.conectarAlmacen(almacen);
 
       // El almacén nace en la etapa 8: un dispositivo con operación anterior no
       // tiene ni un movimiento y abriría el inventario en ceros. Se carga aquí,
@@ -238,6 +255,7 @@ class Arranque {
     inventario.hidratar([]);
     egresos.hidratar([]);
     compras.hidratar([]);
+    caja.hidratar([]);
   }
 
   /**
@@ -278,6 +296,11 @@ class Arranque {
       TIPOS_COMPRA.has((e as EventoCompra).tipo),
     ) as EventoCompra[];
     if (compra.length > 0) compras.integrar(compra);
+
+    const cajaEv = ordenados.filter((e) =>
+      TIPOS_CAJA.has((e as EventoCaja).tipo),
+    ) as EventoCaja[];
+    if (cajaEv.length > 0) caja.integrar(cajaEv);
   }
 
   /**

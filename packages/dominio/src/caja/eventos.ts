@@ -14,6 +14,28 @@ import type { FormaPago } from "../comanda/eventos.js";
 
 export type MotivoMovimientoCaja = "retiro" | "ingreso" | "fondo";
 
+/**
+ * Las cifras que quedan SELLADAS al cerrar el turno.
+ *
+ * Es, campo por campo, lo que sella `sellarCorte` en `@motrest/impresion`. Se
+ * incrusta en el evento de cierre porque un corte es un hecho de un instante: sus
+ * números se congelan igual que en el papel que se firma. Cambiar cualquiera
+ * cambiaría el sello, y por eso el sello sirve para detectar la alteración.
+ */
+export interface ResumenCorte {
+  sesion_id: string;
+  cajero_id: string;
+  abierta_ts: number;
+  cerrada_ts: number;
+  fondo_inicial: Centavos;
+  total_vendido: Centavos;
+  efectivo_esperado: Centavos;
+  declarado: Centavos;
+  diferencia: Centavos;
+  propinas: Centavos;
+  cuentas_cerradas: number;
+}
+
 export type EventoCaja =
   | (EventoBase & {
       tipo: "caja_abierta";
@@ -42,6 +64,9 @@ export type EventoCaja =
       sesion_id: ID;
       /** Diferencia entre lo declarado y lo esperado (puede ser negativa). */
       diferencia: Centavos;
+      /** Cifras congeladas del corte y su sello. Lo que se imprime y se firma. */
+      resumen: ResumenCorte;
+      sello: string;
     });
 
 export type TipoEventoCaja = EventoCaja["tipo"];

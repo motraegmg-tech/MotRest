@@ -292,7 +292,16 @@ describe("sesión de caja y corte", () => {
 
   it("un evento de caja sin apertura lanza", () => {
     const f = new FabricaEventos<EventoCaja>(CTX);
-    const suelto = f.crear("caja_cerrada", "s1", { sesion_id: "s1", diferencia: CERO });
+    const suelto = f.crear("caja_cerrada", "s1", {
+      sesion_id: "s1",
+      diferencia: CERO,
+      resumen: {
+        sesion_id: "s1", cajero_id: "usr-1", abierta_ts: 1, cerrada_ts: 2,
+        fondo_inicial: CERO, total_vendido: CERO, efectivo_esperado: CERO,
+        declarado: CERO, diferencia: CERO, propinas: CERO, cuentas_cerradas: 0,
+      },
+      sello: "0000-0000",
+    });
     expect(() => proyectarCaja([suelto])).toThrow();
   });
 });
