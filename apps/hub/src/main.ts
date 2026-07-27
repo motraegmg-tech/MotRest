@@ -42,6 +42,7 @@ import { ColaDeTimbrado } from "./fiscal/cola-timbrado.js";
 import { Facturador } from "./fiscal/facturador.js";
 import { Cancelador } from "./fiscal/cancelador.js";
 import { MAPEO_REST_COMUN, PacHttp, consultaPorFolio } from "./fiscal/pac-http.js";
+import { enviarARed } from "./impresion/transporte-red.js";
 import type { DatabaseSync as TipoDatabaseSync } from "node:sqlite";
 
 const PUERTO = Number(process.env.MOTREST_HUB_PUERTO ?? 8787);
@@ -363,6 +364,35 @@ function atender(peticion: IncomingMessage, respuesta: ServerResponse): void {
     respuesta.end(JSON.stringify(cuerpo, null, 2));
   };
 
+  /*
+   * Impresión ESC/POS: la caja manda los bytes ya armados y el Hub los pone en
+   * el cable de la impresora. Es lo que el navegador no puede hacer.
+   *
+   * SOLO desde este mismo equipo. La caja (su webview vive en tauri.localhost)
+   * llega por aquí; una terminal de la red, no —abrir un socket a un host que
+   * pida un desconocido de la wifi sería un relay hacia la red interna del
+   * local—. El transporte, además, solo marca a IPs privadas y puertos de
+   * impresora. El CORS se abre nada más para el origen de la propia caja.
+   */
+  if (url.pathname === "/imprimir") {
+    if (!esLocal) {
+      json(403, { error: "La impresión solo se acepta desde el propio equipo" });
+      return;
+    }
+    permitirCorsCaja(peticion, respuesta);
+    if (peticion.method === "OPTIONS") {
+      respuesta.writeHead(204);
+      respuesta.end();
+      return;
+    }
+    if (peticion.method !== "POST") {
+      json(405, { error: "Usa POST" });
+      return;
+    }
+    void atenderImpresion(peticion, json);
+    return;
+  }
+
   if (url.pathname === "/salud") {
     /*
      * Por la red se responde lo MÍNIMO: que el servicio vive y sirve el POS.
@@ -390,6 +420,78 @@ function atender(peticion: IncomingMessage, respuesta: ServerResponse): void {
   }
 
   servirPos(url.pathname, respuesta, json, esLocal);
+}
+
+/**
+ * CORS solo para el origen de la propia caja.
+ *
+ * La webview de Tauri sirve el POS desde `tauri.localhost` y esta escucha vive
+ * en `localhost:8788`: son orígenes distintos, así que sin estas cabeceras la
+ * webview no puede leer la respuesta del Hub y no sabría si la comanda se
+ * imprimió. Se refleja el origen en vez de abrir `*`, y solo para localhost y
+ * tauri; como la escucha está atada al loopback, esto no amplía nada hacia la red.
+ */
+function permitirCorsCaja(peticion: IncomingMessage, respuesta: ServerResponse): void {
+  const origen = peticion.headers.origin ?? "";
+  const permitido =
+    origen === "http://tauri.localhost" ||
+    origen === "https://tauri.localhost" ||
+    /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origen);
+  if (!permitido) return;
+  respuesta.setHeader("access-control-allow-origin", origen);
+  respuesta.setHeader("access-control-allow-methods", "POST, OPTIONS");
+  respuesta.setHeader("access-control-allow-headers", "content-type");
+  respuesta.setHeader("vary", "origin");
+}
+
+/** Lee el cuerpo de una petición, con un tope para no tragarse memoria. */
+function leerCuerpo(peticion: IncomingMessage, maxBytes = 512 * 1024): Promise<Buffer> {
+  return new Promise((resolver, rechazar) => {
+    const trozos: Buffer[] = [];
+    let total = 0;
+    peticion.on("data", (trozo: Buffer) => {
+      total += trozo.length;
+      if (total > maxBytes) {
+        rechazar(new Error("Cuerpo demasiado grande"));
+        peticion.destroy();
+        return;
+      }
+      trozos.push(trozo);
+    });
+    peticion.on("end", () => resolver(Buffer.concat(trozos)));
+    peticion.on("error", rechazar);
+  });
+}
+
+/**
+ * Recibe un trabajo de impresión de la caja y lo manda a la impresora.
+ *
+ * El cuerpo trae `{ host, puerto, datos_base64 }`. El transporte valida el
+ * destino (IP privada, puerto de impresora) antes de abrir el socket.
+ */
+async function atenderImpresion(
+  peticion: IncomingMessage,
+  json: (codigo: number, cuerpo: unknown) => void,
+): Promise<void> {
+  try {
+    const cuerpo = await leerCuerpo(peticion);
+    const datos = JSON.parse(cuerpo.toString("utf8")) as {
+      host?: unknown;
+      puerto?: unknown;
+      datos_base64?: unknown;
+    };
+
+    if (typeof datos.host !== "string" || typeof datos.puerto !== "number" || typeof datos.datos_base64 !== "string") {
+      json(400, { error: "Faltan host, puerto o datos_base64" });
+      return;
+    }
+
+    const bytes = Buffer.from(datos.datos_base64, "base64");
+    const resultado = await enviarARed(datos.host, datos.puerto, bytes);
+    json(resultado.ok ? 200 : 502, resultado);
+  } catch (causa) {
+    json(400, { error: causa instanceof Error ? causa.message : "Petición inválida" });
+  }
 }
 
 /**

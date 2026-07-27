@@ -25,10 +25,65 @@ import {
   type DatosCorte,
   type DatosTicket,
   type Impresora,
+  type ResultadoEnvio,
   type TipoDocumento,
   type TrabajoImpresion,
+  type Transporte,
 } from "@motrest/impresion";
 import type { Almacen } from "@motrest/protocolo-sync";
+
+/**
+ * Transporte real: manda los bytes al Hub, que abre el socket a la impresora.
+ *
+ * El navegador no puede abrir un socket TCP al puerto 9100; el Hub sí. Este
+ * transporte solo actúa en la CAJA —el único equipo cuya página sirve el Hub, y
+ * por eso el único con `window.__MOTREST_HUB__`—. En una terminal de la red no
+ * se activa: cae al transporte simulado y la vista previa hace de papel, porque
+ * el endpoint del Hub solo acepta impresión desde su propio equipo.
+ */
+class TransporteHub implements Transporte {
+  private get enLaCaja(): boolean {
+    return typeof globalThis !== "undefined" &&
+      !!(globalThis as { __MOTREST_HUB__?: unknown }).__MOTREST_HUB__;
+  }
+
+  puede(impresora: Impresora): boolean {
+    return this.enLaCaja && impresora.conexion === "red" && !!impresora.host;
+  }
+
+  async enviar(impresora: Impresora, datos: Uint8Array): Promise<ResultadoEnvio> {
+    try {
+      // La página de la caja la sirve el Hub, así que `/imprimir` es del mismo
+      // origen: no hay origen cruzado que resolver.
+      const respuesta = await fetch("/imprimir", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          host: impresora.host,
+          puerto: impresora.puerto ?? 9100,
+          datos_base64: aBase64(datos),
+        }),
+      });
+      if (!respuesta.ok) {
+        const cuerpo = (await respuesta.json().catch(() => ({}))) as { error?: string };
+        return { ok: false, error: cuerpo.error ?? `El Hub respondió ${respuesta.status}` };
+      }
+      return { ok: true };
+    } catch (causa) {
+      return { ok: false, error: causa instanceof Error ? causa.message : "No se pudo contactar al Hub" };
+    }
+  }
+}
+
+/** Bytes a base64, por trozos para no reventar la pila con tickets largos. */
+function aBase64(datos: Uint8Array): string {
+  let binario = "";
+  const trozo = 0x8000;
+  for (let i = 0; i < datos.length; i += trozo) {
+    binario += String.fromCharCode(...datos.subarray(i, i + trozo));
+  }
+  return btoa(binario);
+}
 
 export const CLAVE_IMPRESORAS = "impresoras";
 
@@ -60,7 +115,12 @@ class StoreImpresion {
 
   private almacen: Almacen | null = null;
   private transporte = new TransporteSimulado();
-  private cola = new ColaImpresion([this.transporte], (t) => {
+  /*
+   * El orden importa: primero el Hub (impresión real en la caja) y, si no
+   * aplica —una terminal de la red, o una impresora que no es de red—, el
+   * simulado. La cola toma el primer transporte cuyo `puede()` diga que sí.
+   */
+  private cola = new ColaImpresion([new TransporteHub(), this.transporte], (t) => {
     this.trabajos = [...t];
   });
 
