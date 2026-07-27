@@ -6,12 +6,27 @@
    * configuración se abre el configurador; si no, entra directo a la cuenta.
    */
   import { buscarProductos, productosDeCategoria, type Producto } from "@motrest/dominio";
-  import { catalogo, categorias } from "./catalogo";
+  import { catalogo } from "./catalogo";
+  import { menu } from "./menu.svelte";
   import { configurador } from "./configurador.svelte";
   import { mxn } from "./formato";
   import { pos } from "./pos.svelte";
 
-  let categoriaActiva = $state(categorias[0]!.id);
+  /*
+   * Las categorías salen del menú VIVO del restaurante, no de la carta de
+   * demostración. Leerlas de `catalogo.ts` hacía que el selector mostrara
+   * siempre "Pizzas, Pastas, Carnes…" aunque el local hubiera dado de alta las
+   * suyas — y arrastraba la carta inventada al instalador.
+   */
+  const categorias = $derived(menu.categorias);
+  let categoriaActiva = $state("");
+
+  // La primera categoría real manda, en cuanto exista una.
+  $effect(() => {
+    if (!categorias.some((c) => c.id === categoriaActiva)) {
+      categoriaActiva = categorias[0]?.id ?? "";
+    }
+  });
   let busqueda = $state("");
 
   const buscando = $derived(busqueda.trim().length > 0);

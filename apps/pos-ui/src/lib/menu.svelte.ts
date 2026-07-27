@@ -14,6 +14,7 @@
  */
 import {
   agregarCategoria,
+  type CartaImportada,
   agregarEstacion,
   agregarInsumo,
   agregarProducto,
@@ -286,6 +287,49 @@ class StoreMenu {
     }
     this.aplicar((m) => eliminarCategoria(m, categoriaId));
     return SIN_PROBLEMAS;
+  }
+
+  /**
+   * Da de alta una carta completa desde una lista ya interpretada.
+   *
+   * Recibe el resultado de `interpretarCarta`, no el texto: quien importa ya vio
+   * en pantalla, línea por línea, lo que iba a quedar. Aquí solo se ejecuta lo
+   * que ya se aprobó.
+   *
+   * Las líneas con error se saltan —no se importa a medias un renglón que no se
+   * entendió— y las categorías se crean antes que los productos, porque cada
+   * producto necesita la suya para colgarse.
+   */
+  importarCarta(carta: CartaImportada): { creados: number; categorias: number } {
+    if (!this.datos || !this.permisos.editarProductos) {
+      return { creados: 0, categorias: 0 };
+    }
+
+    for (const nombre of carta.categorias) this.crearCategoria(nombre);
+
+    const porNombre = new Map(
+      this.categorias.map((c) => [c.nombre.trim().toLowerCase(), c.id]),
+    );
+    const impuestoPorDefecto = this.datos.impuestos[0]?.id ?? "";
+
+    let creados = 0;
+    for (const linea of carta.lineas) {
+      if (linea.estado === "error") continue;
+      const categoria_id = porNombre.get(linea.categoria.trim().toLowerCase());
+      if (!categoria_id) continue;
+
+      const r = this.crearProducto({
+        nombre: linea.nombre,
+        categoria_id,
+        costo: linea.costo,
+        precio: linea.precio,
+        impuesto_id: impuestoPorDefecto,
+        disponible: true,
+      });
+      if (r.ok) creados += 1;
+    }
+
+    return { creados, categorias: carta.categorias.length };
   }
 
   // --- Insumos y estaciones (M9) --------------------------------------------------------

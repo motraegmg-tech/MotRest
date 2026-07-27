@@ -8,7 +8,15 @@
 import { pesos } from "@motrest/dominio";
 import type { Insumo } from "@motrest/dominio";
 
-export const insumos: Insumo[] = [
+/**
+ * Insumos de la demostración, dentro de una FUNCIÓN a propósito.
+ *
+ * Una constante de módulo con llamadas dentro se considera impura y sobrevive
+ * al empaquetado aunque nadie la use, arrastrando la despensa inventada al
+ * instalador del restaurante. Una función que nadie llama se elimina entera.
+ */
+export function insumosDemo(): Insumo[] {
+  return [
   // --- Base de pizzas ---
   { id: "ins-masa", nombre: "Masa madre", unidad_base: "g", costo_unitario: pesos(0.062),
     stock_minimo: 8000, categoria: "Panadería" },
@@ -40,10 +48,12 @@ export const insumos: Insumo[] = [
     stock_minimo: 1000, categoria: "Frescos" },
   { id: "ins-aceite", nombre: "Aceite de oliva", unidad_base: "ml", costo_unitario: pesos(0.13),
     stock_minimo: 1000, categoria: "Abarrotes" },
-];
+  ];
+}
 
-/** Existencias iniciales de la demostración, en la unidad base de cada insumo. */
-export const EXISTENCIAS_INICIALES: [string, number][] = [
+/** Existencias de arranque de la demostración. Misma razón para la función. */
+export function existenciasDemo(): [string, number][] {
+  return [
   ["ins-masa", 25_000],
   ["ins-pomodoro", 12_000],
   ["ins-mozz-fdl", 6_000],
@@ -57,4 +67,5 @@ export const EXISTENCIAS_INICIALES: [string, number][] = [
   ["ins-albahaca", 120],
   ["ins-pina", 1_800],
   ["ins-aceite", 2_500],
-];
+  ];
+}

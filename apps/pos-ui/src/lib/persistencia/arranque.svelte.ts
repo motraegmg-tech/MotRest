@@ -25,10 +25,11 @@ import { clientes } from "../clientes.svelte";
 import { egresos } from "../egresos.svelte";
 import { compras } from "../compras.svelte";
 import { prenomina } from "../prenomina.svelte";
-import { catalogo, impuestos, menuSemilla } from "../catalogo";
+import { cartaVacia, catalogo, impuestos } from "../catalogo";
+import { menuDemostracion } from "../demo/carta";
 import { fiscal } from "../fiscal.svelte";
 import { impresion } from "../impresion.svelte";
-import { EXISTENCIAS_INICIALES } from "../insumos";
+import { existenciasDemo } from "../insumos";
 import { inventario } from "../inventario.svelte";
 import { menu } from "../menu.svelte";
 import { plano } from "../plano.svelte";
@@ -136,7 +137,24 @@ class Arranque {
       // comandas se agrupan por las mesas del plano y sus renglones se leen
       // contra los productos del menú.
       await plano.hidratar(almacen);
-      await menu.hidratar(almacen, menuSemilla);
+      /*
+       * La carta de la demostración es SOLO para la demostración.
+       *
+       * Un local nuevo no puede abrir con las pizzas y los precios inventados de
+       * otro: habría que borrarlos uno por uno, y el que se escape queda
+       * vendible. En producción se arranca con la carta vacía y se carga la real
+       * desde Administración → Catálogo, pegándola de una lista.
+       */
+      /*
+       * Un `if` de sentencia y no un ternario: el empaquetador elimina la rama
+       * apagada de un `if`, pero conserva la función que cuelga de un ternario
+       * —y con ella toda la carta inventada—. Verificado sobre el bundle.
+       */
+      if (MODO_DEMO) {
+        await menu.hidratar(almacen, menuDemostracion());
+      } else {
+        await menu.hidratar(almacen, cartaVacia());
+      }
       await impresion.hidratar(almacen);
 
       // Con qué Hub trabaja esta terminal. Se resuelve ANTES de decidir si
@@ -367,8 +385,11 @@ class Arranque {
    * como un saldo caído del cielo.
    */
   private cargarAlmacenInicial(): void {
-    if (inventario.activo) return;
-    for (const [insumoId, cantidad] of EXISTENCIAS_INICIALES) {
+    // Las existencias de arranque apuntan a los insumos de la DEMOSTRACIÓN. En
+    // un local real esos insumos no existen, así que cargarlas no movería nada
+    // y solo dejaría movimientos huérfanos en la bitácora.
+    if (!MODO_DEMO || inventario.activo) return;
+    for (const [insumoId, cantidad] of existenciasDemo()) {
       inventario.registrar(insumoId, cantidad, "recepcion", "Carga inicial del almacén");
     }
   }

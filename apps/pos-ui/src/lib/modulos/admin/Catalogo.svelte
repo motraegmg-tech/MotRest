@@ -8,6 +8,7 @@
   import {
     UNIDADES,
     formatearCantidad,
+    interpretarCarta,
     pesos,
     type BorradorEstacion,
     type BorradorInsumo,
@@ -18,7 +19,7 @@
   import { inventario } from "../../inventario.svelte";
   import { menu } from "../../menu.svelte";
 
-  type Vista = "insumos" | "estaciones";
+  type Vista = "insumos" | "estaciones" | "carta";
   let vista = $state<Vista>("insumos");
   let problemas = $state<ProblemaMenu[]>([]);
 
@@ -109,6 +110,33 @@
     problemas = r.problemas;
     if (r.ok) limpiarEstacion();
   }
+
+  // --- Cargar la carta en bloque -------------------------------------------------------
+
+  let textoCarta = $state("");
+  let importado = $state<{ creados: number; categorias: number } | null>(null);
+
+  const previa = $derived(
+    textoCarta.trim() === ""
+      ? null
+      : interpretarCarta(textoCarta, {
+          categoriasExistentes: menu.categorias.map((c) => c.nombre),
+        }),
+  );
+
+  function confirmarImportacion() {
+    if (!previa) return;
+    importado = menu.importarCarta(previa);
+    textoCarta = "";
+  }
+
+  const EJEMPLO = [
+    "Pizzas",
+    "Margarita | 249 | 62",
+    "Pepperoni | 269 | 71",
+    "Bebidas",
+    "Limonada | 45 | 8",
+  ].join("\n");
 </script>
 
 <div class="seccion">
@@ -126,6 +154,9 @@
       </button>
       <button class:on={vista === "estaciones"} onclick={() => { vista = "estaciones"; problemas = []; }}>
         Estaciones
+      </button>
+      <button class:on={vista === "carta"} onclick={() => { vista = "carta"; problemas = []; }}>
+        Cargar carta
       </button>
     </div>
   </div>
@@ -238,7 +269,7 @@
         </tbody>
       </table>
     </section>
-  {:else}
+  {:else if vista === "estaciones"}
     {#if puedeEditar}
       <section class="tarjeta">
         <h2>{estacionId ? "Editar estación" : "Nueva estación"}</h2>
@@ -313,6 +344,110 @@
         vendiéndose y aparecen en la vista de todas las estaciones del tablero,
         en vez de desaparecer de cocina sin aviso.
       </p>
+    </section>
+  {:else}
+    <!--
+      Cargar la carta en bloque. Nunca se importa a ciegas: primero se muestra
+      renglón por renglón lo que va a quedar, y solo entonces se confirma.
+    -->
+    <section class="tarjeta">
+      <h2>Cargar la carta</h2>
+      <p class="pista">
+        Pega aquí la carta y se da de alta completa. Sirve un copiado de Excel,
+        o una lista escrita por secciones. El orden de columnas es
+        <b>Categoría · Producto · Precio · Costo</b>, y el costo puede faltar.
+      </p>
+
+      {#if puedeEditar}
+        <textarea
+          bind:value={textoCarta}
+          rows="8"
+          placeholder={EJEMPLO}
+          spellcheck="false"
+        ></textarea>
+
+        {#if importado}
+          <p class="ok" role="status">
+            Listo: {importado.creados} platillos dados de alta
+            {#if importado.categorias > 0}y {importado.categorias} categorías creadas{/if}.
+          </p>
+        {/if}
+
+        {#if previa}
+          <div class="marcador-import">
+            <span class="cuenta alta">{previa.altas} se darán de alta</span>
+            {#if previa.avisos > 0}
+              <span class="cuenta aviso">{previa.avisos} con aviso</span>
+            {/if}
+            {#if previa.errores > 0}
+              <span class="cuenta error">{previa.errores} con error</span>
+            {/if}
+            {#if previa.categorias.length > 0}
+              <span class="cuenta nueva">
+                {previa.categorias.length} categorías nuevas: {previa.categorias.join(", ")}
+              </span>
+            {/if}
+          </div>
+
+          {#if previa.sin_costos}
+            <p class="advertencia">
+              ⚠ Ninguna línea trae costo. Los platillos se crearán, pero el
+              <b>food cost</b>, el margen y la ingeniería de menú saldrán en
+              100 % hasta que captures los costos.
+            </p>
+          {/if}
+
+          <table>
+            <thead>
+              <tr>
+                <th>#</th>
+                <th>Categoría</th>
+                <th>Producto</th>
+                <th class="num">Precio</th>
+                <th class="num">Costo</th>
+                <th>Qué pasa</th>
+              </tr>
+            </thead>
+            <tbody>
+              {#each previa.lineas as l (l.renglon)}
+                <tr class={l.estado}>
+                  <td class="tenue">{l.renglon}</td>
+                  <td>{l.categoria || "—"}</td>
+                  <td><b>{l.nombre || "—"}</b></td>
+                  <td class="num">{l.estado === "error" ? "—" : mxn(l.precio)}</td>
+                  <td class="num tenue">{l.costo > 0 ? mxn(l.costo) : "—"}</td>
+                  <td class="detalle-import">
+                    {#if l.estado === "alta"}
+                      <span class="tenue">Se da de alta</span>
+                    {:else}
+                      {l.detalle}
+                    {/if}
+                  </td>
+                </tr>
+              {/each}
+            </tbody>
+          </table>
+
+          <div class="botones">
+            <button class="secundario" onclick={() => (textoCarta = "")}>Limpiar</button>
+            <button
+              class="principal"
+              disabled={previa.altas === 0}
+              onclick={confirmarImportacion}
+            >
+              Dar de alta {previa.altas} platillos
+            </button>
+          </div>
+          {#if previa.errores > 0}
+            <p class="pista">
+              Las líneas con error <b>no se importan</b>. Corrígelas en el texto
+              y vuelve a revisar, o dales de alta a mano después.
+            </p>
+          {/if}
+        {/if}
+      {:else}
+        <p class="nota">Tu perfil no puede modificar la carta.</p>
+      {/if}
     </section>
   {/if}
 </div>
@@ -532,5 +667,71 @@
     font-size: 0.85rem;
     font-weight: 600;
     color: var(--acento-2);
+  }
+
+  /* --- Cargar carta --- */
+  textarea {
+    width: 100%;
+    margin-top: 0.85rem;
+    padding: 0.75rem 0.9rem;
+    border: 1.5px solid var(--borde);
+    border-radius: var(--r-sm);
+    font-family: ui-monospace, Consolas, monospace;
+    font-size: 0.85rem;
+    line-height: 1.6;
+    resize: vertical;
+    background: #fff;
+  }
+  textarea:focus {
+    outline: none;
+    border-color: var(--acento);
+  }
+  .marcador-import {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.45rem;
+    margin: 0.85rem 0;
+  }
+  .cuenta {
+    font-size: 0.78rem;
+    font-weight: 600;
+    padding: 0.25rem 0.65rem;
+    border-radius: 999px;
+    background: var(--fondo);
+    color: var(--gris);
+  }
+  .cuenta.alta {
+    background: #eef7e8;
+    color: #3f6b2c;
+  }
+  .cuenta.aviso {
+    background: #fff5ec;
+    color: var(--acento-2);
+  }
+  .cuenta.error {
+    background: #fdeae8;
+    color: var(--peligro);
+  }
+  tr.error td {
+    background: #fdf4f3;
+  }
+  tr.aviso td {
+    background: #fffaf5;
+  }
+  .detalle-import {
+    font-size: 0.8rem;
+    line-height: 1.4;
+    white-space: normal;
+    max-width: 20rem;
+  }
+  .ok {
+    margin-top: 0.85rem;
+    background: #eef7e8;
+    border: 1px solid #b6d9a0;
+    border-radius: var(--r-md);
+    padding: 0.7rem 0.95rem;
+    font-size: 0.86rem;
+    font-weight: 600;
+    color: #3f6b2c;
   }
 </style>
