@@ -62,10 +62,12 @@ export * from "./compras/reducers.js";
 // Clientes (M7)
 export * from "./clientes/eventos.js";
 export * from "./clientes/reducers.js";
+export * from "./clientes/opinion.js";
 
 // Fiscal (CFDI 4.0)
 export * from "./fiscal/claves.js";
 export * from "./fiscal/rfc.js";
+export * from "./fiscal/series.js";
 export * from "./fiscal/comprobante.js";
 export * from "./fiscal/cadena.js";
 export * from "./fiscal/xml.js";

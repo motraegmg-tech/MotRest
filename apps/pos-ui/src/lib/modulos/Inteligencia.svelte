@@ -10,6 +10,7 @@
     CONSEJOS_CLASE,
     ETIQUETAS_CLASE,
     DIAS_SEMANA,
+    MOTIVOS_OPINION,
     centinelaMermas,
     conteoPorClase,
     consejoMerma,
@@ -26,6 +27,7 @@
   import { mxn, pct } from "../formato";
   import { inventario } from "../inventario.svelte";
   import { local } from "../local.svelte";
+  import { opiniones } from "../opiniones.svelte";
   import { pos } from "../pos.svelte";
   import { sesion } from "../sesion/sesion.svelte";
 
@@ -77,6 +79,14 @@
   }
   function fechaCorta(ts: number): string {
     return new Date(ts).toLocaleDateString("es-MX", { day: "2-digit", month: "short" });
+  }
+
+  // --- Voz del cliente (C4) -----------------------------------------------------------
+  const voz = $derived(opiniones.resumen);
+  const espera = $derived(opiniones.efectoEspera());
+
+  function etiquetaMotivo(m: string): string {
+    return MOTIVOS_OPINION.find((x) => x.valor === m)?.etiqueta ?? m;
   }
 
   // --- Simulador de escenarios (C1) ---------------------------------------------------
@@ -333,6 +343,73 @@
       <p class="nota">
         La ingeniería de menú necesita costos, y tu perfil no tiene acceso a ellos.
       </p>
+    {/if}
+
+
+    <!-- Voz del cliente (C4) -->
+    {#if voz.total > 0}
+      <section class="tarjeta">
+        <div class="cab-centinela">
+          <h2>Voz del cliente</h2>
+          <div class="indice-voz" class:bajo={(voz.indice ?? 0) < 70}>
+            <span class="etiqueta">Satisfacción</span>
+            <b>{voz.indice}<em>/100</em></b>
+          </div>
+        </div>
+        <p class="ayuda">
+          Lo que dijeron {voz.total} {voz.total === 1 ? "mesa" : "mesas"} al cobrar.
+          Vale por el cruce con lo que ya sabemos de esa cuenta —cuánto esperó,
+          quién la atendió—, no por el promedio suelto.
+        </p>
+
+        <div class="barras-voz">
+          <div class="franja bien" style="flex: {voz.bien || 0.001}">
+            {#if voz.bien > 0}{voz.bien} bien{/if}
+          </div>
+          <div class="franja regular" style="flex: {voz.regular || 0.001}">
+            {#if voz.regular > 0}{voz.regular}{/if}
+          </div>
+          <div class="franja mal" style="flex: {voz.mal || 0.001}">
+            {#if voz.mal > 0}{voz.mal} mal{/if}
+          </div>
+        </div>
+
+        {#if voz.quejas.length > 0}
+          <p class="nota">
+            Lo que más se queja:
+            {#each voz.quejas.slice(0, 3) as q, i (q.motivo)}
+              {i > 0 ? " · " : " "}<b>{etiquetaMotivo(q.motivo)}</b> ({q.veces})
+            {/each}
+          </p>
+        {/if}
+
+        <!--
+          El cruce. Es lo que un cuadernito de comentarios no puede dar: la
+          espera sale de los sellos que el KDS ya registra.
+        -->
+        {#if espera.caida !== null}
+          <div class="cruce" class:duele={espera.caida > 15}>
+            <b>
+              {#if espera.caida > 15}
+                La espera está costando satisfacción
+              {:else}
+                La espera no está pesando
+              {/if}
+            </b>
+            <p>
+              Las mesas que esperaron más de {espera.umbral_min} min calificaron
+              <b>{espera.caida > 0 ? `${espera.caida} puntos peor` : "igual o mejor"}</b>
+              ({espera.rapidas.indice} contra {espera.lentas.indice} sobre 100).
+              Son {espera.lentas.total} de {espera.rapidas.total + espera.lentas.total} mesas.
+            </p>
+          </div>
+        {:else}
+          <p class="nota">
+            Todavía no hay mesas suficientes en los dos grupos —rápidas y
+            lentas— para comparar. No se saca conclusión con dos datos.
+          </p>
+        {/if}
+      </section>
     {/if}
 
     <!-- Centinela de mermas (C5) -->
@@ -1066,5 +1143,73 @@
   .mini:hover {
     border-color: var(--acento);
     color: var(--acento);
+  }
+  .indice-voz {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    background: #eef7e8;
+    border: 1px solid #b6d9a0;
+    border-radius: var(--r-md);
+    padding: 0.4rem 0.85rem;
+  }
+  .indice-voz.bajo {
+    background: #fdeae8;
+    border-color: var(--peligro);
+  }
+  .indice-voz b {
+    font-family: var(--font-titulo);
+    font-size: 1.35rem;
+    color: #3f6b2c;
+  }
+  .indice-voz.bajo b {
+    color: var(--peligro);
+  }
+  .indice-voz em {
+    font-style: normal;
+    font-size: 0.8rem;
+    font-weight: 400;
+    color: var(--gris);
+  }
+  .barras-voz {
+    display: flex;
+    gap: 2px;
+    height: 1.8rem;
+    border-radius: var(--r-sm);
+    overflow: hidden;
+    margin: 0.6rem 0;
+  }
+  .franja {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.76rem;
+    font-weight: 700;
+    color: #fff;
+    white-space: nowrap;
+  }
+  .franja.bien { background: #57ad30; }
+  .franja.regular { background: var(--acento-2); }
+  .franja.mal { background: var(--peligro); }
+  .cruce {
+    margin-top: 0.9rem;
+    border: 1.5px solid #b6d9a0;
+    border-radius: var(--r-md);
+    padding: 0.8rem 1rem;
+    background: #f6fbf2;
+  }
+  .cruce.duele {
+    border-color: var(--peligro);
+    background: #fdf4f3;
+  }
+  .cruce b {
+    font-family: var(--font-titulo);
+    font-size: 0.98rem;
+  }
+  .cruce p {
+    margin-top: 0.3rem;
+    font-size: 0.84rem;
+    line-height: 1.5;
+    color: var(--pizarra);
   }
 </style>

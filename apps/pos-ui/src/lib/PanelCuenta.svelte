@@ -7,10 +7,14 @@
     repartir,
     restar,
     sumar,
+    MOTIVOS_OPINION,
+    type Calificacion,
     type FormaPago,
+    type MotivoOpinion,
   } from "@motrest/dominio";
   import DialogoFactura from "./DialogoFactura.svelte";
   import { hora, mxn } from "./formato";
+  import { opiniones } from "./opiniones.svelte";
   import { plano } from "./plano.svelte";
   import { pos } from "./pos.svelte";
   import { sesion } from "./sesion/sesion.svelte";
@@ -99,10 +103,57 @@
 
   async function cobrarAhora() {
     if (!t) return;
+    const ordenId = pos.comanda?.orden_id;
     const esEfectivo = formaPago === "efectivo";
     await pos.cobrar(formaPago, t.saldo, esEfectivo && recibidoCentavos > 0 ? recibidoCentavos : undefined);
     recibido = "";
     vista = "cuenta";
+
+    /*
+     * Al cerrar la cuenta es el ÚNICO momento en que hay una conversación con
+     * la mesa. Se pregunta aquí o no se pregunta nunca; una encuesta por correo
+     * al día siguiente la contesta el 2 %.
+     */
+    if (ordenId && pos.comanda?.cerrada && !opiniones.yaOpinada(ordenId)) {
+      opinandoOrden = ordenId;
+    }
+  }
+
+  // --- Voz del cliente: cómo estuvo todo ---
+  let opinandoOrden = $state<string | null>(null);
+  let motivosElegidos = $state<MotivoOpinion[]>([]);
+  let comentarioOpinion = $state("");
+  let calificacionElegida = $state<Calificacion | null>(null);
+
+  function cerrarOpinion() {
+    opinandoOrden = null;
+    motivosElegidos = [];
+    comentarioOpinion = "";
+    calificacionElegida = null;
+  }
+
+  function calificar(c: Calificacion) {
+    calificacionElegida = c;
+    // «Bien» se guarda de una vez: alargarlo haría que se dejara de preguntar.
+    if (c === "bien") guardarOpinion();
+  }
+
+  function alternarMotivo(m: MotivoOpinion) {
+    motivosElegidos = motivosElegidos.includes(m)
+      ? motivosElegidos.filter((x) => x !== m)
+      : [...motivosElegidos, m];
+  }
+
+  function guardarOpinion() {
+    if (!opinandoOrden || !calificacionElegida) return;
+    opiniones.actuarComo(sesion.usuarioActual?.id ?? "sistema");
+    opiniones.registrar({
+      ordenId: opinandoOrden,
+      calificacion: calificacionElegida,
+      motivos: motivosElegidos,
+      comentario: comentarioOpinion,
+    });
+    cerrarOpinion();
   }
 
   async function dividir() {
@@ -375,6 +426,51 @@
         </button>
       </div>
     </div>
+  </div>
+{/if}
+
+
+<!--
+  Cómo estuvo todo. Aparece al cobrar, que es cuando hay alguien enfrente.
+
+  Se puede saltar sin penalización: una encuesta obligatoria se contesta al
+  azar con tal de seguir, y ese dato es peor que no tener ninguno.
+-->
+{#if opinandoOrden}
+  <div class="velo-op" role="presentation" onclick={cerrarOpinion}></div>
+  <div class="op" role="dialog" aria-modal="true" aria-label="Opinión del comensal">
+    <h3>¿Cómo estuvo todo?</h3>
+
+    <div class="caras">
+      <button class="cara bien" class:on={calificacionElegida === "bien"} onclick={() => calificar("bien")}>
+        Bien
+      </button>
+      <button class="cara regular" class:on={calificacionElegida === "regular"} onclick={() => calificar("regular")}>
+        Regular
+      </button>
+      <button class="cara mal" class:on={calificacionElegida === "mal"} onclick={() => calificar("mal")}>
+        Mal
+      </button>
+    </div>
+
+    {#if calificacionElegida && calificacionElegida !== "bien"}
+      <p class="que-paso">¿Qué falló?</p>
+      <div class="motivos">
+        {#each MOTIVOS_OPINION as m (m.valor)}
+          <button
+            class="motivo"
+            class:on={motivosElegidos.includes(m.valor)}
+            onclick={() => alternarMotivo(m.valor)}
+          >
+            {m.etiqueta}
+          </button>
+        {/each}
+      </div>
+      <input class="comentario" bind:value={comentarioOpinion} placeholder="Qué dijo, en sus palabras (opcional)" />
+      <button class="guardar-op" onclick={guardarOpinion}>Guardar</button>
+    {/if}
+
+    <button class="saltar" onclick={cerrarOpinion}>No preguntar</button>
   </div>
 {/if}
 
@@ -799,5 +895,96 @@
     justify-content: flex-end;
     gap: 0.6rem;
     margin-top: 1rem;
+  }
+  .velo-op {
+    position: fixed;
+    inset: 0;
+    background: rgba(20, 24, 26, 0.5);
+    z-index: 40;
+  }
+  .op {
+    position: fixed;
+    z-index: 41;
+    bottom: 1.5rem;
+    left: 50%;
+    transform: translateX(-50%);
+    width: min(26rem, calc(100vw - 2rem));
+    background: #fff;
+    border-radius: var(--r-xl);
+    padding: 1.2rem;
+    box-shadow: var(--sombra-lg);
+    text-align: center;
+  }
+  .op h3 {
+    font-size: 1.05rem;
+    font-weight: 700;
+    margin-bottom: 0.85rem;
+  }
+  .caras {
+    display: flex;
+    gap: 0.5rem;
+  }
+  .cara {
+    flex: 1;
+    padding: 0.85rem 0.3rem;
+    border-radius: var(--r-md);
+    border: 2px solid var(--borde);
+    background: #fff;
+    font-weight: 700;
+    font-size: 0.92rem;
+  }
+  .cara.bien.on, .cara.bien:hover { border-color: #57ad30; color: #3f6b2c; }
+  .cara.regular.on, .cara.regular:hover { border-color: var(--acento-2); color: var(--acento-2); }
+  .cara.mal.on, .cara.mal:hover { border-color: var(--peligro); color: var(--peligro); }
+  .que-paso {
+    margin-top: 0.9rem;
+    font-size: 0.82rem;
+    font-weight: 600;
+    color: var(--gris);
+  }
+  .motivos {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.35rem;
+    justify-content: center;
+    margin-top: 0.5rem;
+  }
+  .motivo {
+    padding: 0.35rem 0.7rem;
+    border-radius: 999px;
+    border: 1.5px solid var(--borde);
+    background: #fff;
+    font-size: 0.8rem;
+    font-weight: 600;
+  }
+  .motivo.on {
+    border-color: var(--acento);
+    background: #fffaf5;
+    color: var(--acento);
+  }
+  .comentario {
+    width: 100%;
+    margin-top: 0.7rem;
+    padding: 0.55rem 0.7rem;
+    border: 1.5px solid var(--borde);
+    border-radius: var(--r-sm);
+    font: inherit;
+    font-size: 0.85rem;
+  }
+  .guardar-op {
+    width: 100%;
+    margin-top: 0.7rem;
+    background: var(--acento);
+    color: #fff;
+    border-radius: var(--r-md);
+    padding: 0.65rem;
+    font-family: var(--font-titulo);
+    font-weight: 600;
+  }
+  .saltar {
+    margin-top: 0.7rem;
+    font-size: 0.8rem;
+    color: var(--gris);
+    text-decoration: underline;
   }
 </style>
