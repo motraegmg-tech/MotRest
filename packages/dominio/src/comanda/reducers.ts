@@ -40,6 +40,13 @@ export interface EstadoComanda {
   cerrada: boolean;
   /** Momento del cobro. Es la hora que cuenta como venta. */
   cerrada_ts?: number;
+  /**
+   * A nombre de quién va el pedido. Presente sobre todo en los de PARA LLEVAR,
+   * donde no hay una mesa que sirva de referencia.
+   */
+  a_nombre_de?: string;
+  telefono?: string;
+  cliente_id?: ID;
   pagos: Pago[];
   descuentos: Descuento[];
   cortesias: Cortesia[];
@@ -231,6 +238,14 @@ export function aplicarEvento(
             referencia: ev.referencia,
           },
         ],
+      };
+
+    case "orden_identificada":
+      return {
+        ...estado,
+        a_nombre_de: ev.nombre,
+        telefono: ev.telefono,
+        cliente_id: ev.cliente_id,
       };
 
     case "cuenta_cerrada":

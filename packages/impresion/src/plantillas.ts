@@ -48,6 +48,13 @@ export interface DatosComanda {
   orden_id: string;
   mesa: string;
   mesero: string;
+  /**
+   * A nombre de quién va, para los pedidos PARA LLEVAR.
+   *
+   * Sin esto cocina prepara y nadie sabe de quién es la bolsa del mostrador:
+   * el número de "mesa" de un pedido para llevar no le dice nada a nadie.
+   */
+  a_nombre_de?: string;
   estacion?: string;
   ts: number;
   renglones: RenglonComanda[];
@@ -80,6 +87,14 @@ export function comandaCocina(datos: DatosComanda, columnas: AnchoPapel = 42): T
   t.separador("=");
 
   t.linea(`MESA ${datos.mesa}`, { negrita: true, doble_alto: true, doble_ancho: true });
+  /*
+   * El nombre va GRANDE y justo debajo de la mesa: en un pedido para llevar es
+   * el único dato que sirve para entregar la bolsa correcta, y el número de
+   * "mesa" no le dice nada a nadie en el mostrador.
+   */
+  if (datos.a_nombre_de) {
+    t.linea(datos.a_nombre_de.toUpperCase(), { negrita: true, doble_alto: true });
+  }
   t.columnasDobles(datos.mesero, fechaHora(datos.ts));
   t.separador();
 

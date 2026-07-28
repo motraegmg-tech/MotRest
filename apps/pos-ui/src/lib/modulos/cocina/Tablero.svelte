@@ -91,7 +91,17 @@
       {#each tickets as ticket (ticket.orden_id)}
         <article class="ticket {ticket.semaforo}">
           <div class="cabecera">
-            <span class="mesa">Mesa {plano.nombreMesa(ticket.mesa_id)}</span>
+            <!--
+              El nombre manda sobre el número de mesa: si el pedido es para
+              llevar, es el dato con el que se entrega.
+            -->
+            <span class="mesa">
+              {#if ticket.a_nombre_de}
+                {ticket.a_nombre_de}
+              {:else}
+                Mesa {plano.nombreMesa(ticket.mesa_id)}
+              {/if}
+            </span>
             <span class="tiempo">{minutos(ticket.minutos)}</span>
           </div>
           <p class="mesero">{sesion.nombreDe(ticket.mesero_id)} · {etiquetaSemaforo(ticket.semaforo)}</p>

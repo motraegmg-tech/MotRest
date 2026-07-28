@@ -32,6 +32,13 @@ export interface RenglonKds {
 export interface TicketKds {
   orden_id: ID;
   mesa_id: ID;
+  /**
+   * A nombre de quién va, si es un pedido para llevar.
+   *
+   * En el mostrador el número de mesa no le dice nada a nadie: el nombre es lo
+   * que permite entregar la bolsa correcta.
+   */
+  a_nombre_de?: string;
   mesero_id: ID;
   /** Momento en que salió el primer platillo de este ticket. */
   enviado_ts: number;
@@ -99,6 +106,7 @@ export function proyectarTablero(
     tickets.push({
       orden_id: comanda.orden_id,
       mesa_id: comanda.mesa_id,
+      a_nombre_de: comanda.a_nombre_de,
       mesero_id: comanda.mesero_id,
       enviado_ts,
       renglones,

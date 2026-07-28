@@ -391,6 +391,34 @@ class TiendaPOS {
    * Si el platillo ya se fue a cocina, el dominio marca el cambio para que el
    * tablero lo señale: quien leyó el ticket hace tres minutos no lo va a releer.
    */
+  /**
+   * Pone nombre al pedido.
+   *
+   * Nace para los PARA LLEVAR: sin un nombre, cocina prepara y nadie sabe de
+   * quién es la bolsa que está en el mostrador. En mesa también sirve, para una
+   * cuenta a nombre de un cliente frecuente.
+   *
+   * El nombre viaja como dato y no solo como `cliente_id` porque la mayoría de
+   * los pedidos para llevar son de alguien que no está registrado, y obligar a
+   * darlo de alta para poder venderle sería absurdo.
+   */
+  async identificar(nombre: string, telefono?: string, clienteId?: ID): Promise<void> {
+    const orden_id = this.ordenActiva(this.mesaActiva);
+    const limpio = nombre.trim();
+    if (!orden_id || limpio === "") return;
+
+    this.sincronizarActor();
+    this.emitir(
+      this.mesaActiva,
+      fabrica.crear("orden_identificada", orden_id, {
+        orden_id,
+        nombre: limpio,
+        telefono: telefono?.trim() || undefined,
+        cliente_id: clienteId,
+      }),
+    );
+  }
+
   async cambiarNotas(renglonId: ID, notas: string): Promise<void> {
     const orden_id = this.ordenActiva(this.mesaActiva);
     const renglon = this.renglones.find((r) => r.id === renglonId);
@@ -505,6 +533,9 @@ class TiendaPOS {
       {
         orden_id: ordenId,
         mesa: this.nombreMesaActiva,
+        // A nombre de quién va: en un pedido para llevar es lo único que sirve
+        // para entregar la bolsa correcta.
+        a_nombre_de: this.comanda?.a_nombre_de,
         mesero: sesion.usuarioActual?.nombre ?? "—",
         ts: Date.now(),
         renglones: [],

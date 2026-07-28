@@ -150,6 +150,26 @@ export type EventoComanda =
       sesion_caja_id?: ID;
     })
   | (EventoBase & {
+      /**
+       * A nombre de quién va el pedido.
+       *
+       * Nace para los pedidos PARA LLEVAR, donde no hay una mesa que sirva de
+       * referencia: sin un nombre, cocina prepara y nadie sabe de quién es la
+       * bolsa que está en el mostrador. También sirve en mesa —una cuenta a
+       * nombre del cliente frecuente— y por eso no se ata a "llevar".
+       *
+       * El nombre viaja como dato y no solo como `cliente_id`: la mayoría de
+       * los pedidos para llevar son de alguien que no está registrado, y
+       * obligar a darlo de alta para poder venderle sería absurdo.
+       */
+      tipo: "orden_identificada";
+      orden_id: ID;
+      nombre: string;
+      telefono?: string;
+      /** Cliente del catálogo, cuando el pedido es de alguien ya registrado. */
+      cliente_id?: ID;
+    })
+  | (EventoBase & {
       tipo: "cuenta_cerrada";
       orden_id: ID;
     });

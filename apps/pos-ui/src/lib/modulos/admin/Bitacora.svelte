@@ -71,6 +71,8 @@
         return { ...base,
           texto: `Canceló un renglón${ev.autorizador_id ? ` · autorizó ${sesion.nombreDe(ev.autorizador_id)}` : ""}`,
           tono: "alerta" };
+      case "orden_identificada":
+        return { ...base, texto: `Pedido a nombre de ${ev.nombre}`, tono: "normal" };
       case "item_modificado":
         return { ...base,
           texto: ev.cantidad !== undefined

@@ -50,6 +50,7 @@ const TIPOS_COMANDA = new Set([
   "item_cancelado",
   "item_transferido",
   "item_recibido",
+  "orden_identificada",
   "items_enviados",
   "item_en_marcha",
   "item_listo",

@@ -119,6 +119,22 @@
     }
   }
 
+  // --- A nombre de quién (pedidos para llevar) ---
+  let poniendoNombre = $state(false);
+  let nombrePedido = $state("");
+  let telefonoPedido = $state("");
+
+  function abrirNombre() {
+    nombrePedido = pos.comanda?.a_nombre_de ?? "";
+    telefonoPedido = pos.comanda?.telefono ?? "";
+    poniendoNombre = true;
+  }
+
+  async function guardarNombre() {
+    await pos.identificar(nombrePedido, telefonoPedido);
+    poniendoNombre = false;
+  }
+
   // --- Voz del cliente: cómo estuvo todo ---
   let opinandoOrden = $state<string | null>(null);
   let motivosElegidos = $state<MotivoOpinion[]>([]);
@@ -173,6 +189,18 @@
   {#if pos.comanda && pos.comandaAbierta && t}
     <div class="ch">
       <h2>Mesa {pos.nombreMesaActiva}</h2>
+      <!--
+        A nombre de quién. Es lo que convierte una mesa cualquiera en un pedido
+        PARA LLEVAR: sin un nombre, cocina prepara y nadie sabe de quién es la
+        bolsa del mostrador.
+      -->
+      {#if pos.comanda.a_nombre_de}
+        <button class="chip nombre" onclick={abrirNombre} title="Cambiar el nombre">
+          {pos.comanda.a_nombre_de}
+        </button>
+      {:else}
+        <button class="chip poner-nombre" onclick={abrirNombre}>+ Nombre</button>
+      {/if}
       {#if pos.enviadaACocina}
         <span class="chip cocina">En cocina</span>
       {:else}
@@ -471,6 +499,23 @@
     {/if}
 
     <button class="saltar" onclick={cerrarOpinion}>No preguntar</button>
+  </div>
+{/if}
+
+
+<!-- A nombre de quién va el pedido -->
+{#if poniendoNombre}
+  <div class="velo-op" role="presentation" onclick={() => (poniendoNombre = false)}></div>
+  <div class="op" role="dialog" aria-modal="true" aria-label="Nombre del pedido">
+    <h3>¿A nombre de quién?</h3>
+    <p class="pista-nombre">
+      Para los pedidos que se llevan. Sale impreso en grande en la comanda de
+      cocina, que es lo que permite entregar la bolsa correcta.
+    </p>
+    <input class="comentario" bind:value={nombrePedido} placeholder="Nombre de quien recoge" />
+    <input class="comentario" bind:value={telefonoPedido} placeholder="Teléfono (opcional)" />
+    <button class="guardar-op" onclick={guardarNombre}>Guardar</button>
+    <button class="saltar" onclick={() => (poniendoNombre = false)}>Cancelar</button>
   </div>
 {/if}
 
@@ -986,5 +1031,31 @@
     font-size: 0.8rem;
     color: var(--gris);
     text-decoration: underline;
+  }
+  .chip.nombre {
+    background: var(--acento);
+    color: #fff;
+    border: none;
+    font-weight: 700;
+    max-width: 9rem;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .chip.poner-nombre {
+    background: transparent;
+    border: 1.5px dashed var(--borde);
+    color: var(--gris);
+    font-weight: 600;
+  }
+  .chip.poner-nombre:hover {
+    border-color: var(--acento);
+    color: var(--acento);
+  }
+  .pista-nombre {
+    font-size: 0.8rem;
+    color: var(--gris);
+    line-height: 1.45;
+    margin-bottom: 0.6rem;
   }
 </style>
