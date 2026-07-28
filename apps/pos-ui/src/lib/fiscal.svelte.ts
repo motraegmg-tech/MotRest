@@ -6,6 +6,8 @@
  * comprobantes quedan en la cola hasta que exista PAC y CSD.
  */
 import {
+  serieDeTerminal,
+  siguienteFolio,
   FabricaEventos,
   colaDeTimbrado,
   comprobanteAXml,
@@ -54,7 +56,18 @@ const STREAM = streamFiscal(SUCURSAL_ID);
 
 class StoreFiscal {
   emisor = $state<DatosEmisor>({ ...EMISOR_INICIAL });
-  serie = $state("A");
+  /**
+   * Serie base del local, editable por el restaurante.
+   *
+   * La que se usa al facturar es `serieTerminal`: esta más el código de ESTA
+   * terminal. Así dos cajas nunca emiten el mismo identificador, ni sin red.
+   */
+  serieBase = $state("A");
+
+  /** La serie con la que factura esta terminal. */
+  get serie(): string {
+    return serieDeTerminal(this.serieBase, obtenerDeviceId());
+  }
 
   private eventos = $state.raw<EventoFiscal[]>([]);
   private almacen: Almacen | null = null;
@@ -117,14 +130,6 @@ class StoreFiscal {
   }
 
   /** Folio consecutivo, a partir de lo ya emitido. */
-  private siguienteFolio(): string {
-    const numeros = this.registros
-      .map((r) => Number(r.folio))
-      .filter((n) => Number.isFinite(n));
-    const maximo = numeros.length > 0 ? Math.max(...numeros) : 1000;
-    return String(maximo + 1);
-  }
-
   cfdiDeOrden(ordenId: ID): RegistroCfdi | undefined {
     return this.registros.find((r) => r.orden_id === ordenId && r.estado !== "cancelado");
   }
@@ -147,7 +152,7 @@ class StoreFiscal {
       return { ok: false, error: `Esta cuenta ya tiene el comprobante ${yaFacturada.serie}-${yaFacturada.folio}` };
     }
 
-    const folio = this.siguienteFolio();
+    const folio = siguienteFolio(this.registros, this.serie);
     const comprobante = construirComprobante(estado, catalogo, {
       serie: this.serie,
       folio,
