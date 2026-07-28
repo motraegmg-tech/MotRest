@@ -43,6 +43,7 @@ import { Facturador } from "./fiscal/facturador.js";
 import { Cancelador } from "./fiscal/cancelador.js";
 import { MAPEO_REST_COMUN, PacHttp, consultaPorFolio } from "./fiscal/pac-http.js";
 import { enviarARed } from "./impresion/transporte-red.js";
+import { enMegas, evaluarCrecimiento } from "./crecimiento.js";
 import {
   INTERVALO_RESPALDO_MS,
   crearRespaldo,
@@ -428,6 +429,10 @@ function atender(peticion: IncomingMessage, respuesta: ServerResponse): void {
         hub_id: HUB_ID,
         seq: hub.seqActual,
         conectados: hub.conectados,
+        registro: (() => {
+          const c = evaluarCrecimiento(hub.seqActual, tamanoDelRegistro());
+          return { eventos: c.eventos, bytes: c.bytes, nivel: c.nivel };
+        })(),
         respaldo: copias[0]
           ? { ultimo: copias[0].ts, copias: copias.length, carpeta: RUTA_RESPALDOS }
           : { ultimo: null, copias: 0, carpeta: RUTA_RESPALDOS },
@@ -769,6 +774,36 @@ function alFallarEscucha(causa: NodeJS.ErrnoException, puerto: number): void {
  * pero NO se tumba el Hub: quedarse sin vender por no poder copiar un archivo
  * sería un remedio peor que la enfermedad.
  */
+/** Cuánto pesa el registro del local en disco, con su WAL. */
+function tamanoDelRegistro(): number {
+  let total = 0;
+  for (const sufijo of ["", "-wal", "-shm"]) {
+    try {
+      total += statSync(`${RUTA_DB}${sufijo}`).size;
+    } catch {
+      // El -wal y el -shm pueden no existir; no es un error.
+    }
+  }
+  return total;
+}
+
+/**
+ * Revisa cuánto ha crecido el registro y avisa con tiempo.
+ *
+ * El log es append-only por diseño y crece para siempre; cada terminal lo carga
+ * entero al arrancar. No se compacta todavía —hacerlo mal es perder historia
+ * fiscal— pero sí se mide, para que la decisión se tome con datos y no el día
+ * en que la caja ya tarda en abrir.
+ */
+function revisarCrecimiento(): void {
+  const c = evaluarCrecimiento(hub.seqActual, tamanoDelRegistro());
+  if (c.nivel === "sano") return;
+  registrar(
+    c.nivel === "critico" ? "error" : "aviso",
+    `Registro del local: ${c.eventos.toLocaleString("es-MX")} eventos · ${enMegas(c.bytes)}. ${c.recomendacion}`,
+  );
+}
+
 function respaldar(): void {
   const r = crearRespaldo(RUTA_DB, RUTA_RESPALDOS);
   if (!r.ok) {
@@ -802,6 +837,7 @@ function escuchar(): void {
     registrar("info", `Hub escuchando en el puerto ${PUERTO} (HTTPS + WSS)`);
     registrar("info", `Base de datos: ${RUTA_DB} · secuencia actual: ${hub.seqActual}`);
     iniciarRespaldos();
+    revisarCrecimiento();
     registrar(
       tls.nuevo ? "aviso" : "info",
       `Certificado ${tls.nuevo ? "generado" : "cargado"} · huella ${tls.huella}`,

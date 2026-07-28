@@ -41,6 +41,13 @@
 
   // --- Estado del respaldo ------------------------------------------------------------
 
+  interface EstadoRegistro {
+    eventos: number;
+    bytes: number;
+    nivel: "sano" | "aviso" | "critico";
+  }
+  let registro = $state<EstadoRegistro | null>(null);
+
   interface EstadoRespaldo {
     ultimo: number | null;
     copias: number;
@@ -60,8 +67,13 @@
       try {
         const r = await fetch("/salud", { cache: "no-store" });
         if (!r.ok) return;
-        const datos = (await r.json()) as { respaldo?: EstadoRespaldo };
-        if (vivo && datos.respaldo) respaldo = datos.respaldo;
+        const datos = (await r.json()) as {
+          respaldo?: EstadoRespaldo;
+          registro?: EstadoRegistro;
+        };
+        if (!vivo) return;
+        if (datos.respaldo) respaldo = datos.respaldo;
+        if (datos.registro) registro = datos.registro;
       } catch {
         // Terminal de la red: no es la caja y no le toca ver esto.
       }
@@ -103,6 +115,35 @@
     Respaldo del registro del local. Se muestra solo en la caja, que es donde
     corre el Hub y el único equipo al que /salud le entrega el detalle.
   -->
+  <!--
+    Cuánto ha crecido el registro. El log es append-only por diseño y cada
+    terminal lo carga entero al arrancar: se mide para poder decidir con datos
+    cuándo archivar, en vez de descubrirlo el día que la caja tarda en abrir
+    (ADR-21).
+  -->
+  {#if registro}
+    <section class="tarjeta respaldo" class:mal={registro.nivel !== "sano"}>
+      <div class="cab-respaldo">
+        <h2>Tamaño del registro</h2>
+        <span class="sello" class:bien={registro.nivel === "sano"} class:malo={registro.nivel !== "sano"}>
+          {registro.nivel === "sano" ? "Holgado" : registro.nivel === "aviso" ? "Conviene planear" : "Toca archivar"}
+        </span>
+      </div>
+      <p class="dato-respaldo">
+        <b>{registro.eventos.toLocaleString("es-MX")}</b> eventos ·
+        {(registro.bytes / 1024 / 1024).toFixed(1)} MB
+      </p>
+      {#if registro.nivel !== "sano"}
+        <p class="aclaracion">
+          Nada se ha perdido: el registro guarda toda la operación desde el
+          primer día, y eso es lo que hace confiable la bitácora. Pero cada
+          terminal lo carga entero al abrir, así que conviene archivar los
+          ejercicios ya cerrados.
+        </p>
+      {/if}
+    </section>
+  {/if}
+
   {#if respaldo}
     <section class="tarjeta respaldo" class:mal={respaldo.copias === 0 || respaldoViejo}>
       <div class="cab-respaldo">
