@@ -20,6 +20,7 @@
     type ID,
     type LineaCompra,
     type LineaRecibida,
+    claveDeConcepto,
     leerFacturaProveedor,
     proponerRecepcion,
     type FacturaProveedor,
@@ -60,11 +61,79 @@
   }
 
   /*
-   * Todavía no hay equivalencias guardadas: esta primera entrega LEE la factura
-   * y propone. Enseñarle qué concepto es qué insumo —y recordarlo— es el
-   * siguiente paso, y hasta que exista todos los renglones salen por mapear.
+   * Se propone con lo YA APRENDIDO. La primera factura de un proveedor se
+   * enseña concepto por concepto; de la segunda en adelante entra sola.
    */
-  const propuesta = $derived(facturaLeida ? proponerRecepcion(facturaLeida, []) : []);
+  const propuesta = $derived(
+    facturaLeida ? proponerRecepcion(facturaLeida, compras.equivalencias) : [],
+  );
+  const porMapear = $derived(propuesta.filter((p) => p.requiere_mapeo).length);
+
+  // Qué concepto se está enseñando, y con qué insumo y factor.
+  let ensenando = $state<number | null>(null);
+  let insumoElegido = $state("");
+  let factorTexto = $state("1");
+
+  function abrirEnsenanza(i: number) {
+    ensenando = i;
+    insumoElegido = inventario.insumos[0]?.id ?? "";
+    factorTexto = "1";
+    errorFactura = "";
+  }
+
+  function guardarEquivalencia() {
+    if (ensenando === null || !facturaLeida) return;
+    const r = compras.aprenderEquivalencia({
+      emisorRfc: facturaLeida.emisor_rfc,
+      claveProveedor: claveDeConcepto(propuesta[ensenando]!.concepto),
+      insumoId: insumoElegido,
+      factor: Number(factorTexto),
+    });
+    if (!r.ok) {
+      errorFactura = r.error ?? "";
+      return;
+    }
+    ensenando = null;
+  }
+
+  /**
+   * Registra la recepción con lo que la factura ya sabe mapear.
+   *
+   * Se crea la orden y se recibe en el mismo acto: la mercancía YA llegó —viene
+   * facturada—, así que separarlos sería una ficción.
+   */
+  function recibirDesdeFactura() {
+    if (!facturaLeida) return;
+    const lineas = propuesta
+      .filter((p) => !p.requiere_mapeo && p.cantidad_base !== null)
+      .map((p) => ({
+        insumo_id: p.insumo_id!,
+        cantidad: p.cantidad_base!,
+        costo_unitario: p.costo_unitario!,
+      }));
+
+    if (lineas.length === 0) {
+      errorFactura = "Todavía no hay ningún renglón que se pueda recibir";
+      return;
+    }
+
+    const orden = compras.crearOrden(proveedorId, lineas, `Factura ${facturaLeida.folio ?? ""}`);
+    if (!orden.ok) {
+      errorFactura = orden.error;
+      return;
+    }
+    const r = compras.recibir(orden.id!, lineas, {
+      folioProveedor: `${facturaLeida.serie ?? ""}${facturaLeida.folio ?? ""}`,
+      nota: `Capturada del XML · ${facturaLeida.emisor_nombre}`,
+    });
+    if (!r.ok) {
+      errorFactura = r.error ?? "";
+      return;
+    }
+    aviso = "Recepción capturada de la factura: ya entró al almacén.";
+    facturaLeida = null;
+    vista = "ordenes";
+  }
   let error = $state("");
   let aviso = $state("");
 
@@ -534,7 +603,9 @@
                 <td class="num">{mxn(p.concepto.importe)}</td>
                 <td>
                   {#if p.requiere_mapeo}
-                    <span class="por-mapear">Falta enseñar cuál es</span>
+                    <button class="por-mapear" onclick={() => abrirEnsenanza(i)}>
+                      Enseñar cuál es
+                    </button>
                   {:else}
                     {nombreInsumo(p.insumo_id!)} ·
                     {formatearCantidad(p.cantidad_base!, unidad(p.insumo_id!))}
@@ -545,13 +616,72 @@
           </tbody>
         </table>
 
-        <p class="pista">
-          Los renglones marcados necesitan que se les enseñe a qué insumo del
-          almacén corresponden —y cuántas unidades base trae cada unidad del
-          proveedor: una bolsa de 5 kg son 5 000 g—. <b>Eso llega en el siguiente
-          paso de esta función;</b> por ahora la factura se lee y se revisa, y la
-          recepción se captura desde la orden de compra.
-        </p>
+        <!-- Enseñar a qué insumo corresponde un concepto. Se aprende una vez. -->
+        {#if ensenando !== null}
+          <div class="ensenanza">
+            <p class="pista">
+              <b>{propuesta[ensenando]!.concepto.descripcion}</b> — ¿qué es en el
+              almacén, y cuántas unidades base trae cada
+              {propuesta[ensenando]!.concepto.unidad ?? "unidad"} del proveedor?
+            </p>
+            <div class="campos">
+              <label>
+                <span>Insumo del almacén</span>
+                <select bind:value={insumoElegido}>
+                  {#each inventario.insumos as ins (ins.id)}
+                    <option value={ins.id}>{ins.nombre} ({ins.unidad_base})</option>
+                  {/each}
+                </select>
+              </label>
+              <label>
+                <span>Unidades base por unidad del proveedor</span>
+                <input type="number" inputmode="decimal" bind:value={factorTexto} />
+              </label>
+            </div>
+            <p class="pista">
+              Ejemplo: si te factura una <b>bolsa de 5 kg</b> y tu almacén lleva
+              gramos, el factor es <b>5000</b>. Es el número que evita que entren
+              5 gramos en vez de 5 kilos.
+            </p>
+            <div class="botones">
+              <button class="secundario" onclick={() => (ensenando = null)}>Cancelar</button>
+              <button class="principal" onclick={guardarEquivalencia}>Guardar y recordar</button>
+            </div>
+          </div>
+        {/if}
+
+        <div class="botones">
+          <span class="total">
+            {#if porMapear > 0}
+              {porMapear} {porMapear === 1 ? "renglón" : "renglones"} sin enseñar
+            {:else}
+              Todos los renglones reconocidos
+            {/if}
+          </span>
+          {#if puedeRecibir}
+            <label class="prov-factura">
+              <span>Proveedor</span>
+              <select bind:value={proveedorId}>
+                <option value="">Elige…</option>
+                {#each compras.proveedoresActivos() as p (p.proveedor_id)}
+                  <option value={p.proveedor_id}>{p.nombre}</option>
+                {/each}
+              </select>
+            </label>
+            <button class="principal" onclick={recibirDesdeFactura}>
+              Recibir lo reconocido
+            </button>
+          {/if}
+        </div>
+
+        {#if porMapear > 0}
+          <p class="pista">
+            Lo que falte por enseñar <b>no se recibe</b>: adivinar el insumo
+            metería cantidades equivocadas al inventario y contaminaría el costeo
+            y el centinela de mermas. Se enseña una vez y la próxima factura de
+            este proveedor entra sola.
+          </p>
+        {/if}
       {/if}
     </section>
   {:else}
@@ -1030,5 +1160,37 @@
     background: #fff5ec;
     border-radius: 999px;
     padding: 0.15rem 0.55rem;
+  }
+  .ensenanza {
+    border: 1.5px solid var(--acento);
+    border-radius: var(--r-md);
+    padding: 0.9rem 1rem;
+    margin-top: 0.85rem;
+    background: #fffaf5;
+  }
+  .prov-factura {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+  }
+  .prov-factura span {
+    font-size: 0.74rem;
+    font-weight: 600;
+    color: var(--gris);
+  }
+  .prov-factura select {
+    padding: 0.5rem 0.65rem;
+    border: 1.5px solid var(--borde);
+    border-radius: var(--r-sm);
+    font: inherit;
+    background: #fff;
+  }
+  button.por-mapear {
+    border: 1.5px dashed var(--acento-2);
+    cursor: pointer;
+  }
+  button.por-mapear:hover {
+    background: var(--acento-2);
+    color: #fff;
   }
 </style>

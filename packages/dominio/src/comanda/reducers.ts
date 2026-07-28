@@ -21,6 +21,9 @@ export interface Descuento {
   valor: number;
   motivo: string;
   autorizador_id?: ID;
+  /** Presente cuando el descuento lo originó una promoción del catálogo. */
+  promocion_id?: ID;
+  renglones_cubiertos?: ID[];
 }
 
 export interface Cortesia {
@@ -215,6 +218,8 @@ export function aplicarEvento(
             valor: ev.valor,
             motivo: ev.motivo,
             autorizador_id: ev.autorizador_id,
+            promocion_id: ev.promocion_id,
+            renglones_cubiertos: ev.renglones_cubiertos,
           },
         ],
       };

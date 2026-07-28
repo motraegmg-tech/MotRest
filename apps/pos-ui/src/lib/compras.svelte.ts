@@ -10,6 +10,7 @@ import {
   FabricaEventos,
   compararEventos,
   movimientosDeRecepcion,
+  equivalenciasVigentes,
   ordenesAbiertas,
   proyectarOrdenes,
   proyectarProveedores,
@@ -42,6 +43,14 @@ class StoreCompras {
   proveedores = $derived(proyectarProveedores(this.eventos));
   ordenes = $derived(proyectarOrdenes(this.eventos));
   abiertas = $derived(ordenesAbiertas(this.ordenes));
+
+  /**
+   * Lo que ya se enseñó sobre las facturas de cada proveedor.
+   *
+   * Es lo que permite que la SEGUNDA factura del mismo proveedor entre sola:
+   * la primera se enseña concepto por concepto, las siguientes se reconocen.
+   */
+  equivalencias = $derived(equivalenciasVigentes(this.eventos));
 
   hidratar(eventos: readonly EventoCompra[]): void {
     this.eventos = [...eventos];
@@ -194,6 +203,35 @@ class StoreCompras {
       this.fabrica.crear("orden_compra_cancelada", streamCompras(SUCURSAL_ID), {
         orden_id: ordenId,
         motivo: motivo.trim(),
+      }),
+    );
+    return { ok: true };
+  }
+
+  /**
+   * Enseña a qué insumo corresponde un concepto de la factura de un proveedor.
+   *
+   * Se aprende UNA vez y se recuerda para siempre. El `factor` es lo que evita
+   * el error caro: el proveedor factura una bolsa de 5 kg y el almacén lleva
+   * gramos; sin él entrarían 5 gramos al inventario en vez de 5 000.
+   */
+  aprenderEquivalencia(datos: {
+    emisorRfc: string;
+    claveProveedor: string;
+    insumoId: ID;
+    factor: number;
+  }): { ok: boolean; error?: string } {
+    if (!Number.isFinite(datos.factor) || datos.factor <= 0) {
+      return { ok: false, error: "El factor debe ser mayor que cero" };
+    }
+    if (!datos.insumoId) return { ok: false, error: "Elige el insumo del almacén" };
+
+    this.emitir(
+      this.fabrica.crear("equivalencia_aprendida", streamCompras(SUCURSAL_ID), {
+        emisor_rfc: datos.emisorRfc.trim().toUpperCase(),
+        clave_proveedor: datos.claveProveedor.trim(),
+        insumo_id: datos.insumoId,
+        factor: datos.factor,
       }),
     );
     return { ok: true };

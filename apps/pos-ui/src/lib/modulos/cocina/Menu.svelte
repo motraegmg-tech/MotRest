@@ -9,11 +9,13 @@
   import { mxn, pct } from "../../formato";
   import { menu } from "../../menu.svelte";
   import EditorProducto from "./EditorProducto.svelte";
+  import EditorPromociones from "./EditorPromociones.svelte";
   import EditorReceta from "./EditorReceta.svelte";
 
   type Panel =
     | { modo: "ninguno" }
     | { modo: "producto"; id?: string }
+    | { modo: "promociones" }
     | { modo: "receta"; id: string; nombre: string };
 
   let panel = $state<Panel>({ modo: "ninguno" });
@@ -59,11 +61,16 @@
         {/if}
       </p>
     </div>
-    {#if permisos.editarProductos}
-      <button class="principal" onclick={() => (panel = { modo: "producto" })}>
-        + Nuevo producto
+    <div class="botones">
+      <button class="secundario" onclick={() => (panel = { modo: "promociones" })}>
+        Promociones{menu.promociones.length > 0 ? ` (${menu.promociones.length})` : ""}
       </button>
-    {/if}
+      {#if permisos.editarProductos}
+        <button class="principal" onclick={() => (panel = { modo: "producto" })}>
+          + Nuevo producto
+        </button>
+      {/if}
+    </div>
   </div>
 
   {#if !permisos.verCostos}
@@ -77,9 +84,13 @@
     de la receta de un platillo a la de otro reutilizaría el componente y dejaría
     en pantalla los datos del anterior.
   -->
-  {#key panel.modo === "ninguno" ? "" : `${panel.modo}:${panel.id ?? "nuevo"}`}
+  {#key panel.modo === "producto" || panel.modo === "receta"
+    ? `${panel.modo}:${panel.id ?? "nuevo"}`
+    : panel.modo}
     {#if panel.modo === "producto"}
       <EditorProducto productoId={panel.id} onCerrar={() => (panel = { modo: "ninguno" })} />
+    {:else if panel.modo === "promociones"}
+      <EditorPromociones onCerrar={() => (panel = { modo: "ninguno" })} />
     {:else if panel.modo === "receta"}
       <EditorReceta
         productoId={panel.id}
@@ -390,5 +401,24 @@
     padding: 0.65rem 1.2rem;
     font-family: var(--font-titulo);
     font-weight: 600;
+  }
+  .botones {
+    display: flex;
+    gap: 0.6rem;
+    align-items: center;
+  }
+  .secundario {
+    background: #fff;
+    border: 1.5px solid var(--borde);
+    color: var(--pizarra);
+    border-radius: var(--r-md);
+    padding: 0.65rem 1.1rem;
+    font-family: var(--font-titulo);
+    font-weight: 600;
+    cursor: pointer;
+  }
+  .secundario:hover {
+    border-color: var(--acento);
+    color: var(--acento);
   }
 </style>

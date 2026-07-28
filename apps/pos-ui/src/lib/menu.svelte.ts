@@ -50,6 +50,7 @@ import {
   type MenuLocal,
   type PermisosMenu,
   type ProblemaMenu,
+  type Promocion,
   type ProductoVisible,
   type Receta,
   type ResumenMenu,
@@ -170,6 +171,35 @@ class StoreMenu {
 
   get impuestos() {
     return this.datos?.impuestos ?? [];
+  }
+
+  /** Promociones del local. Vacío si el catálogo todavía no tiene ninguna. */
+  get promociones() {
+    return this.datos?.promociones ?? [];
+  }
+
+  /**
+   * Da de alta o reemplaza una promoción.
+   *
+   * El catálogo es instantánea versionada, no event log (TRD 5.2): se guarda la
+   * lista completa y se replica al resto del local como cualquier otro cambio
+   * de carta.
+   */
+  guardarPromocion(promo: Promocion): ResultadoMenu {
+    if (!this.datos || !this.permisos.editarProductos) return { ok: false, problemas: [] };
+    const sinEsa = this.promociones.filter((p) => p.id !== promo.id);
+    this.aplicar((m) => ({ ...m, promociones: [...sinEsa, promo], version: m.version + 1 }));
+    return SIN_PROBLEMAS;
+  }
+
+  borrarPromocion(promocionId: ID): ResultadoMenu {
+    if (!this.datos || !this.permisos.editarProductos) return { ok: false, problemas: [] };
+    this.aplicar((m) => ({
+      ...m,
+      promociones: this.promociones.filter((p) => p.id !== promocionId),
+      version: m.version + 1,
+    }));
+    return SIN_PROBLEMAS;
   }
 
   /** Vista de un producto, ya filtrada por lo que este perfil puede ver. */

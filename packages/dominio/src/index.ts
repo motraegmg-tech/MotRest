@@ -22,6 +22,7 @@ export * from "./catalogo/modificadores.js";
 export * from "./catalogo/recetas.js";
 export * from "./catalogo/menu.js";
 export * from "./catalogo/importar.js";
+export * from "./catalogo/promociones.js";
 export * from "./catalogo/visibilidad.js";
 
 // Comanda
@@ -43,6 +44,7 @@ export * from "./inventario/insumos.js";
 export * from "./inventario/eventos.js";
 export * from "./inventario/reducers.js";
 export * from "./inventario/centinela.js";
+export * from "./inventario/costeo-real.js";
 export * from "./inventario/explosion.js";
 
 // Personal (checador)

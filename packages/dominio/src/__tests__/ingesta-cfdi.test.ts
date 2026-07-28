@@ -14,6 +14,9 @@ import {
   yaIngerida,
   type EquivalenciaInsumo,
 } from "../compras/ingesta-cfdi.js";
+import { equivalenciasVigentes } from "../compras/reducers.js";
+import type { EventoCompra } from "../compras/eventos.js";
+import { FabricaEventos } from "../evento.js";
 
 const RFC_RODIZIO = "ROD230101AB1";
 const RFC_LACTEOS = "LAC900101XY2";
@@ -166,5 +169,41 @@ describe("no capturar dos veces", () => {
   it("una factura sin timbre no se puede dar por repetida", () => {
     // Sin UUID no hay identidad fiscal: bloquearla escondería una compra real.
     expect(yaIngerida(undefined, ["cualquiera"])).toBe(false);
+  });
+});
+
+// --- Aprender la equivalencia ----------------------------------------------------------------
+
+describe("la segunda factura entra sola", () => {
+  it("lo enseñado se recuerda y aplica a la siguiente factura", () => {
+    const f = new FabricaEventos<EventoCompra>({
+      device_id: "d1", empleado_id: "e1", sucursal_id: "s1",
+    });
+    const aprendidas = equivalenciasVigentes([
+      f.crear("equivalencia_aprendida", "compras:s1", {
+        emisor_rfc: RFC_LACTEOS, clave_proveedor: "MOZ-5K",
+        insumo_id: "ins-mozz", factor: 5000,
+      }),
+    ]);
+
+    const { factura } = leerFacturaProveedor(FACTURA);
+    const [mozzarella] = proponerRecepcion(factura!, aprendidas);
+    expect(mozzarella!.requiere_mapeo).toBe(false);
+    expect(mozzarella!.cantidad_base).toBe(20_000);
+  });
+
+  /* Si el proveedor cambia de bolsa de 5 kg a una de 10, se reenseña. */
+  it("reaprender corrige la equivalencia anterior", () => {
+    const f = new FabricaEventos<EventoCompra>({
+      device_id: "d1", empleado_id: "e1", sucursal_id: "s1",
+    });
+    const base = { emisor_rfc: RFC_LACTEOS, clave_proveedor: "MOZ-5K", insumo_id: "ins-mozz" };
+    const aprendidas = equivalenciasVigentes([
+      f.crear("equivalencia_aprendida", "compras:s1", { ...base, factor: 5000 }),
+      f.crear("equivalencia_aprendida", "compras:s1", { ...base, factor: 10_000 }),
+    ]);
+
+    expect(aprendidas).toHaveLength(1);
+    expect(aprendidas[0]!.factor).toBe(10_000);
   });
 });

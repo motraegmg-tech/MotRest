@@ -8,16 +8,23 @@
    */
   import {
     MOTIVOS_MANUALES,
+    costeoIdealReal,
+    cuentasCerradasEn,
+    explicarVarianza,
+    seDesvia,
     etiquetaMotivo,
     formatearCantidad,
     valorDe,
     type MotivoMovimiento,
   } from "@motrest/dominio";
-  import { hora, mxn } from "../formato";
+  import { catalogo } from "../catalogo";
+  import { hora, mxn, pct } from "../formato";
+  import { local } from "../local.svelte";
+  import { pos } from "../pos.svelte";
   import { inventario } from "../inventario.svelte";
   import { sesion } from "../sesion/sesion.svelte";
 
-  type Vista = "existencias" | "movimiento" | "conteo";
+  type Vista = "existencias" | "movimiento" | "conteo" | "costeo";
   let vista = $state<Vista>("existencias");
 
   // Movimiento manual
@@ -32,6 +39,23 @@
 
   const puedeMerma = $derived(sesion.puedeOperar("inv.merma.registrar"));
   const puedeConteo = $derived(sesion.puedeOperar("inv.conteo.cerrar"));
+  const puedeVerCostos = $derived(sesion.puedeVer("fin.costo.ver"));
+
+  /*
+   * Costeo ideal contra real (F2), sobre la jornada en curso: lo que las recetas
+   * dicen que debió salir del almacén contra lo que de verdad salió.
+   */
+  const rangoJornada = $derived(local.jornadaActual);
+  const costeo = $derived(
+    costeoIdealReal(
+      cuentasCerradasEn(pos.todasLasComandas, rangoJornada),
+      inventario.movimientos.filter(
+        (m) => m.ts >= rangoJornada.desde && m.ts < rangoJornada.hasta,
+      ),
+      catalogo,
+      inventario.insumos,
+    ),
+  );
 
   // Una sola proyección por render: consultarla insumo por insumo la recalcularía
   // entera en cada fila.
@@ -92,6 +116,11 @@
       {/if}
       {#if puedeConteo}
         <button class:on={vista === "conteo"} onclick={() => (vista = "conteo")}>Conteo</button>
+      {/if}
+      {#if puedeVerCostos}
+        <button class:on={vista === "costeo"} onclick={() => (vista = "costeo")}>
+          Ideal vs. real
+        </button>
       {/if}
     </div>
   </div>
@@ -224,6 +253,78 @@
         <button class="secundario" onclick={() => (vista = "existencias")}>Cancelar</button>
         <button class="principal" onclick={registrar}>Registrar</button>
       </div>
+    </section>
+  {:else if vista === "costeo"}
+    <!--
+      Costeo ideal contra real (F2). Distinto del centinela: aquel mira lo que
+      alguien REGISTRÓ como merma; esto compara contra la RECETA y saca el
+      consumo que nadie declaró.
+    -->
+    <section class="tarjeta">
+      <div class="encabezado">
+        <div>
+          <h2>Lo que debió salir contra lo que salió</h2>
+          <p class="pista">
+            Si se vendieron 40 pizzas de 200 g de masa, debieron salir 8 kg. Lo
+            que salga de más es producto que se fue sin venderse y sin que nadie
+            lo anotara.
+          </p>
+        </div>
+        <div class="dato">
+          <span class="etiqueta">Desviación</span>
+          <b class:alerta={costeo.desviacion > 0}>{mxn(costeo.desviacion)}</b>
+        </div>
+      </div>
+
+      {#if costeo.sin_datos}
+        <p class="vacio">
+          Todavía no hay ventas de productos con receta en esta jornada. Sin
+          recetas no hay contra qué comparar.
+        </p>
+      {:else}
+        <table>
+          <thead>
+            <tr>
+              <th>Insumo</th>
+              <th class="num">Debió salir</th>
+              <th class="num">Salió</th>
+              <th class="num">Diferencia</th>
+              <th class="num">%</th>
+              <th>Qué mirar</th>
+            </tr>
+          </thead>
+          <tbody>
+            {#each costeo.insumos as v (v.insumo_id)}
+              {@const insumo = inventario.insumo(v.insumo_id)}
+              <tr>
+                <td><b>{v.nombre}</b></td>
+                <td class="num tenue">{formatearCantidad(v.ideal, insumo?.unidad_base ?? "pz")}</td>
+                <td class="num">{formatearCantidad(v.real, insumo?.unidad_base ?? "pz")}</td>
+                <td class="num" class:alerta={seDesvia(v)}>
+                  {v.varianza > 0 ? "+" : ""}{formatearCantidad(v.varianza, insumo?.unidad_base ?? "pz")}
+                  <small>{mxn(v.costo_varianza)}</small>
+                </td>
+                <td class="num" class:alerta={seDesvia(v)}>{pct(v.tasa)}</td>
+                <td class="explica">{explicarVarianza(v)}</td>
+              </tr>
+            {/each}
+          </tbody>
+        </table>
+
+        <!--
+          El límite del cálculo, dicho siempre: un food cost «bajo control»
+          calculado sobre media carta no vale nada.
+        -->
+        {#if costeo.productos_sin_receta > 0}
+          <p class="aviso">
+            <b>Esto no mide toda la carta.</b>
+            {costeo.productos_sin_receta}
+            {costeo.productos_sin_receta === 1 ? "producto vendido no tiene" : "productos vendidos no tienen"}
+            receta, así que su consumo no se puede comparar. Captura sus
+            ingredientes para que entren aquí.
+          </p>
+        {/if}
+      {/if}
     </section>
   {:else}
     <section class="tarjeta">
@@ -542,5 +643,21 @@
     padding: 0.65rem 1.2rem;
     font-weight: 600;
     color: var(--pizarra);
+  }
+  .explica {
+    font-size: 0.78rem;
+    color: var(--gris);
+    line-height: 1.4;
+    max-width: 22rem;
+    white-space: normal;
+  }
+  td small {
+    display: block;
+    font-size: 0.72rem;
+    color: var(--gris);
+  }
+  .encabezado .dato {
+    flex: none;
+    min-width: 9rem;
   }
 </style>

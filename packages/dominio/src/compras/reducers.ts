@@ -9,6 +9,7 @@
 import { CERO, sumar, type Centavos } from "../comun/dinero.js";
 import type { ID } from "../comun/ids.js";
 import type { Insumo } from "../inventario/insumos.js";
+import type { EquivalenciaInsumo } from "./ingesta-cfdi.js";
 import type { EventoCompra, LineaCompra, LineaRecibida } from "./eventos.js";
 
 // --- Proveedores -------------------------------------------------------------------------
@@ -225,6 +226,29 @@ export function movimientosDeRecepcion(
       referencia: ordenId,
       nota: l.nota,
     }));
+}
+
+/**
+ * Las equivalencias vigentes, la última enseñada por concepto.
+ *
+ * Se corrige reaprendiendo: si el proveedor cambia la presentación —de bolsa de
+ * 5 kg a una de 10— se vuelve a enseñar y manda la nueva.
+ */
+export function equivalenciasVigentes(
+  eventos: readonly EventoCompra[],
+): EquivalenciaInsumo[] {
+  const porClave = new Map<string, EquivalenciaInsumo>();
+  for (const ev of eventos) {
+    if (ev.tipo !== "equivalencia_aprendida") continue;
+    const llave = `${ev.emisor_rfc.toUpperCase()}|${ev.clave_proveedor.trim().toUpperCase()}`;
+    porClave.set(llave, {
+      emisor_rfc: ev.emisor_rfc,
+      clave_proveedor: ev.clave_proveedor,
+      insumo_id: ev.insumo_id,
+      factor: ev.factor,
+    });
+  }
+  return [...porClave.values()];
 }
 
 export function etiquetaEstadoOrden(estado: EstadoOrden): string {

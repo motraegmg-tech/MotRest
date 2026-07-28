@@ -13,6 +13,7 @@ import {
   etiquetaFormaPago,
   pesos,
   proyectarComanda,
+  promocionesPendientes,
   renglonesActivos,
   renglonesPendientes,
   repartir,
@@ -24,6 +25,7 @@ import {
   yaEnviado,
   type Centavos,
   type ConfiguracionRenglon,
+  type DescuentoPromocion,
   type EstadoComanda,
   type EventoComanda,
   type FormaPago,
@@ -33,6 +35,7 @@ import {
 } from "@motrest/dominio";
 import type { Almacen } from "@motrest/protocolo-sync";
 import { catalogo, impuestos } from "./catalogo";
+import { menu } from "./menu.svelte";
 import { configurador } from "./configurador.svelte";
 import { inventario } from "./inventario.svelte";
 import { plano } from "./plano.svelte";
@@ -157,6 +160,59 @@ class TiendaPOS {
   get renglones(): RenglonComanda[] {
     const c = this.comanda;
     return c ? renglonesActivos(c) : [];
+  }
+
+  /**
+   * Promociones que HOY le corresponden a esta cuenta y todavía no se aplicaron.
+   *
+   * Qué promoción aplica se CALCULA contra el reloj —una promoción es una regla,
+   * no un dato—, pero el descuento resultante se REGISTRA como evento: el
+   * ticket, el corte y el CFDI salen del log, y un comprobante fiscal no puede
+   * decir "descuento variable según la hora".
+   *
+   * Los renglones que ya quedaron cubiertos por una promoción anterior se
+   * excluyen. Así, si llegan platillos nuevos a la misma cuenta, se ofrece lo
+   * que falta y nunca se regala dos veces lo mismo.
+   */
+  get promociones() {
+    const c = this.comanda;
+    if (!c || c.cerrada) return null;
+
+    return promocionesPendientes(
+      renglonesActivos(c),
+      menu.promociones,
+      c.descuentos,
+      (productoId) => catalogo.productos.get(productoId)?.categoria_id,
+      Date.now(),
+    );
+  }
+
+  /**
+   * Registra el descuento de una promoción.
+   *
+   * No se aplica sola: alguien de la casa la confirma. Una promoción que se
+   * cobra sin que nadie la vea es la forma más rápida de regalar producto por
+   * una promoción mal configurada y enterarse en el corte.
+   */
+  aplicarPromocion(descuento: DescuentoPromocion): void {
+    const orden_id = this.ordenActiva(this.mesaActiva);
+    if (!orden_id || descuento.importe <= 0) return;
+
+    this.sincronizarActor();
+    this.emitir(
+      this.mesaActiva,
+      fabrica.crear("descuento_aplicado", orden_id, {
+        orden_id,
+        alcance: "cuenta",
+        modo: "monto",
+        valor: descuento.importe,
+        motivo: `Promoción: ${descuento.nombre}`,
+        promocion_id: descuento.promocion_id,
+        renglones_cubiertos: descuento.renglones,
+        autorizador_id: sesion.usuarioActual?.id,
+      }),
+    );
+    this.flash(`${descuento.nombre} aplicada`);
   }
 
   get totales(): TotalesComanda | null {

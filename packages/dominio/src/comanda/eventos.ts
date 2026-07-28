@@ -123,6 +123,16 @@ export type EventoComanda =
       valor: number;
       motivo: string;
       autorizador_id?: ID;
+      /**
+       * De qué promoción vino, si vino de una.
+       *
+       * Una promoción decide el importe pero el descuento se REGISTRA: el
+       * ticket, el corte y el CFDI salen del log, no del reloj. Guardar de qué
+       * promoción vino y a qué renglones cubrió es lo que evita aplicarla dos
+       * veces cuando llegan platillos nuevos a la misma cuenta.
+       */
+      promocion_id?: ID;
+      renglones_cubiertos?: ID[];
     })
   | (EventoBase & {
       /** La cortesía tiene semántica contable distinta al descuento. */

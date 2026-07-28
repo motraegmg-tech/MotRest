@@ -43,6 +43,11 @@ export interface MenuLocal {
   grupos: GrupoModificadores[];
   insumos: Insumo[];
   estaciones: EstacionKds[];
+  /**
+   * Promociones del local (F2). Opcional para no romper los menús ya guardados
+   * en las terminales: un catálogo sin este campo simplemente no tiene ninguna.
+   */
+  promociones?: import("./promociones.js").Promocion[];
 }
 
 /** Lo que captura el formulario de alta o edición. */

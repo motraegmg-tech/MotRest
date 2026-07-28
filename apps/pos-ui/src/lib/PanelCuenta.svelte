@@ -96,6 +96,7 @@
   );
 
   const t = $derived(pos.totales);
+  const promos = $derived(pos.promociones?.descuentos ?? []);
   const recibidoCentavos = $derived(pesos(Number(recibido) || 0));
   const cambio = $derived(
     t && recibidoCentavos > t.saldo ? restar(recibidoCentavos, t.saldo) : CERO,
@@ -272,6 +273,20 @@
           </div>
         {/each}
       </div>
+
+      <!--
+        Las promociones se ofrecen, no se cobran solas. Que alguien de la casa
+        confirme es lo que evita descubrir en el corte que una promoción mal
+        configurada estuvo regalando producto toda la noche.
+      -->
+      {#each promos as promo (promo.promocion_id)}
+        <button class="promo" onclick={() => pos.aplicarPromocion(promo)}>
+          <span class="etiqueta">Promoción</span>
+          <span class="nombre">{promo.nombre}</span>
+          <span class="importe">−{mxn(promo.importe)}</span>
+          <span class="cta">Aplicar</span>
+        </button>
+      {/each}
 
       <div class="tot">
         {#if t.descuentos > 0 || t.cortesias > 0}
@@ -701,6 +716,43 @@
   }
   .acciones .x:hover {
     color: var(--peligro);
+  }
+  .promo {
+    margin-top: 0.7rem;
+    width: 100%;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.55rem 0.7rem;
+    border: 1px dashed var(--acento);
+    border-radius: 10px;
+    background: color-mix(in srgb, var(--acento) 8%, transparent);
+    font: inherit;
+    font-size: 0.88rem;
+    text-align: left;
+    cursor: pointer;
+  }
+  .promo:hover {
+    background: color-mix(in srgb, var(--acento) 16%, transparent);
+  }
+  .promo .etiqueta {
+    font-size: 0.68rem;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--acento);
+    font-weight: 700;
+  }
+  .promo .nombre {
+    flex: 1;
+    color: var(--pizarra);
+  }
+  .promo .importe {
+    font-weight: 700;
+    color: var(--acento);
+  }
+  .promo .cta {
+    font-size: 0.72rem;
+    color: var(--gris);
   }
   .tot {
     margin-top: 0.8rem;

@@ -95,6 +95,7 @@ const TIPOS_COMPRA = new Set([
   "orden_compra_creada",
   "orden_compra_recibida",
   "orden_compra_cancelada",
+  "equivalencia_aprendida",
 ]);
 
 /** Eventos de caja (sesión de turno y corte). */

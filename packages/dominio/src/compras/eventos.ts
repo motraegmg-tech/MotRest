@@ -73,7 +73,8 @@ export type EventoCompra =
       tipo: "orden_compra_cancelada";
       orden_id: ID;
       motivo: string;
-    });
+    })
+  | EventoEquivalencia;
 
 export type TipoEventoCompra = EventoCompra["tipo"];
 
@@ -81,3 +82,25 @@ export type TipoEventoCompra = EventoCompra["tipo"];
 export function streamCompras(sucursal_id: ID): ID {
   return `compras:${sucursal_id}`;
 }
+
+/**
+ * Lo que el restaurante le enseña al sistema sobre las facturas de un proveedor.
+ *
+ * Va en el mismo flujo que las compras porque es parte de la relación con ese
+ * proveedor, y porque así viaja a todas las terminales: lo que se enseña en la
+ * caja sirve en la tablet de la oficina.
+ */
+export type EventoEquivalencia = EventoBase & {
+  tipo: "equivalencia_aprendida";
+  emisor_rfc: string;
+  /** Clave o descripción del concepto tal como viene en la factura. */
+  clave_proveedor: string;
+  insumo_id: ID;
+  /**
+   * Cuántas unidades base del almacén trae una unidad del proveedor.
+   *
+   * Es el número que evita el error más caro: el proveedor factura una BOLSA de
+   * 5 kg y el almacén lleva gramos. Sin el factor entrarían 5 gramos.
+   */
+  factor: number;
+};
