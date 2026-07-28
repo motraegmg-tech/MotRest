@@ -128,12 +128,12 @@ class Sesion {
 
     this.rescate = (await almacen.estado.cargar<Credencial>(CLAVES.rescate)) ?? null;
     /*
-     * Si este dispositivo todavía no tiene llave de repuesto, se emite ahora y
-     * la pantalla la enseña una vez. Es por DISPOSITIVO, igual que las
-     * credenciales: cada terminal guarda sus propios hashes, así que el código
-     * que sirve para recuperar el acceso aquí es el que se emitió aquí.
+     * El código de rescate NO se emite solo.
+     *
+     * Se emitía al arrancar y la pantalla lo enseñaba una vez. Salía en cada
+     * instalación y estorbaba más de lo que ayudaba, así que ahora se pide a
+     * mano desde Administración → Usuarios cuando se quiere tener uno.
      */
-    if (!this.rescate) await this.emitirCodigoRescate();
 
     const intentos = await almacen.estado.cargar<Record<ID, EstadoIntentos>>(CLAVES.intentos);
     if (intentos) this.intentos = intentos;

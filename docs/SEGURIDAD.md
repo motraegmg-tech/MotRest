@@ -123,8 +123,9 @@ fuera de su propio negocio **para siempre**, con años de operación y de
 comprobantes fiscales dentro. Un candado sin llave de repuesto no es seguridad,
 es una bomba de tiempo.
 
-**Cómo funciona.** Al instalar, cada dispositivo emite un código de ~98 bits de
-entropía y lo enseña **una sola vez**:
+**Cómo funciona.** El código **no se emite solo**: se pide desde
+**Administración → Usuarios**, y solo el propietario lo ve. Se enseña **una
+sola vez**, con ~98 bits de entropía:
 
 ```
 A7K2M-9PQRS-3TVWX-YZ4BC
@@ -146,6 +147,13 @@ física ni un identificador adivinable. El alfabeto excluye caracteres ambiguos
 corrigen las confusiones clásicas — eso mejora la usabilidad sin reducir la
 entropía, que vive en los 20 caracteres elegidos al azar con el generador
 criptográfico del entorno.
+
+**Un local sin código emitido no tiene rescate.** Es una decisión consciente:
+el aviso automático salía en cada instalación y estorbaba más de lo que
+ayudaba. La consecuencia se asume con los ojos abiertos — si el propietario
+olvida su contraseña sin haber generado un código, no hay forma de volver a
+entrar. Generar uno toma diez segundos y es lo primero que conviene hacer al
+poner en marcha un local.
 
 **Es por dispositivo.** Las credenciales se guardan localmente en cada terminal,
 así que el código que recupera el acceso *aquí* es el que se emitió *aquí*. En

@@ -24,6 +24,9 @@
   let error = $state("");
   let guardando = $state(false);
 
+  /** El código de rescate es del propietario: nadie más puede usarlo. */
+  const esPropietario = $derived(sesion.usuarioActual?.rol_id === "propietario");
+
   const puedeCrear = $derived(sesion.puedeOperar("admin.usuario.crear"));
   const puedeEditar = $derived(sesion.puedeOperar("admin.usuario.editar"));
 
@@ -84,6 +87,42 @@
         <button class="principal" onclick={nuevo}>+ Nuevo usuario</button>
       {/if}
     </div>
+
+
+    <!--
+      Código de rescate, a petición.
+
+      Ya no se emite solo ni se enseña al arrancar: salía en cada instalación y
+      estorbaba. Queda aquí, callado, para el día que se quiera tener uno — es
+      la única forma de recuperar el acceso si el propietario olvida su
+      contraseña, porque por encima de él no hay quien se la restablezca.
+    -->
+    {#if esPropietario}
+      <section class="rescate">
+        {#if sesion.codigoRescateNuevo}
+          <p class="titulo-resc">Anótalo ahora: no se puede volver a mostrar</p>
+          <p class="codigo-resc">{sesion.codigoRescateNuevo}</p>
+          <p class="pie-resc">
+            Guárdalo <b>fuera de esta computadora</b>. Aquí solo queda cifrado.
+          </p>
+          <button class="mini-resc" onclick={() => sesion.olvidarCodigoMostrado()}>Ya lo anoté</button>
+        {:else}
+          <div class="fila-resc">
+            <div>
+              <b>Código de rescate</b>
+              <span>
+                {sesion.hayCodigoRescate
+                  ? "Ya hay uno emitido. Generar otro invalida el anterior."
+                  : "No hay ninguno. Sin él, olvidar tu contraseña te deja fuera."}
+              </span>
+            </div>
+            <button class="mini-resc" onclick={() => sesion.emitirCodigoRescate()}>
+              {sesion.hayCodigoRescate ? "Generar otro" : "Generar"}
+            </button>
+          </div>
+        {/if}
+      </section>
+    {/if}
 
     <div class="lista">
       {#each sesion.usuarios as usuario (usuario.id)}
@@ -494,5 +533,67 @@
     font-weight: 600;
     color: var(--pizarra);
     background: #fff;
+  }
+  .rescate {
+    border: 1px solid var(--borde);
+    border-radius: var(--r-md);
+    padding: 0.85rem 1rem;
+    margin-bottom: 1rem;
+    background: #fff;
+  }
+  .fila-resc {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    flex-wrap: wrap;
+  }
+  .fila-resc b {
+    display: block;
+    font-size: 0.9rem;
+  }
+  .fila-resc span {
+    font-size: 0.8rem;
+    color: var(--gris);
+  }
+  .mini-resc {
+    border: 1.5px solid var(--borde);
+    border-radius: var(--r-sm);
+    padding: 0.4rem 0.85rem;
+    font-size: 0.82rem;
+    font-weight: 600;
+    color: var(--pizarra);
+    background: #fff;
+    flex: none;
+  }
+  .mini-resc:hover {
+    border-color: var(--acento);
+    color: var(--acento);
+  }
+  .titulo-resc {
+    font-size: 0.85rem;
+    font-weight: 700;
+    color: var(--acento);
+  }
+  .codigo-resc {
+    font-family: ui-monospace, Consolas, monospace;
+    font-size: 1.35rem;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-align: center;
+    color: var(--acento);
+    background: #fffaf5;
+    border: 1.5px dashed var(--acento);
+    border-radius: var(--r-md);
+    padding: 0.75rem 0.5rem;
+    margin: 0.6rem 0;
+    user-select: all;
+    word-break: break-all;
+  }
+  .pie-resc {
+    font-size: 0.78rem;
+    color: var(--gris);
+    line-height: 1.45;
+    margin-bottom: 0.6rem;
   }
 </style>

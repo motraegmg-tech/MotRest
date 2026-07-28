@@ -24,9 +24,21 @@ async function codigoVigente(): Promise<string> {
   return codigo;
 }
 
-describe("se emite solo al arrancar", () => {
-  it("un local recién instalado ya tiene llave de repuesto", () => {
+describe("se emite a petición, no solo", () => {
+  /*
+   * Antes se emitía al arrancar y la pantalla lo enseñaba. Salía en cada
+   * instalación y estorbaba, así que ahora se pide desde Administración cuando
+   * se quiere tener uno. La consecuencia asumida: un local sin código emitido
+   * no tiene forma de recuperar el acceso del propietario.
+   */
+  it("un local recién instalado NO trae uno de fábrica", () => {
+    expect(sesion.hayCodigoRescate).toBe(false);
+  });
+
+  it("se emite cuando se pide", async () => {
+    await sesion.emitirCodigoRescate();
     expect(sesion.hayCodigoRescate).toBe(true);
+    sesion.olvidarCodigoMostrado();
   });
 
   it("el código se enseña una vez y después solo queda el hash", async () => {
