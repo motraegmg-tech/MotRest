@@ -59,6 +59,7 @@ export * from "./finanzas/contador.js";
 // Compras (M4)
 export * from "./compras/eventos.js";
 export * from "./compras/reducers.js";
+export * from "./compras/ingesta-cfdi.js";
 
 // Clientes (M7)
 export * from "./clientes/eventos.js";

@@ -20,16 +20,51 @@
     type ID,
     type LineaCompra,
     type LineaRecibida,
+    leerFacturaProveedor,
+    proponerRecepcion,
+    type FacturaProveedor,
     type OrdenCompra,
     type Unidad,
   } from "@motrest/dominio";
   import { compras } from "../compras.svelte";
+  import { fiscal } from "../fiscal.svelte";
   import { hora, mxn } from "../formato";
   import { inventario } from "../inventario.svelte";
   import { sesion } from "../sesion/sesion.svelte";
 
-  type Vista = "reponer" | "ordenes" | "proveedores";
+  type Vista = "reponer" | "ordenes" | "proveedores" | "factura";
   let vista = $state<Vista>("reponer");
+
+  // --- Ingesta de la factura XML del proveedor (F2) ---------------------------------
+
+  let facturaLeida = $state<FacturaProveedor | null>(null);
+  let errorFactura = $state("");
+
+  /**
+   * Lee el XML que se suelta en la pantalla.
+   *
+   * No registra nada: propone. Un proveedor factura lo que despachó, no siempre
+   * lo que llegó, así que alguien tiene que cotejarlo contra la mercancía.
+   */
+  async function abrirFactura(archivo: File | null | undefined) {
+    if (!archivo) return;
+    errorFactura = "";
+    facturaLeida = null;
+
+    const r = leerFacturaProveedor(await archivo.text(), fiscal.emisor.rfc || undefined);
+    if (!r.ok) {
+      errorFactura = r.detalle ?? "No se pudo leer la factura";
+      return;
+    }
+    facturaLeida = r.factura!;
+  }
+
+  /*
+   * Todavía no hay equivalencias guardadas: esta primera entrega LEE la factura
+   * y propone. Enseñarle qué concepto es qué insumo —y recordarlo— es el
+   * siguiente paso, y hasta que exista todos los renglones salen por mapear.
+   */
+  const propuesta = $derived(facturaLeida ? proponerRecepcion(facturaLeida, []) : []);
   let error = $state("");
   let aviso = $state("");
 
@@ -204,6 +239,9 @@
       </button>
       <button class:on={vista === "proveedores"} onclick={() => { vista = "proveedores"; limpiarMensajes(); }}>
         Proveedores
+      </button>
+      <button class:on={vista === "factura"} onclick={() => { vista = "factura"; limpiarMensajes(); }}>
+        Factura XML
       </button>
     </div>
   </div>
@@ -432,6 +470,88 @@
             </article>
           {/each}
         </div>
+      {/if}
+    </section>
+  {:else if vista === "factura"}
+    <!--
+      Ingesta de la factura XML del proveedor (F2).
+
+      Leer NO es dar por bueno: se propone lo capturado para que alguien lo
+      coteje contra la mercancía. Un proveedor factura lo que despachó, no
+      siempre lo que llegó.
+    -->
+    <section class="tarjeta">
+      <h2>Factura del proveedor</h2>
+      <p class="pista">
+        Arrastra aquí el <b>XML</b> que te manda el proveedor y se lee solo:
+        quién factura, su folio y sus renglones. Nada se registra hasta que lo
+        revises: la factura dice lo que <b>despacharon</b>, no siempre lo que
+        llegó.
+      </p>
+
+      <label class="soltar">
+        <input
+          type="file"
+          accept=".xml,text/xml,application/xml"
+          onchange={(e) => abrirFactura(e.currentTarget.files?.[0])}
+        />
+        <span>Elegir el archivo XML…</span>
+      </label>
+
+      {#if errorFactura}<p class="error" role="alert">{errorFactura}</p>{/if}
+
+      {#if facturaLeida}
+        <div class="cab-factura">
+          <div>
+            <b>{facturaLeida.emisor_nombre}</b>
+            <small>{facturaLeida.emisor_rfc}</small>
+          </div>
+          <div class="num">
+            <span class="etiqueta">
+              {facturaLeida.serie ?? ""}{facturaLeida.folio ? `-${facturaLeida.folio}` : ""}
+            </span>
+            <b>{mxn(facturaLeida.total)}</b>
+          </div>
+        </div>
+
+        <table>
+          <thead>
+            <tr>
+              <th>Concepto del proveedor</th>
+              <th class="num">Cantidad</th>
+              <th class="num">Importe</th>
+              <th>A qué insumo</th>
+            </tr>
+          </thead>
+          <tbody>
+            {#each propuesta as p, i (i)}
+              <tr>
+                <td>
+                  <b>{p.concepto.descripcion}</b>
+                  {#if p.concepto.clave}<small>{p.concepto.clave}</small>{/if}
+                </td>
+                <td class="num">{p.concepto.cantidad} {p.concepto.unidad ?? ""}</td>
+                <td class="num">{mxn(p.concepto.importe)}</td>
+                <td>
+                  {#if p.requiere_mapeo}
+                    <span class="por-mapear">Falta enseñar cuál es</span>
+                  {:else}
+                    {nombreInsumo(p.insumo_id!)} ·
+                    {formatearCantidad(p.cantidad_base!, unidad(p.insumo_id!))}
+                  {/if}
+                </td>
+              </tr>
+            {/each}
+          </tbody>
+        </table>
+
+        <p class="pista">
+          Los renglones marcados necesitan que se les enseñe a qué insumo del
+          almacén corresponden —y cuántas unidades base trae cada unidad del
+          proveedor: una bolsa de 5 kg son 5 000 g—. <b>Eso llega en el siguiente
+          paso de esta función;</b> por ahora la factura se lee y se revisa, y la
+          recepción se captura desde la orden de compra.
+        </p>
       {/if}
     </section>
   {:else}
@@ -857,5 +977,58 @@
     margin-top: 0.85rem;
     padding-top: 0.85rem;
     border-top: 1px dashed var(--borde);
+  }
+  .soltar {
+    display: block;
+    margin: 0.9rem 0;
+    padding: 1.1rem;
+    border: 2px dashed var(--borde);
+    border-radius: var(--r-md);
+    text-align: center;
+    cursor: pointer;
+    color: var(--gris);
+    font-size: 0.88rem;
+    font-weight: 600;
+  }
+  .soltar:hover {
+    border-color: var(--acento);
+    color: var(--acento);
+  }
+  .soltar input {
+    display: block;
+    margin: 0 auto;
+    font: inherit;
+  }
+  .soltar span {
+    display: block;
+    margin-top: 0.5rem;
+  }
+  .cab-factura {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 1rem;
+    border: 1px solid var(--borde);
+    border-radius: var(--r-md);
+    padding: 0.75rem 0.95rem;
+    margin-bottom: 0.85rem;
+  }
+  .cab-factura small {
+    display: block;
+    font-size: 0.76rem;
+    color: var(--gris);
+  }
+  .cab-factura .num b {
+    display: block;
+    font-family: var(--font-titulo);
+    font-size: 1.15rem;
+  }
+  .por-mapear {
+    font-size: 0.78rem;
+    font-weight: 600;
+    color: var(--acento-2);
+    background: #fff5ec;
+    border-radius: 999px;
+    padding: 0.15rem 0.55rem;
   }
 </style>
