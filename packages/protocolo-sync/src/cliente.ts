@@ -13,6 +13,8 @@ import type { EventoBase } from "@motrest/dominio";
 import type { Almacen } from "./repositorio.js";
 import { cifrar, derivarClaves, descifrar, type ClavesCanal } from "./cifrado.js";
 import {
+  DESFASE_TOLERADO_MS,
+  desfaseDeReloj,
   VERSION_PROTOCOLO,
   interpretar,
   serializar,
@@ -56,6 +58,12 @@ export interface OpcionesCliente {
   alRecibirTerminales?: (terminales: TerminalRegistrada[]) => void;
   /** El Hub no tiene ni un evento: este local todavía no ha abierto. */
   alEncontrarLocalVacio?: () => void;
+  /**
+   * El reloj de esta terminal difiere del Hub más de lo tolerable.
+   *
+   * Recibe el desfase en ms; positivo = esta terminal va adelantada.
+   */
+  alDetectarRelojDesfasado?: (desfaseMs: number) => void;
   /** Enlaces de emparejamiento que compone el Hub. Llevan la clave del local. */
   alRecibirEnlaces?: (enlaces: { etiqueta: string; url: string }[]) => void;
   /** Estado de la facturación: el CSD y la cola de timbrado. */
@@ -88,6 +96,11 @@ export class ClienteSync {
   estado: EstadoEnlace = "isla";
 
   constructor(private opciones: OpcionesCliente) {}
+
+  /** Cuándo se abrió esta conexión, para descontar el viaje al medir el reloj. */
+  private abiertoEn = 0;
+  /** Desfase medido contra el Hub, en ms. Positivo = esta terminal va adelantada. */
+  desfaseReloj = 0;
 
   private avisar(estado: EstadoEnlace, detalle?: string): void {
     this.estado = estado;
@@ -141,6 +154,7 @@ export class ClienteSync {
       ((url: string) => new WebSocket(url) as unknown as SocketLike);
 
     this.avisar("conectando");
+    this.abiertoEn = Date.now();
 
     let socket: SocketLike;
     try {
@@ -200,6 +214,21 @@ export class ClienteSync {
          * así que se le avisa a quien arranca de que puede sembrarlo él.
          */
         if (mensaje.seq_actual === 0) this.opciones.alEncontrarLocalVacio?.();
+
+        /*
+         * El reloj de esta terminal contra el del Hub.
+         *
+         * El campo venía en el mensaje desde el principio y nadie lo miraba. Y
+         * es de lo más caro que puede fallar en silencio: los eventos se sellan
+         * con el reloj del dispositivo (ADR-17), así que una tablet con la hora
+         * mal puesta manda sus ventas a otra jornada, se queda FUERA del corte
+         * de caja del turno y le enseña al pronóstico un patrón que no existe.
+         * Nada de eso da error; solo da números equivocados que parecen buenos.
+         */
+        this.desfaseReloj = desfaseDeReloj(mensaje.ts, this.abiertoEn, Date.now());
+        if (Math.abs(this.desfaseReloj) > DESFASE_TOLERADO_MS) {
+          this.opciones.alDetectarRelojDesfasado?.(this.desfaseReloj);
+        }
 
         /*
          * El Hub retrocedió: tiene menos historia de la que ya nos confirmó.

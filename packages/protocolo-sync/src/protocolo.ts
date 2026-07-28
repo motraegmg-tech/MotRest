@@ -208,6 +208,36 @@ export interface MensajeBienvenida {
   ts: number;
 }
 
+/**
+ * Cuánto puede ir desviado el reloj de una terminal antes de que importe.
+ *
+ * Dos minutos. No es un capricho: los eventos se sellan con el reloj del propio
+ * dispositivo (ADR-17) y ese sello decide a qué JORNADA pertenece una venta, si
+ * entra o no en el corte de caja del turno, y qué patrón aprende el pronóstico.
+ * Una tablet con la hora mal puesta no da un error: da números equivocados que
+ * parecen buenos, que es mucho peor.
+ */
+export const DESFASE_TOLERADO_MS = 2 * 60 * 1000;
+
+/** Qué tan grave es el desfase del reloj de esta terminal. */
+export type EstadoReloj = "en_hora" | "desfasado";
+
+/**
+ * Compara el reloj propio con el del Hub.
+ *
+ * El Hub manda su hora en la bienvenida. Se resta el tiempo que tardó el viaje
+ * —la mitad del ida y vuelta— para no confundir una red lenta con un reloj mal
+ * puesto.
+ */
+export function desfaseDeReloj(
+  tsHub: number,
+  tsPropioAlEnviar: number,
+  tsPropioAlRecibir: number,
+): number {
+  const viaje = (tsPropioAlRecibir - tsPropioAlEnviar) / 2;
+  return tsPropioAlRecibir - (tsHub + viaje);
+}
+
 export interface MensajeAcks {
   tipo: "acks";
   acks: { id: string; seq: number }[];

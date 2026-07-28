@@ -36,6 +36,15 @@ export const CLAVE_HUB = "hub_url";
 export const CLAVE_SECRETO = "clave_local";
 
 class StoreSync {
+  /**
+   * Desfase del reloj de esta terminal contra el Hub, en ms.
+   *
+   * Cero mientras no se haya medido o esté dentro de lo tolerable. Se expone
+   * para poder AVISAR: un reloj mal puesto no rompe nada visiblemente, solo
+   * manda las ventas a la jornada equivocada y las deja fuera del corte.
+   */
+  desfaseReloj = $state(0);
+
   estado = $state<EstadoEnlace>("isla");
   detalle = $state<string>("");
   url = $state<string>("");
@@ -241,6 +250,9 @@ class StoreSync {
       alRecibirCatalogos: (catalogos) => this.aplicarCatalogos(catalogos),
       alRecibirTerminales: (terminales) => (this.terminales = terminales),
       alEncontrarLocalVacio: () => this.alLocalVacio?.(),
+      alDetectarRelojDesfasado: (ms) => {
+        this.desfaseReloj = ms;
+      },
       alRecibirEnlaces: (enlaces) => (this.enlaces = enlaces),
       alRecibirFiscal: (estado, cola, problema) => {
         this.fiscal = estado;

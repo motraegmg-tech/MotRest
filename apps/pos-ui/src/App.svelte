@@ -178,6 +178,23 @@
   </div>
 {/if}
 
+
+<!--
+  Reloj desfasado.
+
+  Va arriba de todo y en rojo porque no se manifiesta de ninguna otra forma: las
+  ventas se registran bien, la pantalla se ve bien, y los números salen mal.
+-->
+{#if Math.abs(sync.desfaseReloj) > 0}
+  <div class="reloj-mal" role="alert">
+    <b>La hora de esta terminal está mal</b>
+    Va {sync.desfaseReloj > 0 ? "adelantada" : "atrasada"} unos
+    {Math.round(Math.abs(sync.desfaseReloj) / 60000)} min respecto a la caja. Las
+    ventas que registre aquí pueden caer en otro día y quedar fuera del corte.
+    Ajusta la fecha y hora del dispositivo.
+  </div>
+{/if}
+
 <style>
   .cargando {
     height: 100vh;
@@ -364,5 +381,26 @@
     padding: 0.7rem 1.4rem;
     font-family: var(--font-titulo);
     font-weight: 600;
+  }
+  .reloj-mal {
+    position: fixed;
+    z-index: 70;
+    top: 0.75rem;
+    left: 50%;
+    transform: translateX(-50%);
+    max-width: min(38rem, calc(100vw - 2rem));
+    background: #fdeae8;
+    border: 1.5px solid var(--peligro);
+    border-radius: var(--r-md);
+    padding: 0.7rem 1rem;
+    font-size: 0.83rem;
+    line-height: 1.5;
+    color: var(--pizarra);
+    box-shadow: var(--sombra-sm);
+  }
+  .reloj-mal b {
+    display: block;
+    color: var(--peligro);
+    margin-bottom: 0.15rem;
   }
 </style>
