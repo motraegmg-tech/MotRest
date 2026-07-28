@@ -69,8 +69,15 @@ describe("cálculo del corte", () => {
     const { caja: c, pagos } = turnoConVentas();
     const corte = calcularCorte(proyectarCaja([c])!, pagos);
 
+    // Lo COBRADO por forma: es lo que entró, propina incluida.
     expect(corte.ventas).toEqual({ efectivo: pesos(300), tarjeta_credito: pesos(500) });
-    expect(corte.totalVendido).toBe(pesos(800));
+    /*
+     * La VENTA es lo cobrado menos la propina. El cliente paga cuenta y propina
+     * de un solo golpe, pero la propina es del mesero: contarla como venta infla
+     * el ingreso y el contador declararía de más.
+     */
+    expect(corte.totalVendido).toBe(pesos(750));
+    // El cajón, en cambio, sí tiene el efectivo tal cual entró.
     expect(corte.efectivoVentas).toBe(pesos(300));
     expect(corte.cuentasCerradas).toBe(2);
     expect(corte.propinas).toBe(pesos(50));

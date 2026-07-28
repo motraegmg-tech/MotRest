@@ -12,7 +12,8 @@
     "build": "tsc --noEmit -p tsconfig.json",
     "empaquetar": "node empaquetar.mjs",
     "lint": "tsc --noEmit -p tsconfig.json",
-    "test": "vitest run"
+    "test": "vitest run",
+    "ensayo": "tsx ensayo/viernes.ts"
   },
   "dependencies": {
     "@motrest/dominio": "workspace:*",

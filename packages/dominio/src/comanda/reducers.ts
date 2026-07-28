@@ -316,6 +316,33 @@ export function renglonesPendientes(estado: EstadoComanda): RenglonComanda[] {
  * recargar. La correspondencia orden → mesa se aprende del `orden_creada`; los
  * eventos huérfanos (sin su apertura) se descartan.
  */
+/**
+ * Separa un log en una comanda por SENTADA, no por mesa.
+ *
+ * Una mesa se sirve varias veces en un viernes. Proyectar su log completo de
+ * corrido devuelve solo la ÚLTIMA sentada, porque `orden_creada` arranca estado
+ * nuevo: las anteriores desaparecen del reporte aunque estén en el log y
+ * aunque el corte de caja sí las haya cobrado. Ahí es donde el contador y la
+ * caja dejan de coincidir.
+ */
+export function proyectarSentadas(eventos: readonly EventoComanda[]): EstadoComanda[] {
+  const porOrden = new Map<ID, EventoComanda[]>();
+  for (const ev of eventos) {
+    const grupo = porOrden.get(ev.orden_id) ?? [];
+    grupo.push(ev);
+    porOrden.set(ev.orden_id, grupo);
+  }
+
+  const comandas: EstadoComanda[] = [];
+  for (const grupo of porOrden.values()) {
+    // Un grupo sin `orden_creada` no se puede proyectar: son eventos sueltos de
+    // una orden que vive en otro dispositivo y todavía no llega.
+    if (!grupo.some((e) => e.tipo === "orden_creada")) continue;
+    comandas.push(proyectarComanda(grupo));
+  }
+  return comandas.sort((a, b) => a.abierta_ts - b.abierta_ts);
+}
+
 export function agruparPorMesa(
   eventos: readonly EventoComanda[],
 ): Record<ID, EventoComanda[]> {

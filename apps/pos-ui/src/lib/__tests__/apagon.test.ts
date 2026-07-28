@@ -62,6 +62,8 @@ async function alReencender() {
 let mesaServida: string;
 let mesaCobrada: string;
 let totalServida = 0;
+/** Cuantos renglones tenia la mesa al apagarse: es lo que debe sobrevivir. */
+let renglonesServidos = 0;
 
 beforeAll(async () => {
   await arranque.iniciar();
@@ -80,6 +82,7 @@ beforeAll(async () => {
   await pos.agregarSimple(algunProducto());
   await pos.enviarACocina();
   totalServida = totalesComanda(pos.comanda!).total;
+  renglonesServidos = pos.comanda!.renglones.length;
 
   // Otra ya cobrada, para comprobar que el cobro también sobrevive.
   pos.seleccionarMesa(mesaCobrada);
@@ -100,7 +103,7 @@ describe("se va la luz a media operación", () => {
 
     const comanda = proyectarComanda(log!);
     expect(comanda.cerrada).toBe(false);
-    expect(comanda.renglones).toHaveLength(2);
+    expect(comanda.renglones).toHaveLength(renglonesServidos);
     expect(totalesComanda(comanda).total).toBe(totalServida);
   });
 

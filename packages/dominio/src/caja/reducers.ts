@@ -135,11 +135,17 @@ export function sesionAbierta(eventos: readonly EventoCaja[]): EstadoCaja | unde
 // --- Corte del turno ------------------------------------------------------------
 
 export interface CorteCaja {
-  /** Ventas cobradas durante el turno, por forma de pago. */
+  /** Lo COBRADO por forma de pago, propina incluida: es lo que entró. */
   ventas: VentasPorForma;
-  /** Total vendido, todas las formas. */
+  /**
+   * La venta del turno, SIN propina.
+   *
+   * El cliente paga cuenta + propina de una sola vez, así que el cobro las trae
+   * juntas. Pero la propina es del mesero, no del restaurante: contarla como
+   * venta infla el ingreso, y el contador declararía de más.
+   */
   totalVendido: Centavos;
-  /** Solo lo cobrado en efectivo. */
+  /** Efectivo recibido, propina incluida: es lo que de verdad está en el cajón. */
   efectivoVentas: Centavos;
   fondoInicial: Centavos;
   /** Entradas y salidas manuales de efectivo (retiros en negativo). */
@@ -160,7 +166,7 @@ export function calcularCorte(
   eventosComanda: readonly EventoComanda[],
 ): CorteCaja {
   const ventas: VentasPorForma = {};
-  let totalVendido = CERO;
+  let cobrado = CERO;
   let efectivoVentas = CERO;
   let propinas = CERO;
   let cuentasCerradas = 0;
@@ -169,7 +175,7 @@ export function calcularCorte(
     if (ev.tipo === "pago_registrado") {
       const forma: FormaPago = ev.forma;
       ventas[forma] = sumar(ventas[forma] ?? CERO, ev.monto);
-      totalVendido = sumar(totalVendido, ev.monto);
+      cobrado = sumar(cobrado, ev.monto);
       if (forma === "efectivo") efectivoVentas = sumar(efectivoVentas, ev.monto);
     } else if (ev.tipo === "propina_registrada") {
       propinas = sumar(propinas, ev.monto);
@@ -182,7 +188,10 @@ export function calcularCorte(
 
   return {
     ventas,
-    totalVendido,
+    // La propina viaja DENTRO del cobro; se descuenta para no declararla como
+    // ingreso. El cajón, en cambio, sí la tiene: por eso `efectivoVentas` queda
+    // bruto y el esperado se calcula sobre él.
+    totalVendido: restar(cobrado, propinas),
     efectivoVentas,
     fondoInicial: caja.fondo_inicial,
     movimientos,

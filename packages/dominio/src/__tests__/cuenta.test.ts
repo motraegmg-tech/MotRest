@@ -275,7 +275,8 @@ describe("sesión de caja y corte", () => {
 
     expect(corte.ventas.efectivo).toBe(pesos(500));
     expect(corte.ventas.tarjeta_credito).toBe(pesos(450));
-    expect(corte.totalVendido).toBe(pesos(950));
+    // 950 cobrados − 80 de propina. La propina es del mesero, no venta del local.
+    expect(corte.totalVendido).toBe(pesos(870));
     expect(corte.propinas).toBe(pesos(80));
     expect(corte.cuentasCerradas).toBe(1);
     // Fondo 1000 + 500 en efectivo (la tarjeta no entra al cajón).

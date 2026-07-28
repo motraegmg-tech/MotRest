@@ -13,6 +13,7 @@ import {
   etiquetaFormaPago,
   pesos,
   proyectarComanda,
+  proyectarSentadas,
   promocionesPendientes,
   renglonesActivos,
   renglonesPendientes,
@@ -281,28 +282,33 @@ class TiendaPOS {
    * su mesa hasta que esa mesa se vuelve a usar, y su historia completa está en
    * el event log de todos modos.
    */
+  /**
+   * Todas las comandas de la jornada: UNA POR SENTADA, no una por mesa.
+   *
+   * La mesa 4 se sirve cinco veces un viernes. Proyectar su log de corrido
+   * devolvía solo la última sentada, así que el contador y los reportes veían
+   * una fracción de la noche mientras el corte de caja —que suma pagos— veía
+   * todo. Los dos números no coincidían y no había forma de saber cuál creer.
+   */
   get todasLasComandas(): EstadoComanda[] {
-    return Object.values(this.logs)
-      .filter((log) => log.length > 0)
-      .map((log) => proyectarComanda(log));
+    return Object.values(this.logs).flatMap((log) => proyectarSentadas(log));
   }
 
   /** Todas las comandas abiertas del local: es lo que ve la cocina. */
   get comandasAbiertas(): EstadoComanda[] {
-    const abiertas: EstadoComanda[] = [];
-    for (const log of Object.values(this.logs)) {
-      if (log.length === 0) continue;
-      const c = proyectarComanda(log);
-      if (!c.cerrada) abiertas.push(c);
-    }
-    return abiertas;
+    return this.todasLasComandas.filter((c) => !c.cerrada);
   }
 
-  /** Mesa a la que pertenece una orden, para emitir sobre su log. */
+  /**
+   * Mesa a la que pertenece una orden, para emitir sobre su log.
+   *
+   * Se busca entre TODAS las sentadas, no solo la última: un postre puede
+   * seguir en cocina cuando la mesa ya se cobró y se sentó a alguien más, y el
+   * KDS tiene que poder marcarlo entregado.
+   */
   private mesaDeOrden(ordenId: ID): ID | null {
     for (const [mesaId, log] of Object.entries(this.logs)) {
-      if (log.length === 0) continue;
-      if (proyectarComanda(log).orden_id === ordenId) return mesaId;
+      if (log.some((e) => e.orden_id === ordenId)) return mesaId;
     }
     return null;
   }
@@ -356,11 +362,26 @@ class TiendaPOS {
 
   // --- Comandos ------------------------------------------------------------------
 
+  /** La orden EN CURSO: null si ya se cobró. Nada se le puede agregar. */
   private ordenActiva(mesaId: ID): ID | null {
     const log = this.logs[mesaId];
     if (!log || log.length === 0) return null;
     const c = proyectarComanda(log);
     return c.cerrada ? null : c.orden_id;
+  }
+
+  /**
+   * La última orden de la mesa, esté cobrada o no.
+   *
+   * Reabrir una cuenta y reimprimir un ticket son cosas que se hacen DESPUÉS de
+   * cobrar, por definición. Con `ordenActiva` —que devuelve null en cuanto la
+   * cuenta se cierra— las dos salían siempre por la puerta del "no se pudo",
+   * sin decir por qué.
+   */
+  private ordenDeLaMesa(mesaId: ID): ID | null {
+    const log = this.logs[mesaId];
+    if (!log || log.length === 0) return null;
+    return proyectarComanda(log).orden_id;
   }
 
   /**
@@ -385,6 +406,14 @@ class TiendaPOS {
   }
 
   abrirMesa(mesaId: ID): ID {
+    /*
+     * Si la mesa YA está en servicio, se devuelve su cuenta. Abrir otra dejaba
+     * la primera huérfana: lo que ya habían pedido desaparecía de la pantalla y
+     * nadie lo cobraba. Pasa en cuanto dos meseros tocan la misma mesa.
+     */
+    const enCurso = this.ordenActiva(mesaId);
+    if (enCurso) return enCurso;
+
     const orden_id = uuidv7();
     this.emitir(
       mesaId,
@@ -674,7 +703,7 @@ class TiendaPOS {
    * dinero de una caja, así que exige autorización y queda en la bitácora.
    */
   async reabrirCuenta(motivo: string): Promise<boolean> {
-    const orden_id = this.ordenActiva(this.mesaActiva);
+    const orden_id = this.ordenDeLaMesa(this.mesaActiva);
     if (!orden_id || !this.comanda?.cerrada) return false;
 
     const limpio = motivo.trim();
@@ -832,7 +861,7 @@ class TiendaPOS {
    * por separado basta.
    */
   async reimprimirTicket(): Promise<boolean> {
-    const orden_id = this.ordenActiva(this.mesaActiva);
+    const orden_id = this.ordenDeLaMesa(this.mesaActiva);
     const comanda = this.comanda;
     const t = this.totales;
     if (!orden_id || !comanda || !t) return false;
