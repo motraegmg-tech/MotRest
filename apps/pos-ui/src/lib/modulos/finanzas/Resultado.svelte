@@ -13,11 +13,16 @@
   import {
     CATEGORIAS_EGRESO,
     cuentasCerradasEn,
+    detalleCsv,
+    egresosEn,
     pesos,
+    reporteContable,
+    resumenCsv,
     resumenVentas,
     type CategoriaEgreso,
   } from "@motrest/dominio";
   import { egresos } from "../../egresos.svelte";
+  import { fiscal } from "../../fiscal.svelte";
   import { local } from "../../local.svelte";
   import { pos } from "../../pos.svelte";
   import { mxn, hora } from "../../formato";
@@ -25,6 +30,57 @@
 
   const puedeRegistrar = $derived(sesion.puedeOperar("fin.egreso.registrar"));
   const puedeVerCostos = $derived(sesion.puedeVer("fin.costo.ver"));
+
+  // --- Reporte para el contador ---------------------------------------------------
+
+  /** El mes que se exporta. Por defecto el corriente. */
+  let mesElegido = $state(new Date().toISOString().slice(0, 7));
+
+  const rangoMes = $derived.by(() => {
+    const [anio, mes] = mesElegido.split("-").map(Number);
+    const desde = new Date(anio ?? 2026, (mes ?? 1) - 1, 1).getTime();
+    const hasta = new Date(anio ?? 2026, mes ?? 1, 1).getTime();
+    return { desde, hasta };
+  });
+
+  /**
+   * Descarga un archivo generado en el navegador.
+   *
+   * Se usa un Blob y no una petición al Hub: el reporte se arma con datos que
+   * la terminal ya tiene, así que no hay razón para que el archivo viaje por la
+   * red ni para que dependa de que el Hub esté encendido.
+   */
+  function descargar(nombre: string, contenido: string): void {
+    const url = URL.createObjectURL(
+      new Blob([contenido], { type: "text/csv;charset=utf-8" }),
+    );
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = nombre;
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
+  function reporteDelMes() {
+    const cuentas = cuentasCerradasEn(pos.todasLasComandas, rangoMes);
+    return {
+      cuentas,
+      reporte: reporteContable(
+        cuentas,
+        fiscal.registros,
+        egresosEn(egresos.registros, rangoMes),
+        rangoMes,
+      ),
+    };
+  }
+
+  function exportarResumen() {
+    descargar(`motrest-resumen-${mesElegido}.csv`, resumenCsv(reporteDelMes().reporte));
+  }
+
+  function exportarDetalle() {
+    descargar(`motrest-detalle-${mesElegido}.csv`, detalleCsv(reporteDelMes().cuentas));
+  }
 
   /*
    * La JORNADA, no el día natural: un viernes que cierra a la una de la
@@ -175,6 +231,30 @@
     <div class="botones">
       <button class="secundario" onclick={() => { abierto = false; limpiar(); }}>Cancelar</button>
       <button class="principal" onclick={guardar}>Guardar gasto</button>
+    </div>
+  </section>
+{/if}
+
+<!--
+  Reporte para el contador. Cada mes hay que mandarle lo mismo, y hoy se saca a
+  mano de varias pantallas y se manda por WhatsApp: así es como se pierden datos.
+-->
+{#if puedeVerCostos}
+  <section class="tarjeta">
+    <h2>Reporte para el contador</h2>
+    <p class="nota">
+      Lo que pide cada mes: venta, IVA trasladado, cómo se cobró, comprobantes
+      emitidos y —el número que busca primero— <b>lo vendido que no se facturó</b>,
+      que es la base de la factura global. Las propinas van aparte, porque no son
+      ingreso del negocio.
+    </p>
+    <div class="fila-contador">
+      <label>
+        <span>Mes</span>
+        <input type="month" bind:value={mesElegido} />
+      </label>
+      <button class="mini" onclick={exportarResumen}>Descargar resumen</button>
+      <button class="mini" onclick={exportarDetalle}>Descargar detalle</button>
     </div>
   </section>
 {/if}
@@ -361,5 +441,20 @@
   }
   td small {
     color: var(--gris);
+  }
+  .fila-contador {
+    display: flex;
+    align-items: flex-end;
+    gap: 0.6rem;
+    flex-wrap: wrap;
+    margin-top: 0.9rem;
+  }
+  .fila-contador label {
+    display: flex;
+    flex-direction: column;
+    gap: 0.3rem;
+  }
+  .fila-contador input {
+    padding: 0.5rem 0.65rem;
   }
 </style>

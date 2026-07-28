@@ -41,6 +41,15 @@ export interface EstadoComanda {
   /** Momento del cobro. Es la hora que cuenta como venta. */
   cerrada_ts?: number;
   /**
+   * true = esta cuenta se cobró y se volvió a abrir.
+   *
+   * Se conserva para siempre: una cuenta reabierta merece una segunda mirada al
+   * revisar el corte, y esconderlo sería justo lo contrario de una bitácora.
+   */
+  reabierta?: boolean;
+  /** Cuántas veces se volvió a imprimir el ticket. Ausente = ninguna. */
+  reimpresiones?: number;
+  /**
    * A nombre de quién va el pedido. Presente sobre todo en los de PARA LLEVAR,
    * donde no hay una mesa que sirva de referencia.
    */
@@ -252,6 +261,20 @@ export function aplicarEvento(
       // El sello de cierre es lo que ancla la venta a una hora del día: es la
       // base de la curva horaria y del corte por turno.
       return { ...estado, cerrada: true, cerrada_ts: ev.ts };
+
+    case "ticket_reimpreso":
+      // Se cuenta en la comanda para poder numerar el papel y para que el
+      // total de reimpresiones se vea sin recorrer la bitácora entera.
+      return { ...estado, reimpresiones: ev.numero };
+
+    case "cuenta_reabierta":
+      /*
+       * Se quita el cierre Y su sello. Dejar el `cerrada_ts` viejo haría que la
+       * venta siguiera contando en el corte del turno en que se cobró mal,
+       * mientras la cuenta está otra vez abierta: el dinero aparecería dos
+       * veces. Los PAGOS no se tocan —fueron hechos— y se ven al reabrir.
+       */
+      return { ...estado, cerrada: false, cerrada_ts: undefined, reabierta: true };
 
     default: {
       // Exhaustividad: agregar un tipo sin manejarlo falla en compilación.

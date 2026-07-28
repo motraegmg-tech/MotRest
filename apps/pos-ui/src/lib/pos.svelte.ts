@@ -170,6 +170,17 @@ class TiendaPOS {
     return !!c && !c.cerrada;
   }
 
+  /**
+   * La cuenta cobrada de esta mesa, si la hay y todavía no se sentó a nadie más.
+   *
+   * Es la candidata a reabrir: un cobro mal hecho se descubre en los segundos
+   * siguientes, no una hora después.
+   */
+  get ultimaCobrada() {
+    const c = this.comanda;
+    return c?.cerrada ? c : null;
+  }
+
   /** Hay algo consumido: es lo que permite cobrar o facturar. */
   get hayCuenta(): boolean {
     return this.comandaAbierta && this.renglones.length > 0;
@@ -595,6 +606,47 @@ class TiendaPOS {
     this.flash("Cortesía registrada");
   }
 
+  /**
+   * Vuelve a abrir una cuenta ya cobrada.
+   *
+   * Pasa en cualquier servicio: se cobró de más, el cliente quiere agregar algo
+   * después de pedir la cuenta, o se cobró en la mesa equivocada. Sin esto la
+   * única salida es cobrar otra vez y descuadrar el corte.
+   *
+   * NO borra los pagos: fueron hechos y siguen a la vista, para devolverlos si
+   * corresponde. Reabrir sin dejar rastro sería la forma más limpia de sacar
+   * dinero de una caja, así que exige autorización y queda en la bitácora.
+   */
+  async reabrirCuenta(motivo: string): Promise<boolean> {
+    const orden_id = this.ordenActiva(this.mesaActiva);
+    if (!orden_id || !this.comanda?.cerrada) return false;
+
+    const limpio = motivo.trim();
+    if (limpio.length < 3) {
+      this.flash("Escribe por qué se reabre la cuenta");
+      return false;
+    }
+
+    const permiso = await autorizacion.solicitar(
+      "pos.cuenta.reabrir",
+      undefined,
+      `mesa ${this.nombreMesaActiva}`,
+    );
+    if (!permiso.ok) return false;
+
+    this.sincronizarActor();
+    this.emitir(
+      this.mesaActiva,
+      fabrica.crear("cuenta_reabierta", orden_id, {
+        orden_id,
+        motivo: limpio,
+        autorizador_id: permiso.autorizador_id ?? sesion.usuarioActual?.id,
+      }),
+    );
+    this.flash("Cuenta reabierta · los pagos anteriores siguen registrados");
+    return true;
+  }
+
   registrarPropina(monto: Centavos): void {
     const orden_id = this.ordenActiva(this.mesaActiva);
     if (!orden_id || monto <= 0) return;
@@ -714,8 +766,40 @@ class TiendaPOS {
    * al imprimir abriría la puerta a que el papel diga una cosa y la cuenta otra,
    * y el papel es el que se lleva el cliente.
    */
-  private imprimirTicket(comanda: EstadoComanda, t: TotalesComanda): void {
+  /**
+   * Vuelve a imprimir el ticket de la cuenta.
+   *
+   * El cliente pide otra copia todos los días. Se registra porque una
+   * reimpresión es un clásico vector de fraude —se cobra, se entrega el ticket,
+   * se reimprime y se cobra otra vez con el mismo papel—: el papel sale marcado
+   * «REIMPRESIÓN #n» y el hecho queda en la bitácora. Ninguna de las dos cosas
+   * por separado basta.
+   */
+  async reimprimirTicket(): Promise<boolean> {
+    const orden_id = this.ordenActiva(this.mesaActiva);
+    const comanda = this.comanda;
+    const t = this.totales;
+    if (!orden_id || !comanda || !t) return false;
+
+    const numero = (comanda.reimpresiones ?? 0) + 1;
+
+    this.sincronizarActor();
+    this.emitir(
+      this.mesaActiva,
+      fabrica.crear("ticket_reimpreso", orden_id, { orden_id, numero }),
+    );
+    this.imprimirTicket(comanda, t, numero);
+    this.flash(`Ticket reimpreso (copia ${numero})`);
+    return true;
+  }
+
+  private imprimirTicket(
+    comanda: EstadoComanda,
+    t: TotalesComanda,
+    reimpresion?: number,
+  ): void {
     impresion.ticket({
+      reimpresion,
       folio: comanda.orden_id.slice(-8).toUpperCase(),
       ts: Date.now(),
       local: datosLocal,

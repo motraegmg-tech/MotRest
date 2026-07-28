@@ -119,6 +119,18 @@
     }
   }
 
+  // --- Reabrir una cuenta cobrada por error ---
+  let reabriendo = $state(false);
+  let motivoReapertura = $state("");
+
+  async function confirmarReapertura() {
+    const ok = await pos.reabrirCuenta(motivoReapertura);
+    if (ok) {
+      reabriendo = false;
+      motivoReapertura = "";
+    }
+  }
+
   // --- A nombre de quién (pedidos para llevar) ---
   let poniendoNombre = $state(false);
   let nombrePedido = $state("");
@@ -387,6 +399,24 @@
       <div class="mesa-num">Mesa {pos.nombreMesaActiva}</div>
       <p class="titulo-vacio">Sin cuenta abierta</p>
       <p class="hint">Toca una mesa del salón o agrega un producto de la carta.</p>
+
+      <!--
+        Reabrir lo último que se cobró en esta mesa. Pasa a diario: se cobró de
+        más, el cliente quiere agregar un postre, o se cobró la mesa
+        equivocada. Sin esta salida hay que cobrar otra vez y el corte se
+        descuadra.
+      -->
+      {#if pos.ultimaCobrada}
+        <div class="acciones-cobrada">
+          <!-- El cliente pide otra copia todos los días. -->
+          <button class="reabrir" onclick={() => pos.reimprimirTicket()}>
+            Reimprimir el ticket
+          </button>
+          <button class="reabrir" onclick={() => (reabriendo = true)}>
+            Reabrir la última cuenta cobrada
+          </button>
+        </div>
+      {/if}
     </div>
   {/if}
 
@@ -502,6 +532,26 @@
   </div>
 {/if}
 
+
+<!-- Reabrir una cuenta cobrada por error -->
+{#if reabriendo}
+  <div class="velo-op" role="presentation" onclick={() => (reabriendo = false)}></div>
+  <div class="op" role="dialog" aria-modal="true" aria-label="Reabrir cuenta">
+    <h3>Reabrir la cuenta cobrada</h3>
+    <p class="pista-nombre">
+      Los pagos ya registrados <b>no se borran</b>: siguen a la vista para
+      devolverlos si corresponde. Queda en la bitácora con tu motivo y quién lo
+      autorizó.
+    </p>
+    <input
+      class="comentario"
+      bind:value={motivoReapertura}
+      placeholder="Se cobró de más, agregan un postre, mesa equivocada…"
+    />
+    <button class="guardar-op" onclick={confirmarReapertura}>Reabrir</button>
+    <button class="saltar" onclick={() => (reabriendo = false)}>Cancelar</button>
+  </div>
+{/if}
 
 <!-- A nombre de quién va el pedido -->
 {#if poniendoNombre}
@@ -1057,5 +1107,25 @@
     color: var(--gris);
     line-height: 1.45;
     margin-bottom: 0.6rem;
+  }
+  .reabrir {
+    margin-top: 1.2rem;
+    border: 1.5px solid var(--borde);
+    border-radius: var(--r-md);
+    padding: 0.55rem 1rem;
+    font-size: 0.82rem;
+    font-weight: 600;
+    color: var(--gris);
+    background: #fff;
+  }
+  .reabrir:hover {
+    border-color: var(--acento);
+    color: var(--acento);
+  }
+  .acciones-cobrada {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    align-items: center;
   }
 </style>

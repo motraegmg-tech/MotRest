@@ -73,6 +73,20 @@
           tono: "alerta" };
       case "orden_identificada":
         return { ...base, texto: `Pedido a nombre de ${ev.nombre}`, tono: "normal" };
+      /*
+       * En alerta desde la SEGUNDA copia. Pedir otra copia es normal; pedir
+       * tres es el patrón de quien cobra dos veces con el mismo papel.
+       */
+      case "ticket_reimpreso":
+        return { ...base,
+          texto: `Reimprimió el ticket (copia ${ev.numero})`,
+          tono: ev.numero > 1 ? "alerta" : "acento" };
+      // En alerta: una cuenta que se cobró y se volvió a abrir merece una
+      // segunda mirada al revisar el corte.
+      case "cuenta_reabierta":
+        return { ...base,
+          texto: `Reabrió una cuenta cobrada · ${ev.motivo}${ev.autorizador_id ? ` · autorizó ${sesion.nombreDe(ev.autorizador_id)}` : ""}`,
+          tono: "alerta" };
       case "item_modificado":
         return { ...base,
           texto: ev.cantidad !== undefined

@@ -60,6 +60,8 @@ const TIPOS_COMANDA = new Set([
   "propina_registrada",
   "pago_registrado",
   "cuenta_cerrada",
+  "cuenta_reabierta",
+  "ticket_reimpreso",
 ]);
 
 /** Eventos del ciclo fiscal (CFDI), emisión y cancelación. */

@@ -172,6 +172,37 @@ export type EventoComanda =
   | (EventoBase & {
       tipo: "cuenta_cerrada";
       orden_id: ID;
+    })
+  | (EventoBase & {
+      /**
+       * Se vuelve a abrir una cuenta ya cobrada.
+       *
+       * Pasa en cualquier servicio: se cobró de más, el cliente quiere agregar
+       * un postre después de pedir la cuenta, o se cobró en la mesa equivocada.
+       * Sin esto la única salida es cobrar otra vez y descuadrar el corte.
+       *
+       * NO borra nada. Los pagos ya registrados siguen en la cuenta —fueron
+       * hechos— y hay que devolverlos explícitamente si corresponde. Reabrir sin
+       * dejar rastro sería la forma más limpia de sacar dinero de una caja.
+       */
+      tipo: "cuenta_reabierta";
+      orden_id: ID;
+      motivo: string;
+      autorizador_id?: ID;
+    })
+  | (EventoBase & {
+      /**
+       * Se volvió a imprimir el ticket de una cuenta.
+       *
+       * Se registra porque una reimpresión es un clásico vector de fraude: se
+       * cobra, se entrega el ticket, se reimprime y se cobra otra vez con el
+       * mismo papel. El papel lleva impreso «REIMPRESIÓN #n» y el hecho queda
+       * en la bitácora; ninguna de las dos cosas por separado basta.
+       */
+      tipo: "ticket_reimpreso";
+      orden_id: ID;
+      /** Cuántas veces se ha reimpreso, contando esta. */
+      numero: number;
     });
 
 export type TipoEventoComanda = EventoComanda["tipo"];

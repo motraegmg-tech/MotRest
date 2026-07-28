@@ -78,7 +78,7 @@ describe("poner nombre al pedido", () => {
 
 describe("el nombre llega a cocina", () => {
   const estaciones = [
-    { id: "est-horno", nombre: "Horno", minutos_objetivo: 12, minutos_limite: 20 },
+    { id: "est-horno", nombre: "Horno", orden: 1, minutos_objetivo: 12, minutos_limite: 20 },
   ];
 
   it("el ticket del KDS lo lleva", () => {

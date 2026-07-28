@@ -54,6 +54,7 @@ export * from "./inteligencia/reportes.js";
 export * from "./inteligencia/pronostico.js";
 export * from "./inteligencia/simulador.js";
 export * from "./finanzas/egresos.js";
+export * from "./finanzas/contador.js";
 
 // Compras (M4)
 export * from "./compras/eventos.js";
