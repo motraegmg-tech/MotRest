@@ -17,6 +17,7 @@ import {
   permisosNoOtorgables,
   puedeAutorizar,
   puedeGestionarA,
+  puedeOperar,
   puedeOtorgar,
   puedeVer,
   rolesAsignablesPor,
@@ -354,5 +355,42 @@ describe("tope de 7 intentos", () => {
     expect(validarSecreto("corta1", "contrasena")).not.toBeNull();
     expect(validarSecreto("solamenteletras", "contrasena")).not.toBeNull();
     expect(validarSecreto("MotraeCEO21", "contrasena")).toBeNull();
+  });
+});
+
+// --- Quién ve qué propinas ------------------------------------------------------
+
+/*
+ * El alcance va en SU PROPIA ACCIÓN, no en el nivel. El nivel "ver" vs "operar"
+ * no separa alcances en una consulta: la matriz trata toda acción terminada en
+ * .ver como lectura, así que "ver" ya alcanza para ejecutarla. Con una sola
+ * acción de dos niveles, un mesero habría visto lo que gana todo el equipo.
+ */
+describe("propinas: quién ve las suyas y quién las del local", () => {
+  it("un mesero ve las suyas, nunca el fondo del local", () => {
+    const m = usuario("mesero");
+    expect(puedeVer(m, "rrhh.propina.ver")).toBe(true);
+    expect(puedeVer(m, "rrhh.propina.ver_local")).toBe(false);
+    // El candado que importa: ni siquiera por la puerta de "operar".
+    expect(puedeOperar(m, "rrhh.propina.ver_local")).toBe(false);
+  });
+
+  it("un cajero también ve solo las suyas", () => {
+    const c = usuario("cajero");
+    expect(puedeVer(c, "rrhh.propina.ver")).toBe(true);
+    expect(puedeVer(c, "rrhh.propina.ver_local")).toBe(false);
+  });
+
+  it("gerencia y contabilidad ven el fondo completo", () => {
+    for (const rol of ["gerente", "administracion", "propietario"] as const) {
+      expect(puedeVer(usuario(rol), "rrhh.propina.ver_local")).toBe(true);
+    }
+  });
+
+  /* Cocina no atiende mesas: el apartado ni siquiera se le pinta. */
+  it("a quien no atiende mesas no se le muestra nada", () => {
+    expect(puedeVer(usuario("chef"), "rrhh.propina.ver")).toBe(false);
+    expect(puedeVer(usuario("comensal"), "rrhh.propina.ver")).toBe(false);
+    expect(puedeVer(usuario("comensal"), "rrhh.propina.ver_local")).toBe(false);
   });
 });

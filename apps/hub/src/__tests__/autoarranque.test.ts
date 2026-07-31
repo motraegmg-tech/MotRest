@@ -29,15 +29,22 @@ describe("cuándo se puede registrar el arranque", () => {
    * LA GUARDA QUE IMPORTA. Un ensayo levanta el ejecutable instalado sobre una
    * base temporal: si eso se registrara, Windows arrancaría cada mañana un Hub
    * apuntando a una carpeta que se borró al terminar la prueba.
+   *
+   * Se comprueba que NO CAMBIE nada, en vez de exigir que quede desactivado:
+   * en el equipo de quien desarrolla puede haber un MotRest instalado y de
+   * verdad registrado, y una prueba que dependa de eso falla según en qué
+   * máquina corra — que es la peor clase de prueba.
    */
   it("un arranque que no es la instalación real no toca el registro", async () => {
-    const e = await asegurarAlArrancar(false);
-    expect(e.activo).toBe(false);
+    const antes = await estado();
+    const despues = await asegurarAlArrancar(false);
+    expect(despues.activo).toBe(antes.activo);
   });
 
   it("tampoco lo toca si el equipo no lo soporta", async () => {
-    const e = await asegurarAlArrancar(true);
-    // En este proceso `soportado()` es falso, así que no debe activarse.
-    expect(e.activo).toBe(false);
+    const antes = await estado();
+    // En este proceso `soportado()` es falso: pase lo que pase, no debe escribir.
+    const despues = await asegurarAlArrancar(true);
+    expect(despues.activo).toBe(antes.activo);
   });
 });

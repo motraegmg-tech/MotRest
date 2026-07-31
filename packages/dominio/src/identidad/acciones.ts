@@ -55,6 +55,8 @@ export type Accion =
   | "rrhh.checada.registrar"
   | "rrhh.checada.ajustar"
   | "rrhh.empleado.editar"
+  | "rrhh.propina.ver"
+  | "rrhh.propina.ver_local"
   // M7 · Clientes
   | "crm.cliente.ver"
   | "crm.cliente.editar"
@@ -179,6 +181,18 @@ export const CATALOGO_ACCIONES: GrupoAcciones[] = [
       def("rrhh.checada.registrar", "m6", "Checar entrada y salida", "Registrar la propia asistencia"),
       def("rrhh.checada.ajustar", "m6", "Ajustar checadas", "Corregir registros de asistencia de otros", true),
       def("rrhh.empleado.editar", "m6", "Gestionar empleados", "Alta y edición de la ficha del personal", true),
+      /*
+       * DOS ACCIONES, NO UNA CON DOS NIVELES. El nivel "ver" vs "operar" no
+       * sirve para separar alcances en una consulta: la matriz trata cualquier
+       * accion terminada en .ver como lectura, asi que el nivel "ver" ya alcanza
+       * para ejecutarla. Separar el alcance en su propia accion es el patron que
+       * este catalogo ya usa en "pos.orden.ver_ajenas".
+       *
+       * Un mesero tiene que poder saber cuanto lleva; cuanto lleva el de al lado
+       * no es asunto suyo.
+       */
+      def("rrhh.propina.ver", "m6", "Ver mis propinas", "Consultar la propia propina del día, la semana y la quincena"),
+      def("rrhh.propina.ver_local", "m6", "Ver las propinas del local", "Consultar el fondo de propinas de todo el equipo", true),
     ],
   },
   {

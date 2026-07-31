@@ -102,6 +102,9 @@ export const ROLES: Record<RolId, Rol> = {
       p("rrhh.checada.registrar", "operar"),
       p("rrhh.checada.ajustar", "autorizar"),
       p("rrhh.empleado.editar", "operar"),
+      // Quien reparte la raya tiene que ver el fondo completo, no solo lo suyo.
+      p("rrhh.propina.ver", "ver"),
+      p("rrhh.propina.ver_local", "ver"),
       p("crm.cliente.ver", "ver"),
       p("crm.cliente.editar", "operar"),
       p("bi.reporte.ver", "ver"),
@@ -127,6 +130,8 @@ export const ROLES: Record<RolId, Rol> = {
       p("fin.egreso.registrar", "operar"),
       p("fin.factura.emitir", "operar"),
       p("compras.proveedor.editar", "operar"),
+      p("rrhh.propina.ver", "ver"),
+      p("rrhh.propina.ver_local", "ver"),
       p("crm.cliente.ver", "ver"),
       p("crm.cliente.editar", "operar"),
       p("bi.reporte.ver", "ver"),
@@ -189,6 +194,7 @@ export const ROLES: Record<RolId, Rol> = {
       p("cocina.receta.ver", "ver"),
       p("crm.cliente.ver", "ver"),
       p("rrhh.checada.registrar", "operar"),
+      p("rrhh.propina.ver", "ver"),
     ],
   },
 
@@ -206,6 +212,9 @@ export const ROLES: Record<RolId, Rol> = {
       // platillo: una pregunta por alergias no puede depender de la cocina.
       p("cocina.receta.ver", "ver"),
       p("rrhh.checada.registrar", "operar"),
+      // Cuánto lleva de propina. En nivel "ver" son SOLO las suyas: cuánto
+      // lleva el compañero de al lado no es asunto de nadie más.
+      p("rrhh.propina.ver", "ver"),
     ],
   },
 

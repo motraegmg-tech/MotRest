@@ -14,6 +14,8 @@ import {
   diaOperativoDe,
   jornadaDe,
   menuEngineering,
+  propinasAcumuladas,
+  quincenaDe,
   resumenVentas,
   ventasPorHora,
   ventasPorMesero,
@@ -330,5 +332,80 @@ describe("jornada operativa", () => {
   it("con corte a medianoche se comporta como el día natural", () => {
     const ts = new Date(2026, 6, 24, 15).getTime();
     expect(jornadaDe(ts, 0)).toEqual(diaDe(ts));
+  });
+});
+
+// --- Propinas acumuladas ---------------------------------------------------------------------
+
+/*
+ * Lo que el mesero mira en el panel para saber cuánto lleva. Los errores aquí
+ * son de CALENDARIO, no de suma: una propina de la medianoche del viernes que
+ * se va a la semana siguiente, o un 31 de enero que al sumar un mes cae en
+ * marzo. Por eso las pruebas son de fechas incómodas a propósito.
+ */
+describe("propinas acumuladas", () => {
+  const VIERNES = new Date(2026, 6, 24, 21, 0).getTime(); // vie 24-jul-2026, 21:00
+  const MADRUGADA = new Date(2026, 6, 25, 0, 40).getTime(); // sáb 25 a las 00:40
+
+  function conPropinas(): EstadoComanda[] {
+    return [
+      cuenta({ mesero: "emp-lucia", renglones: [renglon("p", "Pizza", 200, 60)],
+        cerrada_ts: VIERNES, propina: 50 }),
+      // Misma noche, ya pasada la medianoche: sigue siendo el viernes.
+      cuenta({ mesero: "emp-lucia", renglones: [renglon("p", "Pizza", 200, 60)],
+        cerrada_ts: MADRUGADA, propina: 30 }),
+      // Otro mesero, la misma noche.
+      cuenta({ mesero: "emp-beto", renglones: [renglon("p", "Pizza", 200, 60)],
+        cerrada_ts: VIERNES, propina: 20 }),
+      // Lunes anterior: misma quincena, otra semana.
+      cuenta({ mesero: "emp-lucia", renglones: [renglon("p", "Pizza", 200, 60)],
+        cerrada_ts: new Date(2026, 6, 20, 20, 0).getTime(), propina: 100 }),
+    ];
+  }
+
+  it("la propina de después de medianoche cuenta en la jornada del viernes", () => {
+    const a = propinasAcumuladas(conPropinas(), MADRUGADA, HORA_CORTE_POR_DEFECTO);
+    // 50 + 30 de Lucía + 20 de Beto: las tres son de la misma noche.
+    expect(a.dia).toBe(pesos(100));
+    expect(a.cuentasDelDia).toBe(3);
+  });
+
+  it("con mesero, solo lo suyo", () => {
+    const a = propinasAcumuladas(conPropinas(), MADRUGADA, HORA_CORTE_POR_DEFECTO, "emp-lucia");
+    expect(a.dia).toBe(pesos(80));
+    // La semana del viernes 24 arranca el lunes 20: entra la de $100.
+    expect(a.semana).toBe(pesos(180));
+  });
+
+  it("la quincena del 24 va del 16 al fin de mes", () => {
+    const a = propinasAcumuladas(conPropinas(), VIERNES, HORA_CORTE_POR_DEFECTO);
+    expect(quincenaDe(VIERNES).desde).toBe(new Date(2026, 6, 16, 5, 0).getTime());
+    expect(quincenaDe(VIERNES).hasta).toBe(new Date(2026, 7, 1, 5, 0).getTime());
+    expect(a.quincena).toBe(pesos(200));
+  });
+
+  it("la primera quincena va del 1 al 16", () => {
+    const dia8 = new Date(2026, 6, 8, 13, 0).getTime();
+    expect(quincenaDe(dia8).desde).toBe(new Date(2026, 6, 1, 5, 0).getTime());
+    expect(quincenaDe(dia8).hasta).toBe(new Date(2026, 6, 16, 5, 0).getTime());
+  });
+
+  /* Sumar un mes a un 31 de enero da un 3 de marzo si se hace en dos pasos. */
+  it("la segunda quincena de enero termina el 1 de febrero, no en marzo", () => {
+    const ene31 = new Date(2026, 0, 31, 22, 0).getTime();
+    expect(quincenaDe(ene31).hasta).toBe(new Date(2026, 1, 1, 5, 0).getTime());
+  });
+
+  it("una cuenta todavía abierta no suma, aunque tenga propina apuntada", () => {
+    const abierta = cuenta({
+      mesero: "emp-lucia", renglones: [renglon("p", "Pizza", 200, 60)],
+      cerrada_ts: VIERNES, propina: 500, cerrar: false,
+    });
+    expect(propinasAcumuladas([abierta], VIERNES).dia).toBe(pesos(0));
+  });
+
+  it("sin propinas, todo en cero y sin romperse", () => {
+    const a = propinasAcumuladas([], Date.now());
+    expect(a).toEqual({ dia: 0, semana: 0, quincena: 0, cuentasDelDia: 0 });
   });
 });

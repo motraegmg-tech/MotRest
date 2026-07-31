@@ -89,6 +89,95 @@ export function semanaDe(ts: number): Rango {
 }
 
 /**
+ * La semana operativa: de lunes a domingo, pero cortando a la hora del local.
+ *
+ * `semanaDe` corta a medianoche y parte en dos el viernes de noche, que es el
+ * turno que de verdad importa. Aquí la semana empieza y termina a la hora de
+ * corte, igual que la jornada, para que un cierre de las 00:40 del sábado
+ * siga contando en la semana del viernes.
+ */
+export function semanaOperativa(ts: number, horaCorte = HORA_CORTE_POR_DEFECTO): Rango {
+  const inicio = new Date(diaOperativoDe(ts, horaCorte));
+  // getDay(): 0 = domingo. Se retrocede al lunes de esa jornada.
+  inicio.setDate(inicio.getDate() - ((inicio.getDay() + 6) % 7));
+
+  const fin = new Date(inicio);
+  fin.setDate(fin.getDate() + 7);
+  return { desde: inicio.getTime(), hasta: fin.getTime() };
+}
+
+/**
+ * La quincena que contiene un instante: del 1 al 15, o del 16 al fin de mes.
+ *
+ * Es el periodo con el que se paga en México, y por eso es el que el personal
+ * tiene en la cabeza cuando pregunta cuánto lleva de propina. Se ancla también
+ * en la jornada, no en el día natural.
+ */
+export function quincenaDe(ts: number, horaCorte = HORA_CORTE_POR_DEFECTO): Rango {
+  const base = new Date(diaOperativoDe(ts, horaCorte));
+  const primeraMitad = base.getDate() <= 15;
+
+  const inicio = new Date(base);
+  inicio.setDate(primeraMitad ? 1 : 16);
+
+  const fin = new Date(base);
+  if (primeraMitad) {
+    fin.setDate(16);
+  } else {
+    // Mes y día a la vez: hacerlo en dos pasos convierte un 31 de enero en
+    // marzo, porque febrero no tiene 31.
+    fin.setMonth(fin.getMonth() + 1, 1);
+  }
+
+  return { desde: inicio.getTime(), hasta: fin.getTime() };
+}
+
+/** Lo que el personal lleva de propina en los tres periodos que le importan. */
+export interface AcumuladoPropinas {
+  dia: Centavos;
+  semana: Centavos;
+  quincena: Centavos;
+  /** Cuentas cobradas que dejaron propina hoy. Da contexto al número. */
+  cuentasDelDia: number;
+}
+
+/**
+ * Cuánta propina se lleva acumulada en la jornada, la semana y la quincena.
+ *
+ * SOLO CUENTAS COBRADAS. Una propina apuntada en una mesa que sigue abierta
+ * todavía puede cambiar —el cliente decide al final—, y un número que baja
+ * solo destruye la confianza en el tablero. Como la propina se captura al
+ * momento de cobrar, el acumulado igual se mueve durante todo el servicio.
+ *
+ * Con `meseroId` devuelve lo de esa persona; sin él, lo de todo el local.
+ */
+export function propinasAcumuladas(
+  comandas: readonly EstadoComanda[],
+  ahora: number,
+  horaCorte = HORA_CORTE_POR_DEFECTO,
+  meseroId?: ID,
+): AcumuladoPropinas {
+  const propinaEn = (rango: Rango): { total: Centavos; cuentas: number } => {
+    const conPropina = cuentasCerradasEn(comandas, rango).filter(
+      (c) => c.propina > 0 && (meseroId === undefined || c.mesero_id === meseroId),
+    );
+    return {
+      total: sumar(...conPropina.map((c) => c.propina)),
+      cuentas: conPropina.length,
+    };
+  };
+
+  const dia = propinaEn(jornadaDe(ahora, horaCorte));
+
+  return {
+    dia: dia.total,
+    semana: propinaEn(semanaOperativa(ahora, horaCorte)).total,
+    quincena: propinaEn(quincenaDe(ahora, horaCorte)).total,
+    cuentasDelDia: dia.cuentas,
+  };
+}
+
+/**
  * Las cuentas ya cobradas dentro del rango.
  *
  * Solo cuentan las CERRADAS: una mesa en servicio todavía puede cambiar, y meter

@@ -5,6 +5,7 @@
    * no lo ve en el menú.
    */
   import { COLOR_FASE, MODULOS } from "./modulos";
+  import PropinasAcumuladas from "./PropinasAcumuladas.svelte";
   import { rutas } from "./rutas.svelte";
   import { sesion } from "../sesion/sesion.svelte";
 
@@ -45,6 +46,12 @@
       {/if}
     {/each}
   </nav>
+
+  <!--
+    Se pinta solo para quien tiene el permiso, y el propio componente decide si
+    muestra las propinas del local o solo las de quien está en sesión.
+  -->
+  <PropinasAcumuladas />
 
   <div class="foot">MOTRAE · Innovation already in motion</div>
 </aside>
