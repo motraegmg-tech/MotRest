@@ -67,6 +67,7 @@ export * from "./compras/ingesta-cfdi.js";
 export * from "./clientes/eventos.js";
 export * from "./clientes/reducers.js";
 export * from "./clientes/opinion.js";
+export * from "./clientes/reservas.js";
 
 // Fiscal (CFDI 4.0)
 export * from "./fiscal/claves.js";
