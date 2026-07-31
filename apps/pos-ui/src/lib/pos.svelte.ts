@@ -12,8 +12,9 @@ import {
   construirRenglon,
   etiquetaFormaPago,
   pesos,
-  proyectarComanda,
+  mesasConCuentaDuplicada,
   proyectarSentadas,
+  ultimaSentada,
   promocionesPendientes,
   renglonesActivos,
   renglonesPendientes,
@@ -154,8 +155,7 @@ class TiendaPOS {
   // --- Proyección de la mesa activa ---------------------------------------------
 
   get comanda() {
-    const log = this.logs[this.mesaActiva] ?? [];
-    return log.length > 0 ? proyectarComanda(log) : null;
+    return ultimaSentada(this.logs[this.mesaActiva] ?? []);
   }
 
   get renglones(): RenglonComanda[] {
@@ -268,20 +268,11 @@ class TiendaPOS {
    * servicio parecía no hacer nada.
    */
   estadoMesa(mesaId: ID): EstadoMesa {
-    const log = this.logs[mesaId];
-    if (!log || log.length === 0) return "libre";
-    const c = proyectarComanda(log);
-    if (c.cerrada) return "libre";
+    const c = ultimaSentada(this.logs[mesaId] ?? []);
+    if (!c || c.cerrada) return "libre";
     return tieneEnviados(c) ? "cuenta" : "ocupada";
   }
 
-  /**
-   * Todas las comandas del local, abiertas y cerradas.
-   *
-   * Es la base de los reportes: una cuenta cobrada sigue viviendo en el log de
-   * su mesa hasta que esa mesa se vuelve a usar, y su historia completa está en
-   * el event log de todos modos.
-   */
   /**
    * Todas las comandas de la jornada: UNA POR SENTADA, no una por mesa.
    *
@@ -297,6 +288,18 @@ class TiendaPOS {
   /** Todas las comandas abiertas del local: es lo que ve la cocina. */
   get comandasAbiertas(): EstadoComanda[] {
     return this.todasLasComandas.filter((c) => !c.cerrada);
+  }
+
+  /**
+   * Mesas que quedaron con dos cuentas abiertas.
+   *
+   * Pasa cuando dos terminales ponen en servicio la misma mesa antes de
+   * sincronizar: cada una la veía libre. En un mismo dispositivo ya no puede
+   * ocurrir. No se juntan solas —quién junta dos cuentas es decisión de la
+   * casa— pero el mesero tiene que verlo antes de cobrar, no después.
+   */
+  get mesasDuplicadas(): ID[] {
+    return mesasConCuentaDuplicada(this.todasLasComandas);
   }
 
   /**
@@ -354,34 +357,31 @@ class TiendaPOS {
 
   /** Total en curso de una mesa, para pintarlo en el plano. */
   totalDeMesa(mesaId: ID): Centavos {
-    const log = this.logs[mesaId];
-    if (!log || log.length === 0) return CERO;
-    const c = proyectarComanda(log);
-    return c.cerrada ? CERO : totalesComanda(c).total;
+    const c = ultimaSentada(this.logs[mesaId] ?? []);
+    return !c || c.cerrada ? CERO : totalesComanda(c).total;
   }
 
   // --- Comandos ------------------------------------------------------------------
 
+  /*
+   * DOS PREGUNTAS DISTINTAS, DOS FUNCIONES.
+   *
+   * "¿Cuál es la orden?" y "¿se le puede agregar algo?" venían respondidas por
+   * la misma función, que devolvía null en cuanto la cuenta se cerraba. Reabrir
+   * una cuenta y reimprimir un ticket se hacen DESPUÉS de cobrar por
+   * definición, así que las dos preguntaban lo que no era y salían siempre por
+   * la puerta del "no se pudo", sin decir por qué. Separarlas es el arreglo.
+   */
+
   /** La orden EN CURSO: null si ya se cobró. Nada se le puede agregar. */
   private ordenActiva(mesaId: ID): ID | null {
-    const log = this.logs[mesaId];
-    if (!log || log.length === 0) return null;
-    const c = proyectarComanda(log);
-    return c.cerrada ? null : c.orden_id;
+    const c = ultimaSentada(this.logs[mesaId] ?? []);
+    return !c || c.cerrada ? null : c.orden_id;
   }
 
-  /**
-   * La última orden de la mesa, esté cobrada o no.
-   *
-   * Reabrir una cuenta y reimprimir un ticket son cosas que se hacen DESPUÉS de
-   * cobrar, por definición. Con `ordenActiva` —que devuelve null en cuanto la
-   * cuenta se cierra— las dos salían siempre por la puerta del "no se pudo",
-   * sin decir por qué.
-   */
+  /** La última orden de la mesa, esté cobrada o no. */
   private ordenDeLaMesa(mesaId: ID): ID | null {
-    const log = this.logs[mesaId];
-    if (!log || log.length === 0) return null;
-    return proyectarComanda(log).orden_id;
+    return ultimaSentada(this.logs[mesaId] ?? [])?.orden_id ?? null;
   }
 
   /**

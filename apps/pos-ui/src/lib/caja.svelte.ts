@@ -227,9 +227,15 @@ class StoreCaja {
     return { ok: true };
   }
 
-  /** Las ventas por forma de pago, con su etiqueta legible, para el papel. */
+  /**
+   * Lo cobrado por forma de pago, con su etiqueta legible, para el papel.
+   *
+   * Va el BRUTO —propina incluida— porque es lo que de verdad entró por cada
+   * canal y es contra lo que se cuadra el cajón. La separación entre venta y
+   * propina viene en los renglones de abajo del ticket.
+   */
   private ventasImpresas(corte: CorteCaja): DatosCorte["ventas"] {
-    return Object.entries(corte.ventas)
+    return Object.entries(corte.cobrado)
       .filter(([, monto]) => (monto ?? 0) > 0)
       .map(([forma, monto]) => ({ forma: this.etiquetaForma(forma), monto: monto as Centavos }));
   }

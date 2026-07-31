@@ -339,6 +339,17 @@ describe("el viernes de Rodizio, de la apertura al corte", () => {
     // La venta: sin propina, porque la propina es del mesero.
     expect(corte.totalVendido).toBe(sumar(ventaEfectivo, ventaTarjeta));
     expect(corte.propinas).toBe(propinas);
+
+    /*
+     * Y los tres renglones cuadran entre sí, forma por forma. Es lo que le
+     * permite a quien cierra la caja sumar con el dedo y confiar en el corte.
+     */
+    for (const forma of Object.keys(corte.cobrado) as FormaPago[]) {
+      expect(corte.cobrado[forma]).toBe(
+        sumar(corte.ventas[forma] ?? pesos(0), corte.propinasPorForma[forma] ?? pesos(0)),
+      );
+    }
+    expect(sumar(...Object.values(corte.ventas))).toBe(corte.totalVendido);
   });
 
   /*

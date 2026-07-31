@@ -7,7 +7,7 @@
    * en efectivo ± retiros) contra lo que el cajero contó. La diferencia se sella
    * e imprime: un corte sin sello es una hoja que cualquiera puede rehacer.
    */
-  import { pesos, type MotivoMovimientoCaja } from "@motrest/dominio";
+  import { pesos, sumar, type MotivoMovimientoCaja } from "@motrest/dominio";
   import { caja } from "../../caja.svelte";
   import { impresion } from "../../impresion.svelte";
   import { mxn, hora } from "../../formato";
@@ -60,6 +60,15 @@
   let cerrando = $state(false);
   let declaradoTexto = $state("");
 
+  /** Propina que NO llegó en efectivo: el local se la debe al mesero. */
+  const propinaEnPlastico = $derived(
+    sumar(
+      ...Object.entries(corte?.propinasPorForma ?? {})
+        .filter(([forma]) => forma !== "efectivo")
+        .map(([, monto]) => monto ?? pesos(0)),
+    ),
+  );
+
   const declarado = $derived(pesos(Number(declaradoTexto) || 0));
   const diferenciaPrevia = $derived(
     corte ? (declarado - corte.efectivoEsperado) : 0,
@@ -105,10 +114,17 @@
     {/if}
   {:else if corte}
     <!-- Corte en vivo del turno abierto -->
+    <!--
+      Se muestra lo COBRADO por forma —lo que de verdad entró por cada canal— y
+      abajo, desglosado, cuánto de eso fue venta y cuánto propina. Quien cierra
+      la caja puede sumar los renglones con el dedo y ver que cuadran; un
+      "total vendido" que no coincide con la suma de arriba destruye la
+      confianza en los tres números a la vez.
+    -->
     <div class="cifras">
       <div><span>Fondo inicial</span><b>{mxn(corte.fondoInicial)}</b></div>
-      {#each Object.entries(corte.ventas) as [forma, monto] (forma)}
-        <div><span>Ventas · {forma}</span><b>{mxn(monto ?? pesos(0))}</b></div>
+      {#each Object.entries(corte.cobrado) as [forma, monto] (forma)}
+        <div><span>Cobrado · {forma}</span><b>{mxn(monto ?? pesos(0))}</b></div>
       {/each}
       {#if corte.movimientos !== 0}
         <div>
@@ -121,11 +137,32 @@
         <b>{mxn(corte.efectivoEsperado)}</b>
       </div>
     </div>
+
+    <div class="cifras desglose">
+      <div><span>De eso, venta del restaurante</span><b>{mxn(corte.totalVendido)}</b></div>
+      {#if corte.propinas > 0}
+        <div><span>De eso, propina del personal</span><b>{mxn(corte.propinas)}</b></div>
+        {#if propinaEnPlastico > 0}
+          <!--
+            La propina que llegó con tarjeta no está en el cajón como propina:
+            entró revuelta con la venta y el restaurante se la debe al mesero en
+            efectivo. Es de las diferencias que más se discuten al cerrar.
+          -->
+          <div class="aviso">
+            <span>Propina cobrada con tarjeta o transferencia</span>
+            <b>{mxn(propinaEnPlastico)}</b>
+          </div>
+        {/if}
+      {/if}
+    </div>
+
     <p class="nota">
-      {corte.cuentasCerradas} cuentas cerradas · total vendido {mxn(corte.totalVendido)}
-      {#if corte.propinas > 0} · propinas {mxn(corte.propinas)}{/if}.
-      Solo el <b>efectivo</b> llega al cajón: las tarjetas y transferencias no se
-      cuentan en el arqueo.
+      {corte.cuentasCerradas} cuentas cerradas. Solo el <b>efectivo</b> llega al
+      cajón: las tarjetas y transferencias no se cuentan en el arqueo.
+      {#if propinaEnPlastico > 0}
+        Los {mxn(propinaEnPlastico)} de propina con tarjeta salen del efectivo al
+        pagarle al personal.
+      {/if}
     </p>
 
     <div class="acciones">
@@ -288,6 +325,17 @@
   }
   .resta {
     color: var(--peligro);
+  }
+  /* El desglose de lo cobrado: qué fue venta y qué fue propina. */
+  .desglose {
+    margin-top: 0.75rem;
+    padding: 0.7rem 0.85rem;
+    border-radius: var(--r-sm);
+    background: var(--fondo);
+  }
+  .desglose .aviso span,
+  .desglose .aviso b {
+    color: var(--acento);
   }
   .destacado {
     border-top: 1.5px solid var(--borde);

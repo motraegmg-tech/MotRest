@@ -13,7 +13,6 @@ import type { EventoPrenomina, JornadaTrabajador } from "../personal/prenomina.j
 import { semanaDe } from "../inteligencia/reportes.js";
 import {
   calcularPrenomina,
-  repartirProporcional,
   tarifasVigentes,
 } from "../personal/prenomina.js";
 
@@ -144,22 +143,6 @@ describe("fondo común por horas", () => {
     );
     expect(p.total_propinas).toBe(pesos(90));
     expect(p.renglones.every((r) => r.propinas === pesos(45))).toBe(true);
-  });
-});
-
-describe("reparto proporcional", () => {
-  it("nunca pierde ni inventa centavos", () => {
-    // Casos incómodos: totales primos repartidos entre pesos desiguales.
-    const casos: [number, number[]][] = [
-      [10_000, [1, 1, 1]],
-      [9_999, [7, 3]],
-      [12_345, [5, 5, 5, 1]],
-      [1, [1, 1]],
-    ];
-    for (const [total, pesosArr] of casos) {
-      const partes = repartirProporcional(total as never, pesosArr);
-      expect(partes.reduce((a, b) => a + b, 0)).toBe(total);
-    }
   });
 });
 

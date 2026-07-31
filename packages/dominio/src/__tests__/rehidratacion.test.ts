@@ -6,7 +6,14 @@ import { describe, expect, it } from "vitest";
 import { pesos } from "../comun/dinero.js";
 import { uuidv7, type ID } from "../comun/ids.js";
 import { IVA_16, snapshotTasas } from "../comun/impuestos.js";
-import { agruparPorMesa, proyectarComanda, renglonesActivos } from "../comanda/reducers.js";
+import {
+  agruparPorMesa,
+  proyectarComanda,
+  mesasConCuentaDuplicada,
+  proyectarSentadas,
+  renglonesActivos,
+  ultimaSentada,
+} from "../comanda/reducers.js";
 import type { EventoComanda } from "../comanda/eventos.js";
 import type { RenglonComanda } from "../comanda/renglon.js";
 import { FabricaEventos } from "../evento.js";
@@ -64,12 +71,93 @@ describe("agrupar el log por mesa", () => {
       f.crear("item_agregado", segunda, { orden_id: segunda, renglon: renglon("Pizza") }),
     ];
 
-    const estado = proyectarComanda(agruparPorMesa(log)["mesa-1"]!);
-    // La segunda orden_creada reinicia la proyección: es una sentada nueva.
-    expect(estado.orden_id).toBe(segunda);
-    expect(estado.cerrada).toBe(false);
-    expect(renglonesActivos(estado)).toHaveLength(1);
-    expect(renglonesActivos(estado)[0]!.descripcion).toBe("Pizza");
+    const deLaMesa = agruparPorMesa(log)["mesa-1"]!;
+
+    /*
+     * EL CANDADO. Proyectar el log de la mesa de corrido devolvía calladamente
+     * solo la última sentada: el café cobrado desaparecía del reporte del
+     * contador aunque el corte de caja sí lo hubiera cobrado. Ahora falla y
+     * obliga a decir cuál de las dos cosas se quiere.
+     */
+    expect(() => proyectarComanda(deLaMesa)).toThrow(/sentadas/);
+
+    // La cuenta que el mesero tiene enfrente: la pizza.
+    const enCurso = ultimaSentada(deLaMesa)!;
+    expect(enCurso.orden_id).toBe(segunda);
+    expect(enCurso.cerrada).toBe(false);
+    expect(renglonesActivos(enCurso)).toHaveLength(1);
+    expect(renglonesActivos(enCurso)[0]!.descripcion).toBe("Pizza");
+
+    // Lo que ven los reportes: LAS DOS, porque las dos son ventas del día.
+    const todas = proyectarSentadas(deLaMesa);
+    expect(todas.map((c) => c.orden_id)).toEqual([primera, segunda]);
+    expect(renglonesActivos(todas[0]!)[0]!.descripcion).toBe("Café");
+  });
+
+  it("una mesa que nunca se abrió no tiene sentada en curso", () => {
+    expect(ultimaSentada([])).toBeNull();
+  });
+
+  /*
+   * DOS TERMINALES, LA MISMA MESA. Cada una la vio libre porque el
+   * `orden_creada` de la otra no había llegado. Al sincronizar aparecen las dos
+   * cuentas abiertas: no se fusionan solas —eso lo decide el restaurante— pero
+   * tienen que VERSE. Antes, una desaparecía con todo lo que le habían pedido.
+   */
+  it("señala una mesa con dos cuentas abiertas a la vez", () => {
+    const f = new FabricaEventos<EventoComanda>(CTX);
+    const desdeCaja = uuidv7();
+    const desdeMovil = uuidv7();
+
+    const log: EventoComanda[] = [
+      f.crear("orden_creada", desdeCaja, { orden_id: desdeCaja, mesa_id: "mesa-5", abierta_ts: 1 }),
+      f.crear("item_agregado", desdeCaja, { orden_id: desdeCaja, renglon: renglon("Pizza") }),
+      f.crear("orden_creada", desdeMovil, { orden_id: desdeMovil, mesa_id: "mesa-5", abierta_ts: 1 }),
+      f.crear("item_agregado", desdeMovil, { orden_id: desdeMovil, renglon: renglon("Refresco") }),
+    ];
+
+    const sentadas = proyectarSentadas(agruparPorMesa(log)["mesa-5"]!);
+    expect(sentadas).toHaveLength(2);
+    expect(mesasConCuentaDuplicada(sentadas)).toEqual(["mesa-5"]);
+  });
+
+  it("una mesa servida y luego vuelta a sentar NO está duplicada", () => {
+    const f = new FabricaEventos<EventoComanda>(CTX);
+    const primera = uuidv7();
+    const segunda = uuidv7();
+
+    const sentadas = proyectarSentadas([
+      f.crear("orden_creada", primera, { orden_id: primera, mesa_id: "mesa-6", abierta_ts: 1 }),
+      f.crear("cuenta_cerrada", primera, { orden_id: primera }),
+      f.crear("orden_creada", segunda, { orden_id: segunda, mesa_id: "mesa-6", abierta_ts: 2 }),
+    ]);
+    expect(mesasConCuentaDuplicada(sentadas)).toEqual([]);
+  });
+
+  /*
+   * Un postre de la sentada anterior que cocina marca entregado tarde llega
+   * DESPUÉS de que la mesa se volvió a abrir. Si la sentada en curso se
+   * recortara por posición en el log, ese postre caería en la cuenta
+   * equivocada y se le cobraría a quien no lo pidió.
+   */
+  it("un evento rezagado de la sentada anterior no se cuela en la nueva", () => {
+    const f = new FabricaEventos<EventoComanda>(CTX);
+    const primera = uuidv7();
+    const segunda = uuidv7();
+    const postre = renglon("Tiramisú");
+
+    const log: EventoComanda[] = [
+      f.crear("orden_creada", primera, { orden_id: primera, mesa_id: "mesa-9", abierta_ts: 1 }),
+      f.crear("item_agregado", primera, { orden_id: primera, renglon: postre }),
+      f.crear("cuenta_cerrada", primera, { orden_id: primera }),
+      f.crear("orden_creada", segunda, { orden_id: segunda, mesa_id: "mesa-9", abierta_ts: 2 }),
+      // Cocina lo marca entregado cuando la mesa ya se volvió a sentar.
+      f.crear("item_entregado", primera, { orden_id: primera, renglon_id: postre.id }),
+    ];
+
+    const enCurso = ultimaSentada(agruparPorMesa(log)["mesa-9"]!)!;
+    expect(enCurso.orden_id).toBe(segunda);
+    expect(enCurso.renglones).toEqual([]);
   });
 
   it("descarta eventos huérfanos, sin su apertura", () => {

@@ -55,6 +55,38 @@
   }
   let respaldo = $state<EstadoRespaldo | null>(null);
 
+  /**
+   * Si el Hub arranca solo al entrar a Windows.
+   *
+   * Importa verlo: el Hub es el corazón del local, y el día que el equipo
+   * reinicia solo tras un apagón nadie se acuerda de abrirlo. Se descubre a
+   * media cena, cuando dos terminales dejan de verse.
+   */
+  interface EstadoArranque {
+    soportado: boolean;
+    activo: boolean;
+    motivo?: string;
+  }
+  let arranque = $state<EstadoArranque | null>(null);
+  let cambiandoArranque = $state(false);
+
+  async function alternarArranque() {
+    if (!arranque?.soportado || cambiandoArranque) return;
+    cambiandoArranque = true;
+    try {
+      const r = await fetch("/arranque-automatico", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ activo: !arranque.activo }),
+      });
+      if (r.ok) arranque = (await r.json()) as EstadoArranque;
+    } catch {
+      // Si no se pudo, se deja el estado que ya se mostraba: no se finge nada.
+    } finally {
+      cambiandoArranque = false;
+    }
+  }
+
   /*
    * Solo la CAJA puede leer esto: `/salud` entrega el detalle únicamente a quien
    * pregunta desde el propio equipo, y desde una terminal de la red la consulta
@@ -70,10 +102,12 @@
         const datos = (await r.json()) as {
           respaldo?: EstadoRespaldo;
           registro?: EstadoRegistro;
+          arranque_automatico?: EstadoArranque;
         };
         if (!vivo) return;
         if (datos.respaldo) respaldo = datos.respaldo;
         if (datos.registro) registro = datos.registro;
+        if (datos.arranque_automatico) arranque = datos.arranque_automatico;
       } catch {
         // Terminal de la red: no es la caja y no le toca ver esto.
       }
@@ -110,6 +144,38 @@
       {sync.etiqueta}
     </div>
   </div>
+
+  <!--
+    Arranque automático. Se muestra solo en la caja: es una decisión sobre ESTA
+    computadora, y el Hub solo la acepta desde su propio equipo.
+  -->
+  {#if arranque}
+    <div class="bloque" class:aviso={!arranque.activo && arranque.soportado}>
+      <div class="texto">
+        <b>
+          {arranque.activo
+            ? "El Hub enciende solo al entrar a Windows"
+            : "El Hub NO enciende solo"}
+        </b>
+        <p>
+          {#if arranque.activo}
+            Si se va la luz y el equipo reinicia, el Hub vuelve sin que nadie
+            tenga que abrirlo.
+          {:else if arranque.soportado}
+            Hay que abrirlo a mano cada vez. El día que el equipo reinicie solo,
+            las terminales dejarán de verse a media cena.
+          {:else}
+            {arranque.motivo ?? "No se puede configurar en este equipo."}
+          {/if}
+        </p>
+      </div>
+      {#if arranque.soportado}
+        <button class="mini" onclick={alternarArranque} disabled={cambiandoArranque}>
+          {arranque.activo ? "Desactivar" : "Activar"}
+        </button>
+      {/if}
+    </div>
+  {/if}
 
   <!--
     Respaldo del registro del local. Se muestra solo en la caja, que es donde
@@ -435,6 +501,51 @@
     border: 1px solid var(--borde);
     border-radius: var(--r-lg);
     padding: 1.1rem 1.25rem;
+  }
+  /* Arranque automático del Hub: estado y su interruptor. */
+  .bloque {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    background: #fff;
+    border: 1px solid var(--borde);
+    border-radius: var(--r-lg);
+    padding: 0.9rem 1.1rem;
+  }
+  .bloque.aviso {
+    border-color: var(--acento);
+    background: color-mix(in srgb, var(--acento) 6%, #fff);
+  }
+  .bloque .texto {
+    flex: 1;
+  }
+  .bloque b {
+    font-size: 0.95rem;
+    font-weight: 650;
+  }
+  .bloque p {
+    font-size: 0.84rem;
+    color: var(--gris);
+    line-height: 1.5;
+    margin-top: 0.2rem;
+  }
+  .mini {
+    padding: 0.4rem 0.85rem;
+    border: 1.5px solid var(--borde);
+    border-radius: var(--r-sm);
+    background: #fff;
+    font-size: 0.82rem;
+    font-weight: 600;
+    cursor: pointer;
+    white-space: nowrap;
+  }
+  .mini:hover:not(:disabled) {
+    border-color: var(--acento);
+    color: var(--acento);
+  }
+  .mini:disabled {
+    opacity: 0.5;
+    cursor: default;
   }
   h2 {
     font-size: 1.05rem;

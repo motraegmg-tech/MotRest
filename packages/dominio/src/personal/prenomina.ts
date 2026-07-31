@@ -14,7 +14,7 @@
  * equipo. Aparte, un cambio de sueldo es un hecho que hay que poder auditar
  * —cuándo cambió, quién lo cambió— y eso es exactamente un evento.
  */
-import { CERO, repartir, sumar, deCentavos, type Centavos } from "../comun/dinero.js";
+import { CERO, repartirProporcional, sumar, deCentavos, type Centavos } from "../comun/dinero.js";
 import type { ID } from "../comun/ids.js";
 import type { EventoBase } from "../evento.js";
 
@@ -106,40 +106,6 @@ export interface Prenomina {
 /** Minutos a horas, redondeando al centésimo. */
 function aHoras(minutos: number): number {
   return Math.round((minutos / 60) * 100) / 100;
-}
-
-/**
- * Reparte un total a prorrata de unos pesos, sin perder ni inventar centavos.
- *
- * Se usa el método del resto mayor: se reparte la parte entera y los centavos
- * sobrantes van a quienes tuvieron el resto más grande. Sin esto, redondear
- * cada parte por separado deja centavos sueltos y el fondo no cuadra — que es
- * justo la clase de diferencia que enciende una discusión el día de la raya.
- */
-export function repartirProporcional(total: Centavos, pesos: readonly number[]): Centavos[] {
-  const n = pesos.length;
-  if (n === 0) return [];
-
-  const suma = pesos.reduce((a, b) => a + b, 0);
-  // Nadie trabajó (o todos con peso cero): se parte en iguales.
-  if (suma <= 0) return repartir(total, n);
-
-  const exactos = pesos.map((p) => (total * p) / suma);
-  const base = exactos.map((x) => Math.floor(x));
-  let asignado = base.reduce((a, b) => a + b, 0);
-
-  const porResto = exactos
-    .map((x, i) => ({ i, resto: x - Math.floor(x) }))
-    .sort((a, b) => b.resto - a.resto);
-
-  let k = 0;
-  while (asignado < total && k < porResto.length) {
-    base[porResto[k]!.i]! += 1;
-    asignado += 1;
-    k += 1;
-  }
-
-  return base.map((c) => deCentavos(c));
 }
 
 /**

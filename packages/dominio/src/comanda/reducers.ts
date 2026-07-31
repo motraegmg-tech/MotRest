@@ -289,16 +289,72 @@ export function aplicarEvento(
   }
 }
 
-/** Reconstruye el estado reproduciendo toda la secuencia de eventos. */
+/**
+ * Reconstruye UNA comanda —una sentada— reproduciendo sus eventos.
+ *
+ * EXIGE los eventos de una sola orden. Si recibe el log completo de una mesa
+ * servida varias veces, FALLA en vez de devolver la última en silencio.
+ *
+ * Es a propósito, y es la lección más cara de este proyecto. `orden_creada`
+ * arranca estado nuevo, así que un log de mesa entero devolvía calladamente
+ * solo la última sentada: el contador y los reportes veían una fracción de la
+ * noche mientras el corte de caja —que suma pagos— las veía todas. Dos números
+ * distintos para el mismo viernes, y ninguna forma de saber cuál creer.
+ *
+ * Con este candado la equivocación deja de ser posible: quien tenga un log de
+ * mesa tiene que decir cuál de las dos cosas quiere, `ultimaSentada` o
+ * `proyectarSentadas`.
+ */
 export function proyectarComanda(eventos: readonly EventoComanda[]): EstadoComanda {
   let estado: EstadoComanda | null = null;
+  let aperturas = 0;
+
   for (const ev of eventos) {
+    if (ev.tipo === "orden_creada") aperturas += 1;
     estado = aplicarEvento(estado, ev);
   }
+
   if (!estado) {
     throw new Error("No hay eventos: no se puede proyectar la comanda");
   }
+  if (aperturas > 1) {
+    throw new Error(
+      `Este log tiene ${aperturas} sentadas, no una. Proyectarlo de corrido perdería ` +
+        "todas menos la última. Usa ultimaSentada() para la cuenta en curso, o " +
+        "proyectarSentadas() para todas.",
+    );
+  }
   return estado;
+}
+
+/** Agrupa los eventos por orden. Cada grupo es una sentada. */
+function porOrden(eventos: readonly EventoComanda[]): Map<ID, EventoComanda[]> {
+  const grupos = new Map<ID, EventoComanda[]>();
+  for (const ev of eventos) {
+    const grupo = grupos.get(ev.orden_id) ?? [];
+    grupo.push(ev);
+    grupos.set(ev.orden_id, grupo);
+  }
+  return grupos;
+}
+
+/**
+ * La sentada en curso de una mesa: la cuenta que el mesero tiene enfrente.
+ *
+ * Se filtra por `orden_id`, no por posición en el log. Un postre de la sentada
+ * anterior que cocina marca entregado tarde llega DESPUÉS de que la mesa se
+ * volvió a abrir, y cortar por posición lo metería en la cuenta equivocada.
+ *
+ * Devuelve `null` si la mesa nunca se abrió.
+ */
+export function ultimaSentada(eventos: readonly EventoComanda[]): EstadoComanda | null {
+  let ultima: ID | null = null;
+  for (const ev of eventos) {
+    if (ev.tipo === "orden_creada") ultima = ev.orden_id;
+  }
+  if (!ultima) return null;
+
+  return proyectarComanda(eventos.filter((e) => e.orden_id === ultima));
 }
 
 /** Renglones no cancelados (los que cuentan para totales e impresión). */
@@ -317,30 +373,45 @@ export function renglonesPendientes(estado: EstadoComanda): RenglonComanda[] {
  * eventos huérfanos (sin su apertura) se descartan.
  */
 /**
- * Separa un log en una comanda por SENTADA, no por mesa.
+ * TODAS las sentadas de un log: una comanda por cuenta, no por mesa.
  *
- * Una mesa se sirve varias veces en un viernes. Proyectar su log completo de
- * corrido devuelve solo la ÚLTIMA sentada, porque `orden_creada` arranca estado
- * nuevo: las anteriores desaparecen del reporte aunque estén en el log y
- * aunque el corte de caja sí las haya cobrado. Ahí es donde el contador y la
- * caja dejan de coincidir.
+ * Es lo que tienen que consumir los reportes y el contador. Una mesa se sirve
+ * cinco veces un viernes, y las cinco son ventas.
  */
 export function proyectarSentadas(eventos: readonly EventoComanda[]): EstadoComanda[] {
-  const porOrden = new Map<ID, EventoComanda[]>();
-  for (const ev of eventos) {
-    const grupo = porOrden.get(ev.orden_id) ?? [];
-    grupo.push(ev);
-    porOrden.set(ev.orden_id, grupo);
-  }
-
   const comandas: EstadoComanda[] = [];
-  for (const grupo of porOrden.values()) {
+
+  for (const grupo of porOrden(eventos).values()) {
     // Un grupo sin `orden_creada` no se puede proyectar: son eventos sueltos de
     // una orden que vive en otro dispositivo y todavía no llega.
     if (!grupo.some((e) => e.tipo === "orden_creada")) continue;
     comandas.push(proyectarComanda(grupo));
   }
   return comandas.sort((a, b) => a.abierta_ts - b.abierta_ts);
+}
+
+/**
+ * Mesas con MÁS DE UNA cuenta abierta a la vez.
+ *
+ * Una mesa no puede tener dos cuentas abiertas: es una mesa. Ocurre cuando dos
+ * terminales la ponen en servicio casi al mismo tiempo — cada una la ve libre
+ * porque el `orden_creada` de la otra todavía no le llega, y al sincronizar
+ * aparecen las dos. En un mismo dispositivo ya no puede pasar; entre terminales
+ * distintas sí, y hay que verlo.
+ *
+ * No se fusionan solas: quién junta dos cuentas y con qué criterio es una
+ * decisión del restaurante, no del software. Lo que sí es obligación del
+ * software es no esconderlo — antes, una de las dos desaparecía de la pantalla
+ * con todo lo que le habían pedido.
+ */
+export function mesasConCuentaDuplicada(comandas: readonly EstadoComanda[]): ID[] {
+  const abiertasPorMesa = new Map<ID, number>();
+  for (const c of comandas) {
+    if (c.cerrada) continue;
+    abiertasPorMesa.set(c.mesa_id, (abiertasPorMesa.get(c.mesa_id) ?? 0) + 1);
+  }
+
+  return [...abiertasPorMesa.entries()].filter(([, cuantas]) => cuantas > 1).map(([mesa]) => mesa);
 }
 
 export function agruparPorMesa(

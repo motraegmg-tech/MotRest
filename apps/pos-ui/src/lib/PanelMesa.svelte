@@ -19,6 +19,7 @@
 
   const estado = $derived(pos.estadoMesa(pos.mesaActiva));
   const area = $derived(plano.areaDeMesa(pos.mesaActiva));
+  const duplicada = $derived(pos.mesasDuplicadas.includes(pos.mesaActiva));
   const t = $derived(pos.totales);
 </script>
 
@@ -35,6 +36,19 @@
       {:else}En servicio{/if}
     </span>
   </div>
+
+  <!--
+    Dos terminales pusieron esta mesa en servicio antes de sincronizar, así que
+    quedaron dos cuentas abiertas. Se avisa ANTES de cobrar: descubrirlo después
+    significa que a alguien se le cobró de menos y ya se fue.
+  -->
+  {#if duplicada}
+    <p class="duplicada" role="alert">
+      <b>Esta mesa tiene dos cuentas abiertas.</b>
+      Se abrió desde dos terminales a la vez. Revisa las dos y traspasa los
+      platillos a una sola antes de cobrar.
+    </p>
+  {/if}
 
   {#if estado === "libre"}
     <div class="centro">
@@ -89,6 +103,17 @@
 </section>
 
 <style>
+  .duplicada {
+    margin: 0.75rem 0 0;
+    padding: 0.6rem 0.8rem;
+    border-radius: var(--r-sm);
+    border: 1px solid var(--peligro);
+    background: color-mix(in srgb, var(--peligro) 8%, transparent);
+    color: var(--pizarra);
+    font-size: 0.85rem;
+    line-height: 1.45;
+  }
+
   .panel {
     flex: 1;
     display: flex;

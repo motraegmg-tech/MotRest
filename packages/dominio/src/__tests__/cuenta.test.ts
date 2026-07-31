@@ -2,7 +2,7 @@
  * Descuentos, cortesías, propina, cobro y corte de caja.
  */
 import { describe, expect, it } from "vitest";
-import { CERO, pesos, repartir, sumar } from "../comun/dinero.js";
+import { CERO, pesos, repartir, restar, sumar } from "../comun/dinero.js";
 import { uuidv7, type ID } from "../comun/ids.js";
 import { IVA_16, snapshotTasas } from "../comun/impuestos.js";
 import type { EventoComanda } from "../comanda/eventos.js";
@@ -273,8 +273,19 @@ describe("sesión de caja y corte", () => {
       fc.crear("cuenta_cerrada", orden, { orden_id: orden }),
     ]);
 
-    expect(corte.ventas.efectivo).toBe(pesos(500));
-    expect(corte.ventas.tarjeta_credito).toBe(pesos(450));
+    // Lo que ENTRÓ por cada forma, propina incluida.
+    expect(corte.cobrado.efectivo).toBe(pesos(500));
+    expect(corte.cobrado.tarjeta_credito).toBe(pesos(450));
+
+    /*
+     * La propina se reparte entre las formas con que pagó ESTA cuenta, a
+     * prorrata: 80 sobre 950 cobrados → 42.11 del efectivo y 37.89 de la
+     * tarjeta. El resto mayor decide el centavo suelto, así que la suma cuadra.
+     */
+    expect(sumar(...Object.values(corte.propinasPorForma))).toBe(pesos(80));
+    expect(corte.ventas.efectivo).toBe(restar(pesos(500), corte.propinasPorForma.efectivo!));
+    expect(sumar(...Object.values(corte.ventas))).toBe(corte.totalVendido);
+
     // 950 cobrados − 80 de propina. La propina es del mesero, no venta del local.
     expect(corte.totalVendido).toBe(pesos(870));
     expect(corte.propinas).toBe(pesos(80));

@@ -35,6 +35,7 @@ import {
 } from "@motrest/protocolo-sync";
 import { almacenSqlite } from "@motrest/protocolo-sync/sqlite";
 import { Hub, type Conexion } from "./servidor.js";
+import * as autoarranque from "./autoarranque.js";
 import { carpetaCertificados, certificadoTls, type CertificadoTls } from "./certificado.js";
 import { anunciarEnLaRed } from "./descubrimiento.js";
 import { Sellador, carpetaDelCsd } from "./fiscal/sellador.js";
@@ -84,6 +85,18 @@ function carpetaDeDatos(): string {
 }
 
 const RUTA_DB = resolve(process.env.MOTREST_HUB_DB ?? carpetaDeDatos());
+
+/**
+ * ¿Es la instalación de verdad, o un ensayo?
+ *
+ * Un ensayo levanta el MISMO ejecutable sobre una base temporal. No debe
+ * registrarse en el arranque de Windows: dejaría el Hub apuntando a una carpeta
+ * que se borra al terminar la prueba.
+ */
+const INSTALACION_REAL = INSTALADO && process.env.MOTREST_HUB_DB === undefined;
+
+/** Cómo quedó el arranque automático con Windows. Se reporta en /salud. */
+let arranqueAutomatico: autoarranque.EstadoAutoarranque = { soportado: false, activo: false };
 
 /**
  * Dónde se guardan las copias del registro del local.
@@ -393,6 +406,45 @@ function atender(peticion: IncomingMessage, respuesta: ServerResponse): void {
    * local—. El transporte, además, solo marca a IPs privadas y puertos de
    * impresora. El CORS se abre nada más para el origen de la propia caja.
    */
+  /*
+   * Encender o apagar el arranque automático con Windows.
+   *
+   * Solo desde este mismo equipo: es una decisión sobre ESTA computadora, y
+   * nadie en la wifi del local tiene por qué poder tocar qué arranca en la caja.
+   */
+  if (url.pathname === "/arranque-automatico") {
+    if (!esLocal) {
+      json(403, { error: "Solo se configura desde el propio equipo" });
+      return;
+    }
+    permitirCorsCaja(peticion, respuesta);
+    if (peticion.method === "OPTIONS") {
+      respuesta.writeHead(204);
+      respuesta.end();
+      return;
+    }
+    if (peticion.method !== "POST") {
+      json(405, { error: "Usa POST" });
+      return;
+    }
+
+    void leerCuerpo(peticion)
+      .then(async (crudo) => {
+        const texto = crudo.toString("utf8") || "{}";
+        const quiere = (JSON.parse(texto) as { activo?: unknown }).activo === true;
+        arranqueAutomatico = quiere
+          ? await autoarranque.activar()
+          : await autoarranque.desactivar();
+        registrar(
+          "info",
+          `Arranque automático ${arranqueAutomatico.activo ? "activado" : "desactivado"}.`,
+        );
+        json(200, arranqueAutomatico);
+      })
+      .catch((causa) => json(400, { error: String(causa) }));
+    return;
+  }
+
   if (url.pathname === "/imprimir") {
     if (!esLocal) {
       json(403, { error: "La impresión solo se acepta desde el propio equipo" });
@@ -436,6 +488,7 @@ function atender(peticion: IncomingMessage, respuesta: ServerResponse): void {
         respaldo: copias[0]
           ? { ultimo: copias[0].ts, copias: copias.length, carpeta: RUTA_RESPALDOS }
           : { ultimo: null, copias: 0, carpeta: RUTA_RESPALDOS },
+        arranque_automatico: arranqueAutomatico,
         exige_aprobacion: EXIGIR_APROBACION,
         cifrado: "AES-256-GCM",
         tls: tls.huella,
@@ -741,6 +794,20 @@ async function arrancar(): Promise<void> {
   wssLocal = new WebSocketServer({ server: servidorLocal, path: "/sync" });
   wss.on("connection", alConectar);
   wssLocal.on("connection", alConectar);
+
+  /*
+   * Que la próxima vez encienda solo.
+   *
+   * Se hace DESPUÉS de que todo lo demás salió bien: registrar en el arranque
+   * de Windows un Hub que no logra levantar sería garantizar que falle todas
+   * las mañanas en vez de una sola vez.
+   */
+  arranqueAutomatico = await autoarranque.asegurarAlArrancar(INSTALACION_REAL);
+  if (arranqueAutomatico.activo) {
+    registrar("info", "El Hub arrancará solo al entrar a Windows.");
+  } else if (arranqueAutomatico.motivo) {
+    registrar("aviso", arranqueAutomatico.motivo);
+  }
 
   escuchar();
 }

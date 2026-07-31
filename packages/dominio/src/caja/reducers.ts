@@ -5,7 +5,7 @@
  * más los movimientos manuales. La diferencia contra lo declarado es lo que el
  * gerente revisa al cerrar.
  */
-import { CERO, restar, sumar, type Centavos } from "../comun/dinero.js";
+import { CERO, repartirProporcional, restar, sumar, type Centavos } from "../comun/dinero.js";
 import type { ID } from "../comun/ids.js";
 import type { EventoComanda, FormaPago } from "../comanda/eventos.js";
 import type {
@@ -134,17 +134,42 @@ export function sesionAbierta(eventos: readonly EventoCaja[]): EstadoCaja | unde
 
 // --- Corte del turno ------------------------------------------------------------
 
+/**
+ * El corte del turno.
+ *
+ * TRES PREGUNTAS DISTINTAS, TRES NÚMEROS QUE NO SE PISAN. El cliente paga
+ * cuenta y propina de un solo golpe, así que el cobro las trae revueltas — y
+ * ahí nacía el enredo. Cada pregunta tiene ahora su renglón, y los renglones
+ * cuadran entre sí a la vista de quien cierra la caja:
+ *
+ *   1. ¿Cuánto debe haber en el cajón?   → `efectivoEsperado`
+ *   2. ¿Cuánto vendí?                    → `totalVendido` (= suma de `ventas`)
+ *   3. ¿Cuánta propina hay que entregar? → `propinas` (= suma de `propinasPorForma`)
+ *
+ * Y siempre: `cobrado[forma] === ventas[forma] + propinasPorForma[forma]`.
+ */
 export interface CorteCaja {
-  /** Lo COBRADO por forma de pago, propina incluida: es lo que entró. */
-  ventas: VentasPorForma;
+  /** Lo que ENTRÓ por cada forma de pago, propina incluida. */
+  cobrado: VentasPorForma;
+  totalCobrado: Centavos;
+
   /**
-   * La venta del turno, SIN propina.
+   * La VENTA por forma, ya sin propina. Suma exactamente `totalVendido`.
    *
-   * El cliente paga cuenta + propina de una sola vez, así que el cobro las trae
-   * juntas. Pero la propina es del mesero, no del restaurante: contarla como
-   * venta infla el ingreso, y el contador declararía de más.
+   * La propina es del mesero, no del restaurante: contarla como venta infla el
+   * ingreso y el contador declararía de más.
    */
+  ventas: VentasPorForma;
   totalVendido: Centavos;
+
+  /**
+   * La propina por forma de pago. Importa cómo llegó, no solo cuánta:
+   * la que entró por TARJETA es dinero que el restaurante le debe al mesero en
+   * efectivo, y sale del cajón sin ser un gasto del negocio.
+   */
+  propinasPorForma: VentasPorForma;
+  propinas: Centavos;
+
   /** Efectivo recibido, propina incluida: es lo que de verdad está en el cajón. */
   efectivoVentas: Centavos;
   fondoInicial: Centavos;
@@ -152,9 +177,18 @@ export interface CorteCaja {
   movimientos: Centavos;
   /** Lo que debería haber en el cajón. */
   efectivoEsperado: Centavos;
-  propinas: Centavos;
   /** Cuentas cerradas en el turno. */
   cuentasCerradas: number;
+}
+
+/** Lo cobrado y lo propinado de una cuenta, para poder separarlos después. */
+interface CuentaDelTurno {
+  pagos: { forma: FormaPago; monto: Centavos }[];
+  propina: Centavos;
+}
+
+function acumular(mapa: VentasPorForma, forma: FormaPago, monto: Centavos): void {
+  mapa[forma] = sumar(mapa[forma] ?? CERO, monto);
 }
 
 /**
@@ -165,38 +199,79 @@ export function calcularCorte(
   caja: EstadoCaja,
   eventosComanda: readonly EventoComanda[],
 ): CorteCaja {
-  const ventas: VentasPorForma = {};
-  let cobrado = CERO;
+  const cobrado: VentasPorForma = {};
+  const cuentas = new Map<ID, CuentaDelTurno>();
+  let totalCobrado = CERO;
   let efectivoVentas = CERO;
   let propinas = CERO;
   let cuentasCerradas = 0;
 
   for (const ev of eventosComanda) {
     if (ev.tipo === "pago_registrado") {
-      const forma: FormaPago = ev.forma;
-      ventas[forma] = sumar(ventas[forma] ?? CERO, ev.monto);
-      cobrado = sumar(cobrado, ev.monto);
-      if (forma === "efectivo") efectivoVentas = sumar(efectivoVentas, ev.monto);
+      const cuenta = cuentas.get(ev.orden_id) ?? { pagos: [], propina: CERO };
+      cuenta.pagos.push({ forma: ev.forma, monto: ev.monto });
+      cuentas.set(ev.orden_id, cuenta);
+
+      acumular(cobrado, ev.forma, ev.monto);
+      totalCobrado = sumar(totalCobrado, ev.monto);
+      if (ev.forma === "efectivo") efectivoVentas = sumar(efectivoVentas, ev.monto);
     } else if (ev.tipo === "propina_registrada") {
+      const cuenta = cuentas.get(ev.orden_id) ?? { pagos: [], propina: CERO };
+      cuenta.propina = sumar(cuenta.propina, ev.monto);
+      cuentas.set(ev.orden_id, cuenta);
       propinas = sumar(propinas, ev.monto);
     } else if (ev.tipo === "cuenta_cerrada") {
       cuentasCerradas += 1;
     }
   }
 
+  /*
+   * A QUÉ FORMA LE TOCA CADA PROPINA.
+   *
+   * Se resuelve cuenta por cuenta: la propina de una mesa se reparte entre las
+   * formas con que ESA mesa pagó, a prorrata de lo pagado con cada una. Repartir
+   * la propina total del turno contra el gran total mezclaría mesas que no
+   * tienen nada que ver, y con cuentas divididas el reparto por resto mayor es
+   * lo único que no deja centavos sueltos.
+   */
+  const propinasPorForma: VentasPorForma = {};
+  let propinaEnLosCobros = CERO;
+
+  for (const cuenta of cuentas.values()) {
+    if (cuenta.propina <= 0 || cuenta.pagos.length === 0) continue;
+
+    // Nunca más de lo que se cobró: si la propina se registró pero la cuenta
+    // todavía no se paga, no hay cobro del que descontarla.
+    const totalPagos = sumar(...cuenta.pagos.map((p) => p.monto));
+    const aRepartir = Math.min(cuenta.propina, totalPagos) as Centavos;
+    if (aRepartir <= 0) continue;
+
+    const partes = repartirProporcional(aRepartir, cuenta.pagos.map((p) => p.monto));
+    cuenta.pagos.forEach((p, i) => acumular(propinasPorForma, p.forma, partes[i] ?? CERO));
+    propinaEnLosCobros = sumar(propinaEnLosCobros, aRepartir);
+  }
+
+  // La venta por forma es lo que entró menos la propina que venía dentro.
+  const ventas: VentasPorForma = {};
+  for (const [forma, monto] of Object.entries(cobrado) as [FormaPago, Centavos][]) {
+    ventas[forma] = restar(monto, propinasPorForma[forma] ?? CERO);
+  }
+
   const movimientos = sumar(...caja.movimientos.map((m) => m.monto));
 
   return {
+    cobrado,
+    totalCobrado,
     ventas,
-    // La propina viaja DENTRO del cobro; se descuenta para no declararla como
-    // ingreso. El cajón, en cambio, sí la tiene: por eso `efectivoVentas` queda
-    // bruto y el esperado se calcula sobre él.
-    totalVendido: restar(cobrado, propinas),
+    totalVendido: restar(totalCobrado, propinaEnLosCobros),
+    propinasPorForma,
+    propinas,
+    // El cajón tiene el efectivo COMPLETO, propina incluida: por eso el
+    // esperado se calcula sobre el bruto y no sobre la venta.
     efectivoVentas,
     fondoInicial: caja.fondo_inicial,
     movimientos,
     efectivoEsperado: sumar(caja.fondo_inicial, efectivoVentas, movimientos),
-    propinas,
     cuentasCerradas,
   };
 }

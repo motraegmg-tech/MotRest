@@ -77,3 +77,38 @@ export function repartir(total: Centavos, partes: number): Centavos[] {
     (base + (i < restantes ? signo : 0)) as Centavos,
   );
 }
+
+/**
+ * Reparte un total en partes DESIGUALES, según un peso por parte, sin perder ni
+ * inventar centavos.
+ *
+ * Redondear cada parte por su cuenta deja centavos sueltos: los sobrantes van a
+ * quienes tuvieron el resto más grande, de modo que la suma cuadre siempre. Lo
+ * usa el reparto de propinas por horas trabajadas y la atribución de la propina
+ * a la forma de pago con que se cobró.
+ */
+export function repartirProporcional(total: Centavos, pesos: readonly number[]): Centavos[] {
+  const n = pesos.length;
+  if (n === 0) return [];
+
+  const suma = pesos.reduce((a, b) => a + b, 0);
+  // Nadie aportó peso: se parte en iguales, que es lo único defendible.
+  if (suma <= 0) return repartir(total, n);
+
+  const exactos = pesos.map((p) => (total * p) / suma);
+  const base = exactos.map((x) => Math.floor(x));
+  let asignado = base.reduce((a, b) => a + b, 0);
+
+  const porResto = exactos
+    .map((x, i) => ({ i, resto: x - Math.floor(x) }))
+    .sort((a, b) => b.resto - a.resto);
+
+  let k = 0;
+  while (asignado < total && k < porResto.length) {
+    base[porResto[k]!.i]! += 1;
+    asignado += 1;
+    k += 1;
+  }
+
+  return base.map((c) => deCentavos(c));
+}

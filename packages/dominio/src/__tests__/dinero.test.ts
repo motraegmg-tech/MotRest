@@ -6,6 +6,7 @@ import {
   porCantidad,
   porFraccion,
   repartir,
+  repartirProporcional,
   restar,
   sumar,
 } from "../comun/dinero.js";
@@ -78,5 +79,40 @@ describe("repartir sin perder ni inventar centavos", () => {
     expect(() => repartir(pesos(100), 0)).toThrow();
     expect(() => repartir(pesos(100), -2)).toThrow();
     expect(() => repartir(pesos(100), 2.5)).toThrow();
+  });
+});
+
+/*
+ * El reparto DESIGUAL. Lo usan el fondo de propinas por horas trabajadas y la
+ * atribución de la propina a la forma de pago con que se cobró: dos sitios donde
+ * un centavo suelto se convierte en un descuadre que alguien tiene que explicar.
+ */
+describe("reparto proporcional", () => {
+  it("nunca pierde ni inventa centavos", () => {
+    // Casos incómodos: totales primos repartidos entre pesos desiguales.
+    const casos: [number, number[]][] = [
+      [10_000, [1, 1, 1]],
+      [9_999, [7, 3]],
+      [12_345, [5, 5, 5, 1]],
+      [1, [1, 1]],
+      [7, [1, 1, 1, 1, 1, 1]],
+    ];
+    for (const [total, pesosArr] of casos) {
+      const partes = repartirProporcional(deCentavos(total), pesosArr);
+      expect(sumar(...partes)).toBe(total);
+    }
+  });
+
+  it("reparte según el peso, no en iguales", () => {
+    expect(repartirProporcional(pesos(100), [3, 1])).toEqual([pesos(75), pesos(25)]);
+  });
+
+  /* Sin peso no hay proporción posible: partir en iguales es lo único defendible. */
+  it("con todos los pesos en cero, parte en iguales", () => {
+    expect(repartirProporcional(pesos(90), [0, 0, 0])).toEqual([pesos(30), pesos(30), pesos(30)]);
+  });
+
+  it("sin partes, no reparte nada", () => {
+    expect(repartirProporcional(pesos(100), [])).toEqual([]);
   });
 });

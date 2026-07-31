@@ -7,13 +7,14 @@
  * de suma es una acusación de robo contra el cajero.
  */
 import { describe, expect, it } from "vitest";
-import { pesos, CERO } from "../comun/dinero.js";
+import { pesos, sumar, CERO } from "../comun/dinero.js";
 import { FabricaEventos } from "../evento.js";
-import type { EventoComanda } from "../comanda/eventos.js";
+import type { EventoComanda, FormaPago } from "../comanda/eventos.js";
 import type { EventoCaja, ResumenCorte } from "../caja/eventos.js";
 import {
   calcularCorte,
   diferenciaArqueo,
+  type CorteCaja,
   proyectarCaja,
   proyectarSesiones,
   sesionAbierta,
@@ -69,18 +70,82 @@ describe("cálculo del corte", () => {
     const { caja: c, pagos } = turnoConVentas();
     const corte = calcularCorte(proyectarCaja([c])!, pagos);
 
-    // Lo COBRADO por forma: es lo que entró, propina incluida.
-    expect(corte.ventas).toEqual({ efectivo: pesos(300), tarjeta_credito: pesos(500) });
+    // Lo COBRADO por forma: lo que entró, propina incluida.
+    expect(corte.cobrado).toEqual({ efectivo: pesos(300), tarjeta_credito: pesos(500) });
+    expect(corte.totalCobrado).toBe(pesos(800));
+
     /*
      * La VENTA es lo cobrado menos la propina. El cliente paga cuenta y propina
      * de un solo golpe, pero la propina es del mesero: contarla como venta infla
      * el ingreso y el contador declararía de más.
+     *
+     * La propina fue de la cuenta o2, que se pagó CON TARJETA: se descuenta de
+     * la tarjeta, no del efectivo. Repartirla contra el gran total del turno le
+     * habría quitado venta al efectivo, que no la tuvo.
      */
+    expect(corte.ventas).toEqual({ efectivo: pesos(300), tarjeta_credito: pesos(450) });
     expect(corte.totalVendido).toBe(pesos(750));
+
+    // Y esos $50 el restaurante se los debe al mesero, en efectivo del cajón.
+    expect(corte.propinasPorForma).toEqual({ tarjeta_credito: pesos(50) });
+    expect(corte.propinas).toBe(pesos(50));
+
     // El cajón, en cambio, sí tiene el efectivo tal cual entró.
     expect(corte.efectivoVentas).toBe(pesos(300));
     expect(corte.cuentasCerradas).toBe(2);
-    expect(corte.propinas).toBe(pesos(50));
+  });
+
+  /*
+   * LA INVARIANTE QUE HACE LEGIBLE EL ARQUEO. Quien cierra la caja ve tres
+   * renglones por forma de pago; si no cuadran entre sí, deja de confiar en los
+   * tres. Por forma: cobrado = venta + propina.
+   */
+  it("por cada forma de pago, lo cobrado es la venta más la propina", () => {
+    const { caja: c, pagos } = turnoConVentas();
+    const corte = calcularCorte(proyectarCaja([c])!, pagos);
+
+    for (const forma of Object.keys(corte.cobrado) as FormaPago[]) {
+      expect(corte.cobrado[forma]).toBe(
+        sumar(corte.ventas[forma] ?? CERO, corte.propinasPorForma[forma] ?? CERO),
+      );
+    }
+    expect(sumar(...Object.values(corte.ventas))).toBe(corte.totalVendido);
+  });
+
+  /*
+   * LA CUENTA DIVIDIDA CON PROPINA. Tres amigos, uno paga con tarjeta y dos en
+   * efectivo: la propina se reparte a prorrata de lo que puso cada quien, y no
+   * se pierde ni se inventa un centavo al hacerlo.
+   */
+  it("reparte la propina de una cuenta dividida entre las formas con que se pagó", () => {
+    const c = comanda();
+    const corte = calcularCorte(proyectarCaja([abrir("s1", 0)])!, [
+      c.crear("pago_registrado", "o9", { orden_id: "o9", monto: pesos(200), forma: "efectivo" }),
+      c.crear("pago_registrado", "o9", { orden_id: "o9", monto: pesos(100), forma: "tarjeta_credito" }),
+      c.crear("propina_registrada", "o9", { orden_id: "o9", monto: pesos(33) }),
+      c.crear("cuenta_cerrada", "o9", { orden_id: "o9" }),
+    ]);
+
+    // 33 repartidos 200:100 → 22 y 11. Suma exacta.
+    expect(corte.propinasPorForma).toEqual({ efectivo: pesos(22), tarjeta_credito: pesos(11) });
+    expect(sumar(...Object.values(corte.propinasPorForma))).toBe(pesos(33));
+    expect(corte.totalVendido).toBe(pesos(267));
+  });
+
+  /*
+   * Una propina apuntada antes de cobrar no tiene de dónde descontarse todavía.
+   * Se cuenta como propina del turno —el mesero se la ganó— pero no se le resta
+   * a una venta que no existe.
+   */
+  it("una propina sin cobro todavía no le resta a ninguna venta", () => {
+    const c = comanda();
+    const corte = calcularCorte(proyectarCaja([abrir("s1", 0)])!, [
+      c.crear("propina_registrada", "o7", { orden_id: "o7", monto: pesos(40) }),
+    ]);
+
+    expect(corte.propinas).toBe(pesos(40));
+    expect(corte.totalVendido).toBe(CERO);
+    expect(corte.propinasPorForma).toEqual({});
   });
 
   /*
@@ -115,11 +180,14 @@ describe("cálculo del corte", () => {
 // --- El arqueo ---------------------------------------------------------------------------
 
 describe("diferencia del arqueo", () => {
-  const corteBase = (esperado: number) =>
-    ({
-      ventas: {}, totalVendido: CERO, efectivoVentas: CERO, fondoInicial: CERO,
-      movimientos: CERO, efectivoEsperado: pesos(esperado), propinas: CERO, cuentasCerradas: 0,
-    }) as const;
+  // El arqueo solo mira el cajón: lo demás del corte da igual aquí.
+  const corteBase = (esperado: number): CorteCaja => ({
+    cobrado: {}, totalCobrado: CERO,
+    ventas: {}, totalVendido: CERO,
+    propinasPorForma: {}, propinas: CERO,
+    efectivoVentas: CERO, fondoInicial: CERO, movimientos: CERO,
+    efectivoEsperado: pesos(esperado), cuentasCerradas: 0,
+  });
 
   it("cuadra cuando lo declarado iguala lo esperado", () => {
     expect(diferenciaArqueo(corteBase(1800), pesos(1800))).toBe(CERO);
