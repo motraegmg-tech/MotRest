@@ -10,7 +10,8 @@
     "start": "tsx src/main.ts",
     "build": "tsc --noEmit -p tsconfig.json",
     "lint": "tsc --noEmit -p tsconfig.json",
-    "test": "vitest run"
+    "test": "vitest run",
+    "ensayo": "node ensayo/webhook.mjs"
   },
   "dependencies": {
     "@motrest/dominio": "workspace:*",
