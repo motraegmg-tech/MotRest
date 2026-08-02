@@ -70,6 +70,7 @@ export * from "./clientes/opinion.js";
 export * from "./clientes/reservas.js";
 export * from "./clientes/acceso.js";
 export * from "./clientes/lealtad.js";
+export * from "./clientes/mensajeria.js";
 
 // Fiscal (CFDI 4.0)
 export * from "./fiscal/claves.js";
