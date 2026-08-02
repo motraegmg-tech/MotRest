@@ -17,6 +17,7 @@ import {
   type EventoIdentidad,
   type EventoInventario,
   type EventoOpinion,
+  type EventoReserva,
   type EventoPrenomina,
 } from "@motrest/dominio";
 import { almacenEnMemoria, almacenIndexedDB, type Almacen } from "@motrest/protocolo-sync";
@@ -26,6 +27,7 @@ import { clientes } from "../clientes.svelte";
 import { egresos } from "../egresos.svelte";
 import { compras } from "../compras.svelte";
 import { opiniones } from "../opiniones.svelte";
+import { reservas } from "../reservas.svelte";
 import { prenomina } from "../prenomina.svelte";
 import { cartaVacia, catalogo, impuestos } from "../catalogo";
 import { menuDemostracion } from "../demo/carta";
@@ -85,6 +87,13 @@ const TIPOS_PRENOMINA = new Set(["tarifa_asignada"]);
 
 /** Voz del cliente. */
 const TIPOS_OPINION = new Set(["opinion_registrada"]);
+/** Reservas (M7). La lista de espera NO viaja: vive solo en su terminal. */
+const TIPOS_RESERVA = new Set([
+  "reserva_creada",
+  "reserva_sentada",
+  "reserva_cancelada",
+  "reserva_no_llego",
+]);
 const TIPOS_EGRESO = new Set(["egreso_registrado", "egreso_anulado"]);
 
 /** Eventos de compras (proveedores y ordenes). */
@@ -205,7 +214,8 @@ class Arranque {
               !TIPOS_CAJA.has(e.tipo) &&
               !TIPOS_CLIENTE.has(e.tipo) &&
               !TIPOS_PRENOMINA.has(e.tipo) &&
-              !TIPOS_OPINION.has(e.tipo),
+              !TIPOS_OPINION.has(e.tipo) &&
+              !TIPOS_RESERVA.has(e.tipo),
           ) as EventoIdentidad[],
           almacen,
         );
@@ -253,6 +263,11 @@ class Arranque {
             TIPOS_OPINION.has((e as EventoOpinion).tipo),
           ) as EventoOpinion[],
         );
+        reservas.hidratar(
+          ordenados.filter((e) =>
+            TIPOS_RESERVA.has((e as EventoReserva).tipo),
+          ) as EventoReserva[],
+        );
       }
 
       // A partir de aquí, cada evento emitido se persiste.
@@ -269,6 +284,7 @@ class Arranque {
       clientes.conectarAlmacen(almacen);
       prenomina.conectarAlmacen(almacen);
       opiniones.conectarAlmacen(almacen);
+      reservas.conectarAlmacen(almacen);
 
       // El almacén nace en la etapa 8: un dispositivo con operación anterior no
       // tiene ni un movimiento y abriría el inventario en ceros. Se carga aquí,
@@ -323,6 +339,7 @@ class Arranque {
     clientes.hidratar([]);
     prenomina.hidratar([]);
     opiniones.hidratar([]);
+    reservas.hidratar([]);
   }
 
   /**
@@ -383,6 +400,11 @@ class Arranque {
       TIPOS_OPINION.has((e as EventoOpinion).tipo),
     ) as EventoOpinion[];
     if (opina.length > 0) opiniones.integrar(opina);
+
+    const reserva = ordenados.filter((e) =>
+      TIPOS_RESERVA.has((e as EventoReserva).tipo),
+    ) as EventoReserva[];
+    if (reserva.length > 0) reservas.integrar(reserva);
   }
 
   /**

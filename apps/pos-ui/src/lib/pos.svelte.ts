@@ -267,6 +267,11 @@ class TiendaPOS {
    * más. Antes se reportaba libre mientras no hubiera renglones, y ponerla en
    * servicio parecía no hacer nada.
    */
+  /** La cuenta en curso de una mesa cualquiera, no solo la activa. */
+  comandaDeMesa(mesaId: ID): EstadoComanda | null {
+    return ultimaSentada(this.logs[mesaId] ?? []);
+  }
+
   estadoMesa(mesaId: ID): EstadoMesa {
     const c = ultimaSentada(this.logs[mesaId] ?? []);
     if (!c || c.cerrada) return "libre";

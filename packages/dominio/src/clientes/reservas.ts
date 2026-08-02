@@ -26,8 +26,20 @@ import type { EstadoComanda } from "../comanda/reducers.js";
 /** Cuánto se aparta una mesa por defecto, si nadie dice otra cosa. */
 export const DURACION_RESERVA_MIN = 90;
 
+/**
+ * Quién pidió la reserva.
+ *
+ * Cambia la regla, no es una etiqueta. Una reserva que pide un comensal desde
+ * el portal NO aparta mesa por sí sola: si lo hiciera, cualquiera con el enlace
+ * podría bloquear el salón entero un viernes desde su teléfono. Llega como
+ * SOLICITADA y la casa la confirma.
+ */
+export type OrigenReserva = "casa" | "comensal";
+
 /** El flujo real de una reserva, y sus dos finales malos. */
 export type EstadoReserva =
+  /** La pidió un comensal y nadie la ha confirmado: NO aparta mesa. */
+  | "solicitada"
   | "apartada"
   /** Llegó y se sentó. */
   | "sentada"
@@ -51,6 +63,13 @@ export type EventoReserva =
       /** Mesa apartada. Sin ella es una reserva "para cuando lleguen". */
       mesa_id?: ID;
       notas?: string;
+      origen?: OrigenReserva;
+    })
+  | (EventoBase & {
+      /** La casa acepta una reserva que pidió un comensal. */
+      tipo: "reserva_confirmada";
+      reserva_id: ID;
+      mesa_id?: ID;
     })
   | (EventoBase & {
       tipo: "reserva_sentada";
@@ -79,6 +98,7 @@ export interface Reserva {
   duracion_min: number;
   mesa_id?: ID;
   notas?: string;
+  origen: OrigenReserva;
   estado: EstadoReserva;
   creada_ts: number;
   /** Cuándo se sentó de verdad. Contra `para_ts` da la puntualidad real. */
@@ -109,7 +129,9 @@ export function proyectarReservas(eventos: readonly EventoReserva[]): Reserva[] 
         duracion_min: ev.duracion_min ?? DURACION_RESERVA_MIN,
         mesa_id: ev.mesa_id,
         notas: ev.notas,
-        estado: "apartada",
+        origen: ev.origen ?? "casa",
+        // Lo que pide un comensal llega SOLICITADO: la casa decide si aparta.
+        estado: ev.origen === "comensal" ? "solicitada" : "apartada",
         creada_ts: ev.ts,
       });
       continue;
@@ -119,6 +141,16 @@ export function proyectarReservas(eventos: readonly EventoReserva[]): Reserva[] 
     if (!reserva) continue;
 
     switch (ev.tipo) {
+      case "reserva_confirmada":
+        // Confirmar una cancelada o una ya sentada no tiene sentido.
+        if (reserva.estado !== "solicitada") break;
+        porId.set(ev.reserva_id, {
+          ...reserva,
+          estado: "apartada",
+          mesa_id: ev.mesa_id ?? reserva.mesa_id,
+        });
+        break;
+
       case "reserva_sentada":
         porId.set(ev.reserva_id, {
           ...reserva,
@@ -154,9 +186,20 @@ export function franjaDe(reserva: Reserva): { desde: number; hasta: number } {
   };
 }
 
-/** Las que siguen en pie: ni canceladas, ni plantadas, ni ya sentadas. */
+/**
+ * Las que APARTAN MESA. Una solicitud del portal todavía no lo hace.
+ *
+ * Es lo que se usa para detectar choques y para decidir si una mesa está
+ * comprometida: contar las solicitudes aquí dejaría que cualquiera con el
+ * enlace bloqueara el salón desde su teléfono.
+ */
 export function reservasVigentes(reservas: readonly Reserva[]): Reserva[] {
   return reservas.filter((r) => r.estado === "apartada");
+}
+
+/** Lo que el comensal pidió y la casa todavía no contesta. */
+export function reservasSolicitadas(reservas: readonly Reserva[]): Reserva[] {
+  return reservas.filter((r) => r.estado === "solicitada");
 }
 
 export interface Choque {

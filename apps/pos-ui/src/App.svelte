@@ -9,6 +9,7 @@
   import { MODULO_POR_CLAVE, MODULOS } from "./lib/nav/modulos";
   import { rutas } from "./lib/nav/rutas.svelte";
   import Clientes from "./lib/modulos/Clientes.svelte";
+  import Reservas from "./lib/modulos/clientes/Reservas.svelte";
   import Cocina from "./lib/modulos/Cocina.svelte";
   import Compras from "./lib/modulos/Compras.svelte";
   import Finanzas from "./lib/modulos/Finanzas.svelte";
@@ -66,7 +67,11 @@
     {:else if modulo.clave === "compras"}
       <Compras />
     {:else if modulo.clave === "clientes"}
-      <Clientes />
+      {#if seccion === "reservas"}
+        <Reservas />
+      {:else}
+        <Clientes />
+      {/if}
     {:else if modulo.clave === "personal"}
       <Personal />
     {:else if modulo.clave === "inteligencia"}

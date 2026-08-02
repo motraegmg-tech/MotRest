@@ -169,7 +169,10 @@ export const MODULOS: EntradaModulo[] = [
     fase: "F3",
     permiso: "crm.cliente.ver",
     operativo: true,
-    secciones: [{ clave: "clientes", titulo: "Ficha del comensal", permiso: "crm.cliente.ver" }],
+    secciones: [
+      { clave: "clientes", titulo: "Ficha del comensal", permiso: "crm.cliente.ver" },
+      { clave: "reservas", titulo: "Reservas y espera", permiso: "crm.cliente.ver" },
+    ],
     resumen:
       "Ficha 360° del comensal, reservas, lealtad, monedero y campañas de retención.",
     funciones: [
