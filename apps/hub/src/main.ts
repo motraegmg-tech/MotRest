@@ -23,9 +23,11 @@ import { createRequire } from "node:module";
 import { networkInterfaces } from "node:os";
 import { dirname, extname, join, normalize, resolve } from "node:path";
 import { WebSocketServer, type WebSocket } from "ws";
+import type { EventoBase, EventoOpinion } from "@motrest/dominio";
 import {
   cifrar,
   derivarClaves,
+  derivarSecretoPortal,
   descifrar,
   generarClaveLocal,
   type Catalogo,
@@ -36,6 +38,7 @@ import {
 import { almacenSqlite } from "@motrest/protocolo-sync/sqlite";
 import { Hub, type Conexion } from "./servidor.js";
 import * as autoarranque from "./autoarranque.js";
+import { registrarOpinion, solicitarReserva, verCuenta } from "./portal.js";
 import { carpetaCertificados, certificadoTls, type CertificadoTls } from "./certificado.js";
 import { anunciarEnLaRed } from "./descubrimiento.js";
 import { Sellador, carpetaDelCsd } from "./fiscal/sellador.js";
@@ -99,6 +102,28 @@ const INSTALACION_REAL = INSTALADO && process.env.MOTREST_HUB_DB === undefined;
 let arranqueAutomatico: autoarranque.EstadoAutoarranque = { soportado: false, activo: false };
 
 /**
+ * Con qué se firman los enlaces del portal del comensal.
+ *
+ * Se deriva de la clave del local con HKDF y su propia etiqueta, igual que en
+ * cada terminal: por eso el Hub puede verificar un QR que imprimió una tablet
+ * sin haber hablado con ella.
+ */
+let secretoPortal = "";
+
+/**
+ * A qué sucursal pertenece este Hub.
+ *
+ * No se configura: se APRENDE del propio registro, porque cada evento la trae.
+ * Un Hub recién instalado todavía no lo sabe, y hasta que llegue el primer
+ * evento el portal no tiene a quién atribuir una reserva — que es correcto: un
+ * local sin operación tampoco tiene comensales.
+ */
+function sucursalDelLocal(): string {
+  const ultimos = almacen.log.desde(Math.max(0, hub.seqActual - 5), 5);
+  return ultimos.at(-1)?.sucursal_id ?? process.env.MOTREST_SUCURSAL_ID ?? "suc-local";
+}
+
+/**
  * Dónde se guardan las copias del registro del local.
  *
  * Por defecto, junto a la base. Eso salva de una corrupción o de un borrado,
@@ -124,6 +149,12 @@ const RUTA_POS = resolve(
   process.env.MOTREST_POS_DIST ??
     (INSTALADO ? join(dirname(process.execPath), "pos") : "../pos-ui/dist"),
 );
+/** El portal del comensal compilado. Viaja junto al POS en la instalación. */
+const RUTA_PORTAL = resolve(
+  process.env.MOTREST_PORTAL_DIST ??
+    (INSTALADO ? join(dirname(process.execPath), "portal") : "../portal/dist"),
+);
+
 const HUB_ID = process.env.MOTREST_HUB_ID ?? "hub-local";
 /** Nombre con el que el Hub se anuncia en la red: `<nombre>.local`. */
 const NOMBRE_RED = process.env.MOTREST_HUB_NOMBRE ?? "motrest";
@@ -445,6 +476,35 @@ function atender(peticion: IncomingMessage, respuesta: ServerResponse): void {
     return;
   }
 
+  /*
+   * EL PORTAL DEL COMENSAL.
+   *
+   * Es lo único del Hub que atiende a un dispositivo que NO es del restaurante:
+   * el teléfono de quien acabó de comer, conectado al wifi del local. Por eso
+   * NO se exige `esLocal` —el teléfono no es la caja— y por eso cada ruta
+   * verifica por su cuenta el enlace firmado.
+   *
+   * Lo que protege esta puerta no es de dónde viene la petición: es que sin la
+   * firma del local no se abre ninguna cuenta.
+   */
+  if (url.pathname.startsWith("/portal/api/")) {
+    respuesta.setHeader("access-control-allow-origin", "*");
+    respuesta.setHeader("access-control-allow-headers", "content-type");
+    respuesta.setHeader("access-control-allow-methods", "GET, POST, OPTIONS");
+    if (peticion.method === "OPTIONS") {
+      respuesta.writeHead(204);
+      respuesta.end();
+      return;
+    }
+    void atenderPortal(url, peticion, json);
+    return;
+  }
+
+  if (url.pathname === "/portal" || url.pathname.startsWith("/portal/")) {
+    servirPortal(url.pathname.slice("/portal".length) || "/", respuesta, json);
+    return;
+  }
+
   if (url.pathname === "/imprimir") {
     if (!esLocal) {
       json(403, { error: "La impresión solo se acepta desde el propio equipo" });
@@ -551,6 +611,72 @@ function leerCuerpo(peticion: IncomingMessage, maxBytes = 512 * 1024): Promise<B
  * El cuerpo trae `{ host, puerto, datos_base64 }`. El transporte valida el
  * destino (IP privada, puerto de impresora) antes de abrir el socket.
  */
+/**
+ * Las rutas del portal del comensal.
+ *
+ * Cada una verifica el enlace firmado por su cuenta; ninguna confía en la
+ * anterior. Las opiniones previas se leen del registro en cada llamada en vez
+ * de mantenerlas en memoria: son pocas por cuenta, y una copia en memoria que
+ * se desincronice permitiría calificar dos veces.
+ */
+async function atenderPortal(
+  url: URL,
+  peticion: IncomingMessage,
+  json: (codigo: number, cuerpo: unknown) => void,
+): Promise<void> {
+  const deps = {
+    leerStream: (streamId: string) => almacen.eventos.leerStream(streamId),
+    ingerir: (eventos: readonly EventoBase[]) => hub.inyectar(eventos),
+    secreto: () => secretoPortal,
+    sucursalId: sucursalDelLocal(),
+  };
+
+  const opinionesPrevias = () =>
+    almacen.log.porTipo("opinion_registrada", 0, 5000) as unknown as EventoOpinion[];
+
+  const responder = (r: { ok: boolean; codigo?: number; error?: string; datos?: unknown }): void => {
+    if (r.ok) json(200, r.datos);
+    else json(r.codigo ?? 400, { error: r.error });
+  };
+
+  try {
+    // GET /portal/api/cuenta/<codigo>
+    if (peticion.method === "GET" && url.pathname.startsWith("/portal/api/cuenta/")) {
+      const codigo = decodeURIComponent(url.pathname.slice("/portal/api/cuenta/".length));
+      responder(await verCuenta(codigo, deps, opinionesPrevias()));
+      return;
+    }
+
+    if (peticion.method !== "POST") {
+      json(405, { error: "Usa POST" });
+      return;
+    }
+
+    const cuerpo = JSON.parse((await leerCuerpo(peticion, 16 * 1024)).toString("utf8")) as Record<
+      string,
+      never
+    >;
+
+    if (url.pathname === "/portal/api/opinion") {
+      const codigo = String(cuerpo.codigo ?? "");
+      responder(await registrarOpinion(codigo, cuerpo as never, deps, opinionesPrevias()));
+      return;
+    }
+
+    if (url.pathname === "/portal/api/reserva") {
+      responder(solicitarReserva(cuerpo as never, deps));
+      return;
+    }
+
+    json(404, { error: "No existe" });
+  } catch (causa) {
+    // Nunca se devuelve el detalle: un mensaje de error interno le describe a
+    // quien prueba cómo está hecho el sistema por dentro.
+    registrar("aviso", `Portal: ${String(causa)}`);
+    json(400, { error: "No se pudo procesar la petición" });
+  }
+}
+
 async function atenderImpresion(
   peticion: IncomingMessage,
   json: (codigo: number, cuerpo: unknown) => void,
@@ -600,6 +726,46 @@ function esPeticionLocal(peticion: IncomingMessage): boolean {
  */
 let servidor: ReturnType<typeof createServer>;
 let servidorLocal: ReturnType<typeof createServerHttp>;
+
+/**
+ * Entrega el portal del comensal.
+ *
+ * Va aparte del POS a propósito, y no solo por orden: son dos aplicaciones con
+ * públicos distintos. El POS lleva la operación del restaurante; el portal es
+ * 40 KB que abre un teléfono ajeno. Compartir el paquete significaría mandarle
+ * a cada comensal el código de la caja.
+ *
+ * Se sirve desde el Hub para que funcione con el internet del local caído: el
+ * teléfono solo necesita estar en su wifi.
+ */
+function servirPortal(
+  ruta: string,
+  respuesta: ServerResponse,
+  json: (codigo: number, cuerpo: unknown) => void,
+): void {
+  const indice = join(RUTA_PORTAL, "index.html");
+  if (!existsSync(indice)) {
+    json(404, {
+      error: "El portal del comensal no está compilado en este equipo",
+      pista: "Ejecuta: corepack pnpm@9.15.0 --filter @motrest/portal build",
+    });
+    return;
+  }
+
+  // Misma defensa que en el POS: sin comprobar que la ruta resuelta sigue
+  // dentro de la carpeta, un `..` leería la base del local.
+  const pedido = normalize(join(RUTA_PORTAL, decodeURIComponent(ruta)));
+  const archivo =
+    pedido.startsWith(RUTA_PORTAL) && existsSync(pedido) && statSync(pedido).isFile()
+      ? pedido
+      : indice;
+
+  respuesta.writeHead(200, {
+    "content-type": TIPOS[extname(archivo).toLowerCase()] ?? "application/octet-stream",
+    "cache-control": cacheDe(archivo, indice),
+  });
+  createReadStream(archivo).pipe(respuesta);
+}
 
 /**
  * Entrega los archivos del POS compilado.
@@ -779,6 +945,7 @@ function alConectar(socket: WebSocket): void {
 async function arrancar(): Promise<void> {
   claveLocal = await resolverClaveLocal();
   clavesHub = await derivarClaves(claveLocal, "hub");
+  secretoPortal = await derivarSecretoPortal(claveLocal);
   tls = await certificadoTls(carpetaCertificados(RUTA_DB), lan, `${NOMBRE_RED}.local`);
 
   const guardados = await almacen.estado.cargar<Catalogo[]>(CLAVE_CATALOGOS);

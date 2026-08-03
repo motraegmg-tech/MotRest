@@ -24,6 +24,35 @@ Guía operativa. Se divide en dos partes muy distintas:
 
 ## Parte A — Lo que MOTRAE hace una sola vez
 
+> **MOTRAE no necesita un número de WhatsApp.** El número es siempre del
+> restaurante. MOTRAE aporta la aplicación que los conecta. Para desarrollar y
+> probar basta el número de pruebas que Meta regala con cada app.
+
+### A.0 · Si MOTRAE todavía no está constituida
+
+Se puede empezar. Meta acepta **persona física con actividad empresarial**:
+
+- Se verifica con la **Constancia de Situación Fiscal** (RESICO sirve).
+- El **nombre legal del portafolio es el de la persona**, y tiene que coincidir
+  **carácter por carácter** con la constancia. "MOTRAE" va como nombre comercial.
+- La **aplicación se puede crear hoy**, sin ninguna verificación, y se desarrolla
+  contra el número de pruebas gratuito. La verificación solo hace falta para
+  salir a producción con números reales.
+
+**El costo de adelantarse.** Cuando MOTRAE se constituya como sociedad, pasar la
+verificación de persona física a persona moral **no es un cambio de datos**: en
+la práctica se crea un portafolio nuevo, se vuelve a verificar y se vuelve a
+pedir la revisión de la app. Los números ya conectados se migran uno por uno.
+
+Regla práctica:
+
+| Si la sociedad se constituye… | Conviene |
+|---|---|
+| En semanas | **Esperar** y verificar directo como persona moral |
+| En meses, o no hay fecha | **Arrancar** como persona física: estar bloqueado meses cuesta más |
+
+En ambos casos, crear la app y desarrollar **desde hoy**.
+
 ### A.1 · Verificar la empresa en Meta Business (lo que más tarda)
 
 1. Entrar a `business.facebook.com` y crear el portafolio de MOTRAE.

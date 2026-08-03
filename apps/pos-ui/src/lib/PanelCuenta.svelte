@@ -7,14 +7,13 @@
     repartir,
     restar,
     sumar,
-    MOTIVOS_OPINION,
-    type Calificacion,
     type FormaPago,
-    type MotivoOpinion,
   } from "@motrest/dominio";
+  import QRCode from "qrcode";
   import DialogoFactura from "./DialogoFactura.svelte";
   import { hora, mxn } from "./formato";
   import { opiniones } from "./opiniones.svelte";
+  import { portal } from "./portal.svelte";
   import { plano } from "./plano.svelte";
   import { pos } from "./pos.svelte";
   import { sesion } from "./sesion/sesion.svelte";
@@ -116,7 +115,7 @@
      * al día siguiente la contesta el 2 %.
      */
     if (ordenId && pos.comanda?.cerrada && !opiniones.yaOpinada(ordenId)) {
-      opinandoOrden = ordenId;
+      await prepararEncuesta(ordenId);
     }
   }
 
@@ -149,40 +148,30 @@
   }
 
   // --- Voz del cliente: cómo estuvo todo ---
-  let opinandoOrden = $state<string | null>(null);
-  let motivosElegidos = $state<MotivoOpinion[]>([]);
-  let comentarioOpinion = $state("");
-  let calificacionElegida = $state<Calificacion | null>(null);
+  /*
+   * El enlace que se le entrega al comensal para que califique. Se arma al
+   * cobrar y se olvida al cerrar: no es estado del negocio, es algo que se
+   * enseña un momento.
+   */
+  let enlaceOpinion = $state<string | null>(null);
+  let qrOpinion = $state("");
 
   function cerrarOpinion() {
-    opinandoOrden = null;
-    motivosElegidos = [];
-    comentarioOpinion = "";
-    calificacionElegida = null;
+    enlaceOpinion = null;
+    qrOpinion = "";
   }
 
-  function calificar(c: Calificacion) {
-    calificacionElegida = c;
-    // «Bien» se guarda de una vez: alargarlo haría que se dejara de preguntar.
-    if (c === "bien") guardarOpinion();
-  }
-
-  function alternarMotivo(m: MotivoOpinion) {
-    motivosElegidos = motivosElegidos.includes(m)
-      ? motivosElegidos.filter((x) => x !== m)
-      : [...motivosElegidos, m];
-  }
-
-  function guardarOpinion() {
-    if (!opinandoOrden || !calificacionElegida) return;
-    opiniones.actuarComo(sesion.usuarioActual?.id ?? "sistema");
-    opiniones.registrar({
-      ordenId: opinandoOrden,
-      calificacion: calificacionElegida,
-      motivos: motivosElegidos,
-      comentario: comentarioOpinion,
-    });
-    cerrarOpinion();
+  /** Arma el enlace firmado de esta cuenta y su QR. */
+  async function prepararEncuesta(ordenId: string) {
+    const enlace = await portal.enlaceDeCuenta(ordenId);
+    if (!enlace) return;
+    enlaceOpinion = enlace;
+    qrOpinion = await QRCode.toDataURL(enlace, {
+      width: 320,
+      margin: 1,
+      // Corrección media: el QR se lee aunque la pantalla tenga reflejos.
+      errorCorrectionLevel: "M",
+    }).catch(() => "");
   }
 
   async function dividir() {
@@ -504,46 +493,32 @@
 
 
 <!--
-  Cómo estuvo todo. Aparece al cobrar, que es cuando hay alguien enfrente.
+  LA ENCUESTA LA CONTESTA QUIEN COMIÓ, NO EL MESERO.
 
-  Se puede saltar sin penalización: una encuesta obligatoria se contesta al
-  azar con tal de seguir, y ese dato es peor que no tener ninguno.
+  Antes esta ventana pedía la calificación y la tecleaba el mesero. Eso no es
+  una encuesta: es la opinión del mesero sobre su propio servicio, y la mejor
+  prueba es que casi nunca salía "mal".
+
+  Ahora se le entrega el enlace al comensal —impreso en su ticket o mostrado en
+  pantalla— y él contesta desde su teléfono. El enlace abre SU cuenta y nada
+  más: va firmado por el local y caduca a los tres días.
 -->
-{#if opinandoOrden}
+{#if enlaceOpinion}
   <div class="velo-op" role="presentation" onclick={cerrarOpinion}></div>
-  <div class="op" role="dialog" aria-modal="true" aria-label="Opinión del comensal">
-    <h3>¿Cómo estuvo todo?</h3>
+  <div class="op" role="dialog" aria-modal="true" aria-label="Encuesta del comensal">
+    <h3>Que nos califique el comensal</h3>
+    <p class="pista-nombre">
+      Muéstrale el código o pásale el teléfono. Contesta él, en diez segundos, y
+      su respuesta entra sola.
+    </p>
 
-    <div class="caras">
-      <button class="cara bien" class:on={calificacionElegida === "bien"} onclick={() => calificar("bien")}>
-        Bien
-      </button>
-      <button class="cara regular" class:on={calificacionElegida === "regular"} onclick={() => calificar("regular")}>
-        Regular
-      </button>
-      <button class="cara mal" class:on={calificacionElegida === "mal"} onclick={() => calificar("mal")}>
-        Mal
-      </button>
+    <div class="qr-op">
+      <img src={qrOpinion} alt="Código para calificar la visita" />
     </div>
 
-    {#if calificacionElegida && calificacionElegida !== "bien"}
-      <p class="que-paso">¿Qué falló?</p>
-      <div class="motivos">
-        {#each MOTIVOS_OPINION as m (m.valor)}
-          <button
-            class="motivo"
-            class:on={motivosElegidos.includes(m.valor)}
-            onclick={() => alternarMotivo(m.valor)}
-          >
-            {m.etiqueta}
-          </button>
-        {/each}
-      </div>
-      <input class="comentario" bind:value={comentarioOpinion} placeholder="Qué dijo, en sus palabras (opcional)" />
-      <button class="guardar-op" onclick={guardarOpinion}>Guardar</button>
-    {/if}
+    <p class="enlace-op">{enlaceOpinion}</p>
 
-    <button class="saltar" onclick={cerrarOpinion}>No preguntar</button>
+    <button class="saltar" onclick={cerrarOpinion}>Listo</button>
   </div>
 {/if}
 
@@ -1067,66 +1042,23 @@
     font-weight: 700;
     margin-bottom: 0.85rem;
   }
-  .caras {
+  /* El código que se le enseña al comensal para que califique él. */
+  .qr-op {
     display: flex;
-    gap: 0.5rem;
-  }
-  .cara {
-    flex: 1;
-    padding: 0.85rem 0.3rem;
-    border-radius: var(--r-md);
-    border: 2px solid var(--borde);
-    background: #fff;
-    font-weight: 700;
-    font-size: 0.92rem;
-  }
-  .cara.bien.on, .cara.bien:hover { border-color: #57ad30; color: #3f6b2c; }
-  .cara.regular.on, .cara.regular:hover { border-color: var(--acento-2); color: var(--acento-2); }
-  .cara.mal.on, .cara.mal:hover { border-color: var(--peligro); color: var(--peligro); }
-  .que-paso {
-    margin-top: 0.9rem;
-    font-size: 0.82rem;
-    font-weight: 600;
-    color: var(--gris);
-  }
-  .motivos {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 0.35rem;
     justify-content: center;
-    margin-top: 0.5rem;
+    margin: 0.9rem 0 0.6rem;
   }
-  .motivo {
-    padding: 0.35rem 0.7rem;
-    border-radius: 999px;
-    border: 1.5px solid var(--borde);
-    background: #fff;
-    font-size: 0.8rem;
-    font-weight: 600;
-  }
-  .motivo.on {
-    border-color: var(--acento);
-    background: #fffaf5;
-    color: var(--acento);
-  }
-  .comentario {
-    width: 100%;
-    margin-top: 0.7rem;
-    padding: 0.55rem 0.7rem;
-    border: 1.5px solid var(--borde);
-    border-radius: var(--r-sm);
-    font: inherit;
-    font-size: 0.85rem;
-  }
-  .guardar-op {
-    width: 100%;
-    margin-top: 0.7rem;
-    background: var(--acento);
-    color: #fff;
+  .qr-op img {
+    width: 15rem;
+    height: 15rem;
     border-radius: var(--r-md);
-    padding: 0.65rem;
-    font-family: var(--font-titulo);
-    font-weight: 600;
+    background: #fff;
+  }
+  .enlace-op {
+    font-size: 0.68rem;
+    color: var(--gris);
+    word-break: break-all;
+    line-height: 1.4;
   }
   .saltar {
     margin-top: 0.7rem;

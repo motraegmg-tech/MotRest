@@ -137,6 +137,48 @@ export async function derivarClaves(
     : { envio: aCliente, recepcion: aHub };
 }
 
+/**
+ * El secreto con que se firman los enlaces del portal del comensal.
+ *
+ * Se DERIVA de la clave del local con su propia etiqueta HKDF, en vez de usar
+ * la clave tal cual. Son dos cosas con vidas distintas: la clave del local abre
+ * la sincronización de todo el restaurante; este secreto solo sirve para firmar
+ * "esta cuenta es la 42". Separarlos hace que, si algún día hay que rotar uno,
+ * no haya que rotar el otro — y que un fallo en el portal no toque el canal.
+ *
+ * Lo derivan por igual el Hub y cada terminal, porque las dos tienen la clave
+ * del local. Así el POS puede imprimir un ticket con su QR válido **aunque el
+ * Hub esté apagado**, que es justo cuando más falta hace que nada se detenga.
+ *
+ * El comensal nunca recibe este secreto: solo el resultado de firmar con él.
+ */
+export async function derivarSecretoPortal(claveLocal: string): Promise<string> {
+  if (!claveValida(claveLocal)) {
+    throw new Error("La clave del local no tiene la forma esperada");
+  }
+
+  const material = await crypto.subtle.importKey(
+    "raw",
+    deBase64Url(claveLocal) as BufferSource,
+    "HKDF",
+    false,
+    ["deriveBits"],
+  );
+
+  const bits = await crypto.subtle.deriveBits(
+    {
+      name: "HKDF",
+      hash: "SHA-256",
+      salt: new Uint8Array(0),
+      info: new TextEncoder().encode("motrest:portal:enlace-de-cuenta:v1"),
+    },
+    material,
+    256,
+  );
+
+  return aBase64Url(new Uint8Array(bits));
+}
+
 // --- Sobre cifrado -----------------------------------------------------------------------
 
 /**

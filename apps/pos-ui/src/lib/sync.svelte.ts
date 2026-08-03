@@ -72,6 +72,35 @@ class StoreSync {
   private alLlegar: ((eventos: EventoBase[]) => void) | null = null;
   private alLocalVacio: (() => void) | null = null;
 
+  /**
+   * La clave del local, para derivar de ella el secreto del portal.
+   *
+   * NO se muestra ni se copia a ningún lado: solo alimenta la derivación HKDF
+   * que firma los enlaces del comensal. Devuelve vacío si todavía no hay.
+   */
+  get claveLocal(): string {
+    return claveValida(this.clave) ? this.clave : "";
+  }
+
+  /**
+   * Dónde alcanzar el portal desde el teléfono de un comensal.
+   *
+   * Sale de la dirección del Hub —que es quien sirve el portal— traducida a
+   * HTTP. Si esta terminal no está enlazada, se usa su propio origen: en la
+   * caja, el Hub y el POS son el mismo servidor.
+   */
+  get urlDelPortal(): string | null {
+    const url = this.url.trim();
+    if (!url) return null;
+    try {
+      const u = new URL(url);
+      const esquema = u.protocol === "wss:" ? "https:" : "http:";
+      return esquema + "//" + u.host;
+    } catch {
+      return null;
+    }
+  }
+
   /** Hay enlace posible cuando se sabe a dónde ir Y con qué clave hablar. */
   get configurado(): boolean {
     return this.url.trim().length > 0 && claveValida(this.clave);

@@ -42,7 +42,8 @@
     "longDescription": "MotRest: punto de venta, cocina, inventario y administración para restaurantes. Incluye el Hub del local, que registra la operación y la comparte entre las terminales.",
     "externalBin": ["binarios/motrest-hub"],
     "resources": {
-      "../../pos-ui/dist": "pos/"
+      "../../pos-ui/dist": "pos/",
+      "../../portal/dist": "portal/"
     },
     "windows": {
       "nsis": {

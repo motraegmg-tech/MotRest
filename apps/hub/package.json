@@ -13,7 +13,8 @@
     "empaquetar": "node empaquetar.mjs",
     "lint": "tsc --noEmit -p tsconfig.json",
     "test": "vitest run",
-    "ensayo": "tsx ensayo/viernes.ts"
+    "ensayo": "tsx ensayo/viernes.ts",
+    "ensayo:portal": "tsx ensayo/portal.ts"
   },
   "dependencies": {
     "@motrest/dominio": "workspace:*",

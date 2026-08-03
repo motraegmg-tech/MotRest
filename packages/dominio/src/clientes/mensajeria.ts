@@ -177,7 +177,7 @@ export function ventanaAbierta(estado: EstadoContacto | undefined, ahora: number
   return ahora - estado.ultimo_entrante_ts < VENTANA_SERVICIO_MS;
 }
 
-export type Veredicto =
+export type VeredictoEnvio =
   | { puede: true; /** true = hay que usar plantilla aprobada, no texto libre. */ exigePlantilla: boolean }
   | { puede: false; razon: string };
 
@@ -191,7 +191,7 @@ export function puedeEnviar(
   estado: EstadoContacto | undefined,
   proposito: Proposito,
   ahora: number,
-): Veredicto {
+): VeredictoEnvio {
   const abierta = ventanaAbierta(estado, ahora);
 
   if (proposito === "servicio") {

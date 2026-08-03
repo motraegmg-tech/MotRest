@@ -665,6 +665,30 @@ export class Hub {
     }
   }
 
+  /**
+   * Mete eventos que nacieron EN EL HUB y los reparte a todas las terminales.
+   *
+   * Los usa el portal del comensal: su opinión y su solicitud de reserva no
+   * vienen de ninguna terminal del local —vienen de un teléfono ajeno— así que
+   * no hay una sesión de la que excluir en la difusión. Van a todas, incluida
+   * la caja, que es donde el mesero tiene que enterarse.
+   */
+  inyectar(eventos: readonly EventoBase[]): void {
+    const validos = eventos.filter(eventoValido);
+    if (validos.length === 0) return;
+
+    const acks = this.log.ingerir(validos);
+    if (acks.length === 0) return;
+
+    const menor = acks.reduce((n, a) => Math.min(n, a.seq), Infinity);
+    const nuevos = this.log.desde(menor - 1, acks.length + 50);
+
+    for (const sesion of this.sesiones.values()) {
+      if (!sesion.saludado) continue;
+      sesion.conexion.enviar({ tipo: "eventos", eventos: nuevos, hay_mas: false });
+    }
+  }
+
   /** Responde a un `pull`: lo que le falta al dispositivo, por lotes. */
   private entregar(sesion: Sesion, desdeSeq: number, limite: number): void {
     const tope = Math.min(Math.max(limite, 1), 1000);
