@@ -52,7 +52,7 @@ function visita(opciones: {
     ...opciones.renglones.map((r) => f.crear("item_agregado", orden, { orden_id: orden, renglon: r })),
     f.crear("orden_identificada", orden, {
       orden_id: orden,
-      a_nombre_de: opciones.nombre ?? "Familia Ramírez",
+      nombre: opciones.nombre ?? "Familia Ramírez",
       telefono: opciones.telefono,
     }),
   ];
@@ -184,8 +184,8 @@ describe("sus opiniones y sus reservas", () => {
     const f = fichaDe(identidadDe({ telefono: TEL })!, {
       comandas: [suya, ajena],
       opiniones: [
-        { opinion_id: "o1", orden_id: suya.orden_id, calificacion: "mal", motivos: ["espera"], ts: AHORA } as Opinion,
-        { opinion_id: "o2", orden_id: ajena.orden_id, calificacion: "bien", motivos: [], ts: AHORA } as Opinion,
+        { opinion_id: "o1", orden_id: suya.orden_id, calificacion: "mal", motivos: ["espera"], ts: AHORA } as unknown as Opinion,
+        { opinion_id: "o2", orden_id: ajena.orden_id, calificacion: "bien", motivos: [], ts: AHORA } as unknown as Opinion,
       ],
       reservas: [],
       ahora: AHORA,

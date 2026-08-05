@@ -218,6 +218,7 @@ export const MODULOS: EntradaModulo[] = [
       { clave: "salones", titulo: "Salones y plano", permiso: "cat.area.editar" },
       { clave: "catalogo", titulo: "Insumos y estaciones", permiso: "cat.producto.editar" },
       { clave: "impresoras", titulo: "Impresoras", permiso: "admin.dispositivo.aprobar" },
+      { clave: "mensajes", titulo: "Mensajes para el cliente", permiso: "admin.usuario.editar" },
       { clave: "hub", titulo: "Hub del local", permiso: "admin.dispositivo.aprobar" },
       { clave: "bitacora", titulo: "Bitácora", permiso: "admin.bitacora.ver" },
     ],

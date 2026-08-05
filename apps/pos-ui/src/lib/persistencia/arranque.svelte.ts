@@ -28,6 +28,7 @@ import { egresos } from "../egresos.svelte";
 import { compras } from "../compras.svelte";
 import { opiniones } from "../opiniones.svelte";
 import { reservas } from "../reservas.svelte";
+import { correo } from "../correo.svelte";
 import { prenomina } from "../prenomina.svelte";
 import { cartaVacia, catalogo, impuestos } from "../catalogo";
 import { menuDemostracion } from "../demo/carta";
@@ -285,6 +286,7 @@ class Arranque {
       prenomina.conectarAlmacen(almacen);
       opiniones.conectarAlmacen(almacen);
       reservas.conectarAlmacen(almacen);
+      await correo.hidratar(almacen);
 
       // El almacén nace en la etapa 8: un dispositivo con operación anterior no
       // tiene ni un movimiento y abriría el inventario en ceros. Se carga aquí,

@@ -55,6 +55,8 @@ export type EventoReserva =
       /** A nombre de quién. Un teléfono sin nombre no sirve en la puerta. */
       nombre: string;
       telefono?: string;
+      /** A dónde se le manda la confirmación. Es lo que hace útil el correo. */
+      correo?: string;
       cliente_id?: ID;
       personas: number;
       /** Cuándo llegan, en epoch ms del reloj del dispositivo (ADR-17). */
@@ -92,6 +94,7 @@ export interface Reserva {
   id: ID;
   nombre: string;
   telefono?: string;
+  correo?: string;
   cliente_id?: ID;
   personas: number;
   para_ts: number;
@@ -123,6 +126,7 @@ export function proyectarReservas(eventos: readonly EventoReserva[]): Reserva[] 
         id: ev.reserva_id,
         nombre: ev.nombre,
         telefono: ev.telefono,
+        correo: ev.correo,
         cliente_id: ev.cliente_id,
         personas: ev.personas,
         para_ts: ev.para_ts,

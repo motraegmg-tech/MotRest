@@ -24,7 +24,8 @@ import { networkInterfaces } from "node:os";
 import { dirname, extname, join, normalize, resolve } from "node:path";
 import { WebSocketServer, type WebSocket } from "ws";
 import type { EventoBase, EventoMensajeria, EventoOpinion } from "@motrest/dominio";
-import { pideBaja, streamMensajeria, uuidv7 } from "@motrest/dominio";
+import { configuracionVacia, pideBaja, streamMensajeria, uuidv7 } from "@motrest/dominio";
+import type { ConfiguracionCorreo } from "@motrest/dominio";
 import {
   cifrar,
   derivarClaves,
@@ -41,6 +42,7 @@ import { Hub, type Conexion } from "./servidor.js";
 import * as autoarranque from "./autoarranque.js";
 import { registrarOpinion, solicitarReserva, verCuenta } from "./portal.js";
 import { Avisos, avisoReservaConfirmada } from "./avisos.js";
+import { Correo } from "./correo.js";
 import { EnlaceRelayWs, type MensajeDelComensal } from "./relay.js";
 import { carpetaCertificados, certificadoTls, type CertificadoTls } from "./certificado.js";
 import { anunciarEnLaRed } from "./descubrimiento.js";
@@ -116,6 +118,16 @@ let secretoPortal = "";
 /** El enlace con el relay y la cola de avisos. Nulos si el local no usa WhatsApp. */
 let enlaceRelay: EnlaceRelayWs | null = null;
 let avisos: Avisos | null = null;
+
+/**
+ * El correo del restaurante. A diferencia de WhatsApp, NO necesita relay: es
+ * una llamada de salida que el Hub hace desde el propio local.
+ */
+let correo: Correo | null = null;
+/** Clave bajo la que vive la configuración de correo del local. */
+const CLAVE_CORREO = "correo_config";
+let configCorreo: ConfiguracionCorreo = configuracionVacia();
+let llaveResend = "";
 
 /**
  * A qué sucursal pertenece este Hub.
@@ -986,6 +998,7 @@ async function arrancar(): Promise<void> {
     registrar("aviso", arranqueAutomatico.motivo);
   }
 
+  await prepararCorreo();
   await conectarAlRelay();
 
   escuchar();
@@ -1002,28 +1015,94 @@ async function arrancar(): Promise<void> {
  * espera. Todo lo demás vive en el portal, que es gratis.
  */
 function avisarPorLoQuePaso(eventos: readonly EventoBase[]): void {
-  if (!avisos) return;
-
   for (const ev of eventos as unknown as Record<string, unknown>[]) {
     if (ev.tipo !== "reserva_confirmada") continue;
 
-    // El teléfono está en la reserva original, no en la confirmación: hay que
-    // reconstruirla del propio registro.
-    const previos = almacen.log
+    /*
+     * El correo y el teléfono están en la reserva original, no en la
+     * confirmación: hay que reconstruirla del propio registro. Es el precio de
+     * que un evento diga solo lo que cambió, y es el correcto — duplicar los
+     * datos del comensal en cada evento haría que un cambio de correo dejara
+     * copias viejas por todo el log.
+     */
+    const original = almacen.log
       .porTipo("reserva_creada", 0, 5000)
       .find((e) => (e as unknown as { reserva_id?: string }).reserva_id === ev.reserva_id) as
-      | unknown as { telefono?: string; nombre?: string; para_ts?: number }
+      | unknown as
+      | { telefono?: string; correo?: string; nombre?: string; para_ts?: number }
       | undefined;
 
-    if (!previos?.telefono) continue;
+    if (!original) continue;
 
-    const resultado = avisos.mandar(
-      avisoReservaConfirmada(previos.telefono, previos.nombre ?? "", previos.para_ts ?? Date.now()),
-    );
-    if (!resultado.enviado) {
-      registrar("info", `Reserva confirmada sin aviso: ${resultado.razon}`);
+    const cuando = new Date(original.para_ts ?? Date.now()).toLocaleString("es-MX", {
+      weekday: "long",
+      day: "numeric",
+      month: "long",
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+
+    /*
+     * EL CORREO PRIMERO. No cuesta por mensaje, no exige trámite con Meta y
+     * llega igual de bien para algo que no es urgente. WhatsApp queda para lo
+     * que el correo no puede: alcanzar a alguien que está de pie en la puerta.
+     */
+    if (correo && original.correo) {
+      void correo
+        .mandar({
+          tipo: "reserva_confirmada",
+          para: original.correo,
+          datos: { nombre: original.nombre, cuando, personas: undefined },
+        })
+        .then((r) => {
+          if (!r.enviado) registrar("info", `Reserva confirmada sin correo: ${r.razon}`);
+        });
+      continue;
+    }
+
+    // Sin correo, se intenta por WhatsApp si el local lo tiene configurado.
+    if (avisos && original.telefono) {
+      const r = avisos.mandar(
+        avisoReservaConfirmada(original.telefono, original.nombre ?? "", original.para_ts ?? Date.now()),
+      );
+      if (!r.enviado) registrar("info", `Reserva confirmada sin aviso: ${r.razon}`);
     }
   }
+}
+
+/**
+ * Prepara el correo del restaurante.
+ *
+ * La llave de Resend se queda AQUÍ y no viaja a las terminales: una credencial
+ * que puede mandar correo en nombre del restaurante no tiene por qué estar en
+ * el teléfono de un mesero.
+ */
+async function prepararCorreo(): Promise<void> {
+  const guardada = await almacen.estado.cargar<ConfiguracionCorreo & { llave?: string }>(
+    CLAVE_CORREO,
+  );
+  if (guardada) {
+    configCorreo = guardada;
+    llaveResend = process.env.MOTREST_RESEND_KEY ?? guardada.llave ?? "";
+  } else {
+    llaveResend = process.env.MOTREST_RESEND_KEY ?? "";
+  }
+
+  correo = new Correo(
+    () => configCorreo,
+    () => llaveResend,
+    registrar,
+  );
+
+  if (!llaveResend) {
+    registrar("info", "Sin llave de Resend: el local no manda correos todavía.");
+    return;
+  }
+
+  // Se reintenta lo pendiente cada pocos minutos: es lo que hace que una caída
+  // de internet a media noche no pierda las confirmaciones del día.
+  setInterval(() => void correo?.vaciarCola(), 5 * 60 * 1000).unref?.();
+  registrar("info", `Correo listo. Remitente: ${configCorreo.remitente || "sin configurar"}`);
 }
 
 /**

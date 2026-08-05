@@ -111,6 +111,7 @@ class StoreReservas {
   apartar(datos: {
     nombre: string;
     telefono?: string;
+    correo?: string;
     personas: number;
     para_ts: number;
     mesa_id?: ID;
@@ -130,6 +131,7 @@ class StoreReservas {
         reserva_id: uuidv7(),
         nombre,
         telefono: datos.telefono?.trim() || undefined,
+        correo: datos.correo?.trim() || undefined,
         personas: datos.personas,
         para_ts: datos.para_ts,
         mesa_id: datos.mesa_id,

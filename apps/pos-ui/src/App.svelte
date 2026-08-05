@@ -22,6 +22,7 @@
   import Catalogo from "./lib/modulos/admin/Catalogo.svelte";
   import Hub from "./lib/modulos/admin/Hub.svelte";
   import Impresoras from "./lib/modulos/admin/Impresoras.svelte";
+  import MensajesAlCliente from "./lib/modulos/admin/MensajesAlCliente.svelte";
   import Salones from "./lib/modulos/admin/Salones.svelte";
   import Usuarios from "./lib/modulos/admin/Usuarios.svelte";
   import Acceso from "./lib/sesion/Acceso.svelte";
@@ -90,6 +91,8 @@
         <Catalogo />
       {:else if seccion === "impresoras"}
         <Impresoras />
+      {:else if seccion === "mensajes"}
+        <MensajesAlCliente />
       {:else if seccion === "hub"}
         <Hub />
       {:else}

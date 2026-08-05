@@ -37,6 +37,7 @@
   let abrirAlta = $state(false);
   let nombre = $state("");
   let telefono = $state("");
+  let correoCliente = $state("");
   let personas = $state("2");
   let fecha = $state(new Date().toISOString().slice(0, 10));
   let horaTexto = $state("21:00");
@@ -53,6 +54,7 @@
     const r = reservas.apartar({
       nombre,
       telefono,
+      correo: correoCliente,
       personas: Number(personas) || 0,
       para_ts: paraTs,
       mesa_id: mesaId || undefined,
@@ -61,6 +63,7 @@
     if (r.ok) {
       nombre = "";
       telefono = "";
+      correoCliente = "";
       abrirAlta = false;
     }
   }
@@ -143,6 +146,15 @@
         <label>
           <span>Teléfono</span>
           <input bind:value={telefono} inputmode="tel" placeholder="33 1122 3344" />
+        </label>
+        <!--
+          El correo es lo que hace que la confirmación llegue. Se pide aquí, al
+          anotar por teléfono, porque es el único momento en que el comensal
+          está al habla.
+        -->
+        <label>
+          <span>Correo</span>
+          <input bind:value={correoCliente} inputmode="email" placeholder="Para mandarle su confirmación" />
         </label>
         <label>
           <span>Personas</span>
