@@ -10,6 +10,7 @@
   import { rutas } from "./lib/nav/rutas.svelte";
   import Clientes from "./lib/modulos/Clientes.svelte";
   import Reservas from "./lib/modulos/clientes/Reservas.svelte";
+  import Ficha360 from "./lib/modulos/clientes/Ficha360.svelte";
   import Cocina from "./lib/modulos/Cocina.svelte";
   import Compras from "./lib/modulos/Compras.svelte";
   import Finanzas from "./lib/modulos/Finanzas.svelte";
@@ -69,6 +70,8 @@
     {:else if modulo.clave === "clientes"}
       {#if seccion === "reservas"}
         <Reservas />
+      {:else if seccion === "comensales"}
+        <Ficha360 />
       {:else}
         <Clientes />
       {/if}

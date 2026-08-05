@@ -63,6 +63,15 @@ export interface OpcionesHub {
   enlaces?: () => { etiqueta: string; url: string }[];
   registrar?: (nivel: "info" | "aviso" | "error", mensaje: string) => void;
   /**
+   * Se llama con los eventos ACEPTADOS, vengan de donde vengan.
+   *
+   * Es el punto donde el Hub reacciona a lo que pasa en el local sin que
+   * ninguna terminal tenga que acordarse de avisarle: confirmar una reserva
+   * dispara su mensaje de WhatsApp aunque quien la confirmó fuera una tablet
+   * que ni sabe que el relay existe.
+   */
+  alIngerir?: (eventos: readonly EventoBase[]) => void;
+  /**
    * Facturación. Opcional: un Hub sin CSD sigue siendo un Hub perfectamente
    * útil —arbitra la secuencia y sincroniza— y el restaurante puede operar
    * meses antes de facturar.
@@ -406,6 +415,7 @@ export class Hub {
     if (aceptados.length === 0) return;
 
     const acks = this.log.ingerir(aceptados);
+    if (acks.length > 0) this.opciones.alIngerir?.(aceptados);
     sesion.conexion.enviar({ tipo: "acks", acks });
 
     const mayor = acks.reduce((n, a) => Math.max(n, a.seq), 0);
@@ -679,6 +689,7 @@ export class Hub {
 
     const acks = this.log.ingerir(validos);
     if (acks.length === 0) return;
+    this.opciones.alIngerir?.(validos);
 
     const menor = acks.reduce((n, a) => Math.min(n, a.seq), Infinity);
     const nuevos = this.log.desde(menor - 1, acks.length + 50);

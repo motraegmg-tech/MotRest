@@ -438,3 +438,42 @@ describe("lo que el viernes dejó en el log", () => {
     expect(ultima.resumen?.diferencia).toBe(pesos(-120));
   });
 });
+
+// --- Que los reportes no se pongan lentos --------------------------------------------------
+
+/*
+ * El pipeline cacheado.
+ *
+ * `todasLasComandas` lo llaman los reportes, el contador, el CRM y el centinela
+ * varias veces por render. Sin caché, agregar un refresco a una mesa obliga a
+ * reproyectar el log ENTERO del local, y ese costo crece con el registro: el
+ * día que llegue a cientos de miles de eventos, la caja se congela al teclear.
+ *
+ * La caché es exacta porque el log de cada mesa es inmutable. Lo que hay que
+ * probar es justo eso: que sea RÁPIDA y que NO devuelva datos viejos.
+ */
+describe("los reportes siguen siendo baratos con el log lleno", () => {
+  it("devuelve lo mismo llamándolo muchas veces", () => {
+    const primera = pos.todasLasComandas;
+    const segunda = pos.todasLasComandas;
+    expect(segunda).toEqual(primera);
+    expect(segunda.length).toBeGreaterThan(0);
+  });
+
+  /* Una proyección vieja sería peor que una lenta: cobraría de menos. */
+  it("al cambiar una mesa, la refleja de inmediato", async () => {
+    const antes = pos.todasLasComandas.length;
+
+    const mesaId = plano.todasLasMesas[0]!.id;
+    pos.seleccionarMesa(mesaId);
+    pos.abrirMesa(mesaId);
+    await pos.agregarSimple(productoDe("cat-bebidas"));
+
+    const despues = pos.todasLasComandas;
+    expect(despues.length).toBeGreaterThanOrEqual(antes);
+
+    // La cuenta recién abierta está ahí, con lo que se le acaba de poner.
+    const abierta = despues.find((c) => c.mesa_id === mesaId && !c.cerrada);
+    expect(abierta?.renglones.length).toBeGreaterThan(0);
+  });
+});

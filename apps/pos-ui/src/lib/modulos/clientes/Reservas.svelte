@@ -71,6 +71,14 @@
     aviso = r.ok ? "" : (r.error ?? "");
   }
 
+  function confirmar(reserva: Reserva, valor: string) {
+    if (!valor) return;
+    // "sin-mesa" acepta la reserva sin comprometer una mesa concreta: es lo
+    // normal cuando todavía falta una semana y el salón puede cambiar.
+    const r = reservas.confirmar(reserva.id, valor === "sin-mesa" ? undefined : valor);
+    aviso = r.ok ? "" : (r.error ?? "");
+  }
+
   function cancelar(reserva: Reserva) {
     const motivo = prompt(`¿Por qué se cancela la reserva de ${reserva.nombre}?`);
     if (!motivo) return;
@@ -182,6 +190,47 @@
         <button class="principal" onclick={apartar}>Apartar</button>
       </div>
     </div>
+  {/if}
+
+  <!--
+    BANDEJA DE SOLICITUDES. Lo que pidieron desde el portal y nadie ha
+    contestado. Va arriba de todo y con su propio color porque es lo único de
+    esta pantalla que ESPERA UNA DECISIÓN: un comensal que pidió mesa y no
+    recibe respuesta se va a otro lado, y ni siquiera nos enteramos.
+  -->
+  {#if reservas.solicitadas.length > 0}
+    <section class="tarjeta solicitudes">
+      <h2>
+        Pidieron mesa desde el celular
+        <span class="cuantas">{reservas.solicitadas.length}</span>
+      </h2>
+      <p class="nota">
+        Todavía <b>no tienen mesa apartada</b>. Confirma o cancela: al confirmar,
+        la mesa queda comprometida.
+      </p>
+
+      {#each reservas.solicitadas as r (r.id)}
+        <article class="reserva pedida">
+          <div class="datos">
+            <b>{r.nombre}</b>
+            <span>
+              {new Date(r.para_ts).toLocaleDateString("es-MX", { day: "2-digit", month: "short" })}
+              {hora(r.para_ts)} · {r.personas}
+              {r.personas === 1 ? "persona" : "personas"}
+              {#if r.telefono} · {r.telefono}{/if}
+            </span>
+          </div>
+          {#if puedeEditar}
+            <select onchange={(e) => confirmar(r, e.currentTarget.value)}>
+              <option value="">Confirmar en…</option>
+              <option value="sin-mesa">Sin asignar mesa</option>
+              {#each plano.todasLasMesas as m (m.id)}<option value={m.id}>{m.nombre}</option>{/each}
+            </select>
+            <button class="mini x" onclick={() => cancelar(r)}>Rechazar</button>
+          {/if}
+        </article>
+      {/each}
+    </section>
   {/if}
 
   <div class="columnas">
@@ -425,6 +474,27 @@
   .reserva.tarde {
     border-color: var(--peligro);
     background: color-mix(in srgb, var(--peligro) 6%, transparent);
+  }
+  /* La bandeja: lo único de la pantalla que espera una decisión. */
+  .solicitudes {
+    border-color: var(--acento);
+    background: color-mix(in srgb, var(--acento) 5%, #fff);
+    margin-bottom: 1rem;
+  }
+  .cuantas {
+    display: inline-block;
+    min-width: 1.4rem;
+    padding: 0.1rem 0.4rem;
+    border-radius: var(--r-pill);
+    background: var(--acento);
+    color: #fff;
+    font-size: 0.8rem;
+    text-align: center;
+    vertical-align: middle;
+  }
+  .reserva.pedida {
+    border-color: var(--acento);
+    background: #fff;
   }
   .reserva .datos {
     flex: 1;

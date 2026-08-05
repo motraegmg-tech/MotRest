@@ -286,9 +286,43 @@ class TiendaPOS {
    * una fracción de la noche mientras el corte de caja —que suma pagos— veía
    * todo. Los dos números no coincidían y no había forma de saber cuál creer.
    */
-  get todasLasComandas(): EstadoComanda[] {
-    return Object.values(this.logs).flatMap((log) => proyectarSentadas(log));
+  /*
+   * SE REPROYECTA SOLO LA MESA QUE CAMBIÓ.
+   *
+   * Esto lo llaman los reportes, el contador, el CRM y el centinela, varias
+   * veces por render. Sin caché, agregar un refresco a la mesa 3 obligaba a
+   * reproyectar el log ENTERO del local — las treinta mesas y toda la jornada —
+   * y ese costo crece con el registro (ADR-21): el día que el log llega a
+   * cientos de miles de eventos, la caja se congela al teclear.
+   *
+   * La caché es exacta porque el log de cada mesa es INMUTABLE: al emitir se
+   * reasigna el arreglo entero, así que comparar la referencia basta para saber
+   * si cambió. No hay forma de que quede una proyección vieja.
+   */
+  private cacheSentadas = new Map<ID, { log: readonly EventoComanda[]; sentadas: EstadoComanda[] }>();
+
+  private sentadasDe(mesaId: ID, log: readonly EventoComanda[]): EstadoComanda[] {
+    const previo = this.cacheSentadas.get(mesaId);
+    if (previo && previo.log === log) return previo.sentadas;
+
+    const sentadas = proyectarSentadas(log);
+    this.cacheSentadas.set(mesaId, { log, sentadas });
+    return sentadas;
   }
+
+  todasLasComandas = $derived.by(() => {
+    const todas: EstadoComanda[] = [];
+    for (const [mesaId, log] of Object.entries(this.logs)) {
+      todas.push(...this.sentadasDe(mesaId, log));
+    }
+    // Las mesas que ya no están en el log tampoco tienen por qué ocupar caché.
+    if (this.cacheSentadas.size > Object.keys(this.logs).length * 2) {
+      for (const mesaId of this.cacheSentadas.keys()) {
+        if (!(mesaId in this.logs)) this.cacheSentadas.delete(mesaId);
+      }
+    }
+    return todas;
+  });
 
   /** Todas las comandas abiertas del local: es lo que ve la cocina. */
   get comandasAbiertas(): EstadoComanda[] {

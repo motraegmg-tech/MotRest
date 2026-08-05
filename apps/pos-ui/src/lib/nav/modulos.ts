@@ -172,6 +172,7 @@ export const MODULOS: EntradaModulo[] = [
     secciones: [
       { clave: "clientes", titulo: "Ficha del comensal", permiso: "crm.cliente.ver" },
       { clave: "reservas", titulo: "Reservas y espera", permiso: "crm.cliente.ver" },
+      { clave: "comensales", titulo: "Comensales (360°)", permiso: "crm.cliente.ver" },
     ],
     resumen:
       "Ficha 360° del comensal, reservas, lealtad, monedero y campañas de retención.",

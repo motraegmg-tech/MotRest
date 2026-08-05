@@ -23,7 +23,8 @@ import { createRequire } from "node:module";
 import { networkInterfaces } from "node:os";
 import { dirname, extname, join, normalize, resolve } from "node:path";
 import { WebSocketServer, type WebSocket } from "ws";
-import type { EventoBase, EventoOpinion } from "@motrest/dominio";
+import type { EventoBase, EventoMensajeria, EventoOpinion } from "@motrest/dominio";
+import { pideBaja, streamMensajeria, uuidv7 } from "@motrest/dominio";
 import {
   cifrar,
   derivarClaves,
@@ -39,6 +40,8 @@ import { almacenSqlite } from "@motrest/protocolo-sync/sqlite";
 import { Hub, type Conexion } from "./servidor.js";
 import * as autoarranque from "./autoarranque.js";
 import { registrarOpinion, solicitarReserva, verCuenta } from "./portal.js";
+import { Avisos, avisoReservaConfirmada } from "./avisos.js";
+import { EnlaceRelayWs, type MensajeDelComensal } from "./relay.js";
 import { carpetaCertificados, certificadoTls, type CertificadoTls } from "./certificado.js";
 import { anunciarEnLaRed } from "./descubrimiento.js";
 import { Sellador, carpetaDelCsd } from "./fiscal/sellador.js";
@@ -109,6 +112,10 @@ let arranqueAutomatico: autoarranque.EstadoAutoarranque = { soportado: false, ac
  * sin haber hablado con ella.
  */
 let secretoPortal = "";
+
+/** El enlace con el relay y la cola de avisos. Nulos si el local no usa WhatsApp. */
+let enlaceRelay: EnlaceRelayWs | null = null;
+let avisos: Avisos | null = null;
 
 /**
  * A qué sucursal pertenece este Hub.
@@ -190,6 +197,8 @@ function direccionesLan(): string[] {
 
 /** Clave bajo la que se guardan los catálogos replicados. */
 const CLAVE_CATALOGOS = "catalogos";
+/** Configuración de WhatsApp de este restaurante, si la tiene. */
+const CLAVE_WHATSAPP = "whatsapp";
 /** Clave bajo la que se guarda el secreto del local. */
 const CLAVE_SECRETO = "clave_local";
 
@@ -293,6 +302,7 @@ const hub = new Hub({
   exigirAprobacion: EXIGIR_APROBACION,
   enlaces: enlacesEmparejamiento,
   registrar,
+  alIngerir: (eventos) => avisarPorLoQuePaso(eventos),
   fiscal: { sellador, cola: colaTimbrado, facturador, cancelador, nombrePac: pac?.nombre },
   guardarCatalogo: (catalogo) => {
     // Se guardan todos juntos: son pocos y así el archivo queda consistente.
@@ -976,7 +986,135 @@ async function arrancar(): Promise<void> {
     registrar("aviso", arranqueAutomatico.motivo);
   }
 
+  await conectarAlRelay();
+
   escuchar();
+}
+
+/**
+ * El Hub avisa por WhatsApp cuando pasa algo que el comensal necesita saber.
+ *
+ * Se engancha a lo que ENTRA AL REGISTRO, no a quien lo hizo. Así una tablet
+ * que confirma una reserva dispara el mensaje sin saber que el relay existe, y
+ * mañana un canal nuevo no obliga a tocar cada pantalla.
+ *
+ * Solo dos cosas mandan mensaje, y las dos son utilidades que el comensal
+ * espera. Todo lo demás vive en el portal, que es gratis.
+ */
+function avisarPorLoQuePaso(eventos: readonly EventoBase[]): void {
+  if (!avisos) return;
+
+  for (const ev of eventos as unknown as Record<string, unknown>[]) {
+    if (ev.tipo !== "reserva_confirmada") continue;
+
+    // El teléfono está en la reserva original, no en la confirmación: hay que
+    // reconstruirla del propio registro.
+    const previos = almacen.log
+      .porTipo("reserva_creada", 0, 5000)
+      .find((e) => (e as unknown as { reserva_id?: string }).reserva_id === ev.reserva_id) as
+      | unknown as { telefono?: string; nombre?: string; para_ts?: number }
+      | undefined;
+
+    if (!previos?.telefono) continue;
+
+    const resultado = avisos.mandar(
+      avisoReservaConfirmada(previos.telefono, previos.nombre ?? "", previos.para_ts ?? Date.now()),
+    );
+    if (!resultado.enviado) {
+      registrar("info", `Reserva confirmada sin aviso: ${resultado.razon}`);
+    }
+  }
+}
+
+/**
+ * Enlaza con el relay, si este restaurante tiene WhatsApp configurado.
+ *
+ * Un local SIN WhatsApp es un caso normal y no un error: opera con el portal,
+ * que es gratis y no depende de nadie. Por eso no se avisa como problema —
+ * simplemente no hay nada que enlazar.
+ */
+async function conectarAlRelay(): Promise<void> {
+  const config = await almacen.estado.cargar<{
+    url?: string;
+    clave?: string;
+    phone_number_id?: string;
+    token?: string;
+    nombre?: string;
+  }>(CLAVE_WHATSAPP);
+
+  const url = process.env.MOTREST_RELAY_URL ?? config?.url;
+  const clave = process.env.MOTREST_RELAY_CLAVE ?? config?.clave;
+  if (!url || !clave) {
+    registrar("info", "Sin WhatsApp configurado: el local opera con el portal.");
+    return;
+  }
+
+  enlaceRelay = new EnlaceRelayWs({
+    url,
+    clave,
+    sucursal_id: sucursalDelLocal(),
+    credenciales:
+      config?.phone_number_id && config.token
+        ? {
+            phone_number_id: config.phone_number_id,
+            token: config.token,
+            nombre: config.nombre ?? "Restaurante",
+          }
+        : undefined,
+    registrar,
+    alConectar: () => avisos?.alReconectar(),
+    alLlegarMensaje: (mensaje) => atenderMensajeDelComensal(mensaje),
+  });
+
+  avisos = new Avisos(
+    enlaceRelay,
+    () => almacen.log.porTipo("mensaje_recibido", 0, 2000) as unknown as EventoMensajeria[],
+    registrar,
+  );
+
+  enlaceRelay.conectar();
+}
+
+/**
+ * Llegó un mensaje de WhatsApp de un comensal.
+ *
+ * Se guarda SIEMPRE como evento, aunque no se conteste: es lo que abre la
+ * ventana de 24 horas, y sin ese registro el Hub no sabría después si puede
+ * responder con texto libre o necesita plantilla.
+ *
+ * Y si pide la baja, se corta el marketing de inmediato. Sin excepciones y sin
+ * "un último mensaje": es lo que separa a un negocio de un spammer, y Meta lo
+ * mide.
+ */
+function atenderMensajeDelComensal(mensaje: MensajeDelComensal): void {
+  const sucursal = sucursalDelLocal();
+  const base = {
+    sucursal_id: sucursal,
+    device_id: "relay",
+    empleado_id: "comensal",
+    ts: mensaje.ts,
+    orden_local: 0,
+    v: 1,
+    stream_id: streamMensajeria(sucursal),
+    contacto: mensaje.contacto,
+    canal: "whatsapp" as const,
+  };
+
+  const eventos: EventoBase[] = [
+    { ...base, id: uuidv7(), tipo: "mensaje_recibido", texto: mensaje.texto } as unknown as EventoBase,
+  ];
+
+  if (pideBaja(mensaje.texto)) {
+    eventos.push({
+      ...base,
+      id: uuidv7(),
+      tipo: "consentimiento_retirado",
+      motivo: mensaje.texto.trim().slice(0, 40),
+    } as unknown as EventoBase);
+    registrar("info", `Baja de marketing solicitada por ${mensaje.contacto}`);
+  }
+
+  hub.inyectar(eventos);
 }
 
 /**

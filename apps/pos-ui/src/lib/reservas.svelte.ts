@@ -12,6 +12,7 @@ import {
   esperaEstimada,
   proyectarReservas,
   reservasEnPuerta,
+  reservasSolicitadas,
   reservasVigentes,
   rotacionObservada,
   streamReservas,
@@ -57,6 +58,15 @@ class StoreReservas {
 
   reservas = $derived(proyectarReservas(this.eventos));
   vigentes = $derived(reservasVigentes(this.reservas));
+
+  /**
+   * Lo que pidieron desde el portal y la casa todavía no contesta.
+   *
+   * Es una BANDEJA, no una agenda: cada una espera una decisión. Dejarlas
+   * mezcladas con las confirmadas haría que nadie las contestara, y un comensal
+   * que pidió mesa y no recibe respuesta se va a otro lado.
+   */
+  solicitadas = $derived(reservasSolicitadas(this.reservas));
 
   /** Cuánto dura una sentada en ESTE local, medido del log. */
   rotacion = $derived(rotacionObservada(pos.todasLasComandas));
@@ -153,6 +163,40 @@ class StoreReservas {
         reserva_id: reservaId,
         mesa_id: mesaId,
         orden_id: ordenId,
+      }),
+    );
+    return { ok: true };
+  }
+
+  /**
+   * La casa acepta una solicitud del portal: a partir de aquí sí aparta mesa.
+   *
+   * Si se le asigna mesa, se comprueba el choque ANTES de confirmar. Aceptar
+   * dos reservas sobre la misma mesa es exactamente el error que el portal
+   * podría multiplicar, porque las solicitudes llegan solas y en cualquier
+   * momento.
+   */
+  confirmar(reservaId: ID, mesaId?: ID): { ok: boolean; error?: string } {
+    const reserva = this.reservas.find((r) => r.id === reservaId);
+    if (!reserva) return { ok: false, error: "Esa solicitud ya no existe" };
+    if (reserva.estado !== "solicitada") {
+      return { ok: false, error: "Esa reserva ya se contestó" };
+    }
+
+    if (mesaId) {
+      const choques = this.choques(mesaId, reserva.para_ts, reserva.duracion_min);
+      if (choques.length > 0) {
+        return {
+          ok: false,
+          error: `Esa mesa ya está apartada para ${choques[0]!.reserva.nombre}`,
+        };
+      }
+    }
+
+    this.emitir(
+      this.fabrica.crear("reserva_confirmada", streamReservas(SUCURSAL_ID), {
+        reserva_id: reservaId,
+        mesa_id: mesaId,
       }),
     );
     return { ok: true };
