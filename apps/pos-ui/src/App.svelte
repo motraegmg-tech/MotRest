@@ -14,6 +14,7 @@
   import Cocina from "./lib/modulos/Cocina.svelte";
   import Compras from "./lib/modulos/Compras.svelte";
   import Finanzas from "./lib/modulos/Finanzas.svelte";
+  import Canales from "./lib/modulos/finanzas/Canales.svelte";
   import Inteligencia from "./lib/modulos/Inteligencia.svelte";
   import Inventario from "./lib/modulos/Inventario.svelte";
   import Personal from "./lib/modulos/Personal.svelte";
@@ -81,7 +82,11 @@
     {:else if modulo.clave === "inteligencia"}
       <Inteligencia />
     {:else if modulo.clave === "finanzas"}
-      <Finanzas />
+      {#if seccion === "canales"}
+        <Canales />
+      {:else}
+        <Finanzas />
+      {/if}
     {:else if modulo.clave === "administracion"}
       {#if seccion === "bitacora"}
         <Bitacora />

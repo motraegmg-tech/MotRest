@@ -129,7 +129,10 @@ export const MODULOS: EntradaModulo[] = [
     fase: "F2",
     permiso: "fin.corte.ver",
     operativo: true,
-    secciones: [{ clave: "facturacion", titulo: "Facturación", permiso: "fin.factura.emitir" }],
+    secciones: [
+      { clave: "facturacion", titulo: "Facturación", permiso: "fin.factura.emitir" },
+      { clave: "canales", titulo: "Canales y apps", permiso: "fin.corte.ver" },
+    ],
     resumen:
       "Corte del día, facturación CFDI 4.0, egresos, estado de resultados y enlace contable.",
     funciones: [

@@ -119,8 +119,78 @@ export function definicionCorreo(tipo: TipoCorreo): DefinicionCorreo | undefined
   return CATALOGO_CORREOS.find((d) => d.tipo === tipo);
 }
 
+/**
+ * Desde qué dominio sale el correo del restaurante.
+ *
+ * NADIE PUEDE MANDAR CORREO "COMO" UNA DIRECCIÓN CUYO DOMINIO NO CONTROLA. Un
+ * restaurante con `rodizio@gmail.com` no puede mandar desde ahí: Google exige
+ * que quien firma el correo sea el dueño del dominio, y un correo que dice venir
+ * de Gmail sin serlo acaba en spam o rechazado. No es una regla de Resend, es
+ * cómo funciona el correo desde hace veinte años.
+ *
+ * De ahí las dos formas, y las dos son legítimas:
+ */
+export type ModoRemitente =
+  /**
+   * El dominio del restaurante: `reservas@rodizio.mx`.
+   *
+   * Es lo mejor para su marca y su reputación —lo que haga con su correo solo
+   * le afecta a él— pero exige que tenga dominio y que alguien toque su DNS.
+   */
+  | "propio"
+  /**
+   * Un subdominio de MOTRAE: `rodizio@avisos.motrest.mx`.
+   *
+   * Cero fricción: no hay que comprar dominio ni tocar DNS, y el restaurante
+   * puede estar mandando correos el mismo día. El comensal ve "Rodizio" como
+   * remitente, así que la diferencia casi no se nota.
+   *
+   * A cambio, la reputación se comparte entre todos los locales de MOTRAE: si
+   * uno abusa, los demás lo pagan. Por eso las reglas de consentimiento y baja
+   * no son negociables en este modo.
+   */
+  | "motrae";
+
+/**
+ * Lo que exige cada modo para que el correo sirva de algo.
+ *
+ * En el modo MOTRAE, `responder_a` es OBLIGATORIO: el correo sale de un dominio
+ * de MOTRAE, así que si el comensal contesta —y contesta— su mensaje llegaría a
+ * un buzón que nadie lee. Con `responder_a` apuntando al correo de siempre del
+ * restaurante, la respuesta le llega a quien tiene que llegarle, aunque ese
+ * correo sea un Gmail.
+ */
+export function problemasDeRemitente(config: ConfiguracionCorreo): string[] {
+  const problemas: string[] = [];
+
+  if (!config.remitente.trim()) {
+    problemas.push("Falta el remitente: sin él no se manda ningún correo");
+    return problemas;
+  }
+
+  const dentro = config.remitente.match(/<([^>]+)>/)?.[1] ?? config.remitente;
+  if (!correoPlausible(dentro)) {
+    problemas.push("El remitente no parece una dirección de correo");
+  }
+
+  if (config.modo === "motrae" && !config.responder_a?.trim()) {
+    problemas.push(
+      "Con el dominio de MOTRAE hace falta un correo de respuesta: si no, " +
+        "lo que conteste el comensal no le llega a nadie",
+    );
+  }
+
+  if (config.responder_a && !correoPlausible(config.responder_a)) {
+    problemas.push("El correo de respuesta no parece válido");
+  }
+
+  return problemas;
+}
+
 /** Lo que cada restaurante configura una vez. */
 export interface ConfiguracionCorreo {
+  /** De qué dominio sale. Ausente = propio, que es lo que había antes. */
+  modo?: ModoRemitente;
   /** "Rodizio <reservas@rodizio.mx>". El dominio tiene que estar verificado. */
   remitente: string;
   /** A dónde contesta el comensal si le da a "Responder". */

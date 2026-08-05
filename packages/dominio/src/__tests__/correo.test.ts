@@ -13,6 +13,7 @@ import {
   configuracionVacia,
   correoPlausible,
   definicionCorreo,
+  problemasDeRemitente,
   puedeMandarCorreo,
   type ConfiguracionCorreo,
 } from "../clientes/correo.js";
@@ -182,5 +183,60 @@ describe("el correo que llega", () => {
     const sinTel = { ...CONFIG, telefono: undefined };
     const c = armarCorreo("reserva_confirmada", "a@b.mx", sinTel, {});
     expect(c.html).not.toContain("tel:");
+  });
+});
+
+// --- De qué dominio sale ------------------------------------------------------------------
+
+/*
+ * Nadie puede mandar correo "como" una dirección cuyo dominio no controla. Un
+ * restaurante con Gmail no puede mandar desde ahí, así que hay dos caminos: su
+ * propio dominio, o un subdominio de MOTRAE con respuesta redirigida a su Gmail
+ * de siempre.
+ */
+describe("de qué dominio sale el correo", () => {
+  it("con dominio propio basta el remitente", () => {
+    expect(
+      problemasDeRemitente({ ...CONFIG, modo: "propio", responder_a: undefined }),
+    ).toEqual([]);
+  });
+
+  /*
+   * EL CANDADO DEL MODO COMPARTIDO. El correo sale de un dominio de MOTRAE: si
+   * el comensal contesta —y contesta— su mensaje llegaría a un buzón que nadie
+   * lee, y el restaurante ni se entera de que le escribieron.
+   */
+  it("con el dominio de MOTRAE, el correo de respuesta es obligatorio", () => {
+    const problemas = problemasDeRemitente({
+      ...CONFIG,
+      modo: "motrae",
+      remitente: "Rodizio <rodizio@avisos.motrest.mx>",
+      responder_a: undefined,
+    });
+    expect(problemas).toHaveLength(1);
+    expect(problemas[0]).toContain("no le llega a nadie");
+  });
+
+  it("con respuesta puesta, el modo compartido queda listo", () => {
+    expect(
+      problemasDeRemitente({
+        ...CONFIG,
+        modo: "motrae",
+        remitente: "Rodizio <rodizio@avisos.motrest.mx>",
+        // Su Gmail de siempre: no hace falta que compre nada.
+        responder_a: "rodizio@gmail.com",
+      }),
+    ).toEqual([]);
+  });
+
+  it("sin remitente, lo dice y no sigue revisando", () => {
+    const problemas = problemasDeRemitente(configuracionVacia());
+    expect(problemas).toHaveLength(1);
+    expect(problemas[0]).toContain("Falta el remitente");
+  });
+
+  it("señala un correo de respuesta mal escrito", () => {
+    const problemas = problemasDeRemitente({ ...CONFIG, responder_a: "no-es-correo" });
+    expect(problemas.some((p) => p.includes("respuesta"))).toBe(true);
   });
 });
