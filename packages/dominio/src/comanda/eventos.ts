@@ -21,7 +21,9 @@ export type FormaPago =
   | "tarjeta_debito"
   | "tarjeta_credito"
   | "transferencia"
-  | "vale";
+  | "vale"
+  /** Lo cobró un agregador. NO entra al cajón: se deposita días después. */
+  | "agregador";
 
 export const FORMAS_PAGO: { valor: FormaPago; etiqueta: string; efectivo: boolean }[] = [
   { valor: "efectivo", etiqueta: "Efectivo", efectivo: true },
@@ -29,6 +31,7 @@ export const FORMAS_PAGO: { valor: FormaPago; etiqueta: string; efectivo: boolea
   { valor: "tarjeta_credito", etiqueta: "Crédito", efectivo: false },
   { valor: "transferencia", etiqueta: "Transferencia", efectivo: false },
   { valor: "vale", etiqueta: "Vale", efectivo: false },
+  { valor: "agregador", etiqueta: "Cobrado por la app", efectivo: false },
 ];
 
 export function etiquetaFormaPago(forma: FormaPago): string {
@@ -41,6 +44,15 @@ export type EventoComanda =
       orden_id: ID;
       mesa_id: ID;
       abierta_ts: number;
+      /**
+       * Por dónde entró la venta. Ausente = salón, que es el caso normal y el
+       * que ya escribieron todos los eventos anteriores a esto.
+       */
+      canal?: import("../ventas/canales.js").CanalVenta;
+      /** Folio del pedido en la plataforma, para poder conciliar el depósito. */
+      folio_externo?: string;
+      /** Comisión pactada EN ESE MOMENTO. Se congela: mañana puede cambiar. */
+      comision_canal?: number;
     })
   | (EventoBase & {
       tipo: "item_agregado";

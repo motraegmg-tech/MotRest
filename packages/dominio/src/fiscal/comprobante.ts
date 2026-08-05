@@ -127,6 +127,14 @@ export function formaPagoSat(forma: FormaPago): string {
       return "28";
     case "vale":
       return "29";
+    /*
+     * Lo cobró un agregador. Para el SAT es "por definir": el restaurante no
+     * recibió el dinero del comensal, lo recibirá de la plataforma días después
+     * y por otro importe. La clave 99 es exactamente para eso, y usar "efectivo"
+     * o "tarjeta" aquí sería declarar un cobro que no ocurrió.
+     */
+    case "agregador":
+      return "99";
   }
 }
 

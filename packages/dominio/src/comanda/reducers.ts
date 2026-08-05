@@ -59,6 +59,13 @@ export interface EstadoComanda {
   a_nombre_de?: string;
   telefono?: string;
   cliente_id?: ID;
+  /** Por dónde entró. Ausente = salón. */
+  canal?: import("../ventas/canales.js").CanalVenta;
+  folio_externo?: string;
+  /** La comisión que se pactó cuando se vendió, no la de hoy. */
+  comision_canal?: number;
+  /** true = el agregador ya depositó esta venta y está conciliada. */
+  depositado?: boolean;
   pagos: Pago[];
   descuentos: Descuento[];
   cortesias: Cortesia[];
@@ -113,6 +120,9 @@ export function aplicarEvento(
       mesa_id: ev.mesa_id,
       mesero_id: ev.empleado_id,
       abierta_ts: ev.abierta_ts,
+      canal: ev.canal,
+      folio_externo: ev.folio_externo,
+      comision_canal: ev.comision_canal,
       renglones: [],
       cerrada: false,
       pagos: [],
