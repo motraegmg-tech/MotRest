@@ -77,6 +77,7 @@ export * from "./ventas/canales.js";
 export * from "./organizacion/multisucursal.js";
 export * from "./organizacion/licencia.js";
 export * from "./organizacion/actualizaciones.js";
+export * from "./organizacion/central.js";
 
 // Fiscal (CFDI 4.0)
 export * from "./fiscal/claves.js";
