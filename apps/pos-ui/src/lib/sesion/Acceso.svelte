@@ -179,7 +179,7 @@
   {#if !elegido}
     <h2>¿Quién eres?</h2>
     <div class="lista">
-      {#each sesion.usuariosActivos as usuario (usuario.id)}
+      {#each sesion.usuariosDelLocal as usuario (usuario.id)}
         <button class="usuario" onclick={() => elegir(usuario)}>
           <span class="av">{usuario.iniciales}</span>
           <span class="datos">

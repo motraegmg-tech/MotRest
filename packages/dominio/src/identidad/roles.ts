@@ -27,6 +27,8 @@ export interface Permiso {
 }
 
 export type RolId =
+  /** MOTRAE. No es del restaurante y no aparece en su lista. Ver `soporte.ts`. */
+  | "soporte"
   | "propietario"
   | "gerente"
   | "administracion"
@@ -41,6 +43,14 @@ export interface Rol {
   nombre: string;
   descripcion: string;
   permisos: Permiso[];
+  /**
+   * true = no se ofrece en ninguna pantalla del restaurante.
+   *
+   * No basta con esconderlo de la lista de usuarios: un rol que aparece entre
+   * los que pueden autorizar una cancelación delata su existencia en el diálogo
+   * de PIN. Se filtra en el origen.
+   */
+  oculto?: boolean;
 }
 
 const p = (accion: Accion, nivel: Nivel, limite?: number): Permiso => ({
@@ -53,6 +63,31 @@ const p = (accion: Accion, nivel: Nivel, limite?: number): Permiso => ({
 const todas = (nivel: Nivel): Permiso[] => TODAS_LAS_ACCIONES.map((a) => p(a, nivel));
 
 export const ROLES: Record<RolId, Rol> = {
+  /**
+   * Soporte de MOTRAE. El proveedor, no el restaurante.
+   *
+   * Existe para que cuando algo se rompa un viernes a las nueve de la noche,
+   * MOTRAE pueda entrar a arreglarlo sin pedirle a nadie su contraseña y sin
+   * pedirle al gerente que lea configuraciones por teléfono.
+   *
+   * TRES COSAS QUE LO HACEN LEGÍTIMO Y NO UNA PUERTA TRASERA:
+   *
+   *   1. Su credencial NO está en el código: viaja en la licencia firmada y la
+   *      elige Gonzalo. Nadie puede fabricarse uno.
+   *   2. Todo lo que hace queda en la BITÁCORA con su nombre, y la bitácora es
+   *      el event log: solo agrega, nunca borra. Ni MOTRAE puede tapar sus
+   *      propios pasos.
+   *   3. Está declarado en el contrato del cliente. Un acceso de soporte que el
+   *      cliente conoce es mantenimiento; uno que no conoce es otra cosa.
+   */
+  soporte: {
+    id: "soporte",
+    nombre: "Soporte MOTRAE",
+    descripcion: "Acceso técnico del proveedor. No pertenece al personal del restaurante.",
+    permisos: todas("autorizar"),
+    oculto: true,
+  },
+
   propietario: {
     id: "propietario",
     nombre: "Dirección / Propietario",
@@ -228,6 +263,9 @@ export const ROLES: Record<RolId, Rol> = {
 
 export const LISTA_ROLES: Rol[] = Object.values(ROLES);
 
+/** Los roles que el restaurante puede ver y asignar. Soporte no está. */
+export const ROLES_VISIBLES: Rol[] = LISTA_ROLES.filter((r) => !r.oculto);
+
 /**
  * Rango jerárquico de cada rol.
  *
@@ -240,6 +278,10 @@ export const LISTA_ROLES: Rol[] = Object.values(ROLES);
  * (tampoco él mismo). Es el ancla de confianza del sistema.
  */
 export const RANGO: Record<RolId, number> = {
+  // Por encima del propietario, y eso es exactamente lo que lo protege: como
+  // nadie administra a un rango mayor, el restaurante no puede desactivar el
+  // acceso de soporte, ni cambiarle los permisos, ni borrarlo.
+  soporte: 120,
   propietario: 100,
   gerente: 80,
   administracion: 70,
@@ -273,4 +315,17 @@ export interface Usuario {
   activo: boolean;
   /** true = debe cambiar su credencial en el próximo inicio de sesión. */
   debe_cambiar_credencial?: boolean;
+  /**
+   * true = no sale en ninguna lista del restaurante.
+   *
+   * Solo el soporte de MOTRAE. Deliberadamente NO afecta a la bitácora: lo que
+   * hace se ve con su nombre, y por eso se filtra en cada pantalla en vez de
+   * filtrarse en la proyección.
+   */
+  oculto?: boolean;
+}
+
+/** Los usuarios que el personal del restaurante debe ver. */
+export function usuariosVisibles(usuarios: readonly Usuario[]): Usuario[] {
+  return usuarios.filter((u) => !u.oculto);
 }

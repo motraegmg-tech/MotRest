@@ -120,17 +120,39 @@ export function definicionCorreo(tipo: TipoCorreo): DefinicionCorreo | undefined
 }
 
 /**
- * Desde qué dominio sale el correo del restaurante.
+ * Desde qué dirección sale el correo del restaurante.
  *
- * NADIE PUEDE MANDAR CORREO "COMO" UNA DIRECCIÓN CUYO DOMINIO NO CONTROLA. Un
- * restaurante con `rodizio@gmail.com` no puede mandar desde ahí: Google exige
- * que quien firma el correo sea el dueño del dominio, y un correo que dice venir
- * de Gmail sin serlo acaba en spam o rechazado. No es una regla de Resend, es
- * cómo funciona el correo desde hace veinte años.
+ * LA REGLA DE FONDO, QUE NO CAMBIA: nadie puede mandar correo "como" una
+ * dirección sin demostrarle al mundo que le pertenece. Lo que sí cambia es CÓMO
+ * se demuestra, y ahí hay dos caminos, no uno:
  *
- * De ahí las dos formas, y las dos son legítimas:
+ *   - Con un DOMINIO propio se demuestra publicando SPF y DKIM en su DNS. Es lo
+ *     que exige Resend, y por eso un `@gmail.com` no se puede verificar ahí:
+ *     el dominio `gmail.com` no es del restaurante.
+ *
+ *   - Con una CUENTA de Gmail se demuestra entrando a ella. Google mismo entrega
+ *     el correo, firmado por él, desde su propio servidor. No hace falta dominio
+ *     ni tocar DNS: hace falta la contraseña de aplicación de esa cuenta.
+ *
+ * El segundo camino es el que pidió Gonzalo y es el más barato que existe: el
+ * restaurante ya tiene su Gmail, no compra nada y manda desde la dirección que
+ * sus clientes ya conocen.
  */
 export type ModoRemitente =
+  /**
+   * La cuenta de Gmail que el restaurante ya usa: `rodizio.gdl@gmail.com`.
+   *
+   * CERO COSTO Y CERO TRÁMITE. Se entrega por el SMTP de Google, autenticado con
+   * una **contraseña de aplicación** (Gmail exige verificación en dos pasos para
+   * generarla). Google firma el correo con su propio DKIM, así que entrega
+   * perfecto — y el comensal ve la dirección de siempre del restaurante, que es
+   * la que reconoce.
+   *
+   * Su único techo es el de Google: unos 500 destinatarios al día en una cuenta
+   * gratuita. Para las confirmaciones y encuestas de un restaurante sobra; el
+   * día que una campaña lo rebase, se pasa a `motrae` o a `propio`.
+   */
+  | "gmail"
   /**
    * El dominio del restaurante: `reservas@rodizio.mx`.
    *
@@ -141,15 +163,34 @@ export type ModoRemitente =
   /**
    * Un subdominio de MOTRAE: `rodizio@avisos.motrest.mx`.
    *
-   * Cero fricción: no hay que comprar dominio ni tocar DNS, y el restaurante
-   * puede estar mandando correos el mismo día. El comensal ve "Rodizio" como
-   * remitente, así que la diferencia casi no se nota.
-   *
-   * A cambio, la reputación se comparte entre todos los locales de MOTRAE: si
-   * uno abusa, los demás lo pagan. Por eso las reglas de consentimiento y baja
-   * no son negociables en este modo.
+   * Sirve cuando el volumen rebasa lo que aguanta un Gmail. La reputación se
+   * comparte entre todos los locales de MOTRAE: si uno abusa, los demás lo
+   * pagan. Por eso las reglas de consentimiento y baja no son negociables aquí.
    */
   | "motrae";
+
+/** Servidor de salida de Google. TLS directo, sin STARTTLS: menos que negociar. */
+export const SMTP_GMAIL = { host: "smtp.gmail.com", puerto: 465 } as const;
+
+/** ¿Esta dirección es una cuenta de Google? */
+export function esCuentaGmail(direccion: string): boolean {
+  const dentro = direccion.match(/<([^>]+)>/)?.[1] ?? direccion;
+  const dominio = dentro.trim().toLowerCase().split("@")[1] ?? "";
+  return dominio === "gmail.com" || dominio === "googlemail.com";
+}
+
+/**
+ * Arma el remitente para una cuenta de Gmail: `Rodizio <rodizio@gmail.com>`.
+ *
+ * El nombre delante importa más de lo que parece. Sin él, al comensal le llega
+ * un correo de "rodizio.gdl" y no de "Rodizio"; con él, el remitente se lee como
+ * el restaurante aunque la dirección de atrás sea un Gmail.
+ */
+export function remitenteGmail(local: string, cuenta: string): string {
+  const nombre = local.trim();
+  const direccion = cuenta.trim();
+  return nombre ? `${nombre} <${direccion}>` : direccion;
+}
 
 /**
  * Lo que exige cada modo para que el correo sirva de algo.
@@ -173,6 +214,26 @@ export function problemasDeRemitente(config: ConfiguracionCorreo): string[] {
     problemas.push("El remitente no parece una dirección de correo");
   }
 
+  /*
+   * En modo Gmail el remitente TIENE que ser la misma cuenta con la que se
+   * entra al SMTP. Google reescribe o rechaza cualquier otro "De:", así que
+   * poner `reservas@rodizio.mx` con la clave de `rodizio@gmail.com` no da un
+   * error visible: da correos que llegan con la dirección cambiada.
+   */
+  if (config.modo === "gmail") {
+    if (!esCuentaGmail(dentro)) {
+      problemas.push(
+        "En modo Gmail el remitente tiene que ser la cuenta @gmail.com del restaurante",
+      );
+    }
+    if (config.cuenta_gmail && config.cuenta_gmail.trim().toLowerCase() !== dentro.toLowerCase()) {
+      problemas.push(
+        "La cuenta de Gmail y el remitente no coinciden: Google mandaría el correo " +
+          "desde la cuenta, no desde el remitente",
+      );
+    }
+  }
+
   if (config.modo === "motrae" && !config.responder_a?.trim()) {
     problemas.push(
       "Con el dominio de MOTRAE hace falta un correo de respuesta: si no, " +
@@ -189,10 +250,19 @@ export function problemasDeRemitente(config: ConfiguracionCorreo): string[] {
 
 /** Lo que cada restaurante configura una vez. */
 export interface ConfiguracionCorreo {
-  /** De qué dominio sale. Ausente = propio, que es lo que había antes. */
+  /** De dónde sale. Ausente = propio, que es lo que había antes. */
   modo?: ModoRemitente;
-  /** "Rodizio <reservas@rodizio.mx>". El dominio tiene que estar verificado. */
+  /** "Rodizio <rodizio@gmail.com>". En modo Gmail, la cuenta de siempre. */
   remitente: string;
+  /**
+   * La cuenta con la que se entra al SMTP de Google. Solo en modo Gmail.
+   *
+   * Va aparte del remitente aunque casi siempre sean lo mismo, porque son cosas
+   * distintas: una es quién firma la entrega y la otra es lo que lee el
+   * comensal. Tenerlas separadas permite avisar cuando NO coinciden, que es el
+   * error que manda correos con la dirección cambiada sin que nadie se entere.
+   */
+  cuenta_gmail?: string;
   /** A dónde contesta el comensal si le da a "Responder". */
   responder_a?: string;
   /** Para el botón de llamar. Sin él, el correo no ofrece llamar. */
@@ -235,19 +305,15 @@ export function remitenteCompartido(local: string): string {
 }
 
 /**
- * Configuración de arranque: el modo compartido, que es el que no cuesta nada.
+ * Configuración de arranque: **Gmail**, que es lo que no cuesta absolutamente
+ * nada y lo que el restaurante ya tiene.
  *
- * Se empieza por ahí a propósito. Un restaurante puede estar mandando
- * confirmaciones el mismo día que instala, y el que quiera su propia marca en el
- * remitente se cambia a dominio propio cuando quiera.
+ * No se rellena el remitente porque nadie puede adivinar cuál es su cuenta: se
+ * captura en «Mensajes para el cliente» junto con su contraseña de aplicación, y
+ * son dos campos. Es el alta más corta posible sin comprar nada ni tocar un DNS.
  */
 export function configuracionVacia(local = ""): ConfiguracionCorreo {
-  return {
-    modo: "motrae",
-    remitente: local ? remitenteCompartido(local) : "",
-    local,
-    activos: {},
-  };
+  return { modo: "gmail", remitente: "", local, activos: {} };
 }
 
 export type EventoCorreo =

@@ -125,7 +125,7 @@
     {/if}
 
     <div class="lista">
-      {#each sesion.usuarios as usuario (usuario.id)}
+      {#each sesion.usuariosAdministrables as usuario (usuario.id)}
         {@const bloqueado = sesion.estaBloqueado(usuario.id)}
         {@const gestionable = sesion.puedeGestionar(usuario)}
         {@const propio = sesion.usuarioActual?.id === usuario.id}

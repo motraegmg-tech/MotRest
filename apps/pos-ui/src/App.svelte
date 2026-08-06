@@ -29,11 +29,17 @@
   import Acceso from "./lib/sesion/Acceso.svelte";
   import CambioCredencial from "./lib/sesion/CambioCredencial.svelte";
   import DialogoAutorizacion from "./lib/sesion/DialogoAutorizacion.svelte";
+  import AvisoActualizacion from "./lib/licencia/AvisoActualizacion.svelte";
+  import PantallaBloqueada from "./lib/licencia/PantallaBloqueada.svelte";
   import { contextoSeguro, explicacionContextoInseguro } from "./lib/entorno";
   import { arranque } from "./lib/persistencia/arranque.svelte";
   import { autorizacion } from "./lib/sesion/autorizacion.svelte";
   import { sesion } from "./lib/sesion/sesion.svelte";
   import { sync } from "./lib/sync.svelte";
+  import { actualizaciones } from "./lib/actualizaciones.svelte";
+  import { licencia } from "./lib/licencia.svelte";
+  import { CONTACTO_MOTRAE } from "./lib/presentacion";
+  import { esSoporte } from "@motrest/dominio";
 
   let mostrarAcceso = $state(false);
 
@@ -43,6 +49,14 @@
 
   /** ¿El usuario puede ver el módulo al que apunta la ruta? */
   const permitido = $derived(sesion.puedeVer(modulo.permiso));
+
+  /*
+   * La única excepción al bloqueo: MOTRAE. Si al vencer la licencia nadie
+   * pudiera entrar, tampoco podría entrar quien va a reactivarla ni quien va a
+   * sacarle sus datos al restaurante para dárselos. Un bloqueo del que ni el
+   * proveedor puede salir es un ladrillo, no una palanca de cobro.
+   */
+  const bloqueado = $derived(licencia.bloqueado && !esSoporte(sesion.usuarioActual));
 </script>
 
 {#if arranque.cargando}
@@ -50,6 +64,13 @@
     <div class="marca">MotRest<span>.</span></div>
     <p>Cargando la operación del local…</p>
   </div>
+{:else if bloqueado}
+  <!--
+    Se acabaron los tres días de gracia. Va ANTES que todo lo demás —incluida la
+    pantalla de acceso— porque no tiene sentido pedirle la contraseña a alguien
+    que no va a poder hacer nada con ella.
+  -->
+  <PantallaBloqueada contacto={CONTACTO_MOTRAE} />
 {:else}
 <div class="app">
   <Sidebar />
@@ -163,6 +184,38 @@
 
 {#if autorizacion.aviso}
   <div class="aviso" role="status">{autorizacion.aviso}</div>
+{/if}
+
+<!--
+  La licencia.
+
+  El bloqueo diferido va aparte y en rojo: es la última oportunidad que tiene el
+  restaurante de enterarse antes de quedarse sin sistema, y llega justo cuando
+  está a punto de cerrar la caja.
+-->
+{#if licencia.bloqueoDiferido}
+  <div class="licencia grave" role="alert">
+    <b>Su licencia venció</b>
+    Al cerrar este turno el sistema quedará suspendido. Comuníquese con MOTRAE
+    para reactivarlo — su información no se pierde.
+  </div>
+{:else if licencia.aviso}
+  <div class="licencia" class:grave={licencia.estado === "gracia"} role="status">
+    {licencia.aviso}
+  </div>
+{/if}
+
+<!--
+  La actualización. El diálogo solo aparece cuando toca; el punto de la barra
+  lateral se queda puesto mientras haya algo pendiente (ver Sidebar).
+-->
+{#if actualizaciones.avisar && actualizaciones.version}
+  <AvisoActualizacion
+    version={actualizaciones.version.version}
+    notas={actualizaciones.version.notas}
+    obligatoria={actualizaciones.obligatoria}
+    onDecidir={(eleccion) => actualizaciones.decidir(eleccion)}
+  />
 {/if}
 {/if}
 
@@ -315,6 +368,35 @@
     .app :global(.sb .foot) {
       display: none;
     }
+  }
+  /*
+   * Abajo a la izquierda, no arriba en medio: arriba ya viven el aviso del reloj
+   * y el de contexto inseguro, y tres avisos apilados en el mismo sitio se tapan
+   * entre ellos justo el día que importan.
+   */
+  .licencia {
+    position: fixed;
+    z-index: 46;
+    bottom: 1.5rem;
+    left: 1.5rem;
+    max-width: min(22rem, calc(100vw - 3rem));
+    background: var(--claro);
+    border: 1.5px solid var(--acento);
+    border-radius: var(--r-md);
+    padding: 0.65rem 0.9rem;
+    font-size: 0.8rem;
+    line-height: 1.5;
+    color: var(--pizarra);
+    box-shadow: var(--sombra-sm);
+  }
+  .licencia.grave {
+    background: #fdeae8;
+    border-color: var(--peligro);
+  }
+  .licencia b {
+    display: block;
+    color: var(--peligro);
+    margin-bottom: 0.15rem;
   }
   .reloj-mal {
     position: fixed;

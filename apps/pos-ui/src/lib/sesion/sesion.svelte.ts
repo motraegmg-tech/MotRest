@@ -26,6 +26,7 @@ import {
   uuidv7,
   generarCodigoRescate,
   normalizarCodigo,
+  usuariosVisibles,
   validarSecreto,
   verificarCredencial,
   type Accion,
@@ -231,9 +232,38 @@ class Sesion {
     return this.usuarioActual?.debe_cambiar_credencial === true;
   }
 
-  /** Usuarios que aparecen en el selector de acceso rápido. */
+  /**
+   * Todos los activos, incluido el acceso de soporte de MOTRAE.
+   *
+   * ES LA LISTA INTERNA, no la de las pantallas. La usan los bucles que buscan
+   * quién puede firmar una autorización, y ahí el soporte SÍ debe estar: si
+   * MOTRAE entra a resolver algo, tiene que poder autorizar lo que haga falta.
+   * Para enseñar personal en pantalla está `usuariosDelLocal`.
+   */
   get usuariosActivos(): Usuario[] {
     return this.usuarios.filter((u) => u.activo);
+  }
+
+  /**
+   * El personal del restaurante: lo que va en TODAS las pantallas.
+   *
+   * Deja fuera al soporte de MOTRAE. Es el único filtro que hace falta para que
+   * no aparezca en el selector de acceso, en el equipo ni en la administración
+   * de usuarios — y deliberadamente NO se aplica a la bitácora: lo que hace el
+   * soporte se ve con su nombre.
+   */
+  get usuariosDelLocal(): Usuario[] {
+    return usuariosVisibles(this.usuariosActivos);
+  }
+
+  /**
+   * El personal del local INCLUIDOS los desactivados.
+   *
+   * Es lo que va en Administración → Usuarios: quien está desactivado tiene que
+   * seguir viéndose, porque esa es justo la pantalla donde se le reactiva.
+   */
+  get usuariosAdministrables(): Usuario[] {
+    return usuariosVisibles(this.usuarios);
   }
 
   usuarioDe(id: ID): Usuario | undefined {
@@ -710,7 +740,9 @@ class Sesion {
    * pase dos minutos tecleando PIN ajenos.
    */
   hayQuienAutoriceCredencialDe(objetivo: Usuario): boolean {
-    return this.usuariosActivos.some(
+    // Del LOCAL: la pregunta es si hay alguien aquí que pueda firmarlo. Que
+    // MOTRAE pueda hacerlo en remoto no le sirve a quien está frente a la caja.
+    return this.usuariosDelLocal.some(
       (u) =>
         puedeGestionarA(u, objetivo) &&
         puedeAutorizar(u, "admin.credencial.autorizar") &&

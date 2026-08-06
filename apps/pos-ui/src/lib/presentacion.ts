@@ -24,6 +24,15 @@ export const MODO_DEMO = import.meta.env.PROD !== true;
  */
 export const EMPLEADO_ACTUAL: ID = "usr-gonzalo";
 
+/**
+ * A quién llama el restaurante para reactivar su licencia.
+ *
+ * Sale en la pantalla de bloqueo. Es un teléfono y no un correo a propósito: lo
+ * que el restaurante necesita en ese momento es reactivarse ya, y cada paso
+ * entre el bloqueo y el pago es un día más sin cobrar.
+ */
+export const CONTACTO_MOTRAE = "MOTRAE · 33 1234 5678";
+
 export const cabecera = {
   titulo: "Punto de venta",
   /*

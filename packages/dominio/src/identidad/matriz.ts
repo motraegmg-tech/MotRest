@@ -41,10 +41,17 @@ export function esLectura(accion: Accion): boolean {
   return accion.endsWith(".ver") || accion.includes(".ver_");
 }
 
-/** Roles cuya plantilla puede AUTORIZAR la acción indicada. */
+/**
+ * Roles cuya plantilla puede AUTORIZAR la acción indicada.
+ *
+ * Los roles ocultos quedan fuera. No es un detalle: esta lista se enseña en el
+ * diálogo de "pide autorización a…", y meter ahí a Soporte MOTRAE delataría su
+ * existencia en la pantalla que ve cualquier mesero.
+ */
 export function rolesQueAutorizan(accion: Accion): RolId[] {
-  return LISTA_ROLES.filter((rol) =>
-    rol.permisos.some((x) => x.accion === accion && x.nivel === "autorizar"),
+  return LISTA_ROLES.filter(
+    (rol) =>
+      !rol.oculto && rol.permisos.some((x) => x.accion === accion && x.nivel === "autorizar"),
   ).map((rol) => rol.id);
 }
 
@@ -155,10 +162,16 @@ export function puedeGestionarA(actor: Usuario, objetivo: Usuario): boolean {
   return rangoDe(actor.rol_id) > rangoDe(objetivo.rol_id);
 }
 
-/** Roles que `actor` puede asignar al dar de alta: solo por debajo del suyo. */
+/**
+ * Roles que `actor` puede asignar al dar de alta: solo por debajo del suyo.
+ *
+ * Y nunca uno oculto, ni siquiera desde Soporte. El acceso de MOTRAE se emite
+ * firmado en la licencia; que se pudiera crear otro desde dentro dejaría un
+ * usuario con todo el poder que ya no depende de la firma.
+ */
 export function rolesAsignablesPor(actor: Usuario): RolId[] {
   const propio = rangoDe(actor.rol_id);
-  return LISTA_ROLES.filter((r) => rangoDe(r.id) < propio).map((r) => r.id);
+  return LISTA_ROLES.filter((r) => !r.oculto && rangoDe(r.id) < propio).map((r) => r.id);
 }
 
 /**

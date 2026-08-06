@@ -1,35 +1,47 @@
 /**
  * La licencia de uso de MotRest (F4).
  *
- * LA REGLA QUE MANDA SOBRE TODAS: NUNCA DEJAR AL RESTAURANTE SIN VENDER.
+ * CÓMO SE COBRA, QUE LO DECIDIÓ GONZALO: mensualidad por local. Vencida la
+ * fecha hay **3 días de gracia** con todo funcionando, y al cuarto el software
+ * queda **inservible**: una pantalla con el logo de MOTRAE y nada más. El
+ * restaurante vuelve a hacer sus cosas a mano hasta que regularice.
  *
- * Un POS que se apaga a media cena porque no pudo comprobar una licencia es una
- * catástrofe, y sería culpa de MOTRAE, no del restaurante. Da igual si fue el
- * internet del local, un servidor caído de nuestro lado o un reloj desfasado:
- * el comensal está esperando su cuenta y el mesero no puede cobrarle.
+ * LO QUE SÍ SE COMPRUEBA SIN INTERNET. La licencia es un documento firmado que
+ * el Hub guarda y verifica solo. No hay llamada a ningún servidor para abrir:
+ * si MOTRAE se cae, los restaurantes que están al corriente siguen operando
+ * como si nada. Depender de nuestra disponibilidad para que ellos vendan sería
+ * cambiar un riesgo suyo por uno nuestro.
  *
- * De ahí sale todo el diseño:
+ * LA ÚNICA CONCESIÓN, Y POR QUÉ EXISTE. El bloqueo no cae a media cena. Si en
+ * el momento de vencer la gracia hay un TURNO DE CAJA ABIERTO, se difiere hasta
+ * que ese turno cierre. No es suavizar el cobro: es que bloquear con doce mesas
+ * abiertas deja ese dinero encerrado en una base de datos que nadie puede
+ * abrir —el restaurante no puede ni cobrarles a los que están sentados— y esa
+ * llamada de auxilio a las diez de la noche le cae a MOTRAE, no al moroso. Con
+ * el diferimiento pierden igual el servicio siguiente, que es a las pocas
+ * horas. Quien prefiera lo contrario lo enciende con `bloqueo_inmediato`.
  *
- *   1. **La licencia se comprueba SIN INTERNET.** Es un documento firmado que
- *      el Hub guarda y verifica solo. Sin llamadas al arrancar, sin depender de
- *      que MOTRAE esté en pie para que el restaurante abra.
- *
- *   2. **Vencer no es apagar.** Hay aviso mucho antes, después gracia con el
- *      sistema entero funcionando, y solo al final una restricción — que NUNCA
- *      impide cerrar el día ni sacar los datos.
- *
- *   3. **Los datos son del restaurante, siempre.** Aunque deba tres meses. Son
- *      sus ventas y las necesita para el SAT; retenerlas no es una palanca de
- *      cobro, es un problema legal. Exportar funciona en todos los estados.
- *
- * QUÉ SE RESTRINGE, ENTONCES. Lo que hace crecer la operación —abrir turno
- * nuevo, dar de alta terminales— y no lo que la cierra. Un restaurante que dejó
- * de pagar puede terminar su servicio, cobrar, cerrar su caja e imprimir su
- * corte. Lo que no puede es empezar otro día como si nada.
+ * EL ACCESO DE SOPORTE VIAJA AQUÍ. La licencia lleva el hash de la credencial de
+ * MOTRAE, y va dentro de lo firmado. Así el restaurante no puede fabricarse un
+ * usuario con poderes de soporte editando un archivo, y MOTRAE puede entrar a
+ * resolver un problema sin pedirle la contraseña a nadie. Ver `soporte.ts`.
  */
 import type { ID } from "../comun/ids.js";
 
 export type Plan = "prueba" | "mensual" | "anual";
+
+/**
+ * La credencial de MOTRAE para este local, en forma de hash.
+ *
+ * NUNCA la contraseña en claro. Va aquí y no en el código porque la elige
+ * Gonzalo en MOTRAE Central, y porque al ir dentro de lo firmado nadie puede
+ * sustituirla por una suya.
+ */
+export interface CredencialSoporte {
+  sal: string;
+  hash: string;
+  iteraciones: number;
+}
 
 /**
  * El documento firmado que MOTRAE emite. Viaja como texto y se guarda tal cual.
@@ -49,6 +61,15 @@ export interface Licencia {
   gracia_dias: number;
   /** Cuándo se emitió. */
   emitida_ts: number;
+  /** Credencial de soporte de MOTRAE para este local. */
+  soporte?: CredencialSoporte;
+  /**
+   * true = el bloqueo cae en cuanto vence la gracia, aunque haya turno abierto.
+   *
+   * Apagado por defecto a propósito: ver la nota de arriba sobre lo que pasa
+   * con las mesas abiertas.
+   */
+  bloqueo_inmediato?: boolean;
   /** Firma de MOTRAE sobre todo lo anterior. */
   firma: string;
 }
@@ -58,17 +79,17 @@ export type EstadoLicencia =
   | "activa"
   /** Le quedan pocos días. Se avisa, sin estorbar. */
   | "por_vencer"
-  /** Ya venció, pero está dentro de la gracia. TODO sigue funcionando. */
+  /** Ya venció, pero está dentro de los 3 días. TODO sigue funcionando. */
   | "gracia"
-  /** Se acabó la gracia. Se puede cerrar el día y exportar, no empezar otro. */
-  | "restringida"
+  /** Se acabó la gracia: el software queda inservible. */
+  | "bloqueada"
   /** No hay licencia, o la firma no cuadra. */
   | "invalida";
 
 /** Cuántos días antes se empieza a avisar. */
 export const DIAS_AVISO = 10;
-/** Gracia por defecto si la licencia no dice otra cosa. */
-export const GRACIA_POR_DEFECTO = 7;
+/** Gracia por defecto: 3 días, decisión de Gonzalo. */
+export const GRACIA_POR_DEFECTO = 3;
 
 export interface SituacionLicencia {
   estado: EstadoLicencia;
@@ -87,7 +108,7 @@ const DIA_MS = 86_400_000;
 /**
  * En qué situación está la licencia.
  *
- * `verificada` la calcula quien tiene la llave pública; aquí solo se decide qué
+ * `verificada` la calcula quien tiene la llave; aquí solo se decide qué
  * significa. Separarlo permite probar TODA la lógica de estados sin criptografía
  * de por medio, que es donde de verdad se cometen los errores.
  */
@@ -122,8 +143,8 @@ export function situacionDe(
       avisar: true,
       mensaje:
         dias === 0
-          ? "Tu licencia de MotRest vence hoy."
-          : `Tu licencia de MotRest vence en ${dias} ${dias === 1 ? "día" : "días"}.`,
+          ? "Su licencia de MotRest vence hoy."
+          : `Su licencia de MotRest vence en ${dias} ${dias === 1 ? "día" : "días"}.`,
     };
   }
 
@@ -133,38 +154,40 @@ export function situacionDe(
     return {
       estado: "gracia",
       dias,
-      // TODO sigue funcionando. La gracia existe para que un pago que se atrasó
-      // dos días no le cueste un viernes al restaurante.
+      /*
+       * TODO sigue funcionando. La gracia es corta —tres días— pero mientras
+       * dura no estorba en absoluto: un aviso que bloquea a medias es lo peor
+       * de los dos mundos, porque ni cobra ni deja trabajar.
+       */
       opera: true,
       avisar: true,
       mensaje:
-        `Tu licencia venció hace ${diasVencida} ${diasVencida === 1 ? "día" : "días"}. ` +
-        `El sistema sigue funcionando ${restan} ${restan === 1 ? "día" : "días"} más.`,
+        `Su licencia venció hace ${diasVencida} ${diasVencida === 1 ? "día" : "días"}. ` +
+        (restan === 0
+          ? "Hoy es el último día: mañana el sistema deja de funcionar."
+          : `Le ${restan === 1 ? "queda" : "quedan"} ${restan} ${restan === 1 ? "día" : "días"} antes de que el sistema deje de funcionar.`),
     };
   }
 
   return {
-    estado: "restringida",
+    estado: "bloqueada",
     dias,
     opera: false,
     avisar: true,
     mensaje:
-      "Tu licencia de MotRest venció. Puedes cerrar tu caja, imprimir tus cortes y " +
-      "exportar toda tu información, pero no abrir turnos nuevos hasta regularizar el pago.",
+      "Su licencia de MotRest venció y el sistema quedó suspendido. " +
+      "En cuanto se registre el pago vuelve a funcionar con toda su información intacta.",
   };
 }
 
 /**
  * Lo que se puede hacer con la licencia en cada estado.
  *
- * Es una lista corta a propósito. Restringir de más convierte un cobro pendiente
- * en un restaurante parado, y eso destruye la relación mucho más rápido de lo
- * que la falta de pago la merece.
+ * Bloqueada no se puede NADA. Es lo que decidió Gonzalo y es lo que hace que la
+ * mensualidad se cobre: un bloqueo con excepciones es un bloqueo que se ignora.
  */
 export type AccionLicenciada =
-  /** Abrir un turno de caja: es lo que arranca un día de operación. */
   | "abrir_turno"
-  /** Dar de alta terminales nuevas. */
   | "agregar_terminal"
   /** Vender: capturar, enviar a cocina, cobrar. */
   | "vender"
@@ -176,16 +199,57 @@ export type AccionLicenciada =
 /**
  * ¿Esta acción se puede con la licencia en este estado?
  *
- * VENDER, CERRAR y EXPORTAR se pueden SIEMPRE, incluso sin licencia válida. No
- * es generosidad: un restaurante a media cena tiene comensales esperando su
- * cuenta, y sus ventas son suyas y las necesita para el SAT.
+ * NADA DE EXCEPCIONES CUANDO ESTÁ BLOQUEADA. El único matiz —el turno abierto—
+ * no vive aquí sino en `momentoDeBloquear`, porque no es una excepción al
+ * bloqueo: es CUÁNDO empieza.
+ *
+ * Sobre sus datos: el restaurante no puede exportarlos con el sistema
+ * bloqueado, pero MOTRAE se los entrega desde Central en cuanto los pida. Sus
+ * ventas son suyas y las necesita para el SAT; retenerlas no sería una palanca
+ * de cobro, sería un problema legal. Lo que se suspende es el uso del software,
+ * no la propiedad de la información.
  */
 export function permiteLicencia(
   situacion: SituacionLicencia,
-  accion: AccionLicenciada,
+  _accion: AccionLicenciada,
 ): boolean {
-  if (accion === "vender" || accion === "cerrar" || accion === "exportar") return true;
   return situacion.opera;
+}
+
+/**
+ * ¿Cuándo cae el bloqueo?
+ *
+ * Con un turno de caja abierto se difiere al cierre, salvo que la licencia diga
+ * lo contrario. Bloquear con mesas abiertas encierra ese dinero: el restaurante
+ * no puede cobrarle ni a los que están sentados, y esa llamada de auxilio le
+ * llega a MOTRAE. Difiriendo, pierden igual el servicio siguiente.
+ */
+export type MomentoBloqueo = "ahora" | "al_cerrar_turno";
+
+export function momentoDeBloquear(
+  situacion: SituacionLicencia,
+  hayTurnoAbierto: boolean,
+  licencia?: Licencia | null,
+): MomentoBloqueo {
+  if (situacion.estado !== "bloqueada") return "ahora";
+  if (licencia?.bloqueo_inmediato) return "ahora";
+  return hayTurnoAbierto ? "al_cerrar_turno" : "ahora";
+}
+
+/**
+ * ¿Hay que enseñar la pantalla de bloqueo AHORA MISMO?
+ *
+ * Es la pregunta que hace la aplicación en cada arranque y en cada cierre de
+ * turno. Junta el estado y el momento en un solo sí/no para que ninguna
+ * pantalla tenga que volver a razonarlo por su cuenta.
+ */
+export function debeBloquearse(
+  situacion: SituacionLicencia,
+  hayTurnoAbierto: boolean,
+  licencia?: Licencia | null,
+): boolean {
+  if (situacion.opera) return false;
+  return momentoDeBloquear(situacion, hayTurnoAbierto, licencia) === "ahora";
 }
 
 /** El texto que se firma. Cualquier cambio de un campo invalida la firma. */
@@ -197,6 +261,11 @@ export function contenidoFirmable(licencia: Omit<Licencia, "firma">): string {
     licencia.vence_ts,
     licencia.gracia_dias,
     licencia.emitida_ts,
+    // El acceso de soporte va firmado: si no, el local se fabricaría el suyo.
+    licencia.soporte?.sal ?? "",
+    licencia.soporte?.hash ?? "",
+    licencia.soporte?.iteraciones ?? 0,
+    licencia.bloqueo_inmediato ? "1" : "0",
   ].join("|");
 }
 
@@ -265,6 +334,25 @@ export async function emitirLicencia(
     ...datos,
     firma: [...firma].map((b) => b.toString(16).padStart(2, "0")).join(""),
   };
+}
+
+/**
+ * Cuándo vence una mensualidad que se paga hoy.
+ *
+ * Se cuenta desde el vencimiento anterior si todavía no ha pasado, y desde hoy
+ * si ya pasó. Así, pagar tres días antes no regala tres días, y pagar tarde no
+ * cobra los días que el restaurante estuvo bloqueado.
+ */
+export function siguienteVencimiento(
+  vencimientoActual: number | null,
+  plan: Plan,
+  ahora = Date.now(),
+): number {
+  const meses = plan === "anual" ? 12 : 1;
+  const base = vencimientoActual && vencimientoActual > ahora ? vencimientoActual : ahora;
+  const fecha = new Date(base);
+  fecha.setMonth(fecha.getMonth() + meses);
+  return fecha.getTime();
 }
 
 /** El stream donde el Hub guarda su licencia. */

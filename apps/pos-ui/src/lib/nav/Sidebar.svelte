@@ -7,6 +7,7 @@
   import { COLOR_FASE, MODULOS } from "./modulos";
   import PropinasAcumuladas from "./PropinasAcumuladas.svelte";
   import { rutas } from "./rutas.svelte";
+  import { actualizaciones } from "../actualizaciones.svelte";
   import { sesion } from "../sesion/sesion.svelte";
 
   const visibles = $derived(MODULOS.filter((m) => sesion.puedeVer(m.permiso)));
@@ -52,6 +53,20 @@
     muestra las propinas del local o solo las de quien está en sesión.
   -->
   <PropinasAcumuladas />
+
+  <!--
+    EL AVISO QUE SE QUEDA PUESTO (pedido de Gonzalo).
+
+    Cuando el restaurante pospone una actualización, el diálogo se cierra pero
+    esto no. Un aviso que desaparece al posponerlo es un aviso que nadie vuelve a
+    ver, y una versión que nunca se instala.
+  -->
+  {#if actualizaciones.pendiente}
+    <button class="actualizacion" onclick={() => actualizaciones.reabrir()}>
+      <i></i>
+      <span>{actualizaciones.resumen}</span>
+    </button>
+  {/if}
 
   <div class="foot">MOTRAE · Innovation already in motion</div>
 </aside>
@@ -141,6 +156,54 @@
   .seccion.on {
     color: var(--acento);
     font-weight: 600;
+  }
+  /*
+   * El punto naranja pulsa despacio. Es el único elemento animado del menú a
+   * propósito: en una pantalla que un mesero mira de reojo cien veces por turno,
+   * lo que no se mueve deja de verse a los dos días.
+   */
+  .actualizacion {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    width: 100%;
+    margin-bottom: 0.6rem;
+    padding: 0.5rem 0.6rem;
+    border: 1px solid rgba(242, 133, 58, 0.35);
+    border-radius: var(--r-sm);
+    background: rgba(242, 133, 58, 0.1);
+    color: #e6ece8;
+    font: inherit;
+    font-size: 0.72rem;
+    line-height: 1.35;
+    text-align: left;
+    cursor: pointer;
+  }
+  .actualizacion:hover {
+    border-color: var(--acento);
+  }
+  .actualizacion i {
+    flex: none;
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: var(--acento);
+    animation: latido 2.4s ease-in-out infinite;
+  }
+  @keyframes latido {
+    0%,
+    100% {
+      opacity: 1;
+    }
+    50% {
+      opacity: 0.35;
+    }
+  }
+  /* Quien pidió menos movimiento no debe pelearse con un punto que parpadea. */
+  @media (prefers-reduced-motion: reduce) {
+    .actualizacion i {
+      animation: none;
+    }
   }
   .foot {
     margin-top: auto;

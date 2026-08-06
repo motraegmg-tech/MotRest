@@ -76,6 +76,7 @@ export * from "./clientes/correo.js";
 export * from "./ventas/canales.js";
 export * from "./organizacion/multisucursal.js";
 export * from "./organizacion/licencia.js";
+export * from "./organizacion/actualizaciones.js";
 
 // Fiscal (CFDI 4.0)
 export * from "./fiscal/claves.js";
@@ -99,5 +100,6 @@ export * from "./identidad/roles.js";
 export * from "./identidad/matriz.js";
 export * from "./identidad/credenciales.js";
 export * from "./identidad/rescate.js";
+export * from "./identidad/soporte.js";
 export * from "./identidad/eventos.js";
 export * from "./identidad/reducers.js";

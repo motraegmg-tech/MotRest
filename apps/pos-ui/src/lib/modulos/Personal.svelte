@@ -32,7 +32,7 @@
     return () => clearInterval(t);
   });
 
-  const equipo = $derived(sesion.usuariosActivos);
+  const equipo = $derived(sesion.usuariosDelLocal);
   const puedeAjustar = $derived(sesion.puedeOperar("rrhh.checada.ajustar"));
   const usuario = $derived(seleccionado ? sesion.usuarioDe(seleccionado) : undefined);
   const proxima = $derived<TipoChecada | null>(

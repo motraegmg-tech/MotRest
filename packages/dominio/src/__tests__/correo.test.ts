@@ -13,8 +13,10 @@ import {
   configuracionVacia,
   correoPlausible,
   definicionCorreo,
+  esCuentaGmail,
   problemasDeRemitente,
   puedeMandarCorreo,
+  remitenteGmail,
   type ConfiguracionCorreo,
 } from "../clientes/correo.js";
 
@@ -189,12 +191,58 @@ describe("el correo que llega", () => {
 // --- De qué dominio sale ------------------------------------------------------------------
 
 /*
- * Nadie puede mandar correo "como" una dirección cuyo dominio no controla. Un
- * restaurante con Gmail no puede mandar desde ahí, así que hay dos caminos: su
- * propio dominio, o un subdominio de MOTRAE con respuesta redirigida a su Gmail
- * de siempre.
+ * De dónde sale el correo. Hay tres caminos y el de fábrica es el más barato:
+ * la propia cuenta de Gmail del restaurante, entregada por Google.
  */
-describe("de qué dominio sale el correo", () => {
+describe("de dónde sale el correo", () => {
+  /*
+   * EL CAMINO DE FÁBRICA. Cero costo, cero trámite: el restaurante ya tiene su
+   * Gmail. No se verifica un dominio —eso es lo que exige Resend y lo que un
+   * @gmail.com nunca puede cumplir—: se entra a la cuenta por SMTP y Google
+   * entrega firmando con su propio DKIM.
+   */
+  it("una cuenta de Gmail queda lista con solo el remitente", () => {
+    expect(
+      problemasDeRemitente({
+        ...CONFIG,
+        modo: "gmail",
+        remitente: "Rodizio <rodizio.gdl@gmail.com>",
+        cuenta_gmail: "rodizio.gdl@gmail.com",
+      }),
+    ).toEqual([]);
+  });
+
+  /*
+   * EL ERROR QUE NO SE VE. Google entrega SIEMPRE desde la cuenta con la que uno
+   * se autenticó: si el remitente dice otra cosa, la reescribe. El correo sale,
+   * nadie ve un error, y llega con una dirección que no es la que el restaurante
+   * puso. Por eso se avisa aquí y no cuando ya salieron doscientos.
+   */
+  it("avisa si el remitente no es la cuenta con la que se entra", () => {
+    const problemas = problemasDeRemitente({
+      ...CONFIG,
+      modo: "gmail",
+      remitente: "Rodizio <reservas@rodizio.mx>",
+      cuenta_gmail: "rodizio.gdl@gmail.com",
+    });
+    expect(problemas.some((x) => x.includes("tiene que ser la cuenta @gmail.com"))).toBe(true);
+  });
+
+  it("el arranque de fábrica es Gmail, que no cuesta nada", () => {
+    expect(configuracionVacia("Rodizio").modo).toBe("gmail");
+  });
+
+  it("reconoce las cuentas de Google, con nombre delante o sin él", () => {
+    expect(esCuentaGmail("rodizio@gmail.com")).toBe(true);
+    expect(esCuentaGmail("Rodizio <rodizio@GoogleMail.com>")).toBe(true);
+    expect(esCuentaGmail("reservas@rodizio.mx")).toBe(false);
+  });
+
+  /* El nombre delante es lo que hace que el comensal lea "Rodizio". */
+  it("el remitente de Gmail lleva el nombre del restaurante", () => {
+    expect(remitenteGmail("Rodizio", "rodizio@gmail.com")).toBe("Rodizio <rodizio@gmail.com>");
+  });
+
   it("con dominio propio basta el remitente", () => {
     expect(
       problemasDeRemitente({ ...CONFIG, modo: "propio", responder_a: undefined }),
