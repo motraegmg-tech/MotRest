@@ -270,6 +270,38 @@ export class Hub {
     for (const catalogo of catalogos) this.catalogos.set(catalogo.clave, catalogo);
   }
 
+  /** Los datos de un catálogo, para quien los necesite dentro del Hub. */
+  catalogoDe(clave: string): unknown {
+    return this.catalogos.get(clave)?.datos;
+  }
+
+  /**
+   * Eventos que genera el propio Hub, sin terminal detrás.
+   *
+   * Hoy solo el kiosco de autoservicio. Va por un camino aparte de `ingerir`
+   * porque ahí se revalidan los permisos del EMPLEADO que los mandó, y aquí no
+   * hay empleado: los pidió el comensal desde una pantalla. Lo que sustituye a
+   * esa comprobación es que el Hub compone los eventos él mismo —la tablet solo
+   * dice qué y cuánto— así que no hay nada que un cliente pueda falsear.
+   */
+  recibirDelSistema(eventos: readonly EventoBase[]): void {
+    const validos = eventos.filter((e) => eventoValido(e));
+    if (validos.length === 0) return;
+
+    const acks = this.log.ingerir(validos);
+    if (acks.length === 0) return;
+    this.opciones.alIngerir?.(validos);
+
+    const menor = acks.reduce((n, a) => Math.min(n, a.seq), Infinity);
+    const nuevos = this.log.desde(menor - 1, acks.length + 50);
+
+    // A TODAS las terminales, sin excluir a nadie: no hay una que ya lo tenga.
+    for (const sesion of this.sesiones.values()) {
+      if (!sesion.saludado) continue;
+      sesion.conexion.enviar({ tipo: "eventos", eventos: nuevos, hay_mas: false });
+    }
+  }
+
   /**
    * El Hub publica un catálogo por su cuenta, sin que venga de una terminal.
    *

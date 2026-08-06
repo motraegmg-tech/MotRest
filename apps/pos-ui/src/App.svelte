@@ -15,6 +15,7 @@
   import Compras from "./lib/modulos/Compras.svelte";
   import Finanzas from "./lib/modulos/Finanzas.svelte";
   import Canales from "./lib/modulos/finanzas/Canales.svelte";
+  import Grupo from "./lib/modulos/finanzas/Grupo.svelte";
   import Inteligencia from "./lib/modulos/Inteligencia.svelte";
   import Inventario from "./lib/modulos/Inventario.svelte";
   import Personal from "./lib/modulos/Personal.svelte";
@@ -116,6 +117,8 @@
     {:else if modulo.clave === "finanzas"}
       {#if seccion === "canales"}
         <Canales />
+      {:else if seccion === "grupo"}
+        <Grupo />
       {:else}
         <Finanzas />
       {/if}

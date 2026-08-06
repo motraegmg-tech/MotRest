@@ -10,6 +10,9 @@
     "check": "svelte-check --tsconfig ./tsconfig.json",
     "lint": "svelte-check --tsconfig ./tsconfig.json"
   },
+  "dependencies": {
+    "@motrest/dominio": "workspace:*"
+  },
   "devDependencies": {
     "@sveltejs/vite-plugin-svelte": "^5.1.1",
     "svelte": "^5.56.7",

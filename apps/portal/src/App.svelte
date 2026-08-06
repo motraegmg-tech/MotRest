@@ -13,6 +13,7 @@
    *     lo que trae impreso, y nada de la operación del local.
    */
   import Encuesta from "./Encuesta.svelte";
+  import Kiosco from "./Kiosco.svelte";
   import Reservar from "./Reservar.svelte";
 
   /*
@@ -32,8 +33,18 @@
     hash.startsWith("#/c/") ? decodeURIComponent(hash.slice("#/c/".length)) : null,
   );
   const reservando = $derived(hash.startsWith("#/reservar"));
+  /*
+   * El kiosco es la MISMA aplicación en otro modo, y por eso entra por su propia
+   * ruta y no por otro build: la tablet de la entrada y el teléfono del comensal
+   * comparten el 90 % del código, y mantener dos aplicaciones que hacen casi lo
+   * mismo es la forma más segura de que una se quede atrás.
+   */
+  const enKiosco = $derived(hash.startsWith("#/kiosco"));
 </script>
 
+{#if enKiosco}
+  <Kiosco />
+{:else}
 <main>
   <header>
     <h1>Rodizio</h1>
@@ -60,6 +71,7 @@
 
   <footer>MotRest · MOTRAE</footer>
 </main>
+{/if}
 
 <style>
   :global(:root) {

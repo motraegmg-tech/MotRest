@@ -44,17 +44,36 @@ caro:
 Al primer arranque el Hub genera la **clave del local** y su certificado, y se
 registra para arrancar con Windows.
 
-### A.3 · Activar la licencia
+### A.3 · Configurar las llaves del equipo
 
-MotRest arranca **sin licencia** y lo dice. Para activarlo:
+Van como variables de entorno del servicio, **nunca en un archivo del repositorio**:
+
+| Variable | Para qué |
+|---|---|
+| `MOTREST_LICENCIA_LLAVE` | Comprobar la licencia. **Sin ella el equipo se comporta como si no tuviera.** |
+| `MOTREST_ACTUALIZACIONES_REPO` | `motrae/motrest` |
+| `MOTREST_ACTUALIZACIONES_LLAVE` | Comprobar la firma de las versiones |
+| `MOTREST_RESPALDOS` | Carpeta de copias, mejor fuera del disco |
+
+### A.4 · Activar la licencia
+
+MotRest arranca **sin licencia** y opera con normalidad, avisando. Es a propósito:
+arrancar bloqueado el día de la instalación —justo cuando MOTRAE está ahí
+montándolo— no tiene ningún sentido.
 
 1. En el Hub, ver el `sucursal_id` que se generó (**Administración → Hub**).
-2. Desde MOTRAE, emitir la licencia para ese `sucursal_id` con su vigencia.
-3. Pegarla en **Administración → Licencia**, o dejar el archivo
-   `licencia.json` junto a la base de datos.
+2. En **MOTRAE Central → Restaurantes**, dar de alta el local **con ese mismo
+   identificador** y pulsar «Emitir licencia».
+3. Copiar el `licencia.json` y pegarlo en **Administración → Licencia**.
 
-La licencia es un documento **firmado** y se comprueba **sin internet**: si
-MOTRAE se cae, los restaurantes siguen abriendo.
+> **El identificador tiene que coincidir exactamente.** Es el error más
+> frustrante del alta porque no se descubre hasta que uno ya está en el
+> restaurante con el archivo pegado y no pasa nada. Una licencia de otro local
+> **no se guarda**: si ya había una buena, sigue en su sitio.
+
+La licencia se comprueba **sin internet**: si MOTRAE se cae, los restaurantes al
+corriente siguen abriendo. Y vive junto a la base de datos, así que las
+actualizaciones no la borran.
 
 ### A.4 · Emparejar las tablets
 
@@ -108,47 +127,81 @@ Esto importa más que el mecanismo:
 - **Nunca en automático la primera vez de una versión mayor.** Se despliega
   primero en un local, se ve el fin de semana, y después a los demás.
 
+### Qué elige el restaurante
+
+Le aparece **«Hay una nueva actualización disponible»** con tres opciones:
+**ahora**, **más tarde** (2 h) o **a una hora** concreta de cierre. Si la
+pospone, el aviso se queda puesto en la barra lateral hasta que se instale.
+
 ### Publicar una versión
 
-1. Subir la versión y firmar el instalador.
-2. Publicar el manifiesto con la versión, las notas y la firma.
-3. Los Hubs la ven en su siguiente comprobación.
+El procedimiento completo está en
+[`PUBLICAR-UNA-ACTUALIZACION.md`](PUBLICAR-UNA-ACTUALIZACION.md). En corto: se
+sube el instalador y un `motrest.json` firmado a un release de GitHub, desde
+**MOTRAE Central → Versiones**.
 
 > **Regla de oro:** una versión nueva se prueba con el ensayo del viernes
-> completo antes de publicarla. Ya hay 1 200 pruebas y dos ensayos contra el
-> binario instalado — la única forma de que sirvan es correrlos.
+> completo **y se instala sobre una instalación anterior** antes de publicarla.
+> Hay 1 400 pruebas y dos ensayos contra el binario instalado — la única forma de
+> que sirvan es correrlos.
 
 ---
 
 ## Parte C — Qué pasa si dejan de pagar
 
-Diseñado con una regla por encima de todas: **nunca dejar al restaurante sin
-vender**. Un POS que se apaga a media cena es una catástrofe, y sería culpa de
-MOTRAE.
-
 | Estado | Cuándo | Qué pasa |
 |---|---|---|
 | **Activa** | Al corriente | Nada. Ni un aviso. |
 | **Por vencer** | 10 días antes | Aviso discreto. Todo funciona. |
-| **Gracia** | Vencida, dentro de los días pactados | Aviso visible. **Todo sigue funcionando.** |
-| **Restringida** | Pasada la gracia | Puede vender, cobrar, cerrar caja e imprimir cortes. **No** puede abrir turnos nuevos ni dar de alta terminales. |
+| **Gracia** | Vencida, **3 días** | Aviso visible. **Todo sigue funcionando.** |
+| **Bloqueada** | Al cuarto día | Pantalla de MOTRAE. **Nada funciona.** |
 
-**Lo que NUNCA se bloquea, ni debiendo tres meses:**
+Durante la gracia no estorba nada. Un aviso que bloquea a medias es lo peor de
+los dos mundos: ni cobra ni deja trabajar.
 
-- **Vender y cobrar.** Hay comensales esperando su cuenta.
-- **Cerrar la caja e imprimir el corte.**
-- **Exportar toda su información.** Sus ventas son suyas y las necesita para el
-  SAT. Retenerlas no es una palanca de cobro: es un problema legal.
+### El bloqueo no cae con la caja abierta
 
-La gracia existe para que un pago atrasado dos días no le cueste un viernes al
-restaurante. Restringir de más convierte un cobro pendiente en un local parado,
-y eso destruye la relación mucho más rápido de lo que la falta de pago la
-merece.
+Si al vencer la gracia hay un **turno de caja abierto**, se difiere hasta que
+cierren, con un aviso rojo bien visible.
+
+No es suavizar el cobro. Bloquear con doce mesas abiertas encierra ese dinero —el
+restaurante no puede cobrarle ni a los que están sentados— y esa llamada de
+auxilio le llega a MOTRAE, no al moroso. Difiriendo pierden igual el servicio
+siguiente, que es a las pocas horas.
+
+### Lo que hay que decirle al restaurante
+
+- **Su información no se pierde.** Está toda ahí y vuelve intacta al reactivar.
+  Es lo primero que teme y lo que menos cuesta aclarar; la propia pantalla de
+  bloqueo lo dice.
+- **Sus datos siguen siendo suyos.** Si los pide para el SAT, MOTRAE se los
+  entrega desde Central. Retenerlos no sería una palanca de cobro, sería un
+  problema legal.
 
 ### Reactivar
 
-Emitir una licencia nueva y pegarla. Efecto inmediato, sin reinstalar y sin
-perder nada.
+Emitir una licencia nueva en Central y pegarla. **Efecto inmediato**, sin
+reinstalar y sin que nadie reinicie nada: las terminales se desbloquean al
+momento.
+
+---
+
+## Parte C bis — El acceso de soporte
+
+Cada instalación lleva el usuario **Gonz Motrae**, que no aparece en la lista de
+personal del restaurante y sirve para que MOTRAE entre a resolver un problema sin
+pedirle a nadie su contraseña. Es el único que puede entrar a un local bloqueado.
+
+Su contraseña la fija Gonzalo en **Central → Llaves** y viaja **dentro de la
+licencia firmada**. Consecuencias prácticas:
+
+- Un local sin licencia **no tiene acceso de soporte**.
+- Cambiar la contraseña exige **reemitir las licencias** de los locales.
+- Todo lo que haga queda en la **bitácora del restaurante** con su nombre, y esa
+  bitácora solo agrega.
+
+**Va declarado en el contrato del cliente.** La cláusula está en
+[`adr/ADR-24-licencia-y-soporte.md`](adr/ADR-24-licencia-y-soporte.md).
 
 ---
 

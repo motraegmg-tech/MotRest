@@ -42,6 +42,7 @@ import { Hub, type Conexion } from "./servidor.js";
 import * as autoarranque from "./autoarranque.js";
 import { GestorLicencia } from "./licencia.js";
 import { Actualizaciones, CADA_MS as ACTUALIZAR_CADA_MS } from "./actualizaciones.js";
+import { registrarPedido, type PlatilloDeKiosco } from "./kiosco.js";
 import { registrarOpinion, solicitarReserva, verCuenta } from "./portal.js";
 import { Avisos, avisoReservaConfirmada } from "./avisos.js";
 import { Correo } from "./correo.js";
@@ -138,6 +139,15 @@ let licencia: GestorLicencia | null = null;
 let actualizador: Actualizaciones | null = null;
 /** Lo último que se encontró publicado, para contárselo a las terminales. */
 let versionDisponible: import("@motrest/dominio").VersionDisponible | null = null;
+
+/**
+ * Cuántos pedidos lleva el kiosco. Alimenta el número que se grita para recoger.
+ *
+ * Arranca en cero en cada reinicio del Hub, y da igual: `folioDeKiosco` vuelve a
+ * empezar cada 999 de todas formas, y dos pedidos con el mismo número separados
+ * por un reinicio no se cruzan en el mostrador.
+ */
+let pedidosDeKioscoHoy = 0;
 
 /**
  * A qué sucursal pertenece este Hub.
@@ -570,6 +580,19 @@ function atender(peticion: IncomingMessage, respuesta: ServerResponse): void {
   }
 
   /*
+   * El kiosco de autoservicio (F4).
+   *
+   * Va sin autenticación y es correcto: quien está delante del kiosco está
+   * físicamente dentro del restaurante, igual que quien se acerca al mostrador.
+   * Lo que lo protege no es una credencial sino que aquí solo se puede pedir de
+   * la carta, y que los precios los pone el Hub.
+   */
+  if (url.pathname.startsWith("/kiosco/")) {
+    void atenderKiosco(peticion, url, json);
+    return;
+  }
+
+  /*
    * La licencia. Solo desde la propia caja: instalar una licencia es una acción
    * de administración, y cualquiera en la wifi del local no tiene por qué poder
    * intentarlo ni leer el estado de cobro del restaurante.
@@ -772,6 +795,61 @@ async function atenderPortal(
     registrar("aviso", `Portal: ${String(causa)}`);
     json(400, { error: "No se pudo procesar la petición" });
   }
+}
+
+/**
+ * La carta y los pedidos del kiosco.
+ *
+ * La carta sale del mismo catálogo que usa el POS, RECORTADA: nombre, precio y
+ * categoría. Ni costos, ni márgenes, ni recetas. Si alguien desmonta la tablet y
+ * mira el tráfico, se lleva la carta que ya está en la pared.
+ */
+async function atenderKiosco(
+  peticion: IncomingMessage,
+  url: URL,
+  json: (codigo: number, cuerpo: unknown) => void,
+): Promise<void> {
+  const cartaDelLocal = (): PlatilloDeKiosco[] => {
+    const guardado = hub.catalogoDe("menu_local") as
+      | { productos?: { id: string; nombre: string; precio: number; categoria_id?: string; disponible?: boolean }[]; categorias?: { id: string; nombre: string }[] }
+      | undefined;
+    if (!guardado?.productos) return [];
+
+    const nombreCategoria = new Map((guardado.categorias ?? []).map((c) => [c.id, c.nombre]));
+    return guardado.productos
+      // Lo que está agotado no se ofrece: es peor cobrarlo y no tenerlo.
+      .filter((p) => p.disponible !== false)
+      .map((p) => ({
+        id: p.id,
+        nombre: p.nombre,
+        precio: p.precio,
+        categoria: nombreCategoria.get(p.categoria_id ?? "") ?? "Otros",
+      }));
+  };
+
+  if (peticion.method === "GET" && url.pathname === "/kiosco/carta") {
+    json(200, cartaDelLocal());
+    return;
+  }
+
+  if (peticion.method === "POST" && url.pathname === "/kiosco/pedido") {
+    try {
+      const cuerpo = JSON.parse((await leerCuerpo(peticion, 16 * 1024)).toString("utf8"));
+      const r = registrarPedido(cuerpo, {
+        carta: cartaDelLocal,
+        consecutivo: () => pedidosDeKioscoHoy++,
+        sucursal_id: sucursalDelLocal,
+        publicar: (eventos) => hub.recibirDelSistema(eventos as EventoBase[]),
+      });
+      if (r.ok) json(200, r.datos);
+      else json(r.codigo, { error: r.error });
+    } catch {
+      json(400, { error: "No se pudo leer el pedido" });
+    }
+    return;
+  }
+
+  json(404, { error: "No existe" });
 }
 
 async function atenderImpresion(

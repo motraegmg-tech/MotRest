@@ -105,6 +105,10 @@ importers:
         version: 6.2.1
 
   apps/portal:
+    dependencies:
+      '@motrest/dominio':
+        specifier: workspace:*
+        version: link:../../packages/dominio
     devDependencies:
       '@sveltejs/vite-plugin-svelte':
         specifier: ^5.1.1
