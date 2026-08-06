@@ -205,8 +205,49 @@ export interface ConfiguracionCorreo {
   asuntos?: Partial<Record<TipoCorreo, string>>;
 }
 
+/**
+ * El dominio desde el que MOTRAE manda por sus restaurantes.
+ *
+ * UNO SOLO PARA TODOS. Cuesta unos $200 al año en total, no por local, y evita
+ * que cada restaurante tenga que comprar dominio y tocar su DNS para poder
+ * mandar una confirmación de reserva.
+ */
+export const DOMINIO_MOTRAE = "avisos.motrest.mx";
+
+/**
+ * Arma el remitente compartido de un restaurante.
+ *
+ * El comensal ve el nombre del restaurante, que es lo que le importa. La
+ * dirección de atrás es de MOTRAE porque es la única forma de que el correo
+ * pase los filtros sin que el local compre nada.
+ */
+export function remitenteCompartido(local: string): string {
+  const usuario = local
+    .trim()
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[̀-ͯ]/g, "")
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 30);
+
+  return `${local.trim()} <${usuario || "avisos"}@${DOMINIO_MOTRAE}>`;
+}
+
+/**
+ * Configuración de arranque: el modo compartido, que es el que no cuesta nada.
+ *
+ * Se empieza por ahí a propósito. Un restaurante puede estar mandando
+ * confirmaciones el mismo día que instala, y el que quiera su propia marca en el
+ * remitente se cambia a dominio propio cuando quiera.
+ */
 export function configuracionVacia(local = ""): ConfiguracionCorreo {
-  return { remitente: "", local, activos: {} };
+  return {
+    modo: "motrae",
+    remitente: local ? remitenteCompartido(local) : "",
+    local,
+    activos: {},
+  };
 }
 
 export type EventoCorreo =
