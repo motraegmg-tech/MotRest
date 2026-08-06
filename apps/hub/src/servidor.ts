@@ -271,6 +271,35 @@ export class Hub {
   }
 
   /**
+   * El Hub publica un catálogo por su cuenta, sin que venga de una terminal.
+   *
+   * Lo usan las cosas que SOLO el Hub sabe: el veredicto de la licencia y las
+   * actualizaciones disponibles. Que viajen por el mismo canal que la carta y el
+   * plano no es pereza — es lo que hace que una terminal que se enciende a media
+   * tarde reciba el estado completo del local sin un mecanismo aparte.
+   *
+   * LO QUE SE PUBLIQUE AQUÍ LLEGA A TODAS LAS TERMINALES, incluidas las tablets
+   * del salón. Nada secreto puede salir por este camino: la credencial de
+   * soporte, por ejemplo, viaja aparte por `/licencia`, que solo contesta a la
+   * propia caja.
+   */
+  publicarCatalogo(clave: string, datos: unknown): void {
+    const catalogo: Catalogo = {
+      clave,
+      version: (this.catalogos.get(clave)?.version ?? 0) + 1,
+      updated_at: Date.now(),
+      datos,
+    };
+    this.catalogos.set(clave, catalogo);
+    this.opciones.guardarCatalogo?.(catalogo);
+
+    for (const sesion of this.sesiones.values()) {
+      if (!sesion.saludado) continue;
+      sesion.conexion.enviar({ tipo: "catalogo", catalogos: [catalogo] });
+    }
+  }
+
+  /**
    * Corta las conexiones de una terminal revocada.
    *
    * Revocar sin expulsar no serviría de nada: la terminal ya está conectada y

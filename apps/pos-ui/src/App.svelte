@@ -37,6 +37,7 @@
   import { sesion } from "./lib/sesion/sesion.svelte";
   import { sync } from "./lib/sync.svelte";
   import { actualizaciones } from "./lib/actualizaciones.svelte";
+  import { caja } from "./lib/caja.svelte";
   import { licencia } from "./lib/licencia.svelte";
   import { CONTACTO_MOTRAE } from "./lib/presentacion";
   import { esSoporte } from "@motrest/dominio";
@@ -57,6 +58,16 @@
    * proveedor puede salir es un ladrillo, no una palanca de cobro.
    */
   const bloqueado = $derived(licencia.bloqueado && !esSoporte(sesion.usuarioActual));
+
+  /*
+   * El bloqueo no cae con un turno de caja abierto.
+   *
+   * Bloquear con doce mesas abiertas encierra ese dinero: el restaurante no
+   * puede cobrarle ni a los que están sentados, y esa llamada de auxilio le
+   * llega a MOTRAE, no al moroso. Se enlaza aquí, en el shell, para que los dos
+   * stores sigan sin conocerse.
+   */
+  $effect(() => licencia.marcarTurno(caja.activa !== undefined));
 </script>
 
 {#if arranque.cargando}

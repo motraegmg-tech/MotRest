@@ -113,8 +113,18 @@ function fechaCorreo(ahora: Date): string {
   return ahora.toUTCString().replace(/GMT$/, "+0000");
 }
 
-/** Arma el mensaje MIME completo, listo para el `DATA`. */
-export function armarMime(mensaje: MensajeSmtp, ahora = new Date(), id = randomUUID()): string {
+/**
+ * Arma el mensaje MIME completo, listo para el `DATA`.
+ *
+ * El `id` se recibe como `string` y no como UUID: solo sirve para componer el
+ * `Message-ID` y la frontera del multipart, y atarlo al tipo de `randomUUID`
+ * obligaría a las pruebas a inventar UUID de mentira para leer un asunto.
+ */
+export function armarMime(
+  mensaje: MensajeSmtp,
+  ahora = new Date(),
+  id: string = randomUUID(),
+): string {
   const frontera = `motrest-${id}`;
   const dominio = soloDireccion(mensaje.de).split("@")[1] ?? "motrest";
 

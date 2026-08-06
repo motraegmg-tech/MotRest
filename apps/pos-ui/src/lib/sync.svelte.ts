@@ -20,9 +20,16 @@ import {
   type FacturaEnCola,
   type TerminalRegistrada,
 } from "@motrest/protocolo-sync";
-import type { EventoBase, MenuLocal, PlanoLocal } from "@motrest/dominio";
+import type {
+  EstadoActualizacion,
+  EventoBase,
+  MenuLocal,
+  PlanoLocal,
+} from "@motrest/dominio";
 import { CLAVE_MENU, menu } from "./menu.svelte";
 import { CLAVE_PLANO, plano } from "./plano.svelte";
+import { CLAVE_ACTUALIZACION, actualizaciones } from "./actualizaciones.svelte";
+import { CLAVE_LICENCIA, licencia, type VeredictoLicencia } from "./licencia.svelte";
 import { SUCURSAL_ID, obtenerDeviceId } from "./presentacion";
 
 export const CLAVE_HUB = "hub_url";
@@ -340,6 +347,15 @@ class StoreSync {
         if (menu.fusionar(catalogo.datos as MenuLocal)) this.catalogosRecibidos += 1;
       } else if (catalogo.clave === CLAVE_PLANO) {
         if (plano.fusionar(catalogo.datos as PlanoLocal)) this.catalogosRecibidos += 1;
+      } else if (catalogo.clave === CLAVE_LICENCIA) {
+        /*
+         * El veredicto lo calcula el HUB, que es donde vive la llave. Esta
+         * terminal no lo recalcula ni podría: si pudiera, bastaría con abrir las
+         * herramientas del navegador para desbloquear el sistema.
+         */
+        licencia.fusionar(catalogo.datos as VeredictoLicencia);
+      } else if (catalogo.clave === CLAVE_ACTUALIZACION) {
+        actualizaciones.fusionar(catalogo.datos as EstadoActualizacion);
       }
     }
   }

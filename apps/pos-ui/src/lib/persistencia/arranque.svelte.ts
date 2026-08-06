@@ -29,6 +29,8 @@ import { compras } from "../compras.svelte";
 import { opiniones } from "../opiniones.svelte";
 import { reservas } from "../reservas.svelte";
 import { correo } from "../correo.svelte";
+import { actualizaciones } from "../actualizaciones.svelte";
+import { licencia } from "../licencia.svelte";
 import { canales } from "../canales.svelte";
 import { prenomina } from "../prenomina.svelte";
 import { cartaVacia, catalogo, impuestos } from "../catalogo";
@@ -289,6 +291,14 @@ class Arranque {
       reservas.conectarAlmacen(almacen);
       await correo.hidratar(almacen);
       await canales.hidratar(almacen);
+      /*
+       * La licencia y las actualizaciones las decide el Hub. Aquí solo se
+       * recupera lo último que dijo, para que una terminal que enciende sin red
+       * no se comporte como si no supiera nada — ni bloqueando de más ni
+       * dejando pasar de más.
+       */
+      await licencia.hidratar(almacen);
+      await actualizaciones.hidratar(almacen);
 
       // El almacén nace en la etapa 8: un dispositivo con operación anterior no
       // tiene ni un movimiento y abriría el inventario en ceros. Se carga aquí,

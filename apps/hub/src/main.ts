@@ -40,6 +40,8 @@ import {
 import { almacenSqlite } from "@motrest/protocolo-sync/sqlite";
 import { Hub, type Conexion } from "./servidor.js";
 import * as autoarranque from "./autoarranque.js";
+import { GestorLicencia } from "./licencia.js";
+import { Actualizaciones, CADA_MS as ACTUALIZAR_CADA_MS } from "./actualizaciones.js";
 import { registrarOpinion, solicitarReserva, verCuenta } from "./portal.js";
 import { Avisos, avisoReservaConfirmada } from "./avisos.js";
 import { Correo } from "./correo.js";
@@ -127,7 +129,15 @@ let correo: Correo | null = null;
 /** Clave bajo la que vive la configuración de correo del local. */
 const CLAVE_CORREO = "correo_config";
 let configCorreo: ConfiguracionCorreo = configuracionVacia();
+/** Llave de Resend, o contraseña de aplicación de Gmail según el modo. */
 let llaveResend = "";
+
+/** La licencia de este local. Se carga al arrancar y no vuelve a pedir permiso a nadie. */
+let licencia: GestorLicencia | null = null;
+/** El buscador de versiones nuevas, si MOTRAE configuró el canal. */
+let actualizador: Actualizaciones | null = null;
+/** Lo último que se encontró publicado, para contárselo a las terminales. */
+let versionDisponible: import("@motrest/dominio").VersionDisponible | null = null;
 
 /**
  * A qué sucursal pertenece este Hub.
@@ -180,6 +190,19 @@ const NOMBRE_RED = process.env.MOTREST_HUB_NOMBRE ?? "motrest";
 // Por omisión SÍ se exige aprobación: es la postura segura. Se relaja solo si
 // quien instala lo pide explícitamente.
 const EXIGIR_APROBACION = process.env.MOTREST_HUB_ABIERTO !== "1";
+
+/**
+ * La licencia vive JUNTO A LA BASE DE DATOS, no junto al ejecutable.
+ *
+ * Es lo que hace que una actualización no la borre: los archivos de programa se
+ * reemplazan enteros al instalar una versión nueva, y una licencia que viviera
+ * ahí desaparecería con cada actualización. Este es el error que deja a un
+ * restaurante bloqueado la mañana después de actualizar.
+ */
+const RUTA_LICENCIA = join(dirname(RUTA_DB), "licencia.json");
+
+/** La versión instalada. Se compara contra lo que se publique en GitHub. */
+const VERSION = createRequire(import.meta.url)("../package.json").version as string;
 
 mkdirSync(dirname(RUTA_DB), { recursive: true });
 const almacen = almacenSqlite(RUTA_DB);
@@ -546,6 +569,51 @@ function atender(peticion: IncomingMessage, respuesta: ServerResponse): void {
     return;
   }
 
+  /*
+   * La licencia. Solo desde la propia caja: instalar una licencia es una acción
+   * de administración, y cualquiera en la wifi del local no tiene por qué poder
+   * intentarlo ni leer el estado de cobro del restaurante.
+   */
+  if (url.pathname === "/licencia") {
+    if (!esLocal) {
+      json(403, { error: "Solo desde la caja" });
+      return;
+    }
+
+    if (peticion.method === "GET") {
+      const v = licencia?.veredicto();
+      json(200, {
+        ...(licencia?.paraTerminales(true) ?? { licencia: null, verificada: false }),
+        situacion: v?.situacion ?? null,
+        version: VERSION,
+      });
+      return;
+    }
+
+    if (peticion.method === "POST") {
+      void (async () => {
+        try {
+          const cuerpo = await leerCuerpo(peticion, 32 * 1024);
+          const r = await licencia!.instalar(JSON.parse(cuerpo.toString("utf8")));
+          if (!r.ok) {
+            json(400, { error: r.error });
+            return;
+          }
+          // Las terminales se enteran al momento: si estaban bloqueadas, se
+          // desbloquean sin que nadie tenga que reiniciar nada.
+          difundirLicencia();
+          json(200, { ok: true, situacion: licencia!.veredicto().situacion });
+        } catch (causa) {
+          json(400, { error: `No se pudo leer la licencia: ${String(causa)}` });
+        }
+      })();
+      return;
+    }
+
+    json(405, { error: "Usa GET o POST" });
+    return;
+  }
+
   if (url.pathname === "/salud") {
     /*
      * Por la red se responde lo MÍNIMO: que el servicio vive y sirve el POS.
@@ -571,6 +639,13 @@ function atender(peticion: IncomingMessage, respuesta: ServerResponse): void {
           ? { ultimo: copias[0].ts, copias: copias.length, carpeta: RUTA_RESPALDOS }
           : { ultimo: null, copias: 0, carpeta: RUTA_RESPALDOS },
         arranque_automatico: arranqueAutomatico,
+        version: VERSION,
+        // Los días restantes van en `/salud` para poder verlos desde
+        // Administración → Hub sin abrir otra pantalla.
+        licencia: licencia?.veredicto().situacion ?? null,
+        actualizacion: versionDisponible
+          ? { version: versionDisponible.version, notas: versionDisponible.notas }
+          : null,
         exige_aprobacion: EXIGIR_APROBACION,
         cifrado: "AES-256-GCM",
         tls: tls.huella,
@@ -998,6 +1073,8 @@ async function arrancar(): Promise<void> {
     registrar("aviso", arranqueAutomatico.motivo);
   }
 
+  await prepararLicencia();
+  await prepararActualizaciones();
   await prepararCorreo();
   await conectarAlRelay();
 
@@ -1077,6 +1154,82 @@ function avisarPorLoQuePaso(eventos: readonly EventoBase[]): void {
  * que puede mandar correo en nombre del restaurante no tiene por qué estar en
  * el teléfono de un mesero.
  */
+/**
+ * Carga la licencia y se la cuenta a las terminales.
+ *
+ * `MOTREST_LICENCIA_LLAVE` es la llave de verificación, y la pone el instalador.
+ * Nunca va al repositorio: es el secreto con el que MOTRAE firma, y quien lo
+ * tenga puede emitirse licencias gratis.
+ */
+async function prepararLicencia(): Promise<void> {
+  licencia = new GestorLicencia(
+    RUTA_LICENCIA,
+    sucursalDelLocal(),
+    process.env.MOTREST_LICENCIA_LLAVE ?? "",
+    registrar,
+  );
+  await licencia.cargar();
+  difundirLicencia();
+
+  /*
+   * Se revisa cada hora, y no es por si cambia el archivo: es porque el tiempo
+   * pasa. Una licencia que vence a medianoche tiene que empezar a avisar sin
+   * que nadie reinicie nada — un Hub de restaurante lleva semanas encendido.
+   */
+  setInterval(() => difundirLicencia(), 60 * 60 * 1000).unref?.();
+}
+
+/** Manda el veredicto a todas las terminales. Sin la credencial de soporte. */
+function difundirLicencia(): void {
+  if (!licencia) return;
+  hub.publicarCatalogo("licencia_estado", licencia.paraTerminales(false));
+}
+
+/**
+ * Busca versiones nuevas y avisa a las terminales.
+ *
+ * NO INSTALA NADA POR SU CUENTA. Aquí solo se descubre y se avisa; quien decide
+ * cuándo es el restaurante, y quien comprueba que el momento sea seguro es el
+ * dominio (`puedeInstalarse`). Un Hub que se actualiza solo a las nueve de la
+ * noche del viernes es exactamente lo que no puede pasar.
+ */
+async function prepararActualizaciones(): Promise<void> {
+  const repositorio = process.env.MOTREST_ACTUALIZACIONES_REPO;
+  const llave = process.env.MOTREST_ACTUALIZACIONES_LLAVE;
+
+  if (!repositorio || !llave) {
+    // Un local sin canal de actualización es un caso normal —se actualiza a
+    // mano— y no un error que haya que gritar en cada arranque.
+    registrar("info", `MotRest ${VERSION}. Sin canal de actualizaciones configurado.`);
+    return;
+  }
+
+  actualizador = new Actualizaciones(
+    { repositorio, llaveDeFirma: llave, token: process.env.MOTREST_ACTUALIZACIONES_TOKEN },
+    VERSION,
+    registrar,
+  );
+
+  const revisar = async () => {
+    try {
+      const encontrada = await actualizador!.buscar();
+      if (!encontrada || encontrada.version === versionDisponible?.version) return;
+
+      versionDisponible = encontrada;
+      hub.publicarCatalogo("actualizacion_estado", {
+        disponible: encontrada,
+        revisada_ts: Date.now(),
+      });
+    } catch (causa) {
+      registrar("aviso", `No se pudo revisar si hay versión nueva: ${String(causa)}`);
+    }
+  };
+
+  await revisar();
+  setInterval(() => void revisar(), ACTUALIZAR_CADA_MS).unref?.();
+  registrar("info", `MotRest ${VERSION}. Actualizaciones desde ${repositorio}.`);
+}
+
 async function prepararCorreo(): Promise<void> {
   const guardada = await almacen.estado.cargar<ConfiguracionCorreo & { llave?: string }>(
     CLAVE_CORREO,
