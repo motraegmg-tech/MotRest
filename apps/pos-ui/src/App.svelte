@@ -42,6 +42,7 @@
   import { caja } from "./lib/caja.svelte";
   import { failover } from "./lib/failover.svelte";
   import { licencia } from "./lib/licencia.svelte";
+  import { modoAbierto } from "./lib/modo-abierto.svelte";
   import { CONTACTO_MOTRAE } from "./lib/presentacion";
   import { esSoporte } from "@motrest/dominio";
 
@@ -213,6 +214,21 @@
   restaurante de enterarse antes de quedarse sin sistema, y llega justo cuando
   está a punto de cerrar la caja.
 -->
+<!--
+  Este local acepta terminales sin autorizar.
+
+  Va arriba, en rojo y sin forma de cerrarlo, porque es un estado que NADIE
+  debería tener puesto en un restaurante real y que hasta ahora solo se avisaba
+  en una consola que en la aplicación instalada no existe.
+-->
+{#if modoAbierto.activo}
+  <div class="modo-abierto" role="alert">
+    <b>Este local acepta terminales sin autorizar</b>
+    Cualquier equipo con la clave del local puede registrar ventas. Es para
+    pruebas: en operación real hay que quitar <code>MOTREST_HUB_ABIERTO</code>.
+  </div>
+{/if}
+
 <!--
   La caja no responde.
 
@@ -436,6 +452,35 @@
    * es del dueño-- este lo tiene que leer el mesero que está de pie con una
    * tablet, y de reojo.
    */
+  /*
+   * Rojo, arriba del todo y sin forma de cerrarlo. Es un estado que nadie
+   * debería tener puesto en un restaurante real, y hasta ahora solo se avisaba
+   * en una consola que en la aplicación instalada no existe.
+   */
+  .modo-abierto {
+    position: fixed;
+    z-index: 68;
+    top: 0;
+    left: 0;
+    right: 0;
+    background: var(--peligro);
+    color: #fff;
+    padding: 0.6rem 1.25rem;
+    font-size: 0.83rem;
+    line-height: 1.45;
+    text-align: center;
+    box-shadow: var(--sombra-sm);
+  }
+  .modo-abierto b {
+    display: block;
+    font-size: 0.9rem;
+    margin-bottom: 0.1rem;
+  }
+  .modo-abierto code {
+    background: rgba(255, 255, 255, 0.18);
+    border-radius: 3px;
+    padding: 0 0.25rem;
+  }
   .failover {
     position: fixed;
     z-index: 47;

@@ -33,6 +33,7 @@ import { actualizaciones } from "../actualizaciones.svelte";
 import { benchmark } from "../benchmark.svelte";
 import { grupo } from "../grupo.svelte";
 import { licencia } from "../licencia.svelte";
+import { modoAbierto } from "../modo-abierto.svelte";
 import { canales } from "../canales.svelte";
 import { prenomina } from "../prenomina.svelte";
 import { cartaVacia, catalogo, impuestos } from "../catalogo";
@@ -300,6 +301,7 @@ class Arranque {
        * dejando pasar de más.
        */
       await licencia.hidratar(almacen);
+      await modoAbierto.hidratar(almacen);
       await actualizaciones.hidratar(almacen);
       await grupo.hidratar(almacen);
       await benchmark.hidratar(almacen);

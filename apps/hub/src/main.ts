@@ -18,7 +18,18 @@ import {
   type ServerResponse,
 } from "node:http";
 import { createServer } from "node:https";
-import { createReadStream, existsSync, mkdirSync, readFileSync, statSync } from "node:fs";
+import {
+  appendFileSync,
+  createReadStream,
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  readdirSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
+import { randomUUID } from "node:crypto";
 import { createRequire } from "node:module";
 import { networkInterfaces } from "node:os";
 import { dirname, extname, join, normalize, resolve } from "node:path";
@@ -149,17 +160,69 @@ let versionDisponible: import("@motrest/dominio").VersionDisponible | null = nul
  */
 let pedidosDeKioscoHoy = 0;
 
+/** Dónde se guarda la identidad del local, junto a la base y no al ejecutable. */
+const RUTA_SUCURSAL = join(dirname(RUTA_DB), "sucursal.txt");
+
 /**
- * A qué sucursal pertenece este Hub.
+ * A qué sucursal pertenece este Hub. **Se fija una vez y no vuelve a cambiar.**
  *
- * No se configura: se APRENDE del propio registro, porque cada evento la trae.
- * Un Hub recién instalado todavía no lo sabe, y hasta que llegue el primer
- * evento el portal no tiene a quién atribuir una reserva — que es correcto: un
- * local sin operación tampoco tiene comensales.
+ * ## Por qué esto necesitaba arreglo
+ *
+ * Antes se APRENDÍA del registro mirando los últimos 5 eventos, con caída al
+ * literal `"suc-local"`. Tres consecuencias, todas malas y ninguna visible:
+ *
+ *   1. **Dos Hubs recién instalados colisionaban entre sí**: ambos se anunciaban
+ *      al relay como `suc-local` y el segundo desplazaba al primero.
+ *   2. El stream de identidad (donde el Hub va a leer quién puede hacer qué)
+ *      apuntaría al sitio equivocado mientras el log estuviera vacío.
+ *   3. La atribución de reservas del portal cambiaba según lo último que hubiera
+ *      pasado en el local.
+ *
+ * Ahora se resuelve UNA vez —del archivo, del entorno, o del propio registro— y
+ * se persiste. Un identificador que cambia solo no es un identificador.
  */
+let sucursalFijada: string | null = null;
+
 function sucursalDelLocal(): string {
+  if (sucursalFijada) return sucursalFijada;
+
+  // 1. Lo ya decidido para este equipo. Manda sobre todo lo demás.
+  if (existsSync(RUTA_SUCURSAL)) {
+    const guardada = readFileSync(RUTA_SUCURSAL, "utf8").trim();
+    if (guardada) {
+      sucursalFijada = guardada;
+      return guardada;
+    }
+  }
+
+  // 2. Lo que dijo quien instaló.
+  // 3. Lo que diga el registro, si el local ya operó.
   const ultimos = almacen.log.desde(Math.max(0, hub.seqActual - 5), 5);
-  return ultimos.at(-1)?.sucursal_id ?? process.env.MOTREST_SUCURSAL_ID ?? "suc-local";
+  const aprendida = process.env.MOTREST_SUCURSAL_ID ?? ultimos.at(-1)?.sucursal_id;
+
+  /*
+   * SIN NINGUNA DE LAS TRES NO SE INVENTA UNA. Antes se devolvía `"suc-local"`,
+   * y ese literal es el que hacía colisionar dos instalaciones nuevas. Se
+   * genera uno único y se guarda: es feo de leer, pero es de este equipo y de
+   * ningún otro. En cuanto llegue el alta real, se sustituye.
+   */
+  const identidad = aprendida ?? `suc-${randomUUID().slice(0, 8)}`;
+
+  try {
+    mkdirSync(dirname(RUTA_SUCURSAL), { recursive: true });
+    writeFileSync(RUTA_SUCURSAL, identidad, { encoding: "utf8", mode: 0o600 });
+  } catch (causa) {
+    // Si no se puede escribir se sigue operando con la identidad en memoria:
+    // un disco lleno no puede impedir que el restaurante abra.
+    registrar("aviso", `No se pudo fijar la identidad del local: ${String(causa)}`);
+  }
+
+  sucursalFijada = identidad;
+  if (!aprendida) {
+    registrar("aviso", `Local sin identificador asignado. Se generó ${identidad}.`);
+    registrar("aviso", "Al dar de alta el restaurante en MOTRAE Central, usa ESE identificador.");
+  }
+  return identidad;
 }
 
 /**
@@ -217,10 +280,91 @@ const VERSION = createRequire(import.meta.url)("../package.json").version as str
 mkdirSync(dirname(RUTA_DB), { recursive: true });
 const almacen = almacenSqlite(RUTA_DB);
 
+/**
+ * ¿Se enseña la clave del local en la salida del arranque?
+ *
+ * Apagado por omisión. Esa clave cifra y autoriza TODO el canal de la LAN, y la
+ * salida del Hub acaba en sitios que sobreviven al arranque: un archivo de
+ * registro, la captura de un panel de soporte, el mensaje de un ticket. El
+ * camino normal es el QR de Administración → Hub, que se muestra bajo demanda y
+ * no se queda escrito en ninguna parte.
+ */
+const MOSTRAR_CLAVE = process.env.MOTREST_MOSTRAR_CLAVE === "1";
+
+/** Oculta el `k=` de un enlace de emparejamiento, salvo que se pida verlo. */
+function paraLaConsola(url: string): string {
+  return MOSTRAR_CLAVE ? url : url.replace(/([?&]k=)[^&]+/, "$1————————");
+}
+
+/** Dónde caen los renglones del Hub. Junto a la base, no junto al ejecutable. */
+const RUTA_REGISTRO = join(dirname(RUTA_DB), "registro");
+/** Cuánto puede crecer un archivo antes de empezar otro. */
+const MAX_REGISTRO_BYTES = 5 * 1024 * 1024;
+/** Cuántos días se conservan. Pasado esto, un incidente ya se investigó o no. */
+const DIAS_REGISTRO = 30;
+
+/**
+ * El registro del Hub.
+ *
+ * ## Por qué necesitaba destino
+ *
+ * Antes esto era un único `console.log`. En la aplicación instalada el Hub corre
+ * como proceso hijo y su salida **se descartaba**, así que todo lo que registra
+ * desaparecía: «dispositivo sin aprobar intentó sincronizar», «terminal
+ * autorizada por», «conexión cerrada: mensajes que no se pueden descifrar».
+ *
+ * Sin destino no hay forensia. Si mañana aparece una terminal escribiendo en el
+ * registro de ventas, no había absolutamente nada que revisar.
+ *
+ * ## Tres decisiones
+ *
+ * - **`0o600` y junto a los datos.** Aquí acaban nombres de terminales, rutas y
+ *   detalles de fallos: no es material público. (En Windows la protección real
+ *   son las ACL de `%LOCALAPPDATA%`, no el modo — ver `docs/SEGURIDAD.md`.)
+ * - **Los errores a `stderr`.** Antes todo iba a `stdout`, así que un servicio
+ *   que solo capture la salida de error no veía ni un fallo.
+ * - **Nunca tumba al Hub.** Si el disco está lleno, se pierde el renglón y el
+ *   restaurante sigue vendiendo. Un registro que puede parar la caja es peor
+ *   que no tener registro.
+ */
 function registrar(nivel: "info" | "aviso" | "error", mensaje: string): void {
-  const marca = new Date().toISOString();
+  const ahora = new Date();
+  const marca = ahora.toISOString();
   const prefijo = nivel === "error" ? "ERROR" : nivel === "aviso" ? "AVISO" : "INFO ";
-  console.log(`${marca} ${prefijo} ${mensaje}`);
+  const linea = `${marca} ${prefijo} ${mensaje}`;
+
+  if (nivel === "error") console.error(linea);
+  else console.log(linea);
+
+  try {
+    mkdirSync(RUTA_REGISTRO, { recursive: true });
+    const archivo = join(RUTA_REGISTRO, `hub-${marca.slice(0, 10)}.log`);
+
+    // Rotación por tamaño DENTRO del día: un local con mucho movimiento no debe
+    // dejar un archivo de cientos de megas que nadie puede abrir.
+    let destino = archivo;
+    if (existsSync(archivo) && statSync(archivo).size > MAX_REGISTRO_BYTES) {
+      destino = join(RUTA_REGISTRO, `hub-${marca.slice(0, 10)}-${ahora.getTime()}.log`);
+    }
+
+    appendFileSync(destino, `${linea}\n`, { encoding: "utf8", mode: 0o600 });
+  } catch {
+    // Disco lleno, permisos, carpeta borrada. Se pierde el renglón, no la venta.
+  }
+}
+
+/** Borra los registros viejos. Se llama al arrancar, no en cada renglón. */
+function limpiarRegistrosViejos(): void {
+  try {
+    if (!existsSync(RUTA_REGISTRO)) return;
+    const limite = Date.now() - DIAS_REGISTRO * 86_400_000;
+    for (const nombre of readdirSync(RUTA_REGISTRO)) {
+      const ruta = join(RUTA_REGISTRO, nombre);
+      if (statSync(ruta).mtimeMs < limite) rmSync(ruta, { force: true });
+    }
+  } catch {
+    // Que no se pueda limpiar no es motivo para no arrancar.
+  }
 }
 
 /**
@@ -1567,6 +1711,7 @@ function escuchar(): void {
   servidor.listen(PUERTO, () => {
     registrar("info", `Hub escuchando en el puerto ${PUERTO} (HTTPS + WSS)`);
     registrar("info", `Base de datos: ${RUTA_DB} · secuencia actual: ${hub.seqActual}`);
+    limpiarRegistrosViejos();
     iniciarRespaldos();
     revisarCrecimiento();
     registrar(
@@ -1582,7 +1727,7 @@ function escuchar(): void {
     console.log("");
     console.log("  ── EN ESTE EQUIPO (la caja) ─────────────────────────────");
     console.log(
-      `    http://localhost:${PUERTO_LOCAL}/?hub=ws://localhost:${PUERTO_LOCAL}/sync&k=${claveLocal}`,
+      `    ${paraLaConsola(`http://localhost:${PUERTO_LOCAL}/?hub=ws://localhost:${PUERTO_LOCAL}/sync&k=${claveLocal}`)}`,
     );
     console.log("");
     console.log("    Sin avisos: el navegador confía en localhost por definición.");
@@ -1594,7 +1739,7 @@ function escuchar(): void {
       console.log("    y escanear el QR con la cámara de la tablet.");
       console.log("");
       for (const { url } of enlacesEmparejamiento()) {
-        console.log(`    ${url}`);
+        console.log(`    ${paraLaConsola(url)}`);
       }
       console.log("");
       console.log("    La primera vez el navegador avisará del certificado. En Chrome:");
@@ -1603,7 +1748,13 @@ function escuchar(): void {
     }
 
     console.log("");
-    console.log("  Estos enlaces LLEVAN LA CLAVE del local: trátalos como contraseñas.");
+    if (MOSTRAR_CLAVE) {
+      console.log("  Estos enlaces LLEVAN LA CLAVE del local: trátalos como contraseñas.");
+    } else {
+      console.log("  La clave va oculta. El camino normal es el QR de Administración → Hub.");
+      console.log("  Para verla aquí (y dejarla escrita donde caiga esta salida):");
+      console.log("      MOTREST_MOSTRAR_CLAVE=1");
+    }
     console.log("");
 
     if (!EXIGIR_APROBACION) {
@@ -1612,8 +1763,11 @@ function escuchar(): void {
        *
        * El modo abierto es una salida para el primer arranque y las pruebas;
        * dejarlo puesto en un local real deja que cualquier equipo de la wifi
-       * escriba en el registro de ventas sin que nadie lo autorice. Un aviso de
-       * una línea se pierde en el arranque, así que va en marco.
+       * escriba en el registro de ventas sin que nadie lo autorice.
+       *
+       * PERO UN CARTEL EN LA CONSOLA NO BASTA, y esa era la falla: en la
+       * aplicación instalada no hay consola que mirar. El aviso se publica
+       * además como catálogo, para que el POS lo pinte donde sí se ve.
        */
       const linea = "═".repeat(64);
       console.log(`\n${linea}`);
@@ -1622,6 +1776,9 @@ function escuchar(): void {
       registrar("aviso", "En un local real, QUITA esta variable de entorno.");
       console.log(`${linea}\n`);
     }
+    // Se publica SIEMPRE, también cuando está apagado: así una terminal que se
+    // enciende después recibe el estado real en vez de quedarse con el anterior.
+    hub.publicarCatalogo("modo_abierto", { activo: !EXIGIR_APROBACION });
     registrar("info", "Canal CIFRADO con la clave del local (AES-256-GCM).");
   });
 

@@ -30,6 +30,7 @@ import { CLAVE_MENU, menu } from "./menu.svelte";
 import { CLAVE_PLANO, plano } from "./plano.svelte";
 import { CLAVE_ACTUALIZACION, actualizaciones } from "./actualizaciones.svelte";
 import { CLAVE_LICENCIA, licencia, type VeredictoLicencia } from "./licencia.svelte";
+import { CLAVE_MODO_ABIERTO, modoAbierto } from "./modo-abierto.svelte";
 import { SUCURSAL_ID, obtenerDeviceId } from "./presentacion";
 
 export const CLAVE_HUB = "hub_url";
@@ -356,6 +357,8 @@ class StoreSync {
         licencia.fusionar(catalogo.datos as VeredictoLicencia);
       } else if (catalogo.clave === CLAVE_ACTUALIZACION) {
         actualizaciones.fusionar(catalogo.datos as EstadoActualizacion);
+      } else if (catalogo.clave === CLAVE_MODO_ABIERTO) {
+        modoAbierto.fusionar(catalogo.datos as { activo: boolean });
       }
     }
   }
