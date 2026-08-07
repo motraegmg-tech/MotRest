@@ -2,9 +2,9 @@
 
 Cómo llega una versión nueva a todos los restaurantes.
 
-> **Antes de nada:** una actualización se instala sola en **todos** los locales.
-> Si sale rota, salen rotos todos a la vez, y no hay forma de deshacerlo — hay
-> que publicar otra y esperar a que la bajen. Todo lo de esta guía existe por eso.
+> **Antes de nada:** una actualización llega como aviso a todos los locales; cada
+> restaurante la confirma fuera de servicio. Si sale rota, hay que publicar otra
+> versión y esperar a que los Hubs la vean. Todo lo de esta guía existe por eso.
 
 ---
 
@@ -19,22 +19,26 @@ GitHub detrás, y no hay servidor de descargas que montar ni pagar.
 
 **Por qué la firma:** el canal de actualización es la llave maestra de todas las
 instalaciones. Con el manifiesto firmado, ni siquiera hace falta confiar en
-GitHub — si alguien tomara la cuenta, sin el secreto de MOTRAE no cuela nada.
+GitHub — si alguien tomara la cuenta, sin la **llave privada** de MOTRAE no
+cuela nada. Las públicas que verifican van en los Hubs y no permiten firmar.
 
 ---
 
 ## Preparativos, una sola vez
 
 1. Crear el repositorio (puede ser **privado**; entonces hace falta un token).
-2. En **MOTRAE Central → Llaves**, generar el *secreto de publicación* y anotar
-   el repositorio. Debe ser **distinto** del de licencias: si se filtrara uno, el
-   otro sigue protegiendo lo suyo.
-3. En cada Hub, en el instalador:
+2. En **MOTRAE Central → Llaves**, generar los dos pares Ed25519 y anotar el
+   repositorio. La pública de publicación debe ser distinta de la pública de
+   licencias.
+3. Antes de crear el instalador, incrustar las públicas en el Hub:
    ```
-   MOTREST_ACTUALIZACIONES_REPO=motrae/motrest
-   MOTREST_ACTUALIZACIONES_LLAVE=<secreto de publicación>
-   MOTREST_ACTUALIZACIONES_TOKEN=<solo si el repositorio es privado>
+   $env:MOTREST_LICENCIA_PUBLICA=<Central → pública de licencias>
+   $env:MOTREST_ACTUALIZACIONES_PUBLICA=<Central → pública de publicación>
+   corepack pnpm@9.15.0 --filter @motrest/hub empaquetar
    ```
+4. En cada Hub solo se configura `MOTREST_ACTUALIZACIONES_REPO` y, si el
+   repositorio es privado, `MOTREST_ACTUALIZACIONES_TOKEN`. El token se envía
+   únicamente a HTTPS de GitHub, nunca a la URL que traiga un manifiesto.
 
 Un local sin estas variables **no se actualiza solo**, y no es un error: se
 actualiza a mano pasándole el `.exe`.
@@ -84,6 +88,7 @@ Central genera el `motrest.json`:
   "url": "https://github.com/motrae/motrest/releases/download/v1.5.0/MotRest_setup.exe",
   "sha256": "…",
   "publicado_ts": 1786048000000,
+  "version_minima_soportada": "1.4.2",
   "firma": "…"
 }
 ```
@@ -91,6 +96,11 @@ Central genera el `motrest.json`:
 **Las notas las lee el restaurantero.** "Se corrigió el reducer de propinas" no
 le dice nada; "las propinas del corte ya cuadran con lo que declaró el cajero"
 sí.
+
+`version_minima_soportada` es opcional. Úsala al retirar una versión vulnerable;
+el Hub avisará que la instalada está por debajo del piso de seguridad. Central
+genera un `publicado_ts` estrictamente creciente para que un release firmado
+viejo no pueda revertir el canal.
 
 ### 4 · Subir el release
 
@@ -147,7 +157,8 @@ distinguir cuál lo era de verdad.
 el número. No se puede "despublicar": los Hubs que ya la bajaron la tienen.
 
 **La firma no cuadra.** El Hub la ignora y lo anota como **error** en su bitácora.
-Suele ser que se firmó con un secreto y el Hub tiene otro.
+Suele ser que el instalador lleva una pública distinta de la privada con la que
+se firmó; recompila el Hub con la pública correspondiente.
 
 **La huella no coincide.** El instalador se tira y no se instala. Normalmente es
 que se subió un `.exe` distinto del que se firmó.

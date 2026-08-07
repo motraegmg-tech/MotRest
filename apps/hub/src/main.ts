@@ -34,7 +34,7 @@ import { createRequire } from "node:module";
 import { networkInterfaces } from "node:os";
 import { dirname, extname, join, normalize, resolve } from "node:path";
 import { WebSocketServer, type WebSocket } from "ws";
-import type { EventoBase, EventoMensajeria, EventoOpinion } from "@motrest/dominio";
+import type { EventoBase, EventoMensajeria, EventoOpinion, MemoriaDeCanal } from "@motrest/dominio";
 import { configuracionVacia, pideBaja, streamMensajeria, uuidv7 } from "@motrest/dominio";
 import type { ConfiguracionCorreo } from "@motrest/dominio";
 import {
@@ -53,6 +53,10 @@ import { Hub, type Conexion } from "./servidor.js";
 import * as autoarranque from "./autoarranque.js";
 import { GestorLicencia } from "./licencia.js";
 import { Actualizaciones, CADA_MS as ACTUALIZAR_CADA_MS } from "./actualizaciones.js";
+import {
+  LLAVE_PUBLICA_ACTUALIZACIONES,
+  LLAVE_PUBLICA_LICENCIAS,
+} from "./llaves-motrae.js";
 import { registrarPedido, type PlatilloDeKiosco } from "./kiosco.js";
 import { registrarOpinion, solicitarReserva, verCuenta } from "./portal.js";
 import { Avisos, avisoReservaConfirmada } from "./avisos.js";
@@ -140,6 +144,8 @@ let avisos: Avisos | null = null;
 let correo: Correo | null = null;
 /** Clave bajo la que vive la configuración de correo del local. */
 const CLAVE_CORREO = "correo_config";
+/** Estado persistente que impide aceptar un release firmado pero más viejo. */
+const CLAVE_MEMORIA_ACTUALIZACIONES = "actualizaciones_memoria";
 let configCorreo: ConfiguracionCorreo = configuracionVacia();
 /** Llave de Resend, o contraseña de aplicación de Gmail según el modo. */
 let llaveResend = "";
@@ -1428,15 +1434,14 @@ function avisarPorLoQuePaso(eventos: readonly EventoBase[]): void {
 /**
  * Carga la licencia y se la cuenta a las terminales.
  *
- * `MOTREST_LICENCIA_LLAVE` es la llave de verificación, y la pone el instalador.
- * Nunca va al repositorio: es el secreto con el que MOTRAE firma, y quien lo
- * tenga puede emitirse licencias gratis.
+ * La llave pública de licencias viaja compilada dentro del Hub. Puede leerse de
+ * un instalador sin daño: no permite firmar. La privada se queda en Central.
  */
 async function prepararLicencia(): Promise<void> {
   licencia = new GestorLicencia(
     RUTA_LICENCIA,
     sucursalDelLocal(),
-    process.env.MOTREST_LICENCIA_LLAVE ?? "",
+    LLAVE_PUBLICA_LICENCIAS,
     registrar,
   );
   await licencia.cargar();
@@ -1466,19 +1471,30 @@ function difundirLicencia(): void {
  */
 async function prepararActualizaciones(): Promise<void> {
   const repositorio = process.env.MOTREST_ACTUALIZACIONES_REPO;
-  const llave = process.env.MOTREST_ACTUALIZACIONES_LLAVE;
 
-  if (!repositorio || !llave) {
+  if (!repositorio || !LLAVE_PUBLICA_ACTUALIZACIONES) {
     // Un local sin canal de actualización es un caso normal —se actualiza a
     // mano— y no un error que haya que gritar en cada arranque.
     registrar("info", `MotRest ${VERSION}. Sin canal de actualizaciones configurado.`);
     return;
   }
 
+  const memoria =
+    (await almacen.estado.cargar<MemoriaDeCanal>(CLAVE_MEMORIA_ACTUALIZACIONES)) ?? {};
+
   actualizador = new Actualizaciones(
-    { repositorio, llaveDeFirma: llave, token: process.env.MOTREST_ACTUALIZACIONES_TOKEN },
+    {
+      repositorio,
+      llaveDeFirma: LLAVE_PUBLICA_ACTUALIZACIONES,
+      token: process.env.MOTREST_ACTUALIZACIONES_TOKEN,
+    },
     VERSION,
     registrar,
+    fetch,
+    memoria,
+    async (nuevaMemoria) => {
+      await almacen.estado.guardar(CLAVE_MEMORIA_ACTUALIZACIONES, nuevaMemoria);
+    },
   );
 
   const revisar = async () => {

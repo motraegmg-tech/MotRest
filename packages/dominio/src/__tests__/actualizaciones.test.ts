@@ -8,9 +8,12 @@
  * Y lo otro: que un aviso aplazado NO desaparezca. Una actualización que se
  * pospone y se olvida es una actualización que nunca se instala.
  */
-import { describe, expect, it } from "vitest";
+import { beforeAll, describe, expect, it } from "vitest";
+import { generarPar, type ParDeLlaves } from "../comun/firma.js";
 import {
   MAS_TARDE_MS,
+  FRESCURA_MAX_MS,
+  aceptarManifiesto,
   aplazar,
   compararVersiones,
   cuandoRecordar,
@@ -19,6 +22,7 @@ import {
   firmarVersion,
   hayNovedad,
   hayPendiente,
+  instaladaPorDebajoDelMinimo,
   marcarInstalada,
   puedeInstalarse,
   registrarDisponible,
@@ -27,7 +31,13 @@ import {
   type VersionDisponible,
 } from "../organizacion/actualizaciones.js";
 
-const SECRETO = "secreto-de-publicacion-motrae";
+let MOTRAE: ParDeLlaves;
+let ATACANTE: ParDeLlaves;
+
+beforeAll(async () => {
+  MOTRAE = await generarPar();
+  ATACANTE = await generarPar();
+});
 /* Viernes 24 de julio de 2026, 21:00 — plena cena. */
 const VIERNES_21H = new Date(2026, 6, 24, 21, 0).getTime();
 
@@ -195,33 +205,78 @@ describe("de dónde viene la actualización", () => {
    * GitHub — si alguien tomara la cuenta, sin el secreto no cuela nada.
    */
   it("un manifiesto firmado por MOTRAE se verifica", async () => {
-    const firmada = await firmarVersion(version(), SECRETO);
-    expect(await verificarVersion(firmada, SECRETO)).toBe(true);
+    const firmada = await firmarVersion(version(), MOTRAE.privada);
+    expect(await verificarVersion(firmada, MOTRAE.publica)).toBe(true);
   });
 
   it("cambiar la URL del instalador invalida la firma", async () => {
-    const firmada = await firmarVersion(version(), SECRETO);
+    const firmada = await firmarVersion(version(), MOTRAE.privada);
     const suplantada = { ...firmada, url: "https://sitio-de-un-atacante.mx/virus.exe" };
-    expect(await verificarVersion(suplantada, SECRETO)).toBe(false);
+    expect(await verificarVersion(suplantada, MOTRAE.publica)).toBe(false);
   });
 
   it("cambiar la huella del archivo también", async () => {
-    const firmada = await firmarVersion(version(), SECRETO);
-    expect(await verificarVersion({ ...firmada, sha256: "b".repeat(64) }, SECRETO)).toBe(false);
+    const firmada = await firmarVersion(version(), MOTRAE.privada);
+    expect(await verificarVersion({ ...firmada, sha256: "b".repeat(64) }, MOTRAE.publica)).toBe(false);
   });
 
   /* Ni colarse marcando como obligatoria una versión que no lo era. */
   it("marcarla obligatoria por su cuenta invalida la firma", async () => {
-    const firmada = await firmarVersion(version(), SECRETO);
-    expect(await verificarVersion({ ...firmada, obligatoria: true }, SECRETO)).toBe(false);
+    const firmada = await firmarVersion(version(), MOTRAE.privada);
+    expect(await verificarVersion({ ...firmada, obligatoria: true }, MOTRAE.publica)).toBe(false);
   });
 
-  it("otro secreto no puede publicar", async () => {
-    const falsa = await firmarVersion(version(), "secreto-de-un-atacante");
-    expect(await verificarVersion(falsa, SECRETO)).toBe(false);
+  it("otra llave privada no puede publicar", async () => {
+    const falsa = await firmarVersion(version(), ATACANTE.privada);
+    expect(await verificarVersion(falsa, MOTRAE.publica)).toBe(false);
   });
 
   it("una firma con basura no revienta, solo dice que no", async () => {
-    expect(await verificarVersion(version("1.4.0", { firma: "" }), SECRETO)).toBe(false);
+    expect(await verificarVersion(version("1.4.0", { firma: "" }), MOTRAE.publica)).toBe(false);
+  });
+});
+
+describe("frescura y anti-reversión del canal", () => {
+  it("no acepta un publicado_ts anterior al último que ya vio", () => {
+    const r = aceptarManifiesto(
+      version("1.6.0", { publicado_ts: VIERNES_21H - 2 }),
+      { ultimo_publicado_ts: VIERNES_21H - 1 },
+      "1.4.0",
+      VIERNES_21H,
+    );
+    expect(r.aceptar).toBe(false);
+    if (!r.aceptar) expect(r.razon).toContain("reversión");
+  });
+
+  it("rechaza un manifiesto firmado pero demasiado viejo", () => {
+    const r = aceptarManifiesto(
+      version("1.6.0", { publicado_ts: VIERNES_21H - FRESCURA_MAX_MS - 1 }),
+      {},
+      "1.4.0",
+      VIERNES_21H,
+    );
+    expect(r.aceptar).toBe(false);
+    if (!r.aceptar) expect(r.razon).toContain("demasiado viejo");
+  });
+
+  it("el mínimo soportado hace visible que la instalada ya no es segura", () => {
+    const r = aceptarManifiesto(
+      version("1.6.0", { version_minima_soportada: "1.5.0" }),
+      {},
+      "1.4.0",
+      VIERNES_21H,
+    );
+    expect(r).toEqual({ aceptar: true, instalada_por_debajo_del_minimo: true });
+    expect(instaladaPorDebajoDelMinimo("1.5.0", "1.5.0")).toBe(false);
+  });
+
+  it("no admite que un manifiesto anuncie un mínimo mayor que él mismo", () => {
+    const r = aceptarManifiesto(
+      version("1.5.0", { version_minima_soportada: "1.6.0" }),
+      {},
+      "1.4.0",
+      VIERNES_21H,
+    );
+    expect(r.aceptar).toBe(false);
   });
 });

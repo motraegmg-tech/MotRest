@@ -14,16 +14,18 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   crearCredencial,
   emitirLicencia,
+  generarPar,
   NOMBRE_SOPORTE,
   USUARIO_SOPORTE_ID,
   type Licencia,
+  type ParDeLlaves,
 } from "@motrest/dominio";
 import { arranque } from "../persistencia/arranque.svelte";
 import { sesion } from "../sesion/sesion.svelte";
 
-const SECRETO = "secreto-de-licencias-de-prueba";
 const CONTRASENA_SOPORTE = "contrasena-de-soporte-de-prueba";
 const SUCURSAL = "suc-rodizio-centro";
+let MOTRAE: ParDeLlaves;
 
 async function licenciaConSoporte(): Promise<Licencia> {
   const c = await crearCredencial(USUARIO_SOPORTE_ID, CONTRASENA_SOPORTE, "contrasena");
@@ -37,7 +39,7 @@ async function licenciaConSoporte(): Promise<Licencia> {
       emitida_ts: Date.now(),
       soporte: { sal: c.sal, hash: c.hash, iteraciones: c.iteraciones },
     },
-    SECRETO,
+    MOTRAE.privada,
   );
 }
 
@@ -66,8 +68,9 @@ function desmontarCaja(): void {
   vi.unstubAllGlobals();
 }
 
-beforeEach(() => {
+beforeEach(async () => {
   desmontarCaja();
+  MOTRAE = await generarPar();
 });
 
 describe("Gonz Motrae en la caja", () => {

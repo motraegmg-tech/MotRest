@@ -17,7 +17,6 @@
    *      firmar no se enciende. No es burocracia: es la diferencia entre un
    *      despliegue y una apuesta.
    */
-  import { firmarVersion } from "@motrest/dominio";
   import { central } from "../lib/central.svelte";
 
   let version = $state("");
@@ -25,8 +24,10 @@
   let url = $state("");
   let sha256 = $state("");
   let obligatoria = $state(false);
+  let versionMinima = $state("");
   let manifiesto = $state("");
   let error = $state("");
+  let firmando = $state(false);
   let previa = $state("http://localhost:5173/");
   let mostrarPrevia = $state(false);
 
@@ -48,7 +49,7 @@
       version.trim().length > 0 &&
       url.trim().length > 0 &&
       sha256.trim().length === 64 &&
-      central.secretos.publicacion.trim().length > 0,
+      central.puedePublicar,
   );
 
   const repositorio = $derived(central.secretos.repositorio || "motrae/motrest");
@@ -56,25 +57,26 @@
   async function firmar() {
     error = "";
     manifiesto = "";
-
-    if (!central.secretos.publicacion.trim()) {
-      error = "Falta el secreto de publicación (ver Llaves)";
-      return;
+    firmando = true;
+    try {
+      const resultado = await central.firmarActualizacion(
+        {
+          version: version.trim(),
+          notas: notas.trim(),
+          url: url.trim(),
+          sha256: sha256.trim().toLowerCase(),
+          ...(obligatoria ? { obligatoria: true } : {}),
+          ...(versionMinima.trim() ? { version_minima_soportada: versionMinima.trim() } : {}),
+        },
+      );
+      if (!resultado.ok) {
+        error = resultado.error;
+        return;
+      }
+      manifiesto = JSON.stringify(resultado.manifiesto, null, 2);
+    } finally {
+      firmando = false;
     }
-
-    const firmado = await firmarVersion(
-      {
-        version: version.trim(),
-        notas: notas.trim(),
-        url: url.trim(),
-        sha256: sha256.trim().toLowerCase(),
-        publicado_ts: Date.now(),
-        ...(obligatoria ? { obligatoria: true } : {}),
-      },
-      central.secretos.publicacion,
-    );
-
-    manifiesto = JSON.stringify(firmado, null, 2);
   }
 
   function copiar() {
@@ -106,6 +108,11 @@
           <span>No se puede posponer</span>
         </label>
       </div>
+
+      <label>
+        Versión mínima soportada <small>(opcional, para retirar una versión vulnerable)</small>
+        <input bind:value={versionMinima} placeholder="1.4.2" />
+      </label>
 
       {#if obligatoria}
         <!--
@@ -161,13 +168,13 @@
         <p class="error">{error}</p>
       {/if}
 
-      <button class="primario" disabled={!listo} onclick={firmar}>
-        Firmar el manifiesto
+      <button class="primario" disabled={!listo || firmando} onclick={firmar}>
+        {firmando ? "Firmando…" : "Firmar el manifiesto"}
       </button>
       {#if !listo}
         <p class="falta">
-          {#if !central.secretos.publicacion.trim()}
-            Falta el secreto de publicación — captúrelo en <b>Llaves</b>.
+          {#if !central.puedePublicar}
+            Falta el par Ed25519 de publicación — genérelo en <b>Llaves</b>.
           {:else}
             Complete la versión, la URL, la huella y la lista de arriba.
           {/if}

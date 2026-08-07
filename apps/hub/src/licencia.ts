@@ -1,11 +1,10 @@
 /**
  * La licencia, en el Hub. Aquí es donde se decide de verdad.
  *
- * POR QUÉ AQUÍ Y NO EN LAS TERMINALES. Porque el secreto de verificación vive
- * aquí. Si cada tablet comprobara la firma por su cuenta, tendría que llevar
- * dentro la llave, y bastaría con abrir las herramientas del navegador para
- * desbloquear el sistema. El Hub verifica y manda su veredicto; las pantallas lo
- * pintan y no lo discuten.
+ * POR QUÉ AQUÍ Y NO EN LAS TERMINALES. Porque la llave pública de verificación
+ * vive aquí, incrustada en el Hub. Si cada tablet comprobara la firma por su
+ * cuenta, tendría que llevar la identidad de MOTRAE en el navegador. El Hub
+ * verifica y manda su veredicto; las pantallas lo pintan y no lo discuten.
  *
  * SIN INTERNET, SIN PROBLEMA. La licencia es un archivo firmado que se lee del
  * disco. No hay llamada a ningún servidor al arrancar: si MOTRAE se cae, los
@@ -40,7 +39,7 @@ export class GestorLicencia {
   constructor(
     private readonly ruta: string,
     private readonly sucursal_id: string,
-    private readonly llave: string,
+    private readonly llaveDeVerificacion: string,
     private readonly registrar: (nivel: "info" | "aviso" | "error", texto: string) => void,
   ) {}
 
@@ -70,13 +69,20 @@ export class GestorLicencia {
      * Al revés, bastaría con borrar una variable de entorno para desactivar toda
      * la comprobación.
      */
-    if (!this.llave) {
+    if (!this.llaveDeVerificacion) {
       this.verificada = false;
-      this.registrar("error", "Falta MOTREST_LICENCIA_LLAVE: no se puede comprobar la licencia.");
+      this.registrar(
+        "error",
+        "Falta la llave pública Ed25519 compilada: no se puede comprobar la licencia.",
+      );
       return this.veredicto();
     }
 
-    this.verificada = await verificarLicencia(this.licencia, this.sucursal_id, this.llave);
+    this.verificada = await verificarLicencia(
+      this.licencia,
+      this.sucursal_id,
+      this.llaveDeVerificacion,
+    );
 
     if (!this.verificada) {
       this.registrar(
@@ -98,9 +104,11 @@ export class GestorLicencia {
 
   /** Guarda una licencia nueva y la comprueba. Si no vale, no la escribe. */
   async instalar(licencia: Licencia): Promise<{ ok: boolean; error?: string }> {
-    if (!this.llave) return { ok: false, error: "Falta la llave de verificación en el Hub" };
+    if (!this.llaveDeVerificacion) {
+      return { ok: false, error: "Falta la llave pública de verificación en el Hub" };
+    }
 
-    if (!(await verificarLicencia(licencia, this.sucursal_id, this.llave))) {
+    if (!(await verificarLicencia(licencia, this.sucursal_id, this.llaveDeVerificacion))) {
       /*
        * No se escribe una licencia inválida NI SIQUIERA para "intentarlo
        * después". Sustituiría a la buena que ya estaba y dejaría al local peor

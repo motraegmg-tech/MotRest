@@ -123,10 +123,14 @@ software administrado— sino en **si se puede auditar y si el cliente lo sabe**
 
 - Un restaurante bloqueado no puede sacar sus datos por su cuenta. Se compensa
   entregándoselos desde Central en cuanto los pida.
-- Quien tenga el secreto de firma puede emitir licencias gratis. Vive solo en la
-  máquina de Central (ver `Llaves`).
-- Si se pierde el secreto, no se puede volver a firmar nada. **Copia en un gestor
-  de contraseñas, obligatoria.**
+- Quien tenga la **llave privada Ed25519** de licencias puede emitir licencias
+  gratis. La pública que viaja al Hub no puede hacerlo; la privada vive cifrada
+  con DPAPI en Central (ver `Llaves`).
+- Si se pierde la privada, hay que generar un par nuevo, compilar un Hub con su
+  pública y reemitir licencias. El respaldo DPAPI separado es obligatorio.
+
+La migración y el orden seguro de despliegue están fijados en
+[`ADR-25-firmas-ed25519-y-migracion.md`](ADR-25-firmas-ed25519-y-migracion.md).
 
 ---
 

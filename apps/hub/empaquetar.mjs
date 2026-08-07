@@ -32,6 +32,36 @@ const salida = resolve(aqui, "dist-sea");
 const destinoTauri = resolve(aqui, "../escritorio/src-tauri/binarios");
 const SUFIJO = "x86_64-pc-windows-msvc";
 
+/**
+ * El binario lleva las llaves públicas, nunca las privadas. Validarlas aquí
+ * evita producir un instalador que parezca sano pero rechace cada licencia al
+ * llegar al restaurante por una llave mal copiada.
+ */
+async function llavePublicaDeEntorno(nombre) {
+  const texto = process.env[nombre]?.trim() ?? "";
+  if (!texto) {
+    throw new Error(
+      `Falta ${nombre}. Genera los pares en MOTRAE Central y pasa la llave pública al empaquetado.`,
+    );
+  }
+
+  try {
+    const bytes = Buffer.from(texto, "base64");
+    if (bytes.length === 0 || bytes.toString("base64") !== texto) {
+      throw new Error("no es base64 canónico");
+    }
+    await crypto.subtle.importKey("spki", bytes, "Ed25519", false, ["verify"]);
+    return texto;
+  } catch (causa) {
+    throw new Error(`${nombre} no es una llave pública Ed25519 SPKI válida: ${String(causa)}`);
+  }
+}
+
+const [LLAVE_PUBLICA_LICENCIAS, LLAVE_PUBLICA_ACTUALIZACIONES] = await Promise.all([
+  llavePublicaDeEntorno("MOTREST_LICENCIA_PUBLICA"),
+  llavePublicaDeEntorno("MOTREST_ACTUALIZACIONES_PUBLICA"),
+]);
+
 console.log("1/4  Juntando el Hub en un solo archivo…");
 rmSync(salida, { recursive: true, force: true });
 mkdirSync(salida, { recursive: true });
@@ -58,7 +88,11 @@ await build({
       "const import_meta_url = require('node:url').pathToFileURL(__filename).href;",
     ].join("\n"),
   },
-  define: { "import.meta.url": "import_meta_url" },
+  define: {
+    "import.meta.url": "import_meta_url",
+    __MOTREST_LICENCIA_PUBLICA__: JSON.stringify(LLAVE_PUBLICA_LICENCIAS),
+    __MOTREST_ACTUALIZACIONES_PUBLICA__: JSON.stringify(LLAVE_PUBLICA_ACTUALIZACIONES),
+  },
 });
 
 console.log("2/4  Preparando la incrustación…");

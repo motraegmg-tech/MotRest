@@ -26,6 +26,7 @@
  * usuario con poderes de soporte editando un archivo, y MOTRAE puede entrar a
  * resolver un problema sin pedirle la contraseña a nadie. Ver `soporte.ts`.
  */
+import { contenidoFirmableDe, firmar, verificar } from "../comun/firma.js";
 import type { ID } from "../comun/ids.js";
 
 export type Plan = "prueba" | "mensual" | "anual";
@@ -252,21 +253,16 @@ export function debeBloquearse(
   return momentoDeBloquear(situacion, hayTurnoAbierto, licencia) === "ahora";
 }
 
-/** El texto que se firma. Cualquier cambio de un campo invalida la firma. */
+/**
+ * El texto que se firma. Cualquier cambio de cualquier campo invalida la firma.
+ *
+ * Es el objeto ENTERO serializado canónicamente, no una lista de campos escrita
+ * a mano. Antes era `[...].join("|")` y eso tenía tres agujeros: un campo nuevo
+ * quedaba fuera de la firma en silencio, un `nombre` con `|` podía colisionar, y
+ * `soporte` ausente producía la misma cadena que `soporte` vacío.
+ */
 export function contenidoFirmable(licencia: Omit<Licencia, "firma">): string {
-  return [
-    licencia.sucursal_id,
-    licencia.nombre,
-    licencia.plan,
-    licencia.vence_ts,
-    licencia.gracia_dias,
-    licencia.emitida_ts,
-    // El acceso de soporte va firmado: si no, el local se fabricaría el suyo.
-    licencia.soporte?.sal ?? "",
-    licencia.soporte?.hash ?? "",
-    licencia.soporte?.iteraciones ?? 0,
-    licencia.bloqueo_inmediato ? "1" : "0",
-  ].join("|");
+  return contenidoFirmableDe(licencia);
 }
 
 /**
@@ -275,65 +271,35 @@ export function contenidoFirmable(licencia: Omit<Licencia, "firma">): string {
  * Dos comprobaciones, y las dos importan: sin la firma cualquiera se extiende su
  * licencia editando un archivo; sin el `sucursal_id`, la licencia de un
  * restaurante que sí paga serviría para todos los demás.
+ *
+ * `llaveDeVerificacion` es la **pública** de MOTRAE, y ahora el nombre dice la
+ * verdad: antes se llamaba `llavePublica` y era el secreto simétrico con el que
+ * también se firmaba. Ese nombre engañoso es probablemente el origen del error.
+ * Que se filtre esta llave no permite emitir ni una licencia.
  */
 export async function verificarLicencia(
   licencia: Licencia,
   sucursalEsperada: ID,
-  llavePublica: string,
+  llaveDeVerificacion: string,
 ): Promise<boolean> {
   if (licencia.sucursal_id !== sucursalEsperada) return false;
 
-  try {
-    const llave = await crypto.subtle.importKey(
-      "raw",
-      new TextEncoder().encode(llavePublica),
-      { name: "HMAC", hash: "SHA-256" },
-      false,
-      ["sign"],
-    );
-    const esperada = new Uint8Array(
-      await crypto.subtle.sign(
-        "HMAC",
-        llave,
-        new TextEncoder().encode(contenidoFirmable(licencia)),
-      ),
-    );
-    const hex = [...esperada].map((b) => b.toString(16).padStart(2, "0")).join("");
-
-    // Comparación de tiempo constante, igual que en el resto del sistema.
-    const recibida = licencia.firma.toLowerCase();
-    if (recibida.length !== hex.length) return false;
-
-    let diferencia = 0;
-    for (let i = 0; i < hex.length; i++) {
-      diferencia |= hex.charCodeAt(i) ^ recibida.charCodeAt(i);
-    }
-    return diferencia === 0;
-  } catch {
-    return false;
-  }
+  const { firma, ...sinFirma } = licencia;
+  return verificar(llaveDeVerificacion, contenidoFirmable(sinFirma), firma);
 }
 
-/** Emite una licencia firmada. Solo MOTRAE, que es quien tiene el secreto. */
+/**
+ * Emite una licencia firmada. Solo MOTRAE, que es quien tiene la llave privada.
+ *
+ * Esa privada **no sale de MOTRAE Central**. Antes esta misma llave se instalaba
+ * en cada restaurante para poder verificar, así que cualquier cliente podía
+ * emitirse licencias — y firmar actualizaciones para toda la flota.
+ */
 export async function emitirLicencia(
   datos: Omit<Licencia, "firma">,
-  secreto: string,
+  llavePrivada: string,
 ): Promise<Licencia> {
-  const llave = await crypto.subtle.importKey(
-    "raw",
-    new TextEncoder().encode(secreto),
-    { name: "HMAC", hash: "SHA-256" },
-    false,
-    ["sign"],
-  );
-  const firma = new Uint8Array(
-    await crypto.subtle.sign("HMAC", llave, new TextEncoder().encode(contenidoFirmable(datos))),
-  );
-
-  return {
-    ...datos,
-    firma: [...firma].map((b) => b.toString(16).padStart(2, "0")).join(""),
-  };
+  return { ...datos, firma: await firmar(llavePrivada, contenidoFirmable(datos)) };
 }
 
 /**

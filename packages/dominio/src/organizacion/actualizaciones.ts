@@ -23,9 +23,15 @@
  * llave maestra de todas las instalaciones: quien pueda publicar por él, manda
  * en todos los restaurantes a la vez. Por eso el manifiesto va firmado por
  * MOTRAE y el Hub verifica la firma ANTES de descargar nada. Ni siquiera hace
- * falta confiar en GitHub: si alguien tomara la cuenta, sin el secreto de firma
+ * falta confiar en GitHub: si alguien tomara la cuenta, sin la **llave privada**
  * no podría colar un instalador.
+ *
+ * Esa última frase era FALSA hasta la migración a Ed25519. Con HMAC, la llave
+ * que verificaba era la misma que firmaba, y se instalaba en cada restaurante:
+ * cualquier cliente podía publicar para toda la flota. Ahora en los Hubs solo va
+ * la pública, y da igual que se filtre. Ver `comun/firma.ts`.
  */
+import { contenidoFirmableDe, firmar, verificar } from "../comun/firma.js";
 import type { ID } from "../comun/ids.js";
 
 /** Lo que MOTRAE publica en el manifiesto de un release. */
@@ -47,6 +53,14 @@ export interface VersionDisponible {
    * "obligatoria" en ruido y el restaurante deja de distinguir.
    */
   obligatoria?: boolean;
+  /**
+   * Por debajo de esta versión, lo instalado ya no se considera bueno.
+   *
+   * Permite invalidar una versión vulnerable sin depender de poder alcanzar a
+   * cada Hub: el propio Hub sabe que lo suyo caducó en cuanto ve un manifiesto
+   * que lo dice.
+   */
+  version_minima_soportada?: string;
   /** Firma de MOTRAE sobre todo lo anterior. */
   firma: string;
 }
@@ -240,57 +254,163 @@ export function resumenDeEleccion(estado: EstadoActualizacion): string {
 
 // --- La firma del manifiesto ---------------------------------------------------------------
 
-/** Lo que se firma. Cualquier cambio de un campo invalida la firma. */
+/**
+ * Lo que se firma: el manifiesto ENTERO, canónicamente.
+ *
+ * Antes era `[version, url, sha256, publicado_ts, obligatoria].join("|")` — y
+ * **`notas` quedaba fuera**. Quien controlara el release sin tener la llave
+ * podía reescribir el único texto que el restaurantero lee para decidir:
+ * cambiar «mejoras menores» por «actualización de seguridad crítica, instale de
+ * inmediato» y forzar un reinicio en horario de servicio.
+ *
+ * El defecto de fondo era la lista blanca a mano: cualquier campo que se
+ * añadiera después quedaba fuera en silencio. Con el objeto entero, no puede
+ * volver a pasar.
+ */
 export function contenidoFirmableVersion(v: Omit<VersionDisponible, "firma">): string {
-  return [v.version, v.url, v.sha256, v.publicado_ts, v.obligatoria ? "1" : "0"].join("|");
+  return contenidoFirmableDe(v);
 }
 
-async function hmacHex(secreto: string, texto: string): Promise<string> {
-  const llave = await crypto.subtle.importKey(
-    "raw",
-    new TextEncoder().encode(secreto),
-    { name: "HMAC", hash: "SHA-256" },
-    false,
-    ["sign"],
-  );
-  const firma = new Uint8Array(
-    await crypto.subtle.sign("HMAC", llave, new TextEncoder().encode(texto)),
-  );
-  return [...firma].map((b) => b.toString(16).padStart(2, "0")).join("");
-}
-
-/** Firma un manifiesto. Solo MOTRAE, que es quien tiene el secreto. */
+/** Firma un manifiesto. Solo MOTRAE, que es quien tiene la llave privada. */
 export async function firmarVersion(
   datos: Omit<VersionDisponible, "firma">,
-  secreto: string,
+  llavePrivada: string,
 ): Promise<VersionDisponible> {
-  return { ...datos, firma: await hmacHex(secreto, contenidoFirmableVersion(datos)) };
+  return { ...datos, firma: await firmar(llavePrivada, contenidoFirmableVersion(datos)) };
 }
 
 /**
  * ¿Este manifiesto lo publicó MOTRAE?
  *
- * Se comprueba ANTES de descargar el instalador. Sin esto, quien tomara la
- * cuenta de GitHub podría publicar cualquier ejecutable y los Hubs lo
- * instalarían solos en todos los restaurantes a la vez.
+ * Se comprueba ANTES de descargar el instalador. Y ahora la llave que llevan los
+ * Hubs es solo la **pública**: si alguien la extrae de un restaurante, no puede
+ * firmar nada. Antes era el mismo secreto con el que se firmaba, así que un
+ * cliente comprometido comprometía a toda la flota.
  */
 export async function verificarVersion(
   version: VersionDisponible,
-  llave: string,
+  llaveDeVerificacion: string,
 ): Promise<boolean> {
-  try {
-    const esperada = await hmacHex(llave, contenidoFirmableVersion(version));
-    const recibida = version.firma.toLowerCase();
-    if (recibida.length !== esperada.length) return false;
+  const { firma, ...sinFirma } = version;
+  return verificar(llaveDeVerificacion, contenidoFirmableVersion(sinFirma), firma);
+}
 
-    let diferencia = 0;
-    for (let i = 0; i < esperada.length; i++) {
-      diferencia |= esperada.charCodeAt(i) ^ recibida.charCodeAt(i);
-    }
-    return diferencia === 0;
-  } catch {
-    return false;
+// --- Reversión y frescura -----------------------------------------------------------------------
+
+/** Cuánto puede tener un manifiesto antes de considerarse rancio. */
+export const FRESCURA_MAX_MS = 90 * 86_400_000;
+
+export interface MemoriaDeCanal {
+  /** El `publicado_ts` más nuevo que se ha aceptado. */
+  ultimo_publicado_ts?: number;
+  /** Última vez que el Hub aceptó un manifiesto del canal. */
+  ultima_consulta_ts?: number;
+}
+
+export type VeredictoManifiesto =
+  | { aceptar: true; instalada_por_debajo_del_minimo: boolean }
+  | { aceptar: false; razon: string };
+
+/** Cuánto reloj adelantado se tolera antes de sospechar de la hora del equipo. */
+export const RELOJ_ADELANTADO_MAX_MS = 24 * 60 * 60 * 1000;
+
+/** Dice si la versión instalada ya quedó por debajo del piso de seguridad. */
+export function instaladaPorDebajoDelMinimo(
+  instalada: string,
+  version_minima_soportada?: string,
+): boolean {
+  return Boolean(
+    version_minima_soportada && compararVersiones(instalada, version_minima_soportada) < 0,
+  );
+}
+
+/**
+ * ¿Se acepta este manifiesto, más allá de que la firma cuadre?
+ *
+ * Una firma válida dice **quién** lo publicó, no **cuándo**. Sin esto, un
+ * manifiesto legítimo de MOTRAE vale para siempre, y eso abre dos huecos:
+ *
+ *   1. **Congelación.** Quien controle la resolución de `api.github.com` para un
+ *      local —su DNS, su router— puede seguir sirviéndole indefinidamente el
+ *      manifiesto genuino de la versión que ya tiene, y dejarlo sin recibir
+ *      jamás un parche de seguridad. Y en silencio.
+ *   2. **Reversión.** Un manifiesto viejo, firmado de verdad, que apunta a una
+ *      versión que MOTRAE ya sabe que es vulnerable.
+ *
+ * Se exige que el `publicado_ts` **avance** respecto al último aceptado, y que
+ * no sea absurdamente viejo.
+ */
+export function aceptarManifiesto(
+  version: VersionDisponible,
+  memoria: MemoriaDeCanal,
+  versionInstalada: string,
+  ahora: number,
+): VeredictoManifiesto {
+  if (!Number.isFinite(version.publicado_ts) || version.publicado_ts <= 0) {
+    return { aceptar: false, razon: "El manifiesto no trae una fecha de publicación válida" };
   }
+
+  if (version.publicado_ts > ahora + RELOJ_ADELANTADO_MAX_MS) {
+    return {
+      aceptar: false,
+      razon: "El manifiesto parece venir del futuro; revisa el reloj de este equipo",
+    };
+  }
+
+  if (ahora - version.publicado_ts > FRESCURA_MAX_MS) {
+    return {
+      aceptar: false,
+      razon: "El manifiesto es demasiado viejo. Puede que alguien esté sirviendo uno rancio",
+    };
+  }
+
+  if (memoria.ultimo_publicado_ts && version.publicado_ts < memoria.ultimo_publicado_ts) {
+    return {
+      aceptar: false,
+      razon: "Este manifiesto es anterior al último aceptado: podría ser una reversión",
+    };
+  }
+
+  /* Un piso no puede apuntar por delante de la versión que lo anuncia. */
+  if (
+    version.version_minima_soportada &&
+    compararVersiones(version.version, version.version_minima_soportada) < 0
+  ) {
+    return {
+      aceptar: false,
+      razon: "La versión mínima es posterior a la que el propio manifiesto ofrece",
+    };
+  }
+
+  if (!hayNovedad(versionInstalada, version.version)) {
+    return { aceptar: false, razon: "No es más nueva que la instalada" };
+  }
+
+  return {
+    aceptar: true,
+    instalada_por_debajo_del_minimo: instaladaPorDebajoDelMinimo(
+      versionInstalada,
+      version.version_minima_soportada,
+    ),
+  };
+}
+
+/** Cuántos días sin poder consultar antes de decirlo en voz alta. */
+export const DIAS_SIN_CONSULTAR_AVISO = 7;
+
+/**
+ * ¿Hay que avisar de que llevamos demasiado sin saber del canal?
+ *
+ * Los fallos de red no se registran —en un restaurante son normales y llenarían
+ * la bitácora— pero **el silencio prolongado sí importa**: es exactamente lo que
+ * se ve desde dentro cuando alguien está congelando el canal.
+ */
+export function llevaDemasiadoSinConsultar(
+  estado: EstadoActualizacion,
+  ahora: number,
+): boolean {
+  if (!estado.revisada_ts) return false;
+  return ahora - estado.revisada_ts > DIAS_SIN_CONSULTAR_AVISO * 86_400_000;
 }
 
 /** El stream donde el Hub deja constancia de lo que instaló. */

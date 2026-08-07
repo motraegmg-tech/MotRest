@@ -6,7 +6,8 @@
  * que el bloqueo NO se pueda esquivar editando un archivo, y que la única
  * concesión —no caer con un turno abierto— sea exactamente esa y ninguna más.
  */
-import { describe, expect, it } from "vitest";
+import { beforeAll, describe, expect, it } from "vitest";
+import { generarPar, type ParDeLlaves } from "../comun/firma.js";
 import {
   DIAS_AVISO,
   GRACIA_POR_DEFECTO,
@@ -20,7 +21,18 @@ import {
   type Licencia,
 } from "../organizacion/licencia.js";
 
-const SECRETO = "secreto-de-motrae";
+/*
+ * Un PAR de llaves, no una cadena. Con Ed25519 se firma con la privada y se
+ * verifica con la pública: tener la que verifica ya no permite firmar, que es
+ * exactamente el fallo que se arregló.
+ */
+let MOTRAE: ParDeLlaves;
+let PIRATA: ParDeLlaves;
+
+beforeAll(async () => {
+  MOTRAE = await generarPar();
+  PIRATA = await generarPar();
+});
 const SUC = "suc-rodizio";
 const AHORA = new Date(2026, 6, 24, 21, 0).getTime();
 const DIA = 86_400_000;
@@ -36,7 +48,7 @@ async function licencia(diasParaVencer: number, extra: Partial<Licencia> = {}): 
       emitida_ts: AHORA - 30 * DIA,
       ...extra,
     },
-    SECRETO,
+    MOTRAE.privada,
   );
 }
 
@@ -55,19 +67,19 @@ const sit = (dias: number, gracia = GRACIA_POR_DEFECTO) =>
 
 describe("la licencia viene de MOTRAE o no vale", () => {
   it("una licencia emitida por MOTRAE se verifica", async () => {
-    expect(await verificarLicencia(await licencia(30), SUC, SECRETO)).toBe(true);
+    expect(await verificarLicencia(await licencia(30), SUC, MOTRAE.publica)).toBe(true);
   });
 
   /* Sin esto, cualquiera se extiende la licencia editando un archivo. */
   it("cambiar la fecha de vencimiento la invalida", async () => {
     const alterada = { ...(await licencia(-100)), vence_ts: AHORA + 365 * DIA };
-    expect(await verificarLicencia(alterada, SUC, SECRETO)).toBe(false);
+    expect(await verificarLicencia(alterada, SUC, MOTRAE.publica)).toBe(false);
   });
 
   /* Alargarse la gracia es la otra forma obvia de esquivar el bloqueo. */
   it("estirar los días de gracia la invalida", async () => {
     const alterada = { ...(await licencia(-10)), gracia_dias: 999 };
-    expect(await verificarLicencia(alterada, SUC, SECRETO)).toBe(false);
+    expect(await verificarLicencia(alterada, SUC, MOTRAE.publica)).toBe(false);
   });
 
   /*
@@ -75,23 +87,23 @@ describe("la licencia viene de MOTRAE o no vale", () => {
    * serviría para todos los demás con solo copiar un archivo.
    */
   it("la licencia de otro local no sirve aquí", async () => {
-    expect(await verificarLicencia(await licencia(30), "suc-otro", SECRETO)).toBe(false);
+    expect(await verificarLicencia(await licencia(30), "suc-otro", MOTRAE.publica)).toBe(false);
   });
 
   it("una firma inventada no pasa", async () => {
     const l = { ...(await licencia(30)), firma: "0".repeat(64) };
-    expect(await verificarLicencia(l, SUC, SECRETO)).toBe(false);
+    expect(await verificarLicencia(l, SUC, MOTRAE.publica)).toBe(false);
   });
 
-  it("otro secreto no puede emitir licencias válidas", async () => {
+  it("otra llave privada no puede emitir licencias válidas", async () => {
     const falsa = await emitirLicencia(
       {
         sucursal_id: SUC, nombre: "Rodizio", plan: "anual",
         vence_ts: AHORA + 999 * DIA, gracia_dias: 3, emitida_ts: AHORA,
       },
-      "secreto-de-un-pirata",
+      PIRATA.privada,
     );
-    expect(await verificarLicencia(falsa, SUC, SECRETO)).toBe(false);
+    expect(await verificarLicencia(falsa, SUC, MOTRAE.publica)).toBe(false);
   });
 
   /*
@@ -103,13 +115,13 @@ describe("la licencia viene de MOTRAE o no vale", () => {
     const l = await licencia(30, {
       soporte: { sal: "sal-de-motrae", hash: "hash-de-motrae", iteraciones: 600_000 },
     });
-    expect(await verificarLicencia(l, SUC, SECRETO)).toBe(true);
+    expect(await verificarLicencia(l, SUC, MOTRAE.publica)).toBe(true);
 
     const suplantada = {
       ...l,
       soporte: { sal: "mi-sal", hash: "hash-de-mi-contrasena", iteraciones: 600_000 },
     };
-    expect(await verificarLicencia(suplantada, SUC, SECRETO)).toBe(false);
+    expect(await verificarLicencia(suplantada, SUC, MOTRAE.publica)).toBe(false);
   });
 });
 
@@ -264,7 +276,7 @@ describe("comprobar sin internet", () => {
    */
   it("una licencia guardada se verifica sin llamar a nadie", async () => {
     const guardada = JSON.parse(JSON.stringify(await licencia(30))) as Licencia;
-    expect(await verificarLicencia(guardada, SUC, SECRETO)).toBe(true);
+    expect(await verificarLicencia(guardada, SUC, MOTRAE.publica)).toBe(true);
     expect(situacionDe(guardada, true, AHORA).opera).toBe(true);
   });
 });

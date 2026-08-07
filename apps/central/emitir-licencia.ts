@@ -6,12 +6,12 @@
  * se está instalando en el local con las manos ocupadas, y cuando se quiere
  * dejar el alta escrita en un guion.
  *
- * EL SECRETO NUNCA SE TECLEA EN EL COMANDO. Entra por variable de entorno, y no
+ * LA LLAVE PRIVADA NUNCA SE TECLEA EN EL COMANDO. Entra por variable de entorno, y no
  * como argumento, porque los argumentos quedan en el historial del shell y en la
  * lista de procesos de la máquina — cualquiera que corra `ps` mientras esto se
  * ejecuta se lleva la llave con la que se firman TODAS las licencias.
  *
- *   $env:MOTRAE_SECRETO_LICENCIAS = "..."      # PowerShell
+ *   $env:MOTRAE_LLAVE_PRIVADA_LICENCIAS = "..."      # PowerShell
  *   corepack pnpm@9.15.0 --filter @motrest/central licencia -- \
  *     --sucursal suc-rodizio-centro --nombre "Rodizio" --meses 1
  */
@@ -19,6 +19,7 @@ import { writeFileSync } from "node:fs";
 import {
   crearCredencial,
   emitirLicencia,
+  publicaDe,
   siguienteVencimiento,
   situacionDe,
   verificarLicencia,
@@ -69,13 +70,13 @@ function leerArgumentos(argv: string[]): Opciones | string {
 }
 
 async function principal(): Promise<void> {
-  const secreto = process.env.MOTRAE_SECRETO_LICENCIAS ?? "";
-  if (!secreto) {
+  const llavePrivada = process.env.MOTRAE_LLAVE_PRIVADA_LICENCIAS ?? "";
+  if (!llavePrivada) {
     console.error(
-      "Falta MOTRAE_SECRETO_LICENCIAS.\n\n" +
-        "Es el «Secreto de firma de licencias» de MOTRAE Central → Llaves.\n" +
+      "Falta MOTRAE_LLAVE_PRIVADA_LICENCIAS.\n\n" +
+        "Es la llave privada Ed25519 de MOTRAE Central → Llaves.\n" +
         "En PowerShell:\n" +
-        '  $env:MOTRAE_SECRETO_LICENCIAS = "el-secreto"\n',
+        '  $env:MOTRAE_LLAVE_PRIVADA_LICENCIAS = "la-llave-privada"\n',
     );
     process.exit(1);
   }
@@ -117,17 +118,18 @@ async function principal(): Promise<void> {
       emitida_ts: Date.now(),
       ...(soporte ? { soporte } : {}),
     },
-    secreto,
+    llavePrivada,
   );
 
   /*
    * Se verifica lo que se acaba de emitir ANTES de escribirlo. Parece
-   * redundante y no lo es: atrapa un secreto mal pegado —con un salto de línea
+   * redundante y no lo es: atrapa una llave privada mal pegada —con un salto de línea
    * al final, que es lo que pasa al copiarlo del navegador— antes de que alguien
    * viaje al restaurante con un archivo que no sirve.
    */
-  if (!(await verificarLicencia(licencia, opciones.sucursal, secreto))) {
-    console.error("La licencia emitida no se verifica. Revisa el secreto.");
+  const llavePublica = await publicaDe(llavePrivada);
+  if (!(await verificarLicencia(licencia, opciones.sucursal, llavePublica))) {
+    console.error("La licencia emitida no se verifica. Revisa la llave privada.");
     process.exit(1);
   }
 

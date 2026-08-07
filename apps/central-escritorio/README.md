@@ -3,10 +3,10 @@
 El panel de MOTRAE como aplicación de escritorio: cartera de restaurantes,
 licencias, salud de cada instalación y publicación de versiones.
 
-> **Esta app NO se instala en ningún restaurante.** Guarda los secretos con los
-> que se firman las licencias y las actualizaciones de todos los locales. Quien
-> los tenga puede emitir licencias gratis y publicar una actualización que se
-> instala sola en cada MotRest de la calle.
+> **Esta app NO se instala en ningún restaurante.** Guarda las **llaves privadas
+> Ed25519** con las que se firman las licencias y las actualizaciones de todos
+> los locales. Quien las tenga puede emitir licencias gratis y publicar una
+> actualización que los Hubs aceptarían como legítima.
 
 ## Por qué es una app y no una pestaña
 
@@ -14,10 +14,24 @@ licencias, salud de cada instalación y publicación de versiones.
    derivan hashes PBKDF2. El motor criptográfico del navegador solo existe en
    contextos seguros.
 
-2. **Los secretos tienen su propio almacén.** En una pestaña compartirían
-   espacio con toda la navegación normal: cualquier extensión instalada podría
-   leerlos, y bastaría con "borrar datos de navegación" para perder las llaves
-   con las que se firma todo. Esa es la razón de peso.
+2. **Las privadas tienen su propio almacén DPAPI.** Tauri pide a Windows que las
+   cifre antes de escribirlas en `%LOCALAPPDATA%`; copiar el blob a otra cuenta
+   no permite abrirlo. No se usan `localStorage` ni las credenciales del
+   navegador. Esa es la razón de peso.
+
+## Preparar un instalador de MotRest
+
+En **Llaves**, genera los dos pares y copia únicamente sus públicas. Antes de
+empaquetar el Hub, pásalas como variables de entorno de la máquina de build:
+
+```powershell
+$env:MOTREST_LICENCIA_PUBLICA = "<Central → Llave pública de licencias>"
+$env:MOTREST_ACTUALIZACIONES_PUBLICA = "<Central → Llave pública de publicación>"
+corepack pnpm@9.15.0 --filter @motrest/hub empaquetar
+```
+
+El empaquetador valida que ambas sean SPKI Ed25519 y las incrusta en el
+ejecutable. Ninguna llave privada viaja al restaurante.
 
 ## Lo que esta app no hace
 
@@ -55,9 +69,10 @@ Se regenera con `corepack pnpm@9.15.0 --filter @motrest/central-escritorio icono
 
 ## Copia de seguridad
 
-**Los secretos no se respaldan solos y no salen en el respaldo de la cartera**
-(a propósito: ese archivo se manda por correo sin pensarlo). Guárdalos en un
-gestor de contraseñas el día que los generes.
+**Las privadas no salen en el respaldo de la cartera** (a propósito: ese archivo
+se manda por correo sin pensarlo). En **Llaves** se puede descargar un respaldo
+DPAPI separado: sigue cifrado y solo se restaura bajo el mismo perfil de Windows.
+Guárdalo fuera de la computadora.
 
-Si se pierden: no se puede volver a firmar nada, hay que generar secretos nuevos
-y **reemitir las licencias de todos los locales**.
+Si se pierden: hay que generar pares nuevos, compilar un Hub con sus públicas y
+**reemitir las licencias de todos los locales antes de actualizarles el Hub**.

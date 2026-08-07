@@ -14,8 +14,9 @@ De ahí salen las dos únicas reglas que importan:
 1. **El identificador del local tiene que coincidir exactamente.** La licencia de
    Rodizio no sirve en ningún otro equipo, ni siquiera en otro Rodizio. Si el
    identificador no coincide, el Hub la rechaza y **no la guarda**.
-2. **La firma la hace tu secreto.** Sin él no se emite nada, y con él se emite
-   todo. Vive solo en tu máquina.
+2. **La firma la hace la llave privada Ed25519 de Central.** El Hub solo tiene
+   la pública, así que puede comprobarla pero no emitir una licencia. La privada
+   vive cifrada con DPAPI en la máquina de MOTRAE.
 
 > **El orden importa: primero se instala, después se emite.** El Hub genera su
 > propio identificador al arrancar por primera vez. Emitir la licencia antes de
@@ -44,9 +45,9 @@ suc-rodizio-centro
 
 Anótalo tal cual, con guiones y todo.
 
-> Si el Hub aún no tiene operación registrada, puede mostrar `suc-local`. En ese
-> caso fija tú el identificador antes del primer arranque con la variable de
-> entorno `MOTREST_SUCURSAL_ID=suc-rodizio-centro`, y ya no cambia.
+> El Hub fija un identificador único en su primer arranque, incluso sin operación
+> registrada. Si MOTRAE quiere decidirlo de antemano, puede usar
+> `MOTREST_SUCURSAL_ID=suc-rodizio-centro` antes de ese primer arranque.
 
 ### 3 · Dar de alta el restaurante en MOTRAE Central
 
@@ -107,9 +108,9 @@ Para cuando estás instalando con las manos ocupadas, o quieres dejarlo escrito
 en un guion.
 
 ```powershell
-# El secreto entra por variable de entorno, NUNCA como argumento del comando:
+# La llave privada entra por variable de entorno, NUNCA como argumento del comando:
 # los argumentos quedan en el historial y en la lista de procesos de la máquina.
-$env:MOTRAE_SECRETO_LICENCIAS = "<Central → Llaves → Firma de licencias>"
+$env:MOTRAE_LLAVE_PRIVADA_LICENCIAS = "<respaldo seguro de MOTRAE; Central no la muestra>"
 $env:MOTRAE_CONTRASENA_SOPORTE = "<tu contraseña de Gonz Motrae>"
 
 corepack pnpm@9.15.0 --filter @motrest/central licencia -- `
@@ -174,6 +175,6 @@ Para reactivar: emitir licencia nueva y pegarla. Su información sigue intacta.
 | Síntoma | Qué pasó |
 |---|---|
 | «Esa licencia no es de este local» | El identificador no coincide. Copia el de **Administración → Hub** |
-| Sigue diciendo que no tiene licencia | Falta `MOTREST_LICENCIA_LLAVE` en el equipo, o no coincide con el secreto que firmó |
+| Sigue diciendo que no tiene licencia | El Hub no trae la pública Ed25519 correspondiente, o se pegó una licencia HMAC anterior; reemite primero y actualiza después |
 | «Gonz Motrae» no puede entrar | La licencia se emitió sin `soporte`. Reemítela con la contraseña definida |
-| El comando dice «La licencia emitida no se verifica» | El secreto se pegó con un salto de línea o un espacio. Vuelve a copiarlo |
+| El comando dice «La licencia emitida no se verifica» | La llave privada se pegó mal o no es Ed25519. Vuelve a copiarla desde Central |

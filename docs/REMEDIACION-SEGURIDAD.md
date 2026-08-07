@@ -19,7 +19,7 @@ altos, 20 medios, 12 bajos, 4 info) sobre 345 archivos fuente.
 | **1** | Herramientas y red de seguridad | ✅ `ce11047` |
 | **2** | Identidad del Hub y registro a archivo | ✅ `2b59b55` |
 | **3** | Credenciales del local | ✅ *(este commit)* |
-| **4** | Cimientos criptográficos (Ed25519) | ⬜ **siguiente** |
+| **4** | Cimientos criptográficos (Ed25519) | ✅ *(este commit)* |
 | **5** | El Hub como autoridad | ⬜ |
 | **6** | Superficie HTTP del Hub | ⬜ |
 | **7** | El relay | ⬜ |
@@ -134,65 +134,50 @@ ajuste de las pruebas que usan PIN de 4.*
 
 ---
 
-## ⬜ Etapa 4 · Los cimientos criptográficos — **la siguiente**
+## ✅ Etapa 4 · Los cimientos criptográficos
 
-**Hallazgos:** CN-001 *(crítico)*, CN-005, CN-023, CN-024, CN-025, CN-039
+**Hallazgos cerrados:** CN-001 *(crítico)*, CN-005, CN-023, CN-024, CN-025,
+CN-039.
 
-**Superficie verificada:** 11 archivos de producción, 6 de prueba, 5 documentos.
-**No existe ningún helper de firma asimétrica reutilizable** — el único formato
-asimétrico del repo es RSA con `node:crypto` para el CSD, que no sirve de
-plantilla porque Central corre en navegador.
+- **Firmas asimétricas reutilizables.** `packages/dominio/src/comun/firma.ts`
+  implementa Ed25519 con WebCrypto nativo. Licencias y manifiestos usan un JSON
+  canónico de todo el objeto salvo `firma`, con claves ordenadas: `notas`,
+  `version_minima_soportada` y cualquier campo anidado quedan cubiertos por la
+  firma.
+- **Separación de autoridad.** Hay un par para licencias y otro para
+  publicaciones. Central conserva las privadas protegidas por DPAPI; Hub recibe
+  solamente las públicas, incrustadas por `empaquetar.mjs`. El empaquetado exige
+  `MOTREST_LICENCIA_PUBLICA` y `MOTREST_ACTUALIZACIONES_PUBLICA`, por lo que no
+  puede producirse accidentalmente un binario de producción sin sus verificadores.
+- **Central y migración.** La UI ya no muestra ni persiste privadas en
+  `localStorage`; enseña y permite copiar solo las públicas. Los comandos Tauri
+  protegen secretos y sus respaldos cifrados con DPAPI. Si encuentra la
+  configuración HMAC heredada, conserva la configuración no sensible y ofrece
+  regenerar los pares, sin impedir que Central abra. Se implementaron también
+  respaldo y restauración de secretos cifrados.
+- **Operación de licencias.** El CLI recibe la privada desde el almacén seguro de
+  MOTRAE, deriva su pública y auto-verifica antes de emitir. Ya no hay una llave
+  simétrica instalada en cada restaurante que permita firmar.
+- **Canal de actualizaciones.** Central genera `publicado_ts` estrictamente
+  monótono; Hub rechaza manifiestos vencidos, futuros, regresivos o con una
+  versión mínima inválida y persiste la última marca aceptada. El token de GitHub
+  solo se entrega por HTTPS a hosts de GitHub permitidos, incluidos los saltos de
+  redirección. Las descargas usan directorio temporal único, validan SHA-256
+  desde el archivo ya escrito y lo recalculan inmediatamente antes de lanzar el
+  instalador.
+- **Cobertura.** Las pruebas dejaron de usar cadenas que simulaban llaves:
+  generan pares Ed25519 y comprueban firmas inválidas, reversión, frescura,
+  mínimos, fuga de token, URL arbitraria y sustitución del instalador en disco.
 
-### El problema
+### Decisión de despliegue obligatoria
 
-Licencias y actualizaciones se firman con **HMAC-SHA256**, que es simétrico: la
-llave que verifica **es** la que firma. Y se instala en cada restaurante
-(`MOTREST_LICENCIA_LLAVE`, `MOTREST_ACTUALIZACIONES_LLAVE`).
-
-Cualquiera con lectura del entorno de **un solo** local puede emitirse licencias
-y **firmar una actualización que todos los demás Hubs aceptan** → ejecución de
-código en toda la flota. El parámetro se llama `llavePublica` y **no lo es**;
-ese nombre es probablemente el origen del error.
-
-### Los pasos
-
-1. **Helper nuevo** en `packages/dominio/src/comun/firma.ts`: `generarPar()`,
-   `firmar()`, `verificar()` sobre Ed25519 con WebCrypto (nativo en Node 20+,
-   cero dependencias). `subtle.verify` ya es de tiempo constante → la comparación
-   manual actual desaparece.
-2. **Contenido firmable rehecho una sola vez**: JSON canónico del objeto completo
-   sin `firma`, claves ordenadas. Arregla de un golpe: `notas` fuera de la firma
-   (CN-023); `join("|")` **sin escape** (un `nombre` con `|` permite colisiones);
-   y la ambigüedad entre `soporte` ausente y `soporte` vacío, que hoy producen la
-   misma cadena.
-3. **Dos pares distintos** (licencias / publicación). La privada nunca sale de
-   Central; en los Hubs va la **pública incrustada en el binario**.
-4. **Central** (CN-005): `generar()` pasa a `subtle.generateKey`; la UI debe
-   **mostrar y copiar la pública**, ocultar la privada; secretos al almacén del
-   sistema (DPAPI) vía comando Rust. **Ruta de migración obligatoria:** ya hay
-   una Central configurada con el formato viejo — leerlo y ofrecer regenerar, no
-   reventar. Y `respaldoDeSecretos()` se cita dos veces en comentarios **y no
-   existe**: implementarlo o quitar la referencia.
-5. **CLI** `emitir-licencia.ts`: la auto-verificación tras emitir necesita
-   **derivar la pública de la privada**.
-6. CN-024 (`publicado_ts` monótono + frescura + `version_minima_soportada`),
-   CN-025 (`authorization` solo a hosts de GitHub, exigir `https:`), CN-039
-   (`mkdtemp` + revalidar SHA-256 **desde disco** antes del `spawn`).
-7. **6 archivos de prueba** usan la llave como cadena arbitraria → par en
-   `beforeAll`. Dos firman con «secreto de atacante»: con asimétrica hay que
-   firmar con **otra llave privada**, no con otra cadena.
-
-### ⚠ El auto-bloqueo
-
-Cambiar el algoritmo **invalida todas las licencias emitidas**. Un Hub
-actualizado a Ed25519 **antes** de recibir su licencia reemitida queda
-`invalida` → `opera:false` → **bloqueado y sin acceso de soporte para
-arreglarlo**, porque `credencialDeSoporte` exige `licenciaVerificada`. No se sale
-en remoto.
-
-**Rodizio no está instalado**, así que hoy el riesgo es **cero**. Desde el primer
-despliegue: **emitir la licencia nueva antes de actualizar el Hub, nunca al
-revés.** Debe quedar en un ADR.
+Cambiar HMAC por Ed25519 invalida las licencias antiguas. Antes de actualizar un
+Hub en un restaurante ya instalado hay que: **(1)** generar y resguardar los
+pares, **(2)** compilar el Hub con las públicas, **(3)** reemitir y confirmar la
+licencia nueva mientras el Hub anterior sigue activo y **solo entonces (4)**
+actualizar el Hub. Hacerlo al revés puede dejar el local bloqueado sin soporte
+remoto. La decisión y la secuencia están registradas en
+[`ADR-25`](adr/ADR-25-firmas-ed25519-y-migracion.md).
 
 ---
 

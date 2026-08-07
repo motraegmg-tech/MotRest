@@ -13,26 +13,27 @@ import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { emitirLicencia, type Licencia } from "@motrest/dominio";
+import { emitirLicencia, generarPar, type Licencia, type ParDeLlaves } from "@motrest/dominio";
 import { GestorLicencia } from "../licencia.js";
 
-const LLAVE = "secreto-de-licencias-de-motrae";
 const SUC = "suc-rodizio-centro";
 const SOPORTE = { sal: "c2Fs", hash: "aGFzaA==", iteraciones: 600_000 };
 
 let carpeta: string;
 let ruta: string;
+let MOTRAE: ParDeLlaves;
 
 beforeEach(async () => {
   carpeta = await mkdtemp(join(tmpdir(), "motrest-lic-"));
   ruta = join(carpeta, "licencia.json");
+  MOTRAE = await generarPar();
 });
 
 afterEach(async () => {
   await rm(carpeta, { recursive: true, force: true });
 });
 
-function gestor(llave = LLAVE, sucursal = SUC, registro: string[] = []) {
+function gestor(llave = MOTRAE.publica, sucursal = SUC, registro: string[] = []) {
   return {
     g: new GestorLicencia(ruta, sucursal, llave, (n, t) => registro.push(`${n}: ${t}`)),
     registro,
@@ -46,7 +47,7 @@ async function licencia(dias = 30, extra: Partial<Licencia> = {}): Promise<Licen
       vence_ts: Date.now() + dias * 86_400_000, gracia_dias: 3,
       emitida_ts: Date.now(), soporte: SOPORTE, ...extra,
     },
-    LLAVE,
+    MOTRAE.privada,
   );
 }
 
@@ -85,12 +86,12 @@ describe("cargar la licencia del disco", () => {
 
     expect(v.verificada).toBe(false);
     expect(v.situacion.opera).toBe(false);
-    expect(registro.join()).toContain("MOTREST_LICENCIA_LLAVE");
+    expect(registro.join()).toContain("llave pública Ed25519");
   });
 
   it("la licencia de otro local no sirve aquí", async () => {
     await writeFile(ruta, JSON.stringify(await licencia(30)));
-    const { g, registro } = gestor(LLAVE, "suc-otro-restaurante");
+    const { g, registro } = gestor(MOTRAE.publica, "suc-otro-restaurante");
 
     expect((await g.cargar()).verificada).toBe(false);
     expect(registro.join()).toContain("no corresponde a este local");
@@ -136,7 +137,7 @@ describe("instalar una licencia nueva", () => {
         sucursal_id: "suc-otro", nombre: "Otro", plan: "mensual",
         vence_ts: Date.now() + 999 * 86_400_000, gracia_dias: 3, emitida_ts: Date.now(),
       },
-      LLAVE,
+      MOTRAE.privada,
     );
 
     const r = await g.instalar(ajena);

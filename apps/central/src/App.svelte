@@ -14,6 +14,7 @@
    */
   import "@motrest/ui/tokens.css";
   import "@motrest/ui/base.css";
+  import { onMount } from "svelte";
   import Hoy from "./paneles/Hoy.svelte";
   import Restaurantes from "./paneles/Restaurantes.svelte";
   import Actualizaciones from "./paneles/Actualizaciones.svelte";
@@ -31,6 +32,11 @@
     { clave: "versiones", titulo: "Versiones" },
     { clave: "llaves", titulo: "Llaves" },
   ];
+
+  /* DPAPI se consulta solo cuando existe la ventana Tauri, nunca al importar el módulo. */
+  onMount(() => {
+    void central.inicializarSecretos();
+  });
 
   /** Lo urgente, para el punto del menú. */
   const urgentes = $derived(

@@ -44,15 +44,17 @@ caro:
 Al primer arranque el Hub genera la **clave del local** y su certificado, y se
 registra para arrancar con Windows.
 
-### A.3 · Configurar las llaves del equipo
+### A.3 · Configurar el canal, sin secretos de MOTRAE
 
-Van como variables de entorno del servicio, **nunca en un archivo del repositorio**:
+La **llave pública** de licencias y la de publicaciones ya van incrustadas en el
+Hub que llega en el instalador. En este equipo no se instala ninguna llave
+privada ni el antiguo secreto HMAC: extraer una pública no permite emitir ni
+firmar nada.
 
 | Variable | Para qué |
 |---|---|
-| `MOTREST_LICENCIA_LLAVE` | Comprobar la licencia. **Sin ella el equipo se comporta como si no tuviera.** |
 | `MOTREST_ACTUALIZACIONES_REPO` | `motrae/motrest` |
-| `MOTREST_ACTUALIZACIONES_LLAVE` | Comprobar la firma de las versiones |
+| `MOTREST_ACTUALIZACIONES_TOKEN` | Solo si el repositorio es privado; el Hub lo manda únicamente a HTTPS de GitHub. |
 | `MOTREST_RESPALDOS` | Carpeta de copias, mejor fuera del disco |
 
 ### A.4 · Activar la licencia
@@ -77,6 +79,11 @@ El procedimiento completo, paso a paso y con ejemplo, está en
 La licencia se comprueba **sin internet**: si MOTRAE se cae, los restaurantes al
 corriente siguen abriendo. Y vive junto a la base de datos, así que las
 actualizaciones no la borran.
+
+> **Migración a Ed25519:** emite y entrega la licencia nueva **antes** de
+> actualizar el Hub. El orden inverso deja la licencia HMAC como inválida y
+> bloquea el acceso de soporte. Ver
+> [`ADR-25-firmas-ed25519-y-migracion.md`](adr/ADR-25-firmas-ed25519-y-migracion.md).
 
 ### A.4 · Emparejar las tablets
 

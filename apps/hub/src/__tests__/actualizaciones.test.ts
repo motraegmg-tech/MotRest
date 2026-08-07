@@ -1,17 +1,30 @@
 /**
  * El Hub buscando versiones nuevas en GitHub.
  *
- * LA PRUEBA QUE JUSTIFICA EL ARCHIVO: que un manifiesto sin la firma de MOTRAE
- * NO se instale. El canal de actualización es la llave maestra de todas las
- * instalaciones — quien pueda publicar por él manda en todos los restaurantes a
- * la vez. Si esto falla, da igual todo lo demás.
+ * Estas pruebas protegen la cadena más sensible del producto: una actualización
+ * no puede venir de otro par, retroceder en el tiempo, ni sacar un token de
+ * GitHub hacia una URL escrita en un manifiesto.
  */
-import { describe, expect, it, vi } from "vitest";
-import { firmarVersion, type VersionDisponible } from "@motrest/dominio";
+import { createHash } from "node:crypto";
+import { writeFile } from "node:fs/promises";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  firmarVersion,
+  generarPar,
+  type ParDeLlaves,
+  type VersionDisponible,
+} from "@motrest/dominio";
 import { Actualizaciones } from "../actualizaciones.js";
 
-const SECRETO = "secreto-de-publicacion-motrae";
-const REPO = { repositorio: "motrae/motrest", llaveDeFirma: SECRETO };
+let MOTRAE: ParDeLlaves;
+let ATACANTE: ParDeLlaves;
+
+beforeEach(async () => {
+  MOTRAE = await generarPar();
+  ATACANTE = await generarPar();
+});
+
+const REPO = () => ({ repositorio: "motrae/motrest", llaveDeFirma: MOTRAE.publica });
 
 async function manifiesto(v = "1.5.0", extra: Partial<VersionDisponible> = {}) {
   return firmarVersion(
@@ -23,7 +36,7 @@ async function manifiesto(v = "1.5.0", extra: Partial<VersionDisponible> = {}) {
       publicado_ts: Date.now(),
       ...extra,
     },
-    SECRETO,
+    MOTRAE.privada,
   );
 }
 
@@ -39,16 +52,23 @@ function github(release: unknown, archivo?: unknown): typeof fetch {
 
 const RELEASE = {
   tag_name: "v1.5.0",
-  assets: [{ name: "motrest.json", browser_download_url: "https://github.com/…/motrest.json" }],
+  assets: [{ name: "motrest.json", browser_download_url: "https://github.com/motrae/motrest/releases/motrest.json" }],
 };
 
-function hub(llamar: typeof fetch, instalada = "1.4.0", registro: string[] = []) {
+function hub(
+  llamar: typeof fetch,
+  instalada = "1.4.0",
+  registro: string[] = [],
+  memoria = {},
+  token?: string,
+) {
   return {
     actualizaciones: new Actualizaciones(
-      REPO,
+      { ...REPO(), ...(token ? { token } : {}) },
       instalada,
       (nivel, texto) => registro.push(`${nivel}: ${texto}`),
       llamar,
+      memoria,
     ),
     registro,
   };
@@ -61,15 +81,10 @@ describe("buscar una versión nueva", () => {
     expect(v?.version).toBe("1.5.0");
   });
 
-  /*
-   * EL CANDADO. Un instalador publicado por quien tomó la cuenta de GitHub se
-   * queda aquí: sin el secreto de MOTRAE no hay firma válida, y el Hub ni
-   * siquiera llega a pedir el archivo.
-   */
-  it("una firma que no es de MOTRAE se ignora y se registra como error", async () => {
+  it("una firma de otra privada se ignora y se registra como error", async () => {
     const falsa = await firmarVersion(
-      { version: "9.9.9", notas: "", url: "https://sitio-atacante.mx/virus.exe", sha256: "b".repeat(64), publicado_ts: Date.now() },
-      "secreto-de-un-atacante",
+      { version: "9.9.9", notas: "", url: "https://github.com/motrae/motrest/virus.exe", sha256: "b".repeat(64), publicado_ts: Date.now() },
+      ATACANTE.privada,
     );
     const { actualizaciones, registro } = hub(github(RELEASE, falsa));
 
@@ -87,14 +102,32 @@ describe("buscar una versión nueva", () => {
     expect(await actualizaciones.buscar()).toBeNull();
   });
 
-  /* Un release sin manifiesto no se puede verificar: no se toca. */
-  it("un release sin manifiesto se rechaza", async () => {
+  it("no acepta un manifiesto firmado que retrocede el publicado_ts", async () => {
+    let archivo = await manifiesto("1.5.0", { publicado_ts: 2_000 });
+    const llamar = github(RELEASE, archivo);
+    const memoria: { ultimo_publicado_ts?: number } = {};
+    const { actualizaciones, registro } = hub(llamar, "1.4.0", [], memoria);
+
+    expect((await actualizaciones.buscar(2_001))?.version).toBe("1.5.0");
+    archivo = await manifiesto("1.6.0", { publicado_ts: 1_999 });
+    // El mock lee `archivo` al contestar el segundo intento.
+    (llamar as unknown as { mockImplementation: (fn: (url: string) => Promise<Response>) => void }).mockImplementation(
+      async (url: string) => String(url).includes("api.github.com")
+        ? new Response(JSON.stringify(RELEASE), { status: 200 })
+        : new Response(JSON.stringify(archivo), { status: 200 }),
+    );
+
+    expect(await actualizaciones.buscar(2_002)).toBeNull();
+    expect(registro.join()).toContain("podría ser una reversión");
+    expect(memoria.ultimo_publicado_ts).toBe(2_000);
+  });
+
+  it("un release sin manifiesto no se puede verificar", async () => {
     const { actualizaciones, registro } = hub(github({ tag_name: "v1.5.0", assets: [] }));
     expect(await actualizaciones.buscar()).toBeNull();
     expect(registro.join()).toContain("no se puede verificar");
   });
 
-  /* Los borradores y las preliminares son para probar, no para los restaurantes. */
   it("los borradores y las versiones preliminares no llegan a nadie", async () => {
     for (const marca of [{ draft: true }, { prerelease: true }]) {
       const { actualizaciones } = hub(github({ ...RELEASE, ...marca }, await manifiesto()));
@@ -102,10 +135,6 @@ describe("buscar una versión nueva", () => {
     }
   });
 
-  /*
-   * Sin internet es lo normal en un restaurante. Ni un renglón en la bitácora:
-   * llenarla de "no hay internet" hace que nadie la lea cuando pase algo real.
-   */
   it("sin internet no falla ni ensucia la bitácora", async () => {
     const caido = vi.fn(async () => {
       throw new Error("getaddrinfo ENOTFOUND");
@@ -116,23 +145,41 @@ describe("buscar una versión nueva", () => {
     expect(registro).toEqual([]);
   });
 
-  /* Un repositorio sin releases todavía responde 404, y eso no es un problema. */
-  it("un repositorio sin releases todavía no es un error", async () => {
-    const vacio = vi.fn(async () => new Response("", { status: 404 })) as unknown as typeof fetch;
-    const { actualizaciones, registro } = hub(vacio);
+  it("no manda el token a un host de assets aunque GitHub redirija ahí", async () => {
+    const calls: Array<{ url: string; authorization?: string }> = [];
+    const archivo = await manifiesto();
+    const llamar = vi.fn(async (url: string, opciones?: RequestInit) => {
+      calls.push({
+        url: String(url),
+        authorization: (opciones?.headers as Record<string, string>)?.authorization,
+      });
+      if (String(url).includes("api.github.com")) {
+        return new Response(JSON.stringify({
+          ...RELEASE,
+          assets: [{ name: "motrest.json", browser_download_url: "https://objects.githubusercontent.com/motrest.json" }],
+        }), { status: 200 });
+      }
+      return new Response(JSON.stringify(archivo), { status: 200 });
+    }) as unknown as typeof fetch;
 
-    expect(await actualizaciones.buscar()).toBeNull();
-    expect(registro).toEqual([]);
+    await hub(llamar, "1.4.0", [], {}, "token-privado").actualizaciones.buscar();
+
+    expect(calls[0]?.authorization).toBe("Bearer token-privado");
+    expect(calls[1]?.url).toContain("objects.githubusercontent.com");
+    expect(calls[1]?.authorization).toBeUndefined();
   });
 });
 
 describe("bajar el instalador", () => {
-  /*
-   * La huella cubre lo que la firma no puede: que la descarga se corte a la
-   * mitad, o que el archivo del release no sea el que se firmó. Un ejecutable
-   * incompleto arranca y falla a medio instalar, y eso deja la instalación peor
-   * que si no se hubiera intentado nada.
-   */
+  it("una URL ajena a GitHub no recibe el token ni se pide", async () => {
+    const version = await manifiesto("1.5.0", { url: "https://sitio-atacante.mx/MotRest.exe" });
+    const llamar = vi.fn() as unknown as typeof fetch;
+
+    await expect(hub(llamar, "1.4.0", [], {}, "token-privado").actualizaciones.descargar(version))
+      .rejects.toThrow(/HTTPS en un host permitido de GitHub/);
+    expect(llamar).not.toHaveBeenCalled();
+  });
+
   it("un instalador que no coincide con su huella NO se guarda", async () => {
     const version = await manifiesto("1.5.0", { sha256: "c".repeat(64) });
     const conArchivo = vi.fn(
@@ -142,6 +189,19 @@ describe("bajar el instalador", () => {
     await expect(hub(conArchivo).actualizaciones.descargar(version)).rejects.toThrow(
       /no coincide con el que MOTRAE firmó/,
     );
+  });
+
+  it("vuelve a calcular la huella desde disco justo antes del spawn", async () => {
+    const bytes = new Uint8Array([1, 2, 3]);
+    const version = await manifiesto("1.5.0", {
+      sha256: createHash("sha256").update(bytes).digest("hex"),
+    });
+    const conArchivo = vi.fn(async () => new Response(bytes, { status: 200 })) as unknown as typeof fetch;
+    const actualizaciones = hub(conArchivo).actualizaciones;
+    const ruta = await actualizaciones.descargar(version);
+    await writeFile(ruta, new Uint8Array([9, 9, 9]));
+
+    await expect(actualizaciones.instalar(ruta, version)).rejects.toThrow(/cambió después de verificarse/);
   });
 
   it("una descarga que falla lo dice", async () => {

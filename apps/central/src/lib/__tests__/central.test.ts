@@ -6,15 +6,22 @@
  * valga en SU local, y que el acceso de soporte viaje dentro de la firma.
  */
 import { beforeEach, describe, expect, it } from "vitest";
-import { pesos, verificarLicencia, verificarCredencial } from "@motrest/dominio";
-import { central } from "../central.svelte";
+import {
+  pesos,
+  verificarLicencia,
+  verificarCredencial,
+  verificarVersion,
+} from "@motrest/dominio";
+import { crearCentralParaPruebas, StoreCentral } from "../central.svelte";
 
-const SECRETO = "secreto-de-licencias";
+let central: StoreCentral;
 
-beforeEach(() => {
+beforeEach(async () => {
+  central = crearCentralParaPruebas();
   central.clientes = [];
   central.pulsos = [];
-  central.guardarSecretos({ licencias: SECRETO, publicacion: "otro", repositorio: "motrae/motrest", soporte: undefined });
+  await central.generarPares();
+  await central.guardarConfiguracion({ repositorio: "motrae/motrest" });
 });
 
 function alta(nombre = "Rodizio", sufijo = "Centro") {
@@ -58,12 +65,12 @@ describe("dar de alta un restaurante", () => {
 
 describe("emitir la licencia", () => {
   it("sin secreto de firma no emite nada", async () => {
-    central.guardarSecretos({ licencias: "" });
+    central = crearCentralParaPruebas();
     const id = alta().cliente!.id;
 
     const r = await central.emitir(id);
     expect(r.ok).toBe(false);
-    expect(r.error).toContain("secreto de firma");
+    if (!r.ok) expect(r.error).toContain("llave privada");
   });
 
   it("la emitida se verifica en SU local y en ningún otro", async () => {
@@ -71,8 +78,8 @@ describe("emitir la licencia", () => {
     const r = await central.emitir(id);
 
     expect(r.ok).toBe(true);
-    expect(await verificarLicencia(r.licencia!, id, SECRETO)).toBe(true);
-    expect(await verificarLicencia(r.licencia!, "suc-otro", SECRETO)).toBe(false);
+    expect(await verificarLicencia(r.licencia!, id, central.secretos.licencias!.publica)).toBe(true);
+    expect(await verificarLicencia(r.licencia!, "suc-otro", central.secretos.licencias!.publica)).toBe(false);
   });
 
   it("sale con los tres días de gracia", async () => {
@@ -91,7 +98,7 @@ describe("emitir la licencia", () => {
     const licencia = (await central.emitir(id)).licencia!;
 
     expect(licencia.soporte).toBeDefined();
-    expect(await verificarLicencia(licencia, id, SECRETO)).toBe(true);
+    expect(await verificarLicencia(licencia, id, central.secretos.licencias!.publica)).toBe(true);
 
     // Y el hash es de verdad el de la contraseña que puso Gonzalo.
     expect(
@@ -123,7 +130,7 @@ describe("la contraseña de soporte", () => {
   it("no admite una contraseña corta", async () => {
     const r = await central.fijarContrasenaSoporte("corta123");
     expect(r.ok).toBe(false);
-    expect(r.error).toContain("TODOS los restaurantes");
+    if (!r.ok) expect(r.error).toContain("TODOS los restaurantes");
   });
 
   /* De un hash no se recupera la contraseña: ni esta máquina la tiene. */
@@ -133,6 +140,63 @@ describe("la contraseña de soporte", () => {
 
     expect(guardado).not.toContain("una-contrasena-larga");
     expect(central.secretos.soporte!.iteraciones).toBe(600_000);
+  });
+});
+
+describe("las llaves de Central", () => {
+  it("no sobrescribe DPAPI mientras el almacén todavía está cargando", async () => {
+    const sinCargar = new StoreCentral(false);
+
+    const r = await sinCargar.generarPares();
+
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.error).toContain("todavía está abriendo");
+    expect(sinCargar.secretos.licencias).toBeUndefined();
+  });
+
+  it("genera pares distintos y solo expone sus públicas a la interfaz", () => {
+    expect(central.secretos.licencias?.publica).toBeTruthy();
+    expect(central.secretos.publicacion?.publica).toBeTruthy();
+    expect(central.secretos.licencias?.publica).not.toBe(central.secretos.publicacion?.publica);
+    expect(JSON.stringify(central.secretos)).not.toContain("privada");
+  });
+
+  it("firma publicaciones con un publicado_ts monótono, aunque el reloj no avance", async () => {
+    const datos = {
+      version: "1.5.0",
+      notas: "Arregla un detalle de seguridad.",
+      url: "https://github.com/motrae/motrest/releases/download/v1.5.0/MotRest_setup.exe",
+      sha256: "a".repeat(64),
+      version_minima_soportada: "1.4.2",
+    };
+    const primero = await central.firmarActualizacion(datos, 1_000);
+    const segundo = await central.firmarActualizacion({ ...datos, version: "1.5.1" }, 1_000);
+
+    expect(primero.ok).toBe(true);
+    expect(segundo.ok).toBe(true);
+    if (!primero.ok || !segundo.ok) return;
+    expect(segundo.manifiesto!.publicado_ts).toBeGreaterThan(primero.manifiesto!.publicado_ts);
+    expect(
+      await verificarVersion(primero.manifiesto!, central.secretos.publicacion!.publica),
+    ).toBe(true);
+  });
+
+  it("no firma dos manifiestos a la vez con la misma marca de publicación", async () => {
+    const datos = {
+      version: "1.5.0",
+      notas: "Arregla un detalle de seguridad.",
+      url: "https://github.com/motrae/motrest/releases/download/v1.5.0/MotRest_setup.exe",
+      sha256: "a".repeat(64),
+    };
+
+    const [primero, segundo] = await Promise.all([
+      central.firmarActualizacion(datos, 1_000),
+      central.firmarActualizacion({ ...datos, version: "1.5.1" }, 1_000),
+    ]);
+
+    expect([primero.ok, segundo.ok].filter(Boolean)).toHaveLength(1);
+    const rechazado = primero.ok ? segundo : primero;
+    if (!rechazado.ok) expect(rechazado.error).toContain("en proceso de firma");
   });
 });
 
@@ -147,7 +211,7 @@ describe("respaldar la cartera", () => {
 
     const json = central.exportar();
     expect(json).toContain("Rodizio");
-    expect(json).not.toContain(SECRETO);
+    expect(json).not.toContain(central.secretos.licencias!.publica);
     expect(json).not.toContain(central.secretos.soporte!.hash);
   });
 

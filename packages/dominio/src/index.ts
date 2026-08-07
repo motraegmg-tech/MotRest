@@ -8,6 +8,7 @@
 
 // Comunes
 export * from "./comun/dinero.js";
+export * from "./comun/firma.js";
 export * from "./comun/ids.js";
 export * from "./comun/impuestos.js";
 
