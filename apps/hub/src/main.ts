@@ -471,8 +471,55 @@ const TIPOS: Record<string, string> = {
   ".ico": "image/x-icon",
 };
 
+/**
+ * Decodifica un trozo de ruta sin poder tumbar el proceso.
+ *
+ * `decodeURIComponent("%")` lanza `URIError`. Como el manejador de peticiones es
+ * SÍNCRONO, esa excepción no la captura Node: sube a `uncaughtException` y mata
+ * el Hub — la caja, las tablets y la cocina de golpe, con una petición de tres
+ * caracteres y sin necesidad de la clave del local.
+ */
+function decodificar(ruta: string): string | null {
+  try {
+    return decodeURIComponent(ruta);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * El manejador de peticiones, con la red de seguridad puesta.
+ *
+ * TODO EL TRABAJO ESTÁ EN `atenderInterno`. Esta envoltura existe solo para que
+ * ninguna excepción del camino de una petición pueda apagar el restaurante:
+ * antes bastaba un `Host` malformado o un `%` suelto.
+ *
+ * Se responde 400 y se anota. Lo que NO se hace es devolver el detalle del
+ * error: describiría por dentro el sistema a quien está probando.
+ */
 function atender(peticion: IncomingMessage, respuesta: ServerResponse): void {
-  const url = new URL(peticion.url ?? "/", `https://${peticion.headers.host}`);
+  try {
+    atenderInterno(peticion, respuesta);
+  } catch (causa) {
+    registrar("aviso", `Petición inválida (${peticion.method} ${peticion.url}): ${String(causa)}`);
+    try {
+      if (!respuesta.headersSent) {
+        respuesta.writeHead(400, { "content-type": "application/json; charset=utf-8" });
+      }
+      respuesta.end(JSON.stringify({ error: "Petición inválida" }));
+    } catch {
+      // El socket ya se cerró. Da igual: lo que importa es no morir.
+    }
+  }
+}
+
+function atenderInterno(peticion: IncomingMessage, respuesta: ServerResponse): void {
+  /*
+   * El `Host` lo pone el cliente y puede ser cualquier cosa. `new URL` con un
+   * host inválido lanza `TypeError`, que era el tercer vector para tumbar el
+   * Hub. Se normaliza a algo inofensivo: la ruta es lo único que se usa.
+   */
+  const url = new URL(peticion.url ?? "/", "https://motrest.local");
   // Quien pide desde el propio equipo ya tiene acceso al archivo de la clave,
   // así que entregársela en la página no le da nada que no tuviera.
   const esLocal = esPeticionLocal(peticion);
@@ -929,9 +976,10 @@ function servirPortal(
 
   // Misma defensa que en el POS: sin comprobar que la ruta resuelta sigue
   // dentro de la carpeta, un `..` leería la base del local.
-  const pedido = normalize(join(RUTA_PORTAL, decodeURIComponent(ruta)));
+  const limpia = decodificar(ruta);
+  const pedido = limpia === null ? null : normalize(join(RUTA_PORTAL, limpia));
   const archivo =
-    pedido.startsWith(RUTA_PORTAL) && existsSync(pedido) && statSync(pedido).isFile()
+    pedido !== null && pedido.startsWith(RUTA_PORTAL) && existsSync(pedido) && statSync(pedido).isFile()
       ? pedido
       : indice;
 
@@ -968,10 +1016,11 @@ function servirPos(
    * dentro de la carpeta del POS: sin eso, una petición con `..` podría leer
    * la base de datos del local o la llave privada del certificado.
    */
-  const pedido = normalize(join(RUTA_POS, decodeURIComponent(ruta)));
-  const dentro = pedido.startsWith(RUTA_POS);
+  const limpia = decodificar(ruta);
+  const pedido = limpia === null ? null : normalize(join(RUTA_POS, limpia));
+  const dentro = pedido !== null && pedido.startsWith(RUTA_POS);
   const archivo =
-    dentro && existsSync(pedido) && statSync(pedido).isFile() ? pedido : indice;
+    dentro && existsSync(pedido!) && statSync(pedido!).isFile() ? pedido! : indice;
 
   /*
    * La caja se empareja sola con su propio Hub.
@@ -1605,6 +1654,31 @@ function apagar(senal: string): void {
 
 process.on("SIGINT", () => apagar("SIGINT"));
 process.on("SIGTERM", () => apagar("SIGTERM"));
+
+/*
+ * LA RED DE SEGURIDAD DE ÚLTIMO RECURSO, y la decisión de no morir.
+ *
+ * Node, por omisión, mata el proceso ante una excepción no capturada. Para casi
+ * cualquier programa eso es lo correcto: un estado desconocido es peligroso y
+ * más vale reiniciar. Aquí NO lo es, y la diferencia está en quién paga el
+ * reinicio.
+ *
+ * Este proceso es el registro de ventas de un restaurante lleno. Si muere, la
+ * caja no cobra, las tablets no mandan a cocina y nadie puede cerrar el turno —
+ * y no vuelve solo hasta que alguien cierre y reabra MotRest. Un fallo aislado
+ * en una petición rara no justifica ese precio: el event log está en disco y
+ * cada petición es independiente de las demás.
+ *
+ * Así que se anota con todo el detalle y se sigue vendiendo. Lo que NO se hace
+ * es callar: sin el renglón en la bitácora esto se convierte en un Hub que se
+ * degrada en silencio, que es peor que uno que se muere.
+ */
+process.on("uncaughtException", (causa) => {
+  registrar("error", `Excepción no capturada (el Hub sigue): ${causa.stack ?? String(causa)}`);
+});
+process.on("unhandledRejection", (causa) => {
+  registrar("error", `Promesa sin manejar (el Hub sigue): ${String(causa)}`);
+});
 
 arrancar().catch((causa) => {
   // Si el arranque falla no hay Hub, y quedarse en silencio dejaría al

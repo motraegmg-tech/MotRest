@@ -31,10 +31,24 @@ apps/hub/datos/
 *.sqlite-wal
 *.sqlite-shm
 
-# Certificado TLS del Hub: la llave privada nunca al repositorio
+# Material criptográfico: nunca al repositorio, venga de donde venga.
+#
+# Las reglas por RUTA de arriba (apps/hub/datos/) solo protegen mientras nadie
+# mueva la carpeta ni copie un archivo a otro sitio para depurar. Estas son por
+# EXTENSIÓN y protegen igual esté donde esté. Importa sobre todo por el CSD del
+# SAT: quien tenga csd.key y csd.pass puede facturar a nombre del restaurante.
 apps/hub/datos/tls/
 *.crt
 *.key
+*.cer
+*.p12
+*.pfx
+*.jks
+*.keystore
+*.pass
+*.env
+id_rsa*
+id_ed25519*
 
 # Empaquetado: artefactos de compilación, no fuente
 apps/hub/dist-sea/

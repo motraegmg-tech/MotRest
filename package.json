@@ -12,14 +12,21 @@
     "build": "pnpm -r build",
     "test": "pnpm -r test",
     "lint": "pnpm -r lint",
-    "dev:pos": "pnpm --filter pos-ui dev"
+    "dev:pos": "pnpm --filter pos-ui dev",
+    "//auditoria": "Con --prod a propósito: lo que importa es lo que se instala en el restaurante. Un aviso en vitest no debe bloquear una versión, pero uno en `ws` sí. Para ver el árbol completo, `pnpm audit` a secas.",
+    "auditoria": "pnpm audit --prod --audit-level=moderate"
   },
   "comentarios": {
-    "pnpm.overrides.tar": "Forzado a la línea 7 parchada. `tar` entra por @capacitor/cli (build del KDS Android, solo desarrollo) y arrastraba varias travesías de ruta. No está en el producto —las deps de producción del Hub son selfsigned y ws— pero se cierra igual."
+    "pnpm.overrides": "Los tres son de DESARROLLO y ninguno llega al restaurante —las deps de producción del Hub son `selfsigned` y `ws`— pero se cierran igual: la máquina que compila es la misma que guarda las llaves de firma de toda la cartera, así que comprometerla es comprometer la flota.",
+    "pnpm.overrides.tar": "Travesías de ruta. Entra por @capacitor/cli (build del KDS Android).",
+    "pnpm.overrides.brace-expansion": "CVE-2026-14257 y CVE-2026-69152, denegación de servicio por expansión sin límite. Entra por @capacitor/cli > rimraf > glob > minimatch.",
+    "pnpm.overrides.postcss": "CVE-2026-69153, lectura de .map arbitrarios. Es el único aviso que alcanza el vite@6.4.3 DIRECTO, o sea la cadena que compila lo que va dentro del instalador."
   },
   "pnpm": {
     "overrides": {
-      "tar": "^7.4.3"
+      "tar": "^7.4.3",
+      "brace-expansion": "^2.1.4",
+      "postcss": "^8.5.26"
     }
   }
 }

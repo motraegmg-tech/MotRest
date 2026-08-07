@@ -18,6 +18,10 @@ tauri = { version = "2", features = [] }
 tauri-plugin-shell = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+# Solo para la espera creciente entre reintentos de levantar el Hub. Tauri ya
+# arrastra tokio, así que declararlo aquí no añade nada al instalador: solo hace
+# explícito lo que ya está, con la mínima superficie ("time").
+tokio = { version = "1", features = ["time"] }
 
 [profile.release]
 # Un instalador más pequeño se descarga y se distribuye mejor en un local con
