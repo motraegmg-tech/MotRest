@@ -30,6 +30,7 @@
   import Usuarios from "./lib/modulos/admin/Usuarios.svelte";
   import Acceso from "./lib/sesion/Acceso.svelte";
   import CambioCredencial from "./lib/sesion/CambioCredencial.svelte";
+  import CredencialesIniciales from "./lib/sesion/CredencialesIniciales.svelte";
   import DialogoAutorizacion from "./lib/sesion/DialogoAutorizacion.svelte";
   import AvisoActualizacion from "./lib/licencia/AvisoActualizacion.svelte";
   import PantallaBloqueada from "./lib/licencia/PantallaBloqueada.svelte";
@@ -186,7 +187,18 @@
   </div>
 {/if}
 
-{#if mostrarAcceso || !sesion.autenticado}
+<!--
+  Primer arranque de un local nuevo: sus claves, una sola vez.
+
+  Va ANTES que la pantalla de acceso porque no tiene sentido pedirle a alguien
+  una contraseña que todavía no ha visto.
+-->
+{#if sesion.credencialesIniciales}
+  <CredencialesIniciales
+    contrasena={sesion.credencialesIniciales.contrasena}
+    pin={sesion.credencialesIniciales.pin}
+  />
+{:else if mostrarAcceso || !sesion.autenticado}
   <Acceso onCerrar={() => (mostrarAcceso = false)} />
 {:else if sesion.debeCambiarCredencial}
   <CambioCredencial />

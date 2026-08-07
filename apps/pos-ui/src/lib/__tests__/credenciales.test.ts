@@ -11,7 +11,8 @@ import { MAX_INTENTOS, permisosDePlantilla, type Permiso, type Usuario } from "@
 import { arranque } from "../persistencia/arranque.svelte";
 import { sesion } from "../sesion/sesion.svelte";
 // Clave de fábrica, no una credencial personal: nunca escribimos una real aquí.
-import { CONTRASENA_INICIAL_PROPIETARIO } from "../sesion/usuarios";
+import { credencialesDeDemostracion } from "../sesion/usuarios";
+const CONTRASENA_INICIAL_PROPIETARIO = credencialesDeDemostracion().contrasena;
 
 /*
  * PIN distintos en cada prueba.

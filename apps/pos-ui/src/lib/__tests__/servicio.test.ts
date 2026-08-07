@@ -20,7 +20,8 @@ import { opiniones } from "../opiniones.svelte";
 import { plano } from "../plano.svelte";
 import { pos } from "../pos.svelte";
 import { sesion } from "../sesion/sesion.svelte";
-import { CONTRASENA_INICIAL_PROPIETARIO } from "../sesion/usuarios";
+import { credencialesDeDemostracion } from "../sesion/usuarios";
+const CONTRASENA_INICIAL_PROPIETARIO = credencialesDeDemostracion().contrasena;
 
 /** Un producto vendible cualquiera de la carta cargada. */
 function algunProducto(): string {

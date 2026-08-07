@@ -55,7 +55,12 @@ import { CLAVES, type Almacen } from "@motrest/protocolo-sync";
  */
 const RESCATE_ID = "local:rescate";
 import { SUCURSAL_ID, obtenerDeviceId } from "../presentacion";
-import { USUARIOS_SEMILLA, USUARIO_POR_DEFECTO } from "./usuarios";
+import {
+  USUARIOS_SEMILLA,
+  USUARIO_POR_DEFECTO,
+  generarContrasenaDeLocal,
+  generarPinDeLocal,
+} from "./usuarios";
 
 export interface Resultado {
   ok: boolean;
@@ -67,6 +72,16 @@ const STREAM = streamIdentidad(SUCURSAL_ID);
 class Sesion {
   usuarios = $state<Usuario[]>(USUARIOS_SEMILLA.map((s) => ({ ...s.usuario })));
   usuarioActual = $state<Usuario | null>(null);
+
+  /**
+   * Las credenciales recién generadas para un local nuevo, para enseñarlas UNA
+   * vez. `null` en cuanto se confirman o en cuanto se recarga la aplicación.
+   *
+   * No se persisten en claro en ninguna parte. Si se cierra sin apuntarlas, se
+   * pierden y hay que usar el código de rescate — incómodo a propósito: la
+   * alternativa es dejar la contraseña del dueño escrita en el disco.
+   */
+  credencialesIniciales = $state<{ contrasena: string; pin: string } | null>(null);
 
   /** Bitácora de identidad (se fusiona con la operativa en la vista de auditoría). */
   eventos = $state.raw<EventoIdentidad[]>([]);
@@ -103,6 +118,9 @@ class Sesion {
 
   private sembrarCredenciales(): void {
     for (const sembrado of USUARIOS_SEMILLA) {
+      // En producción el propietario nace SIN credencial: se le generan unas
+      // únicas en el primer arranque (`generarCredencialesIniciales`).
+      if (!sembrado.credencial) continue;
       const lista: Credencial[] = [sembrado.credencial];
       if (sembrado.pin) lista.push(sembrado.pin);
       this.credenciales.set(sembrado.usuario.id, lista);
@@ -152,6 +170,14 @@ class Sesion {
         };
       }
     }
+
+    /*
+     * Primer arranque de una instalación real: hay que darle credenciales al
+     * propietario. Va aquí, después de cargar lo guardado, para que solo ocurra
+     * cuando de verdad no hay nada — reinstalar el POS sobre una operación
+     * existente no debe regenerar nada ni dejar al dueño fuera.
+     */
+    await this.generarCredencialesIniciales();
 
     /*
      * El acceso de soporte de MOTRAE.
@@ -250,6 +276,45 @@ class Sesion {
 
   get debeCambiarCredencial(): boolean {
     return this.usuarioActual?.debe_cambiar_credencial === true;
+  }
+
+  /**
+   * Las credenciales del propietario en el primer arranque de un local real.
+   *
+   * ANTES ESTO NO EXISTÍA: el propietario venía con una clave de fábrica escrita
+   * en el repositorio, idéntica en toda instalación. Ahora se genera una única
+   * para ESTE restaurante y se enseña una sola vez.
+   *
+   * Se genera solo si de verdad no hay nada guardado. Reinstalar el POS sobre
+   * una operación existente **no** regenera nada: eso dejaría al dueño fuera de
+   * su propio sistema con una contraseña que nadie vio.
+   */
+  private async generarCredencialesIniciales(): Promise<void> {
+    const propietario = this.usuarios.find((u) => u.rol_id === "propietario");
+    if (!propietario) return;
+    if ((this.credenciales.get(propietario.id) ?? []).length > 0) return;
+
+    const contrasena = generarContrasenaDeLocal();
+    const pin = generarPinDeLocal();
+
+    this.credenciales.set(propietario.id, [
+      await crearCredencial(propietario.id, contrasena, "contrasena"),
+      await crearCredencial(propietario.id, pin, "pin"),
+    ]);
+    await this.guardarSecretos();
+
+    /*
+     * Se exponen EN MEMORIA y solo para esta sesión. No se persisten en claro
+     * en ningún sitio: si la pantalla se cierra sin apuntarlas, se pierden y
+     * hay que usar el código de rescate. Es incómodo a propósito — la
+     * alternativa es dejar la contraseña del dueño escrita en el disco.
+     */
+    this.credencialesIniciales = { contrasena, pin };
+  }
+
+  /** Olvida las credenciales recién generadas, una vez que se anotaron. */
+  confirmarCredencialesAnotadas(): void {
+    this.credencialesIniciales = null;
   }
 
   /**

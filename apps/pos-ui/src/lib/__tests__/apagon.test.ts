@@ -26,7 +26,8 @@ import { catalogo } from "../catalogo";
 import { plano } from "../plano.svelte";
 import { pos } from "../pos.svelte";
 import { sesion } from "../sesion/sesion.svelte";
-import { CONTRASENA_INICIAL_PROPIETARIO } from "../sesion/usuarios";
+import { credencialesDeDemostracion } from "../sesion/usuarios";
+const CONTRASENA_INICIAL_PROPIETARIO = credencialesDeDemostracion().contrasena;
 
 function algunProducto(): string {
   const p = [...catalogo.productos.values()].find((x) => x.disponible && x.precio > 0);
