@@ -29,10 +29,10 @@ import {
   statSync,
   writeFileSync,
 } from "node:fs";
-import { randomUUID } from "node:crypto";
+import { randomBytes, randomUUID } from "node:crypto";
 import { createRequire } from "node:module";
 import { networkInterfaces } from "node:os";
-import { dirname, extname, join, normalize, resolve } from "node:path";
+import { dirname, extname, join, resolve } from "node:path";
 import { WebSocketServer, type WebSocket } from "ws";
 import type { EventoBase, EventoMensajeria, EventoOpinion, MemoriaDeCanal } from "@motrest/dominio";
 import { configuracionVacia, pideBaja, streamIdentidad, streamMensajeria, uuidv7 } from "@motrest/dominio";
@@ -77,6 +77,18 @@ import {
   listarRespaldos,
   rotarRespaldos,
 } from "./respaldo.js";
+import {
+  archivoDentroDe,
+  autoridadDelHub,
+  clienteHttp,
+  encabezadosDeSeguridad,
+  esOrigenDelHub,
+  LIMITE_GLOBAL_HTTP_POR_MINUTO,
+  LimitadorDeRitmo,
+  origenDelHub,
+  politicaDeRitmoHttp,
+  type AutoridadHub,
+} from "./seguridad-http.js";
 import type { DatabaseSync as TipoDatabaseSync } from "node:sqlite";
 
 const PUERTO = Number(process.env.MOTREST_HUB_PUERTO ?? 8787);
@@ -603,6 +615,9 @@ const lan = direccionesLan();
 /** Se resuelve en `arrancar()`, junto con el resto de lo asíncrono. */
 let tls: CertificadoTls;
 
+/** Una cuota por cliente y superficie; vive solo mientras vive el Hub. */
+const limiteHttp = new LimitadorDeRitmo();
+
 const TIPOS: Record<string, string> = {
   ".html": "text/html; charset=utf-8",
   ".js": "text/javascript; charset=utf-8",
@@ -631,6 +646,68 @@ function decodificar(ruta: string): string | null {
   } catch {
     return null;
   }
+}
+
+/** HTTPS en la LAN; HTTP solamente en el puerto ligado al loopback. */
+function esConexionSegura(peticion: IncomingMessage): boolean {
+  return (peticion.socket as { encrypted?: boolean }).encrypted === true;
+}
+
+/** Añade las defensas que toda respuesta HTTP del Hub debe llevar. */
+function aplicarEncabezadosDeSeguridad(
+  respuesta: ServerResponse,
+  seguro: boolean,
+  autoridad: AutoridadHub,
+  nonce?: string,
+  conexionesAdicionales?: readonly string[],
+): void {
+  for (const [nombre, valor] of Object.entries(
+    encabezadosDeSeguridad(seguro, autoridad, nonce, conexionesAdicionales),
+  )) {
+    respuesta.setHeader(nombre, valor);
+  }
+}
+
+/**
+ * El portal se sirve desde este mismo Hub. Si un navegador declara Origin, no
+ * hay motivo para aceptar otro: no se refleja ni se abre con `*`.
+ */
+function permitirOrigenDelPortal(
+  peticion: IncomingMessage,
+  respuesta: ServerResponse,
+  seguro: boolean,
+  autoridad: AutoridadHub,
+): boolean {
+  if (!esOrigenDelHub(peticion.headers.origin, seguro, autoridad)) return false;
+
+  if (peticion.headers.origin) {
+    respuesta.setHeader("access-control-allow-origin", origenDelHub(seguro, autoridad));
+    respuesta.setHeader("access-control-allow-headers", "content-type");
+    respuesta.setHeader("access-control-allow-methods", "GET, POST, OPTIONS");
+    respuesta.setHeader("vary", "origin");
+  }
+  return true;
+}
+
+/** Toda puerta HTTP tiene cuota global y cuota específica por cliente. */
+function permitirRitmoHttp(
+  peticion: IncomingMessage,
+  url: URL,
+  respuesta: ServerResponse,
+  json: (codigo: number, cuerpo: unknown) => void,
+): boolean {
+  const cliente = clienteHttp(peticion.socket.remoteAddress);
+  const global = limiteHttp.permitir(`global:${cliente}`, LIMITE_GLOBAL_HTTP_POR_MINUTO);
+  const politica = politicaDeRitmoHttp(url.pathname, peticion.method);
+  const especifica = global.permitido
+    ? limiteHttp.permitir(`${politica.clave}:${cliente}`, politica.limite)
+    : global;
+
+  if (especifica.permitido) return true;
+
+  respuesta.setHeader("retry-after", String(especifica.reintentarEnSegundos));
+  json(429, { error: "Demasiadas peticiones. Espera un momento e inténtalo de nuevo." });
+  return false;
 }
 
 /**
@@ -669,21 +746,45 @@ function atenderInterno(peticion: IncomingMessage, respuesta: ServerResponse): v
   // Quien pide desde el propio equipo ya tiene acceso al archivo de la clave,
   // así que entregársela en la página no le da nada que no tuviera.
   const esLocal = esPeticionLocal(peticion);
+  const seguro = esConexionSegura(peticion);
 
   const json = (codigo: number, cuerpo: unknown): void => {
-    respuesta.writeHead(codigo, { "content-type": "application/json; charset=utf-8" });
+    respuesta.writeHead(codigo, {
+      "content-type": "application/json; charset=utf-8",
+      "cache-control": "no-store",
+    });
     respuesta.end(JSON.stringify(cuerpo, null, 2));
   };
+
+  /*
+   * El Host también lo manda el cliente. Solo se acepta el nombre mDNS o una
+   * IP que este Hub anunció; localhost únicamente desde el loopback. Así un
+   * DNS rebinding no puede pedir el HTML de la caja bajo el origen de un sitio
+   * ajeno y leer su clave de sincronización.
+   */
+  const autoridad = autoridadDelHub(peticion.headers.host, {
+    puerto: peticion.socket.localPort || (seguro ? PUERTO : PUERTO_LOCAL),
+    seguro,
+    nombreRed: NOMBRE_RED,
+    direccionesLan: lan,
+    esLocal,
+  });
+  if (!autoridad) {
+    json(400, { error: "Host no autorizado" });
+    return;
+  }
+
+  aplicarEncabezadosDeSeguridad(respuesta, seguro, autoridad);
+  if (!permitirRitmoHttp(peticion, url, respuesta, json)) return;
 
   /*
    * Impresión ESC/POS: la caja manda los bytes ya armados y el Hub los pone en
    * el cable de la impresora. Es lo que el navegador no puede hacer.
    *
-   * SOLO desde este mismo equipo. La caja (su webview vive en tauri.localhost)
-   * llega por aquí; una terminal de la red, no —abrir un socket a un host que
-   * pida un desconocido de la wifi sería un relay hacia la red interna del
-   * local—. El transporte, además, solo marca a IPs privadas y puertos de
-   * impresora. El CORS se abre nada más para el origen de la propia caja.
+   * SOLO desde este mismo equipo. La página de la caja la sirve el propio Hub,
+   * por lo que no necesita CORS; además, un Origin declarado debe coincidir
+   * exactamente. Una terminal de la red no puede abrir un socket hacia una
+   * impresora interna que le pida un desconocido de la wifi.
    */
   /*
    * Encender o apagar el arranque automático con Windows.
@@ -696,10 +797,8 @@ function atenderInterno(peticion: IncomingMessage, respuesta: ServerResponse): v
       json(403, { error: "Solo se configura desde el propio equipo" });
       return;
     }
-    permitirCorsCaja(peticion, respuesta);
-    if (peticion.method === "OPTIONS") {
-      respuesta.writeHead(204);
-      respuesta.end();
+    if (!esOrigenDelHub(peticion.headers.origin, seguro, autoridad)) {
+      json(403, { error: "Origen no autorizado" });
       return;
     }
     if (peticion.method !== "POST") {
@@ -736,9 +835,10 @@ function atenderInterno(peticion: IncomingMessage, respuesta: ServerResponse): v
    * firma del local no se abre ninguna cuenta.
    */
   if (url.pathname.startsWith("/portal/api/")) {
-    respuesta.setHeader("access-control-allow-origin", "*");
-    respuesta.setHeader("access-control-allow-headers", "content-type");
-    respuesta.setHeader("access-control-allow-methods", "GET, POST, OPTIONS");
+    if (!permitirOrigenDelPortal(peticion, respuesta, seguro, autoridad)) {
+      json(403, { error: "Origen no autorizado" });
+      return;
+    }
     if (peticion.method === "OPTIONS") {
       respuesta.writeHead(204);
       respuesta.end();
@@ -758,10 +858,8 @@ function atenderInterno(peticion: IncomingMessage, respuesta: ServerResponse): v
       json(403, { error: "La impresión solo se acepta desde el propio equipo" });
       return;
     }
-    permitirCorsCaja(peticion, respuesta);
-    if (peticion.method === "OPTIONS") {
-      respuesta.writeHead(204);
-      respuesta.end();
+    if (!esOrigenDelHub(peticion.headers.origin, seguro, autoridad)) {
+      json(403, { error: "Origen no autorizado" });
       return;
     }
     if (peticion.method !== "POST") {
@@ -780,6 +878,19 @@ function atenderInterno(peticion: IncomingMessage, respuesta: ServerResponse): v
    * Lo que lo protege no es una credencial sino que aquí solo se puede pedir de
    * la carta, y que los precios los pone el Hub.
    */
+  if (url.pathname === "/kiosco" || url.pathname === "/kiosco/") {
+    // La interfaz del kiosco vive en el paquete ligero del portal. Antes esta
+    // ruta caía en el fallback del POS, que no es una interfaz de kiosco y
+    // convertía una ruta pública en una puerta accidental hacia la caja.
+    if (peticion.method === "GET" || peticion.method === "HEAD") {
+      respuesta.writeHead(308, { location: "/portal/#/kiosco", "cache-control": "no-store" });
+      respuesta.end();
+    } else {
+      json(405, { error: "Usa GET" });
+    }
+    return;
+  }
+
   if (url.pathname.startsWith("/kiosco/")) {
     void atenderKiosco(peticion, url, json);
     return;
@@ -793,6 +904,10 @@ function atenderInterno(peticion: IncomingMessage, respuesta: ServerResponse): v
   if (url.pathname === "/licencia") {
     if (!esLocal) {
       json(403, { error: "Solo desde la caja" });
+      return;
+    }
+    if (!esOrigenDelHub(peticion.headers.origin, seguro, autoridad)) {
+      json(403, { error: "Origen no autorizado" });
       return;
     }
 
@@ -874,29 +989,7 @@ function atenderInterno(peticion: IncomingMessage, respuesta: ServerResponse): v
     return;
   }
 
-  servirPos(url.pathname, respuesta, json, esLocal);
-}
-
-/**
- * CORS solo para el origen de la propia caja.
- *
- * La webview de Tauri sirve el POS desde `tauri.localhost` y esta escucha vive
- * en `localhost:8788`: son orígenes distintos, así que sin estas cabeceras la
- * webview no puede leer la respuesta del Hub y no sabría si la comanda se
- * imprimió. Se refleja el origen en vez de abrir `*`, y solo para localhost y
- * tauri; como la escucha está atada al loopback, esto no amplía nada hacia la red.
- */
-function permitirCorsCaja(peticion: IncomingMessage, respuesta: ServerResponse): void {
-  const origen = peticion.headers.origin ?? "";
-  const permitido =
-    origen === "http://tauri.localhost" ||
-    origen === "https://tauri.localhost" ||
-    /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origen);
-  if (!permitido) return;
-  respuesta.setHeader("access-control-allow-origin", origen);
-  respuesta.setHeader("access-control-allow-methods", "POST, OPTIONS");
-  respuesta.setHeader("access-control-allow-headers", "content-type");
-  respuesta.setHeader("vary", "origin");
+  servirPos(url.pathname, respuesta, json, esLocal, seguro, autoridad);
 }
 
 /** Lee el cuerpo de una petición, con un tope para no tragarse memoria. */
@@ -1120,12 +1213,13 @@ function servirPortal(
     return;
   }
 
-  // Misma defensa que en el POS: sin comprobar que la ruta resuelta sigue
-  // dentro de la carpeta, un `..` leería la base del local.
+  // Misma defensa que en el POS: no basta comparar prefijos porque
+  // `<portal>copia` comparte texto con `<portal>`. La resolución comprueba el
+  // separador real de directorio antes de abrir nada.
   const limpia = decodificar(ruta);
-  const pedido = limpia === null ? null : normalize(join(RUTA_PORTAL, limpia));
+  const pedido = limpia === null ? null : archivoDentroDe(RUTA_PORTAL, limpia);
   const archivo =
-    pedido !== null && pedido.startsWith(RUTA_PORTAL) && existsSync(pedido) && statSync(pedido).isFile()
+    pedido !== null && existsSync(pedido) && statSync(pedido).isFile()
       ? pedido
       : indice;
 
@@ -1147,6 +1241,8 @@ function servirPos(
   respuesta: ServerResponse,
   json: (codigo: number, cuerpo: unknown) => void,
   esLocal: boolean,
+  seguro: boolean,
+  autoridad: AutoridadHub,
 ): void {
   const indice = join(RUTA_POS, "index.html");
   if (!existsSync(indice)) {
@@ -1158,15 +1254,14 @@ function servirPos(
   }
 
   /*
-   * `normalize` sobre la ruta pedida y comprobación de que el resultado sigue
-   * dentro de la carpeta del POS: sin eso, una petición con `..` podría leer
-   * la base de datos del local o la llave privada del certificado.
+   * La ruta resuelta tiene que seguir dentro de la carpeta del POS. Se compara
+   * por segmento, no por prefijo textual: sin eso `poscopia` pasaría como si
+   * estuviera dentro de `pos`, además de los `..` tradicionales.
    */
   const limpia = decodificar(ruta);
-  const pedido = limpia === null ? null : normalize(join(RUTA_POS, limpia));
-  const dentro = pedido !== null && pedido.startsWith(RUTA_POS);
+  const pedido = limpia === null ? null : archivoDentroDe(RUTA_POS, limpia);
   const archivo =
-    dentro && existsSync(pedido!) && statSync(pedido!).isFile() ? pedido! : indice;
+    pedido !== null && existsSync(pedido) && statSync(pedido).isFile() ? pedido : indice;
 
   /*
    * La caja se empareja sola con su propio Hub.
@@ -1180,12 +1275,18 @@ function servirPos(
    * terminal se empareja con el QR.
    */
   if (archivo === indice && esLocal) {
+    const nonce = randomBytes(18).toString("base64");
+    // El emparejamiento de la caja siempre usa localhost aunque el navegador
+    // haya llegado por 127.0.0.1; se declara de forma explícita en el CSP.
+    aplicarEncabezadosDeSeguridad(respuesta, seguro, autoridad, nonce, [
+      `ws://localhost:${PUERTO_LOCAL}`,
+    ]);
     const html = readFileSync(indice, "utf8").replace(
       "</head>",
-      `  <script>
-      window.__MOTREST_HUB__ = ${JSON.stringify({
-        url: `ws://localhost:${PUERTO_LOCAL}/sync`,
-        clave: claveLocal,
+      `  <script nonce="${nonce}">
+       window.__MOTREST_HUB__ = ${JSON.stringify({
+         url: `ws://localhost:${PUERTO_LOCAL}/sync`,
+         clave: claveLocal,
       })};
     </script>
   </head>`,
@@ -1337,6 +1438,16 @@ async function arrancar(): Promise<void> {
 
   servidor = createServer({ cert: tls.cert, key: tls.key }, atender);
   servidorLocal = createServerHttp(atender);
+
+  // Un cliente que abre una conexión y no termina cabeceras o cuerpo ocupa un
+  // socket que la caja necesita. Los cuerpos válidos son pequeños y las rutas
+  // no hacen streaming de subida, por lo que estos topes no afectan operación.
+  for (const servidorHttp of [servidor, servidorLocal]) {
+    servidorHttp.headersTimeout = 15_000;
+    servidorHttp.requestTimeout = 30_000;
+    servidorHttp.keepAliveTimeout = 5_000;
+    servidorHttp.maxHeadersCount = 100;
+  }
 
   wss = new WebSocketServer({ server: servidor, path: "/sync" });
   wssLocal = new WebSocketServer({ server: servidorLocal, path: "/sync" });

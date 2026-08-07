@@ -21,7 +21,7 @@ altos, 20 medios, 12 bajos, 4 info) sobre 345 archivos fuente.
 | **3** | Credenciales del local | ✅ *(este commit)* |
 | **4** | Cimientos criptográficos (Ed25519) | ✅ *(este commit)* |
 | **5** | El Hub como autoridad | ✅ *(este commit)* |
-| **6** | Superficie HTTP del Hub | ⬜ |
+| **6** | Superficie HTTP del Hub | ✅ *(este commit)* |
 | **7** | El relay | ⬜ |
 | **8** | Correo (CRLF) | ⬜ |
 | **9** | Tauri, certificados y empaquetado | ⬜ |
@@ -29,7 +29,7 @@ altos, 20 medios, 12 bajos, 4 info) sobre 345 archivos fuente.
 | **11** | Detalles finos | ⬜ |
 | **12** | Capacitor 8 *(aislada)* | ⬜ |
 
-**Pruebas al cierre de la etapa 5:** 1 503 verdes · lint 0 errores.
+**Pruebas al cierre de la etapa 6:** 1 510 verdes · lint 0 errores.
 
 ---
 
@@ -217,11 +217,53 @@ al explorar.
 
 ---
 
+## ✅ Etapa 6 · Superficie HTTP del Hub
+
+**Hallazgos cerrados:** CN-012, CN-014, CN-017, CN-032, CN-047, CN-048.
+
+- **Host y origen acotados al Hub real.** Antes de servir cualquier ruta se
+  acepta únicamente el nombre mDNS anunciado o una IP LAN propia; `localhost`,
+  `127.0.0.1` y `::1` solo valen si el socket ya viene del loopback. Así un DNS
+  rebind no puede pedir el POS bajo el origen de un tercero y extraer la clave
+  inyectada en la caja. Las acciones locales (`/imprimir`, `/licencia` y
+  `/arranque-automatico`) además rechazan un `Origin` declarado que no sea el
+  suyo.
+- **CORS cerrado, no reflejado.** El POS actual ya se sirve desde el Hub y no
+  necesita CORS. Se eliminó la excepción que aceptaba cualquier puerto de
+  localhost. El portal solo emite cabeceras CORS para su origen exacto; dejó de
+  emitir `Access-Control-Allow-Origin: *`.
+- **Cabeceras de navegador y tiempos del servidor.** Toda respuesta válida del
+  Hub recibe CSP, `nosniff`, anti-marco, `Referrer-Policy: no-referrer`, COOP y
+  política de permisos; HTTPS añade HSTS. El script que inyecta el enlace de la
+  caja usa un nonce por respuesta, sin `unsafe-inline` para scripts. Las dos
+  escuchas limitan cabeceras, cuerpo y keep-alive para que conexiones incompletas
+  no ocupen la caja.
+- **Ritmo limitado y memoria acotada.** Las ocho rutas tienen cuota global por
+  IP y una cuota propia por acción (más estricta para reserva, opinión y pedido
+  del kiosco). Un exceso recibe 429 con `Retry-After`; el mapa de ventanas se
+  limpia y tiene máximo de entradas para que el limitador no sea otra vía de
+  consumo de memoria.
+- **Rutas sin ambigüedad.** `/kiosco` y `/kiosco/` redirigen a
+  `/portal/#/kiosco` en vez de caer al fallback del POS. Los estáticos de POS y
+  portal ahora comparan rutas con `relative()` y el separador de directorio, no
+  con un prefijo textual: un hermano como `poscopia` ya no puede pasar por hijo.
+- **Cobertura.** Siete pruebas nuevas ejercitan Host, Origin/CORS, CSP, ruta
+  estática, límite, las ocho clasificaciones y la normalización IPv4-mapeada.
+
+### Decisión de compatibilidad
+
+La CSP permite atributos de estilo inline porque el UI los calcula para el mapa
+de mesas y gráficas; los scripts inline no están permitidos salvo el nonce de
+emparejamiento de la caja. Así no se rompe la operación visual a cambio de abrir
+ejecución de JavaScript.
+
+---
+
 ## ⬜ Etapas 6 a 12 — resumen
 
 | Etapa | Hallazgos | Lo que hay que saber |
 |---|---|---|
-| **6** HTTP del Hub | CN-012, CN-014, CN-017, CN-032, **CN-047**, **CN-048** | `/portal/api/*` manda `Access-Control-Allow-Origin: *` **literal** (CN-047) · `permitirCorsCaja` acepta **puerto arbitrario** en localhost (CN-048) · **8 rutas**, no 7: `/arranque-automatico` no estaba en la auditoría · `/kiosco` sin barra cae al fallback de estáticos · **no hay ningún límite de ritmo** en toda la superficie |
+| **6** HTTP del Hub | CN-012, CN-014, CN-017, CN-032, **CN-047**, **CN-048** | ✅ Host estricto contra DNS rebind · CORS solo del origen propio, sin comodín ni puertos arbitrarios · las **8 rutas** reciben cabeceras, cuota y tiempo de espera · `/kiosco` redirige a su UI y los estáticos validan por segmento |
 | **7** Relay | CN-004, CN-006, CN-034, **CN-049** | **No existe ningún flujo de alta**: `darDeBaja()` no tiene llamadores y el padrón se puebla por auto-registro. Hay que **inventar el alta** antes de poder tener credencial por inquilino · `sucursalId` es **reasignable en la misma conexión** · `conectar()` sobrescribe sin cerrar, y al desconectarse el impostor **borra el enlace del legítimo** · `guardar()` **no es atómico** · `/salud` expone el padrón sin auth (CN-049) |
 | **8** Correo | CN-011 | `cabecera()` no detecta `\r\n` porque están en `\x00-\x7F`. El `nombre` de la reserva viene del **portal público sin filtro** |
 | **9** Tauri y empaquetado | CN-015, CN-016, CN-018, CN-026, CN-033, CN-035, CN-037 | `shell:default` **nada lo usa**: `pos-ui` no depende de `@tauri-apps/api` y no hay un solo `invoke` · el certificado del Hub se genera como **CA** · `mode 0o600` **no protege en NTFS** — la protección real son las ACL |
