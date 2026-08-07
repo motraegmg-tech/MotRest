@@ -196,7 +196,10 @@ export const MODULOS: EntradaModulo[] = [
     fase: "F3",
     permiso: "bi.reporte.ver",
     operativo: true,
-    secciones: [{ clave: "reportes", titulo: "Reportes", permiso: "bi.reporte.ver" }],
+    secciones: [
+      { clave: "reportes", titulo: "Reportes", permiso: "bi.reporte.ver" },
+      { clave: "comparativo", titulo: "Cómo voy", permiso: "bi.reporte.ver" },
+    ],
     resumen:
       "Tableros por rol y las cinco capacidades AI-first: la diferencia de MotRest frente al mercado.",
     funciones: [

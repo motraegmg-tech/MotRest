@@ -55,6 +55,7 @@ export * from "./personal/prenomina.js";
 export * from "./inteligencia/reportes.js";
 export * from "./inteligencia/pronostico.js";
 export * from "./inteligencia/simulador.js";
+export * from "./inteligencia/benchmarking.js";
 export * from "./finanzas/egresos.js";
 export * from "./finanzas/contador.js";
 
@@ -75,7 +76,10 @@ export * from "./clientes/ficha360.js";
 export * from "./clientes/correo.js";
 export * from "./ventas/canales.js";
 export * from "./ventas/kiosco.js";
+export * from "./ventas/terminal-pago.js";
 export * from "./organizacion/multisucursal.js";
+export * from "./organizacion/multiempresa.js";
+export * from "./organizacion/failover.js";
 export * from "./organizacion/licencia.js";
 export * from "./organizacion/actualizaciones.js";
 export * from "./organizacion/central.js";

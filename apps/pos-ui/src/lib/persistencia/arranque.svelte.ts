@@ -30,6 +30,7 @@ import { opiniones } from "../opiniones.svelte";
 import { reservas } from "../reservas.svelte";
 import { correo } from "../correo.svelte";
 import { actualizaciones } from "../actualizaciones.svelte";
+import { benchmark } from "../benchmark.svelte";
 import { grupo } from "../grupo.svelte";
 import { licencia } from "../licencia.svelte";
 import { canales } from "../canales.svelte";
@@ -301,6 +302,7 @@ class Arranque {
       await licencia.hidratar(almacen);
       await actualizaciones.hidratar(almacen);
       await grupo.hidratar(almacen);
+      await benchmark.hidratar(almacen);
 
       // El almacén nace en la etapa 8: un dispositivo con operación anterior no
       // tiene ni un movimiento y abriría el inventario en ceros. Se carga aquí,

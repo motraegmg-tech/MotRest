@@ -17,6 +17,7 @@
   import Canales from "./lib/modulos/finanzas/Canales.svelte";
   import Grupo from "./lib/modulos/finanzas/Grupo.svelte";
   import Inteligencia from "./lib/modulos/Inteligencia.svelte";
+  import Comparativo from "./lib/modulos/inteligencia/Comparativo.svelte";
   import Inventario from "./lib/modulos/Inventario.svelte";
   import Personal from "./lib/modulos/Personal.svelte";
   import Venta from "./lib/modulos/Venta.svelte";
@@ -39,6 +40,7 @@
   import { sync } from "./lib/sync.svelte";
   import { actualizaciones } from "./lib/actualizaciones.svelte";
   import { caja } from "./lib/caja.svelte";
+  import { failover } from "./lib/failover.svelte";
   import { licencia } from "./lib/licencia.svelte";
   import { CONTACTO_MOTRAE } from "./lib/presentacion";
   import { esSoporte } from "@motrest/dominio";
@@ -113,7 +115,11 @@
     {:else if modulo.clave === "personal"}
       <Personal />
     {:else if modulo.clave === "inteligencia"}
-      <Inteligencia />
+      {#if seccion === "comparativo"}
+        <Comparativo />
+      {:else}
+        <Inteligencia />
+      {/if}
     {:else if modulo.clave === "finanzas"}
       {#if seccion === "canales"}
         <Canales />
@@ -207,6 +213,19 @@
   restaurante de enterarse antes de quedarse sin sistema, y llega justo cuando
   está a punto de cerrar la caja.
 -->
+<!--
+  La caja no responde.
+
+  Va arriba y ocupa el ancho: es lo único que el mesero necesita saber en ese
+  momento, y saberlo cambia lo que hace —seguir vendiendo tranquilo o ir a
+  avisar al gerente—. Sin este aviso, el personal se entera cuando algo falla.
+-->
+{#if failover.aviso}
+  <div class="failover" class:grave={failover.grave} role="alert">
+    {failover.aviso}
+  </div>
+{/if}
+
 {#if licencia.bloqueoDiferido}
   <div class="licencia grave" role="alert">
     <b>Su licencia venció</b>
@@ -411,6 +430,29 @@
     display: block;
     color: var(--peligro);
     margin-bottom: 0.15rem;
+  }
+  /*
+   * Ancho completo y arriba del todo: a diferencia del aviso de licencia --que
+   * es del dueño-- este lo tiene que leer el mesero que está de pie con una
+   * tablet, y de reojo.
+   */
+  .failover {
+    position: fixed;
+    z-index: 47;
+    top: 0;
+    left: 0;
+    right: 0;
+    background: var(--acento-2);
+    color: var(--negro);
+    padding: 0.55rem 1.25rem;
+    font-size: 0.85rem;
+    font-weight: 600;
+    text-align: center;
+    box-shadow: var(--sombra-sm);
+  }
+  .failover.grave {
+    background: var(--peligro);
+    color: #fff;
   }
   .reloj-mal {
     position: fixed;
