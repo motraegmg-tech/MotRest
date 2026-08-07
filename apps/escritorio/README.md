@@ -24,6 +24,22 @@ corepack pnpm@9.15.0 --filter @motrest/escritorio build
 
 Sale en `src-tauri/target/release/bundle/nsis/`.
 
+### Comprobar QUÉ entró en el instalador
+
+La lista autoritativa es el script que genera Tauri, no el árbol de compilación:
+
+```bash
+grep -oE 'oname=pos.assets.index-[A-Za-z0-9_-]+\.js' \
+  $CARGO_TARGET_DIR/release/nsis/x64/installer.nsi
+```
+
+Tiene que salir **exactamente uno**, y ser el mismo que hay en `pos-ui/dist`.
+
+> Puede quedar un `release/pos` de compilaciones antiguas con bundles viejos
+> dentro. **No entra en el instalador**: Tauri 2 lee directo de `pos-ui/dist`.
+> Mirar esa carpeta para juzgar el paquete lleva a conclusiones falsas — pasó, y
+> costó una recompilación de más.
+
 ### En Windows, compila fuera de `Documents`
 
 ```bash
