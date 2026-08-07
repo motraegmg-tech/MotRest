@@ -27,7 +27,7 @@ altos, 20 medios, 12 bajos, 4 info) sobre 345 archivos fuente.
 | **9** | Tauri, certificados y empaquetado | ✅ *(este commit)* |
 | **10** | Proceso y despliegue (CI, guías) | ✅ *(este commit)* |
 | **11** | Detalles finos | ✅ *(este commit)* |
-| **12** | Capacitor 8 *(aislada)* | ⚠️ *(este commit)* — código y lock listos; **falta compilar el APK y probarlo en tablet** |
+| **12** | Capacitor 8 *(aislada)* | ⚠️ *(este commit)* — APK actual compilado y verificado; **falta instalarlo y probarlo en tablet física** |
 
 **Pruebas al cierre de la etapa 12:** 1 574 verdes (1 omitida) · lint 0 errores ·
 `pnpm audit` **completo** limpio · `cargo check --release` limpio en las dos apps
@@ -521,7 +521,7 @@ márgenes, sin azar y en 27 ms. Para eso se exportó `aBase32`.
 
 ---
 
-## ⚠️ Etapa 12 · Capacitor 8 *(aislada; falta la comprobación en tablet)*
+## ⚠️ Etapa 12 · Capacitor 8 *(APK compilado; falta la comprobación en tablet)*
 
 **Hallazgo:** CN-027.
 
@@ -532,8 +532,8 @@ márgenes, sin azar y en 27 ms. Para eso se exportó `aBase32`.
 - El proyecto Android generado quedó configurado localmente con los mínimos de
   Capacitor 8: `minSdkVersion = 24`, `compileSdkVersion = 36`,
   `targetSdkVersion = 36`, AGP 8.13.0, Gradle 8.14.3, Java 21 y los AndroidX/
-  Cordova de la plantilla 8. El `android/` actual queda así listo para la
-  compilación cuando se resuelva el entorno.
+  Cordova de la plantilla 8. La compilación real confirmó esos mínimos en el
+  APK resultante.
 - Se añadió `apps/kds-android/ajustar-android.mjs`. `android/` se ignora porque
   es generado: dejar estos cambios solo ahí habría hecho un APK correcto hoy y
   uno viejo al siguiente `cap add`. Ahora `sincronizar` y `apk` ejecutan el
@@ -553,6 +553,9 @@ márgenes, sin azar y en 27 ms. Para eso se exportó `aBase32`.
   resuelve `brace-expansion ^5.0.8`. Conservar los techos antiguos `^7.4.3` y
   `^2.1.4` no añadía una defensa y el segundo retenía una línea vulnerable. Solo
   queda el override de `postcss`, que es ajeno al KDS.
+- El script `apk` usa `cd android && .\\gradlew.bat assembleDebug`. En Windows
+  el prefijo `.\\` es necesario: sin él, `cmd` no encontraba el wrapper aunque
+  estuviera en el directorio generado.
 
 ### Desviación necesaria del plan
 
@@ -591,53 +594,30 @@ El script de ajuste es la desviación deliberada que hace persistente la parte
 nativa que Capacitor no migra solo. Debe viajar en el commit aislado junto con
 el lock regenerado; no se mezcla con ninguna de las once etapas anteriores.
 
-### Bloqueos demostrados en esta máquina
+### Compilación real en esta máquina · 7 de agosto de 2026
 
-1. El intento real de sincronizar con la CLI objetivo,
-   `npx --yes --package=@capacitor/cli@8.4.2 cap sync android`, terminó antes de
-   abrir el proyecto con:
+Los bloqueos iniciales de sandbox se resolvieron con una sesión que puede leer
+los ancestros del repositorio y consultar las fuentes oficiales de Android:
 
-   ```text
-   npm error code EACCES
-   npm error FetchError: request to https://registry.npmjs.org/@capacitor%2fcli failed, reason:
-   npm error The operation was rejected by your operating system.
-   ```
-
-   El `pnpm-lock.yaml` quedó sin tocar en esa pasada. **Ya está regenerado**
-   (ver arriba): contiene 8.5.0 y sí es evidencia de la instalación.
-
-2. Hay JDK 21.0.10 dentro de Android Studio y un SDK parcial en esta máquina,
-   pero `JAVA_HOME`, `ANDROID_HOME` y `ANDROID_SDK_ROOT` no están definidos;
-   `java`, `adb` y `sdkmanager` no están en `PATH`. Además falta exactamente
-   `C:\Users\super\AppData\Local\Android\Sdk\platforms\android-36`.
-   Sin preparar el entorno, `gradlew.bat :app:assembleDebug` dice:
-
-   ```text
-   ERROR: JAVA_HOME is not set and no 'java' command could be found in your PATH.
-   ```
-
-   Con el JDK 21 local y un `GRADLE_USER_HOME` aislado llegó a intentar descargar
-   Gradle 8.14.3, pero la red bloqueada terminó en
-   `java.net.SocketException: Permission denied: getsockopt`. Por tanto tampoco
-   hay APK 8 compilado que pueda instalarse.
-
-3. Se ejecutaron exactamente las dos verificaciones recursivas exigidas, pero
-   ninguna terminó porque el sandbox niega enumerar `C:\Users\super`, aunque sí
-   permite leer el repositorio. `corepack pnpm@9.15.0 -r lint` llegó a Portal y
-   Central y falló al cargar sus configuraciones Vite con:
-
-   ```text
-   Cannot read directory "../../../../../../../../..": Access is denied.
-   Could not resolve "...\\apps\\portal\\vite.config.ts"
-   ```
-
-   `corepack pnpm@9.15.0 -r test` tuvo el mismo fallo al iniciar
-   `apps/central/vitest.config.ts`. `packages/dominio` sí alcanzó 979 verdes
-   antes de que el runner recursivo abortara, pero **no existe un resultado
-   global de 1 574 verdes / 1 omitida para esta etapa**. No se toca Portal ni
-   Central para disfrazar una limitación de la máquina que no pertenece a
-   CN-027; hay que repetir ambos comandos desde un entorno que pueda leer sus
-   ancestros.
+1. Se instalaron `platforms;android-36` y `build-tools;36.0.0` sobre el SDK ya
+   existente. Se usó el JBR 21 de Android Studio y un `GRADLE_USER_HOME`
+   aislado.
+2. `corepack pnpm@9.15.0 --filter pos-ui build` y
+   `corepack pnpm@9.15.0 --filter @motrest/kds-android apk` terminaron bien.
+   El segundo comando sincronizó Capacitor 8, ejecutó el ajuste persistente y
+   completó `assembleDebug` con Gradle 8.14.3.
+3. El APK actual es
+   `apps/kds-android/android/app/build/outputs/apk/debug/app-debug.apk`:
+   5 502 480 bytes, SHA-256
+   `DB4BBFC3FB70BAB60BC2724F2219A0E541F7989B77CCC3289CFFD9DBCF45C1C9`.
+   `aapt` confirmó `mx.motrae.motrest.kds`, `minSdkVersion 24`,
+   `targetSdkVersion 36`, orientación horizontal y los permisos esperados;
+   `apksigner verify` confirmó la firma de depuración v2.
+4. `corepack pnpm@9.15.0 -r lint` terminó sin errores y
+   `corepack pnpm@9.15.0 -r test` terminó con **1 574 verdes y 1 omitida**.
+5. No había una tablet autorizada por USB durante esta compilación (`adb devices`
+   no mostró ningún dispositivo), por lo que ningún resultado automatizado
+   reemplaza la prueba física pendiente.
 
 ### Antes de instalar en Rodizio: pendiente obligatorio en tablet física
 
@@ -665,18 +645,15 @@ código o las pruebas Node en verde:
 # Una vez, con Android Studio/JDK 21 y SDK 36 instalados.
 $env:JAVA_HOME = 'C:\Program Files\Android\Android Studio\jbr'
 $env:ANDROID_SDK_ROOT = "$env:LOCALAPPDATA\Android\Sdk"
+$env:ANDROID_HOME = $env:ANDROID_SDK_ROOT
 $env:GRADLE_USER_HOME = "$env:LOCALAPPDATA\MotRest\gradle"
-$env:Path = "$env:JAVA_HOME\bin;$env:ANDROID_SDK_ROOT\platform-tools;$env:Path"
+$env:Path = "$env:JAVA_HOME\bin;$env:ANDROID_SDK_ROOT\platform-tools;$env:ANDROID_SDK_ROOT\cmdline-tools\latest\bin;$env:Path"
 & "$env:ANDROID_SDK_ROOT\cmdline-tools\latest\bin\sdkmanager.bat" --licenses
 & "$env:ANDROID_SDK_ROOT\cmdline-tools\latest\bin\sdkmanager.bat" "platforms;android-36" "build-tools;36.0.0"
 
-# Desde la raíz: genera y revisa el lock real de Capacitor 8.
-corepack pnpm@9.15.0 install --no-frozen-lockfile
-
-# Desde apps/kds-android: ésta es la sincronización que falta.
-npx cap sync android
-node ajustar-android.mjs
-.\android\gradlew.bat :app:assembleDebug
+# Desde la raíz: compila el POS que viaja dentro del KDS y genera el APK.
+corepack pnpm@9.15.0 --filter pos-ui build
+corepack pnpm@9.15.0 --filter @motrest/kds-android apk
 
 # Repetir siempre después de regenerar dependencias.
 corepack pnpm@9.15.0 -r lint

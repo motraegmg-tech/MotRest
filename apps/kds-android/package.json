@@ -8,7 +8,7 @@
     "preparar": "node preparar.mjs",
     "ajustar-android": "node ajustar-android.mjs",
     "sincronizar": "cap sync android && node ajustar-android.mjs",
-    "apk": "node preparar.mjs && cap sync android && node ajustar-android.mjs && cd android && gradlew.bat assembleDebug",
+    "apk": "node preparar.mjs && cap sync android && node ajustar-android.mjs && cd android && .\\gradlew.bat assembleDebug",
     "abrir": "cap open android"
   },
   "dependencies": {
