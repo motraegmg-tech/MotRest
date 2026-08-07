@@ -26,17 +26,86 @@
  * `phone_number_id` que Meta incluye en cada mensaje: un solo relay atiende a
  * todos los locales, cada uno con SU número y SUS credenciales.
  */
+import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 
-/** Lo que hace falta saber de un restaurante para enrutarle mensajes. */
-export interface Inquilino {
+/** Lo mínimo para saber a qué restaurante le toca un mensaje entrante. */
+export interface Destino {
   /** Sucursal a la que pertenece este número. */
   sucursal_id: string;
-  /** El identificador que Meta le da al número del restaurante. */
+}
+
+/** La ficha completa de un restaurante en el padrón del relay. */
+export interface Inquilino extends Destino {
+  /**
+   * El identificador que Meta le da al número del restaurante.
+   *
+   * **Vacío es normal**: un restaurante se da de alta en el relay antes de
+   * conectar su WhatsApp, y puede operar meses solo con el portal. Un inquilino
+   * sin número no se indexa para enrutar —si se indexara con la cadena vacía,
+   * un webhook sin `phone_number_id` acabaría en el local equivocado.
+   */
   phone_number_id: string;
   /** Token del restaurante para llamar a la API. NUNCA sale del relay. */
   token: string;
   /** Nombre visible, solo para los registros. */
   nombre: string;
+  /**
+   * SHA-256 en hexadecimal de la credencial con la que su Hub se identifica.
+   * La credencial en claro **no se guarda en ningún sitio**: se enseña una vez
+   * al darla de alta y de ahí en adelante solo vive en el Hub del local.
+   */
+  credencial_sha256: string;
+  /** Cuándo dio MOTRAE de alta a este restaurante. */
+  alta_ts: number;
+}
+
+// --- Credenciales de los Hubs -------------------------------------------------------
+
+/**
+ * Una credencial nueva para el Hub de un restaurante.
+ *
+ * 32 bytes de `randomBytes` — 256 bits. No es una contraseña que alguien tenga
+ * que teclear de memoria: se pega una vez en la configuración del Hub y no se
+ * vuelve a ver. Por eso puede ser larga, y por eso conviene que lo sea.
+ */
+export function generarCredencial(): string {
+  return randomBytes(32).toString("base64url");
+}
+
+/**
+ * La huella de una credencial, que es lo único que guarda el padrón.
+ *
+ * **SHA-256 a secas, y no scrypt ni PBKDF2, a propósito.** Un KDF lento existe
+ * para que un padrón robado no se pueda romper por diccionario; aquí la
+ * credencial la genera el relay con 256 bits de azar, así que no hay diccionario
+ * que valga y el KDF no compraría nada. Lo que sí costaría es caro: derivar con
+ * scrypt en cada saludo convierte un `hola` con basura en 100 ms de CPU y 64 MB
+ * de memoria regalados a quien quiera tumbar el relay de todos los restaurantes.
+ *
+ * La regla, por si algún día se cambia: SHA-256 vale **solo** mientras la
+ * credencial la genere `generarCredencial()`. Si alguna vez se deja que un
+ * humano elija la credencial, hay que volver a un KDF lento el mismo día.
+ */
+export function huellaDe(credencial: string): string {
+  return createHash("sha256").update(credencial, "utf8").digest("hex");
+}
+
+/**
+ * ¿Coinciden dos huellas?
+ *
+ * Se comparan las **huellas**, no las credenciales, así que una fuga por tiempo
+ * no le serviría de nada a nadie: para aprovecharla habría que invertir SHA-256.
+ * Aun así se usa `timingSafeEqual`, porque cuesta lo mismo y quita la pregunta
+ * de encima — la siguiente persona que lea esto no tiene que razonarlo.
+ */
+export function huellaCoincide(guardada: string, calculada: string): boolean {
+  if (guardada.length !== calculada.length) return false;
+  try {
+    return timingSafeEqual(Buffer.from(guardada, "hex"), Buffer.from(calculada, "hex"));
+  } catch {
+    // Una huella corrupta en el padrón no autentica a nadie.
+    return false;
+  }
 }
 
 export interface MensajeEntrante {
@@ -98,7 +167,7 @@ export async function firmaValida(
  */
 export function leerWebhook(
   cuerpo: unknown,
-  porNumero: ReadonlyMap<string, Inquilino>,
+  porNumero: ReadonlyMap<string, Destino>,
 ): MensajeEntrante[] {
   const salida: MensajeEntrante[] = [];
   const raiz = cuerpo as { entry?: unknown[] };

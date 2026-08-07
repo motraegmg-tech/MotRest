@@ -64,6 +64,32 @@ ids recientes para no procesar dos veces lo mismo.
 **El Hub se conecta hacia afuera**, igual que una terminal se conecta al Hub,
 solo que un escalón más arriba. Nadie abre un puerto en el restaurante.
 
+### El alta la hace MOTRAE, no el que llega
+
+*(Corregido en agosto de 2026. Antes no era así, y conviene que quede escrito
+por qué.)*
+
+El padrón se llenaba solo: el primer Hub que se conectara con la clave —una sola
+para todos los restaurantes— quedaba dado de alta y declaraba en el saludo qué
+sucursal era. Eso no es dar de alta: es dejar la puerta abierta y anotar quién
+entró. Con esa clave, un local podía decir que era otro y quedarse con sus
+mensajes entrantes.
+
+Ahora:
+
+- **MOTRAE da de alta** (`padron alta`) y el relay devuelve una credencial que
+  se enseña una vez. El padrón guarda su huella, nunca la credencial.
+- **La identidad se deriva de la credencial**, no del mensaje. El `sucursal_id`
+  ya no viaja en el saludo, porque era justo lo que el Hub no debía poder elegir.
+- **El padrón va cifrado en reposo** (AES-256-GCM, llave en el entorno) y se
+  escribe de forma atómica. Dentro hay tokens de la API de Meta de todos los
+  restaurantes: es el archivo más valioso de MOTRAE y el único que da a internet.
+- **Solo `wss://`.** Lo comprueba el Hub antes de abrir el socket.
+
+El restaurante sigue publicando **su** número de WhatsApp por el enlace —eso lo
+decide él en Meta, no MOTRAE—, pero solo dentro de la ficha que ya se le abrió, y
+nunca reclamando un número que ya sea de otro local.
+
 ## Decisión 3 — Dos canales, cada uno para lo que sirve
 
 No es indecisión: cada canal es bueno en cosas distintas y malo en las del otro.

@@ -24,7 +24,13 @@ export interface MensajeDelComensal {
 
 export interface OpcionesRelay {
   url: string;
-  /** Clave con la que el Hub se identifica ante el relay. */
+  /**
+   * La credencial de ESTE restaurante, la que MOTRAE entregó al darlo de alta.
+   *
+   * No es una clave compartida: de ella sale la identidad del local ante el
+   * relay. Por eso el `sucursal_id` ya no viaja en el saludo — el relay no se
+   * cree lo que el Hub diga que es, lo deduce de lo que el Hub demuestra tener.
+   */
   clave: string;
   sucursal_id: string;
   /** Credenciales de WhatsApp de ESTE restaurante, si ya las tiene. */
@@ -36,6 +42,40 @@ export interface OpcionesRelay {
 
 const REINTENTO_BASE_MS = 2_000;
 const REINTENTO_MAX_MS = 5 * 60 * 1000;
+
+/**
+ * ¿Se puede usar esta dirección para hablar con el relay?
+ *
+ * **Solo `wss://`.** Por este cable viajan la credencial del restaurante y el
+ * token de la API de Meta, y en `ws://` viajan en claro: cualquiera en el mismo
+ * wifi, o cualquier salto del camino, se los lleva y a partir de ahí manda
+ * WhatsApp en nombre del restaurante. Un `ws://` en la configuración casi
+ * siempre es una prueba que se quedó puesta, y el precio de que se quede es
+ * demasiado alto para descubrirlo tarde.
+ *
+ * Se deja pasar el bucle local porque el ensayo del relay corre ahí mismo y no
+ * hay red que escuchar.
+ */
+export function direccionUsable(url: string): { ok: true } | { ok: false; motivo: string } {
+  let destino: URL;
+  try {
+    destino = new URL(url);
+  } catch {
+    return { ok: false, motivo: `La dirección del relay no es válida: ${url}` };
+  }
+
+  if (destino.protocol === "wss:") return { ok: true };
+
+  const local = ["localhost", "127.0.0.1", "[::1]", "::1"].includes(destino.hostname);
+  if (destino.protocol === "ws:" && local) return { ok: true };
+
+  return {
+    ok: false,
+    motivo:
+      `El relay se configuró como "${url}". Tiene que ser wss:// — por ahí van la ` +
+      "credencial del local y el token de WhatsApp, y sin cifrar los ve cualquiera.",
+  };
+}
 
 export class EnlaceRelayWs {
   private socket: WebSocket | null = null;
@@ -56,6 +96,17 @@ export class EnlaceRelayWs {
   }
 
   private abrir(): void {
+    // Se comprueba en cada intento y no una sola vez, porque `conectar()` puede
+    // llamarse otra vez tras cambiar la configuración del local.
+    const usable = direccionUsable(this.opciones.url);
+    if (!usable.ok) {
+      // No se reintenta: reintentar cada dos segundos una dirección que nunca
+      // va a servir solo llena el registro y esconde el aviso que importa.
+      this.opciones.registrar("error", usable.motivo);
+      this.cerradoAProposito = true;
+      return;
+    }
+
     let socket: WebSocket;
     try {
       socket = new WebSocket(this.opciones.url);
@@ -67,13 +118,9 @@ export class EnlaceRelayWs {
 
     socket.on("open", () => {
       this.intentos = 0;
-      socket.send(
-        JSON.stringify({
-          tipo: "hola",
-          clave: this.opciones.clave,
-          sucursal_id: this.opciones.sucursal_id,
-        }),
-      );
+      // El `sucursal_id` NO va: el relay lo deriva de la credencial. Mandarlo
+      // sería volver a ofrecerle al Hub la oportunidad de decir que es otro.
+      socket.send(JSON.stringify({ tipo: "hola", credencial: this.opciones.clave }));
     });
 
     socket.on("message", (crudo) => {
@@ -103,12 +150,31 @@ export class EnlaceRelayWs {
         return;
       }
 
+      if (mensaje.tipo === "credenciales_rechazadas") {
+        // Solo pasa si otro local ya reclamó ese número. Es un problema de
+        // configuración en Meta y hay que verlo, no encolarlo.
+        this.opciones.registrar(
+          "error",
+          `El relay rechazó el número de WhatsApp del local: ${mensaje.razon ?? ""}`,
+        );
+        return;
+      }
+
       if (mensaje.tipo === "envio_fallido") {
         this.opciones.registrar("aviso", `El relay no pudo mandar un aviso: ${mensaje.razon ?? ""}`);
       }
     });
 
-    socket.on("close", () => this.caer("Se perdió el enlace con el relay"));
+    socket.on("close", (codigo, razon) => {
+      // El relay cierra con 1008 y el motivo cuando el rechazo es definitivo
+      // —credencial que no reconoce, sucursal ya conectada—. Sin esto, el
+      // síntoma en el local sería "WhatsApp no funciona" y nada más.
+      const detalle = razon?.toString() ?? "";
+      if (codigo === 1008 && detalle) {
+        this.opciones.registrar("error", `El relay rechazó el enlace: ${detalle}`);
+      }
+      this.caer("Se perdió el enlace con el relay");
+    });
     socket.on("error", (causa) => this.caer(`Error del enlace con el relay: ${causa.message}`));
   }
 

@@ -18,18 +18,23 @@ altos, 20 medios, 12 bajos, 4 info) sobre 345 archivos fuente.
 |---|---|---|
 | **1** | Herramientas y red de seguridad | ✅ `ce11047` |
 | **2** | Identidad del Hub y registro a archivo | ✅ `2b59b55` |
-| **3** | Credenciales del local | ✅ *(este commit)* |
-| **4** | Cimientos criptográficos (Ed25519) | ✅ *(este commit)* |
-| **5** | El Hub como autoridad | ✅ *(este commit)* |
-| **6** | Superficie HTTP del Hub | ✅ *(este commit)* |
-| **7** | El relay | ⬜ |
+| **3** | Credenciales del local | ✅ `c5b9fa2` |
+| **4** | Cimientos criptográficos (Ed25519) | ✅ `aba41ec` |
+| **5** | El Hub como autoridad | ✅ `cf6b677` |
+| **6** | Superficie HTTP del Hub | ✅ `07361d9` |
+| **7** | El relay | ✅ *(este commit)* |
 | **8** | Correo (CRLF) | ⬜ |
 | **9** | Tauri, certificados y empaquetado | ⬜ |
 | **10** | Proceso y despliegue (CI, guías) | ⬜ |
 | **11** | Detalles finos | ⬜ |
 | **12** | Capacitor 8 *(aislada)* | ⬜ |
 
-**Pruebas al cierre de la etapa 6:** 1 510 verdes · lint 0 errores.
+**Pruebas al cierre de la etapa 7:** 1 549 verdes (1 omitida) · lint 0 errores.
+
+> La omitida es a propósito: comprueba que el padrón queda en `0600`, y en
+> Windows `chmod` solo mueve el atributo de solo lectura. Los permisos de verdad
+> ahí son ACL de NTFS, que `statSync` no refleja. Corre en Linux, que es donde el
+> relay se despliega.
 
 ---
 
@@ -259,12 +264,82 @@ ejecución de JavaScript.
 
 ---
 
-## ⬜ Etapas 6 a 12 — resumen
+## ✅ Etapa 7 · El relay
+
+**Commit:** *(este commit)* — CN-004, CN-006, CN-034, CN-049.
+
+Más trabajo del que decía la auditoría, y por una razón que solo se ve leyendo:
+**no existía ningún flujo de alta**. `darDeBaja()` no tenía un solo llamador y el
+padrón se poblaba por auto-registro —el Hub mandaba `credenciales` al conectar y
+quedaba dado de alta—. No había estado previo contra el que autenticar, así que
+antes de poner una credencial por inquilino hubo que **inventar el alta**.
+
+**7.1 · El alta la hace MOTRAE.** `padron-cli.ts` con cinco órdenes (`llave`,
+`alta`, `lista`, `rotar`, `baja`). El alta devuelve una credencial de 32 bytes
+que **se enseña una sola vez**: el padrón guarda su huella SHA-256, nunca la
+credencial. `darDeBaja()` ya tiene llamador, y la baja olvida el token de Meta.
+
+**7.2 · La identidad sale de la credencial** (CN-004). El `sucursal_id` **ya no
+viaja en el saludo**: se deriva del índice por huella. Era justo lo que el Hub no
+debía poder elegir — con la clave compartida, cualquier local podía declararse
+otro y quedarse con sus mensajes. Además:
+
+- `sucursalId` **era reasignable en la misma conexión**: se podía saludar como un
+  local, mandar, y volver a saludar como otro sin reconectar. Un segundo `hola`
+  cierra el socket.
+- `conectar()` sobrescribía sin cerrar el anterior, y al caerse el impostor
+  **borraba el enlace del legítimo**, que se quedaba mudo. Ahora se rechaza el
+  segundo y `desconectar()` solo suelta si el enlace vivo es el mismo.
+- `publicarWhatsApp()` rechaza un `phone_number_id` que ya sea de otro local:
+  reclamarlo era quedarse con sus mensajes entrantes.
+- Cerrojo por IP (5 fallos → 15 min) y `verifyClient` en el apretón de manos, que
+  antes no existía: **cualquiera podía abrir el WebSocket**.
+
+**7.3 · El padrón** (CN-006). `0600`, **cifrado con AES-256-GCM** (dentro hay
+tokens de Meta de todos los restaurantes) y **escritura atómica** temp+rename —
+un corte a media escritura dejaba el padrón de todos en un JSON truncado. Y ya no
+se escribe una vez por mensaje: si nada cambió, no se toca el disco.
+
+**7.4 · Solo `wss://`** (CN-034), comprobado en el Hub antes de abrir el socket.
+Se deja pasar el bucle local, para el ensayo.
+
+**7.5 · `/salud`** (CN-049) ya no dice cuántos restaurantes tiene MOTRAE ni
+cuántos están abiertos ahora mismo. Eso es la cartera de clientes de la empresa;
+pasó a `/salud/detalle`, con `MOTREST_RELAY_CLAVE_ADMIN`.
+
+**7.6 ·** Las variables reales, documentadas en `WHATSAPP-ALTA-DE-RESTAURANTE.md`
+§A.4 y en la cabecera de `main.ts`, con el paso **B.0** nuevo para el alta.
+
+### Decisiones que conviene no revertir sin leer esto
+
+**SHA-256 y no un KDF lento para la credencial.** Un KDF lento protege un padrón
+robado contra diccionario; aquí la credencial la genera el relay con 256 bits de
+azar, así que no hay diccionario. Lo que sí costaría es derivar con scrypt en
+cada saludo: convierte un `hola` con basura en 100 ms de CPU y 64 MB regalados a
+quien quiera tumbar el relay de todos. **Vale solo mientras la credencial la
+genere `generarCredencial()`**; si algún día la elige un humano, KDF lento el
+mismo día.
+
+**Latido de 30 s.** No es cosmético: lo exige la regla de "un solo enlace por
+sucursal". Si se cae el módem del restaurante, el TCP puede tardar horas en
+morir y el Hub que vuelve se encuentra su sitio ocupado por un fantasma.
+
+**`arrancar()` exportado.** El relay se separa del arranque para que la prueba lo
+encienda de verdad y le mienta por un WebSocket real. Es la lección de «Gonz
+Motrae»: que el padrón sepa identificar por credencial no demuestra nada si el
+saludo sigue creyéndose el mensaje.
+
+**Migración.** Un padrón viejo en claro se lee una vez y se reescribe cifrado; sus
+inquilinos **siguen recibiendo** mensajes pero **no autentican a nadie** hasta que
+MOTRAE los dé de alta de verdad. Reventar al arrancar habría dejado a todos los
+restaurantes sin WhatsApp por un formato de archivo.
+
+---
+
+## ⬜ Etapas 8 a 12 — resumen
 
 | Etapa | Hallazgos | Lo que hay que saber |
 |---|---|---|
-| **6** HTTP del Hub | CN-012, CN-014, CN-017, CN-032, **CN-047**, **CN-048** | ✅ Host estricto contra DNS rebind · CORS solo del origen propio, sin comodín ni puertos arbitrarios · las **8 rutas** reciben cabeceras, cuota y tiempo de espera · `/kiosco` redirige a su UI y los estáticos validan por segmento |
-| **7** Relay | CN-004, CN-006, CN-034, **CN-049** | **No existe ningún flujo de alta**: `darDeBaja()` no tiene llamadores y el padrón se puebla por auto-registro. Hay que **inventar el alta** antes de poder tener credencial por inquilino · `sucursalId` es **reasignable en la misma conexión** · `conectar()` sobrescribe sin cerrar, y al desconectarse el impostor **borra el enlace del legítimo** · `guardar()` **no es atómico** · `/salud` expone el padrón sin auth (CN-049) |
 | **8** Correo | CN-011 | `cabecera()` no detecta `\r\n` porque están en `\x00-\x7F`. El `nombre` de la reserva viene del **portal público sin filtro** |
 | **9** Tauri y empaquetado | CN-015, CN-016, CN-018, CN-026, CN-033, CN-035, CN-037 | `shell:default` **nada lo usa**: `pos-ui` no depende de `@tauri-apps/api` y no hay un solo `invoke` · el certificado del Hub se genera como **CA** · `mode 0o600` **no protege en NTFS** — la protección real son las ACL |
 | **10** Proceso | CN-009, CN-021, CN-022, CN-028 | **Bloqueado parcialmente:** la compra del certificado Authenticode es trámite comercial. Dejar `certificateThumbprint` y la verificación antes del `spawn` listos |

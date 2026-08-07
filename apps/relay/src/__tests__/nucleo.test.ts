@@ -9,7 +9,14 @@
  * en el local, y así debe seguir.
  */
 import { describe, expect, it } from "vitest";
-import { YaVistos, cuerpoDeEnvio, firmaValida, leerWebhook, type Inquilino } from "../nucleo.js";
+import {
+  YaVistos,
+  cuerpoDeEnvio,
+  firmaValida,
+  huellaDe,
+  leerWebhook,
+  type Inquilino,
+} from "../nucleo.js";
 
 const SECRETO = "secreto-de-la-app-de-motrae";
 
@@ -18,12 +25,16 @@ const RODIZIO: Inquilino = {
   phone_number_id: "111222333",
   token: "token-de-rodizio",
   nombre: "Rodizio",
+  credencial_sha256: huellaDe("credencial-de-rodizio"),
+  alta_ts: 1_700_000_000_000,
 };
 const FONDA: Inquilino = {
   sucursal_id: "suc-fonda",
   phone_number_id: "999888777",
   token: "token-de-la-fonda",
   nombre: "La Fonda",
+  credencial_sha256: huellaDe("credencial-de-la-fonda"),
+  alta_ts: 1_700_000_000_000,
 };
 
 const INQUILINOS = new Map([
