@@ -20,8 +20,15 @@ corepack pnpm@9.15.0 --filter @motrest/kds-android apk
 
 El APK sale en `android/app/build/outputs/apk/debug/`.
 
-Requiere el SDK de Android y Java. `JAVA_HOME` puede apuntar al que trae Android
-Studio: `C:\Program Files\Android\Android Studio\jbr`.
+Capacitor 8 requiere Java 21 y SDK 36. `JAVA_HOME` puede apuntar al que trae
+Android Studio: `C:\Program Files\Android\Android Studio\jbr`. El script `apk`
+sincroniza Capacitor y luego aplica `ajustar-android.mjs`: la carpeta `android/`
+es generada y el script conserva ahí el mínimo 24, objetivo 36, Gradle 8.14.3 y
+el manifiesto de modo cocina. Para sincronizar sin compilar:
+
+```bash
+corepack pnpm@9.15.0 --filter @motrest/kds-android sincronizar
+```
 
 ## El certificado del Hub
 

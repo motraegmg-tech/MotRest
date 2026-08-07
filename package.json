@@ -18,16 +18,14 @@
     "auditoria": "pnpm audit --prod --audit-level=moderate"
   },
   "comentarios": {
-    "pnpm.overrides": "Los tres son de DESARROLLO y ninguno llega al restaurante —las deps de producción del Hub son `selfsigned` y `ws`— pero se cierran igual: la máquina que compila es la misma que guarda las llaves de firma de toda la cartera, así que comprometerla es comprometer la flota.",
-    "pnpm.overrides.tar": "Travesías de ruta. Entra por @capacitor/cli (build del KDS Android).",
-    "pnpm.overrides.brace-expansion": "CVE-2026-14257 y CVE-2026-69152, denegación de servicio por expansión sin límite. Entra por @capacitor/cli > rimraf > glob > minimatch.",
-    "pnpm.overrides.postcss": "CVE-2026-69153, lectura de .map arbitrarios. Es el único aviso que alcanza el vite@6.4.3 DIRECTO, o sea la cadena que compila lo que va dentro del instalador."
+    "pnpm.overrides": "Todos son de DESARROLLO y ninguno llega al restaurante —las deps de producción del Hub son `selfsigned` y `ws`— pero se cierran igual: la máquina que compila es la misma que guarda las llaves de firma de toda la cartera, así que comprometerla es comprometer la flota. Al subir Capacitor a 8 se RETIRARON `tar` y `brace-expansion`, verificado contra el lockfile regenerado: la cadena resuelve hoy `tar 7.5.21` y `brace-expansion 5.0.9` por sí sola, y el override viejo de `^2.1.4` estaba de hecho RETENIENDO una rama más antigua que la que se resuelve sin él.",
+    "pnpm.overrides.postcss": "CVE-2026-69153, lectura de .map arbitrarios. Es el único aviso que alcanza el vite@6.4.3 DIRECTO, o sea la cadena que compila lo que va dentro del instalador.",
+    "pnpm.overrides.uuid": "GHSA-w5hq-g745-h8pq. Lo ABRIÓ la subida a Capacitor 8: `@capacitor/cli@8.5.0 > xcode@3.0.1 > uuid@7.0.3`. Único consumidor `xcode`, que es la herramienta de proyectos de iOS y aquí no se ejecuta jamás —el KDS es solo Android—, así que subirlo no puede romper nada nuestro. Se cierra porque la etapa 1 dejó `pnpm audit` COMPLETO limpio y eso es la línea base: un aviso nuevo tiene que doler, no acumularse."
   },
   "pnpm": {
     "overrides": {
-      "tar": "^7.4.3",
-      "brace-expansion": "^2.1.4",
-      "postcss": "^8.5.26"
+      "postcss": "^8.5.26",
+      "uuid": "^11.1.1"
     }
   }
 }

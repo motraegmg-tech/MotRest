@@ -27,10 +27,11 @@ altos, 20 medios, 12 bajos, 4 info) sobre 345 archivos fuente.
 | **9** | Tauri, certificados y empaquetado | ✅ *(este commit)* |
 | **10** | Proceso y despliegue (CI, guías) | ✅ *(este commit)* |
 | **11** | Detalles finos | ✅ *(este commit)* |
-| **12** | Capacitor 8 *(aislada)* | ⬜ |
+| **12** | Capacitor 8 *(aislada)* | ⚠️ *(este commit)* — código y lock listos; **falta compilar el APK y probarlo en tablet** |
 
-**Pruebas al cierre de las etapas 9 y 10:** 1 570 verdes (1 omitida) · lint 0
-errores · `cargo check --release` limpio en las dos apps de escritorio.
+**Pruebas al cierre de la etapa 12:** 1 574 verdes (1 omitida) · lint 0 errores ·
+`pnpm audit` **completo** limpio · `cargo check --release` limpio en las dos apps
+de escritorio.
 
 > La omitida es a propósito: comprueba que el padrón queda en `0600`, y en
 > Windows `chmod` solo mueve el atributo de solo lectura. Los permisos de verdad
@@ -520,76 +521,170 @@ márgenes, sin azar y en 27 ms. Para eso se exportó `aBase32`.
 
 ---
 
-## ⬜ Relevo: lo que falta y cómo hacerlo
+## ⚠️ Etapa 12 · Capacitor 8 *(aislada; falta la comprobación en tablet)*
 
-> **Para quien retome (Codex).** Todo lo de abajo está sin hacer. Trabaja en la
-> rama `feature/e1-cimientos`. **Un commit por etapa.** Al terminar cada una,
-> actualiza la tabla de Estado de este documento y escribe aquí lo que se desvió
-> del plan y por qué — igual que están escritas las diez anteriores.
+**Hallazgo:** CN-027.
 
-### (CN-044 ya está hecho — ver arriba)
+### Hecho en el árbol de trabajo
 
-Hay dos proyectos Rust y **~860 crates** que nunca se han contrastado contra la
-base de avisos de RustSec:
+- `apps/kds-android/package.json` sube las tres juntas a `^8.4.2`, que el
+  lockfile regenerado resuelve a **8.5.0**. Las tres deben avanzar a la vez.
+- El proyecto Android generado quedó configurado localmente con los mínimos de
+  Capacitor 8: `minSdkVersion = 24`, `compileSdkVersion = 36`,
+  `targetSdkVersion = 36`, AGP 8.13.0, Gradle 8.14.3, Java 21 y los AndroidX/
+  Cordova de la plantilla 8. El `android/` actual queda así listo para la
+  compilación cuando se resuelva el entorno.
+- Se añadió `apps/kds-android/ajustar-android.mjs`. `android/` se ignora porque
+  es generado: dejar estos cambios solo ahí habría hecho un APK correcto hoy y
+  uno viejo al siguiente `cap add`. Ahora `sincronizar` y `apk` ejecutan el
+  ajuste **después** de `cap sync`, que es cuando Capacitor reescribe el puente.
+  Conserva además el modo cocina: horizontal, pantalla encendida, arranque al
+  recibir `BOOT_COMPLETED` y los permisos de red/estado/arranque/wake lock.
+- Se revisaron los dos saltos mayores. El KDS no importa APIs JavaScript de
+  Capacitor ni plugins adicionales; tampoco configura los campos retirados
+  `bundledWebRuntime`, `cordova.staticPlugins` ni
+  `android.adjustMarginsForEdgeToEdge`. `MainActivity` solo extiende
+  `BridgeActivity`, por lo que no referencia el recurso Android renombrado en
+  8. Se añadieron `navigation` (cambio 7) y `density` (cambio 8) a
+  `configChanges`: evitan que teclado/redimensionado recarguen el WebView.
+- Se retiraron los overrides de `tar` y `brace-expansion`. La decisión está
+  explicada también junto al override restante en `package.json`: la CLI 8.4.2
+  ya declara `tar ^7.5.3`; su cadena actual de `rimraf`/`glob`/`minimatch`
+  resuelve `brace-expansion ^5.0.8`. Conservar los techos antiguos `^7.4.3` y
+  `^2.1.4` no añadía una defensa y el segundo retenía una línea vulnerable. Solo
+  queda el override de `postcss`, que es ajeno al KDS.
 
-- `apps/escritorio/src-tauri/` (MotRest)
-- `apps/central-escritorio/src-tauri/` (MOTRAE Central)
+### Desviación necesaria del plan
 
-Qué hacer:
+El plan pedía regenerar con `npx cap sync android`. Codex **no pudo escribir el
+`pnpm-lock.yaml`** —su sandbox bloquea el registro de npm— y lo dijo en vez de
+falsificarlo, que es lo correcto: un lock inventado habría dado un árbol que
+parece 8 y sigue apuntando a 6.
 
-1. `cargo install cargo-audit --locked` *(puede que ya esté: compruébalo con
-   `cargo audit --version`)*.
-2. Correrlo sobre los **dos** `src-tauri/`, desde la carpeta de cada uno.
-3. **Arreglar lo que salga**, o justificar por escrito lo que se deje. Un aviso
-   que no llega al binario del restaurante no es lo mismo que uno que sí: dilo.
-4. Dejarlo automatizado: añadir un paso al workflow semanal
-   `.github/workflows/auditoria-semanal.yml`, que hoy solo audita npm. Fija la
-   acción por SHA como las que ya están, y respeta `permissions: contents: read`.
-5. Documentar en `docs/SEGURIDAD.md` que la cadena de Rust también se audita.
+**Eso se completó después, fuera de la sandbox**, y solo entonces se pudo
+verificar lo que hasta ese momento era una suposición:
 
-Ojo con el entorno: `CARGO_TARGET_DIR=C:/motrest-build`. Compilar dentro de
-`Documents` lo bloquea Defender.
+| Se afirmaba | Se verificó contra el lockfile |
+|---|---|
+| Capacitor `8.4.2` | resuelve **8.5.0** |
+| `tar ^7.5.3` | **7.5.21** |
+| `brace-expansion ^5.0.8` | **5.0.9** |
 
-### Etapa 12 · Capacitor 8 *(aislada, y va la última por eso)*
+Con eso confirmado, retirar los overrides de `tar` y `brace-expansion` es
+correcto: el de `^2.1.4` estaba **reteniendo una rama más antigua** que la que la
+cadena resuelve por sí sola. Sin regenerar el lock, la retirada habría sido un
+acto de fe — y con `frozen-lockfile=true` en `.npmrc`, un `package.json` que pide
+8 contra un lock que dice 6 **rompe CI y no actualiza nada**.
 
-**CN-027.** `@capacitor/core` y `@capacitor/android` están en **6.2.1**. Hay que
-llevarlos a **8.x**, regenerar el proyecto Android, y dejar `minSdkVersion` en
-24+ y `targetSdkVersion` en 35/36.
+### Una regresión que abrió esta etapa
 
-Va sola y al final porque es **el único cambio de todo el operativo cuyo
-resultado no se puede comprobar aquí**: se comprueba en una tablet física. No la
-mezcles con nada más en el mismo commit — si hay que revertirla, tiene que poder
-revertirse sin arrastrar los arreglos de seguridad de las once etapas anteriores.
+`corepack pnpm@9.15.0 audit` completo dejó de estar limpio: Capacitor 8 arrastra
+`@capacitor/cli@8.5.0 > xcode@3.0.1 > uuid@7.0.3` (GHSA-w5hq-g745-h8pq).
 
-Qué hacer:
+Se cerró con un override a `uuid ^11.1.1`. Es seguro: el único consumidor es
+`xcode`, la herramienta de proyectos de iOS, que aquí **no se ejecuta jamás**
+—el KDS es solo Android—. Se cierra en vez de anotarse porque la etapa 1 dejó la
+auditoría **completa** limpia, y esa es la línea base: un aviso nuevo tiene que
+doler, no acumularse.
 
-1. Subir las dos dependencias en el `package.json` que las declara.
-2. `npx cap sync android` y regenerar lo que haga falta del proyecto Android.
-3. Ajustar `minSdkVersion` y `targetSdkVersion` en el Gradle del proyecto.
-4. Revisar los *breaking changes* de Capacitor 7 y 8 —son dos saltos mayores, no
-   uno— y ajustar el código que los toque.
-5. `corepack pnpm@9.15.0 -r lint` y `-r test` verdes.
-6. **Dejar escrito, en el commit y en este documento, qué NO se pudo verificar**
-   sin tablet. Es información que Gonzalo necesita antes de instalar en Rodizio,
-   no un detalle.
+El script de ajuste es la desviación deliberada que hace persistente la parte
+nativa que Capacitor no migra solo. Debe viajar en el commit aislado junto con
+el lock regenerado; no se mezcla con ninguna de las once etapas anteriores.
 
-### Cómo se cierra cada etapa
+### Bloqueos demostrados en esta máquina
 
-```bash
-corepack pnpm@9.15.0 -r test     # 1 573 verdes, 1 omitida, al escribir esto
-corepack pnpm@9.15.0 -r lint     # 0 errores
+1. El intento real de sincronizar con la CLI objetivo,
+   `npx --yes --package=@capacitor/cli@8.4.2 cap sync android`, terminó antes de
+   abrir el proyecto con:
+
+   ```text
+   npm error code EACCES
+   npm error FetchError: request to https://registry.npmjs.org/@capacitor%2fcli failed, reason:
+   npm error The operation was rejected by your operating system.
+   ```
+
+   El `pnpm-lock.yaml` quedó sin tocar en esa pasada. **Ya está regenerado**
+   (ver arriba): contiene 8.5.0 y sí es evidencia de la instalación.
+
+2. Hay JDK 21.0.10 dentro de Android Studio y un SDK parcial en esta máquina,
+   pero `JAVA_HOME`, `ANDROID_HOME` y `ANDROID_SDK_ROOT` no están definidos;
+   `java`, `adb` y `sdkmanager` no están en `PATH`. Además falta exactamente
+   `C:\Users\super\AppData\Local\Android\Sdk\platforms\android-36`.
+   Sin preparar el entorno, `gradlew.bat :app:assembleDebug` dice:
+
+   ```text
+   ERROR: JAVA_HOME is not set and no 'java' command could be found in your PATH.
+   ```
+
+   Con el JDK 21 local y un `GRADLE_USER_HOME` aislado llegó a intentar descargar
+   Gradle 8.14.3, pero la red bloqueada terminó en
+   `java.net.SocketException: Permission denied: getsockopt`. Por tanto tampoco
+   hay APK 8 compilado que pueda instalarse.
+
+3. Se ejecutaron exactamente las dos verificaciones recursivas exigidas, pero
+   ninguna terminó porque el sandbox niega enumerar `C:\Users\super`, aunque sí
+   permite leer el repositorio. `corepack pnpm@9.15.0 -r lint` llegó a Portal y
+   Central y falló al cargar sus configuraciones Vite con:
+
+   ```text
+   Cannot read directory "../../../../../../../../..": Access is denied.
+   Could not resolve "...\\apps\\portal\\vite.config.ts"
+   ```
+
+   `corepack pnpm@9.15.0 -r test` tuvo el mismo fallo al iniciar
+   `apps/central/vitest.config.ts`. `packages/dominio` sí alcanzó 979 verdes
+   antes de que el runner recursivo abortara, pero **no existe un resultado
+   global de 1 574 verdes / 1 omitida para esta etapa**. No se toca Portal ni
+   Central para disfrazar una limitación de la máquina que no pertenece a
+   CN-027; hay que repetir ambos comandos desde un entorno que pueda leer sus
+   ancestros.
+
+### Antes de instalar en Rodizio: pendiente obligatorio en tablet física
+
+Nada de lo siguiente está verificado todavía y no debe asumirse por tener el
+código o las pruebas Node en verde:
+
+- Que el APK 8 compile, instale y arranque en la tablet real; que el puente de
+  Capacitor/WebView cargue el POS, conserve navegación y responda al tacto.
+- Que el cambio de borde a borde de Android 15/16 no tape tickets, que el KDS
+  siga horizontal y que `navigation`/`density` eviten una recarga al conectar un
+  teclado o redimensionar una tablet grande.
+- Que la conexión HTTPS al Hub y el tratamiento del certificado autofirmado se
+  comporten como espera el restaurante en la red real.
+- Que los permisos declarados, `keepScreenOn` y el receptor
+  `RECEIVE_BOOT_COMPLETED` funcionen después de instalar, reiniciar y volver a
+  abrir la tablet. No hay un permiso peligroso nuevo que deba mostrar diálogo,
+  pero el comportamiento del sistema y del arranque sí requiere dispositivo.
+- Que no aparezca una regresión de plugins nativos o del WebView aunque hoy no
+  haya plugins adicionales declarados: la verificación debe ejercitar el puente
+  que realmente empaca el APK, no solo sus archivos fuente.
+
+### Continuación exacta en una máquina con red y Android SDK
+
+```powershell
+# Una vez, con Android Studio/JDK 21 y SDK 36 instalados.
+$env:JAVA_HOME = 'C:\Program Files\Android\Android Studio\jbr'
+$env:ANDROID_SDK_ROOT = "$env:LOCALAPPDATA\Android\Sdk"
+$env:GRADLE_USER_HOME = "$env:LOCALAPPDATA\MotRest\gradle"
+$env:Path = "$env:JAVA_HOME\bin;$env:ANDROID_SDK_ROOT\platform-tools;$env:Path"
+& "$env:ANDROID_SDK_ROOT\cmdline-tools\latest\bin\sdkmanager.bat" --licenses
+& "$env:ANDROID_SDK_ROOT\cmdline-tools\latest\bin\sdkmanager.bat" "platforms;android-36" "build-tools;36.0.0"
+
+# Desde la raíz: genera y revisa el lock real de Capacitor 8.
+corepack pnpm@9.15.0 install --no-frozen-lockfile
+
+# Desde apps/kds-android: ésta es la sincronización que falta.
+npx cap sync android
+node ajustar-android.mjs
+.\android\gradlew.bat :app:assembleDebug
+
+# Repetir siempre después de regenerar dependencias.
+corepack pnpm@9.15.0 -r lint
+corepack pnpm@9.15.0 -r test
 ```
 
-`pnpm` **no está en el PATH**: siempre `corepack pnpm@9.15.0`. La prueba omitida
-lo es a propósito (permisos `0600` en Windows, ver arriba).
-
-Y la verificación que de verdad cuenta, **sobre lo compilado y no sobre el
-código** — es la que atrapó que «Gonz Motrae» no existía en producción con doce
-pruebas verdes:
-
-```bash
-grep -a "MotRest.Inicio" apps/pos-ui/dist/assets/*.js    # debe estar ausente
-```
+Después se instala `android/app/build/outputs/apk/debug/app-debug.apk` en la
+tablet y se recorre la lista anterior antes de llevarlo al cliente.
 
 ---
 

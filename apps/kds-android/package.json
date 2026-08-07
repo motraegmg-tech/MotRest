@@ -6,15 +6,16 @@
   "type": "module",
   "scripts": {
     "preparar": "node preparar.mjs",
-    "sincronizar": "cap sync android",
-    "apk": "node preparar.mjs && cap sync android && cd android && gradlew.bat assembleDebug",
+    "ajustar-android": "node ajustar-android.mjs",
+    "sincronizar": "cap sync android && node ajustar-android.mjs",
+    "apk": "node preparar.mjs && cap sync android && node ajustar-android.mjs && cd android && gradlew.bat assembleDebug",
     "abrir": "cap open android"
   },
   "dependencies": {
-    "@capacitor/android": "^6.2.1",
-    "@capacitor/core": "^6.2.1"
+    "@capacitor/android": "^8.4.2",
+    "@capacitor/core": "^8.4.2"
   },
   "devDependencies": {
-    "@capacitor/cli": "^6.2.1"
+    "@capacitor/cli": "^8.4.2"
   }
 }
