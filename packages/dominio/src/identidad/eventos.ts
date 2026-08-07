@@ -8,8 +8,8 @@
  */
 import type { ID } from "../comun/ids.js";
 import type { EventoBase } from "../evento.js";
-import type { Accion } from "./acciones.js";
-import type { Permiso, RolId } from "./roles.js";
+import { definicionAccion, type Accion } from "./acciones.js";
+import { ROLES, type Permiso, type RolId } from "./roles.js";
 
 export type EventoIdentidad =
   | (EventoBase & {
@@ -101,4 +101,166 @@ export type TipoEventoIdentidad = EventoIdentidad["tipo"];
 /** Stream al que van los eventos de identidad de una sucursal. */
 export function streamIdentidad(sucursal_id: ID): ID {
   return `identidad:${sucursal_id}`;
+}
+
+/**
+ * Tipos que sí puede consumir la proyección de identidad.
+ *
+ * El event log también contiene comandas, caja, inventario y eventos futuros.
+ * Reducir uno de ellos como si fuera identidad corrompería la proyección: el
+ * default exhaustivo del reducer solo es seguro después de esta frontera de
+ * ejecución.
+ */
+const TIPOS_EVENTO_IDENTIDAD = new Set<string>([
+  "sesion_iniciada",
+  "sesion_cerrada",
+  "acceso_rechazado",
+  "autorizacion_otorgada",
+  "autorizacion_denegada",
+  "usuario_creado",
+  "usuario_actualizado",
+  "credencial_cambiada",
+  "acceso_recuperado",
+  "usuario_bloqueado",
+  "usuario_desbloqueado",
+]);
+
+/** Distingue un tipo de identidad antes de intentar reducirlo. */
+export function esTipoEventoIdentidad(tipo: string): tipo is TipoEventoIdentidad {
+  return TIPOS_EVENTO_IDENTIDAD.has(tipo);
+}
+
+function esRegistro(valor: unknown): valor is Record<string, unknown> {
+  return typeof valor === "object" && valor !== null && !Array.isArray(valor);
+}
+
+function esTexto(valor: unknown): valor is string {
+  return typeof valor === "string" && valor.trim().length > 0;
+}
+
+function esRolId(valor: unknown): valor is RolId {
+  return typeof valor === "string" && Object.prototype.hasOwnProperty.call(ROLES, valor);
+}
+
+function esAccion(valor: unknown): valor is Accion {
+  return typeof valor === "string" && definicionAccion(valor as Accion) !== undefined;
+}
+
+function esPermiso(valor: unknown): valor is Permiso {
+  if (!esRegistro(valor)) return false;
+  return (
+    esAccion(valor.accion) &&
+    (valor.nivel === "ver" || valor.nivel === "operar" || valor.nivel === "autorizar") &&
+    (valor.limite === undefined ||
+      (typeof valor.limite === "number" && Number.isFinite(valor.limite) && valor.limite >= 0))
+  );
+}
+
+function esListaDePermisos(valor: unknown): valor is Permiso[] {
+  return Array.isArray(valor) && valor.every(esPermiso);
+}
+
+function esSobreDeIdentidad(evento: Record<string, unknown>): boolean {
+  return (
+    esTexto(evento.id) &&
+    typeof evento.ts === "number" &&
+    Number.isFinite(evento.ts) &&
+    typeof evento.orden_local === "number" &&
+    Number.isSafeInteger(evento.orden_local) &&
+    esTexto(evento.device_id) &&
+    esTexto(evento.empleado_id) &&
+    esTexto(evento.sucursal_id) &&
+    esTexto(evento.stream_id) &&
+    typeof evento.v === "number" &&
+    Number.isSafeInteger(evento.v)
+  );
+}
+
+/**
+ * Valida en tiempo de ejecución los once formatos de identidad.
+ *
+ * El Hub recibe JSON de terminales y el almacenamiento puede contener datos de
+ * versiones anteriores. Por eso el tipo de TypeScript no basta antes de pasar
+ * algo a aplicarEventoIdentidad.
+ */
+export function esEventoIdentidad(evento: unknown): evento is EventoIdentidad {
+  if (!esRegistro(evento) || !esSobreDeIdentidad(evento) || !esTipoEventoIdentidad(String(evento.tipo))) {
+    return false;
+  }
+
+  switch (evento.tipo) {
+    case "sesion_iniciada":
+      return (
+        esTexto(evento.usuario_id) &&
+        esRolId(evento.rol_id) &&
+        (evento.cambio_rapido === undefined || typeof evento.cambio_rapido === "boolean")
+      );
+
+    case "sesion_cerrada":
+    case "acceso_recuperado":
+      return esTexto(evento.usuario_id);
+
+    case "acceso_rechazado":
+      return (
+        (evento.usuario_id === undefined || esTexto(evento.usuario_id)) &&
+        (evento.motivo === "credencial_invalida" ||
+          evento.motivo === "usuario_inactivo" ||
+          evento.motivo === "bloqueo_por_intentos")
+      );
+
+    case "autorizacion_otorgada":
+      return (
+        esAccion(evento.accion) &&
+        esTexto(evento.solicitante_id) &&
+        esTexto(evento.autorizador_id) &&
+        (evento.contexto === undefined || typeof evento.contexto === "string")
+      );
+
+    case "autorizacion_denegada":
+      return esAccion(evento.accion) && esTexto(evento.solicitante_id) && esTexto(evento.motivo);
+
+    case "usuario_creado":
+      return (
+        esTexto(evento.usuario_id) &&
+        esTexto(evento.nombre) &&
+        esTexto(evento.puesto) &&
+        esRolId(evento.rol_id) &&
+        esListaDePermisos(evento.permisos)
+      );
+
+    case "usuario_actualizado": {
+      if (!esTexto(evento.usuario_id) || !esRegistro(evento.cambios)) return false;
+      const cambios = evento.cambios;
+      const claves = Object.keys(cambios);
+      if (claves.length === 0 || claves.some((clave) => !["nombre", "rol_id", "permisos", "activo"].includes(clave))) {
+        return false;
+      }
+      return (
+        (cambios.nombre === undefined || esTexto(cambios.nombre)) &&
+        (cambios.rol_id === undefined || esRolId(cambios.rol_id)) &&
+        (cambios.permisos === undefined || esListaDePermisos(cambios.permisos)) &&
+        (cambios.activo === undefined || typeof cambios.activo === "boolean")
+      );
+    }
+
+    case "credencial_cambiada":
+      return (
+        esTexto(evento.usuario_id) &&
+        (evento.tipo_credencial === "contrasena" || evento.tipo_credencial === "pin") &&
+        (evento.autorizador_id === undefined || esTexto(evento.autorizador_id))
+      );
+
+    case "usuario_bloqueado":
+      return (
+        esTexto(evento.usuario_id) &&
+        typeof evento.intentos === "number" &&
+        Number.isSafeInteger(evento.intentos) &&
+        evento.intentos > 0
+      );
+
+    case "usuario_desbloqueado":
+      return esTexto(evento.usuario_id) && esTexto(evento.desbloqueado_por);
+  }
+
+  return false;
 }

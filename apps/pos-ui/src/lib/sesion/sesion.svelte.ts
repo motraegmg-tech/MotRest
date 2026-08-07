@@ -216,6 +216,39 @@ class Sesion {
     void this.guardarSesionActiva();
   }
 
+  /**
+   * Escribe la semilla de identidad en el mismo event log que verá el Hub.
+   *
+   * La proyección local ya parte de esta semilla para poder mostrar el primer
+   * acceso, pero el Hub no puede confiar en una constante que solo vive en la
+   * interfaz. El propietario se emite primero y firma el resto del lote.
+   */
+  async sembrarUsuariosIniciales(almacen: Almacen): Promise<void> {
+    if (this.eventos.some((evento) => evento.tipo === "usuario_creado")) return;
+
+    const propietario = USUARIOS_SEMILLA.find((sembrado) => sembrado.usuario.rol_id === "propietario")
+      ?.usuario;
+    if (!propietario) throw new Error("La semilla de identidad no tiene propietario");
+
+    const empleadoAnterior = this.fabrica.empleadoActual;
+    this.fabrica.actualizarContexto({ empleado_id: propietario.id });
+    try {
+      const eventos = USUARIOS_SEMILLA.map(({ usuario }) =>
+        this.fabrica.crear("usuario_creado", STREAM, {
+          usuario_id: usuario.id,
+          nombre: usuario.nombre,
+          puesto: usuario.puesto,
+          rol_id: usuario.rol_id,
+          permisos: usuario.permisos.map((permiso) => ({ ...permiso })),
+        }),
+      );
+      await almacen.eventos.anexar(eventos);
+      this.eventos = [...this.eventos, ...eventos];
+    } finally {
+      this.fabrica.actualizarContexto({ empleado_id: empleadoAnterior });
+    }
+  }
+
   private async guardarSecretos(): Promise<void> {
     if (!this.almacen) return;
     try {

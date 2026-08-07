@@ -14,8 +14,25 @@
  * La clase no conoce WebSocket ni red: habla con "conexiones" abstractas, para
  * poder probar el protocolo completo sin levantar un servidor.
  */
-import { evaluar, type Accion, type Usuario } from "@motrest/dominio";
-import type { EventoBase, ID } from "@motrest/dominio";
+import {
+  aplicarEventoIdentidad,
+  esEventoIdentidad,
+  esTipoEventoIdentidad,
+  evaluar,
+  permisosDePlantilla,
+  permisosNoOtorgables,
+  puedeAutorizar,
+  puedeGestionarA,
+  proyectarIdentidad,
+  rolesAsignablesPor,
+  streamIdentidad,
+  type Accion,
+  type EstadoIdentidad,
+  type EventoBase,
+  type EventoIdentidad,
+  type ID,
+  type Usuario,
+} from "@motrest/dominio";
 import {
   VERSION_PROTOCOLO,
   catalogoMasNuevo,
@@ -55,10 +72,16 @@ export interface OpcionesHub {
    * donde todavía no hay nadie que pueda aprobar a nadie.
    */
   exigirAprobacion?: boolean;
-  /** Resuelve un empleado para revalidar permisos. */
+  /**
+   * Compatibilidad para consumidores embebidos durante la migración.
+   *
+   * El proceso real carga la proyección desde el stream de identidad con
+   * `cargarIdentidad`; este resolver solo queda para pruebas y adaptadores que
+   * todavía no administran dicho stream.
+   */
   usuarioDe?: (empleadoId: ID) => Usuario | undefined;
-  /** Persiste un catálogo aceptado, para que sobreviva al reinicio del Hub. */
-  guardarCatalogo?: (catalogo: Catalogo) => void;
+  /** Persiste un catálogo aceptado, separando el origen de confianza. */
+  guardarCatalogo?: (catalogo: Catalogo, origen: "terminal" | "hub") => void;
   /** Enlaces de emparejamiento, uno por dirección del Hub en la red. */
   enlaces?: () => { etiqueta: string; url: string }[];
   registrar?: (nivel: "info" | "aviso" | "error", mensaje: string) => void;
@@ -96,15 +119,89 @@ const PERMISO_POR_EVENTO: Partial<Record<string, Accion>> = {
   caja_cerrada: "caja.corte.sellar",
   movimiento_efectivo: "caja.retiro.registrar",
   conteo_registrado: "inv.conteo.cerrar",
+  usuario_creado: "admin.usuario.crear",
+  usuario_actualizado: "admin.usuario.editar",
+  usuario_desbloqueado: "admin.usuario.editar",
 };
+
+/** Estos catálogos los publica exclusivamente el proceso del Hub. */
+const CATALOGOS_RESERVADOS = new Set([
+  "licencia_estado",
+  "actualizacion_estado",
+  "modo_abierto",
+]);
+
+function catalogoValido(catalogo: Catalogo): boolean {
+  return (
+    typeof catalogo?.clave === "string" &&
+    catalogo.clave.trim().length > 0 &&
+    typeof catalogo.version === "number" &&
+    Number.isSafeInteger(catalogo.version) &&
+    catalogo.version >= 0 &&
+    typeof catalogo.updated_at === "number" &&
+    Number.isFinite(catalogo.updated_at)
+  );
+}
 
 export class Hub {
   private sesiones = new Map<string, Sesion>();
   private catalogos = new Map<string, Catalogo>();
   private log: LogHub;
+  /** Proyección autoritativa, cargada antes de abrir el canal de sincronización. */
+  private identidad: EstadoIdentidad | null = null;
+  private sucursalDeIdentidad: ID | null = null;
+  private streamDeIdentidad: ID | null = null;
 
   constructor(private opciones: OpcionesHub) {
     this.log = opciones.log;
+  }
+
+  /**
+   * Carga el único stream que da identidad a esta instancia del Hub.
+   *
+   * No usa `porTipo`: leer el stream evita seis recorridos completos del log
+   * y deja la proyección lista para la validación síncrona de cada push.
+   */
+  cargarIdentidad(sucursalId: ID, eventos: readonly EventoBase[]): void {
+    const stream = streamIdentidad(sucursalId);
+    const identidad = eventos.filter(
+      (evento): evento is EventoIdentidad =>
+        evento.sucursal_id === sucursalId &&
+        evento.stream_id === stream &&
+        esEventoIdentidad(evento),
+    );
+
+    this.sucursalDeIdentidad = sucursalId;
+    this.streamDeIdentidad = stream;
+    this.identidad = proyectarIdentidad([], identidad);
+    this.anotar(
+      "info",
+      `Identidad cargada: ${this.identidad.usuarios.length} usuario(s), ${identidad.length} evento(s).`,
+    );
+  }
+
+  /** Usuario de la proyección actual, o del adaptador heredado si no se cargó una. */
+  private usuarioDe(empleadoId: ID, identidad = this.identidad): Usuario | undefined {
+    if (identidad) return identidad.usuarios.find((usuario) => usuario.id === empleadoId);
+    return this.opciones.usuarioDe?.(empleadoId);
+  }
+
+  /** Aplica solo eventos de identidad válidos al estado provisional del lote. */
+  private actualizarIdentidad(
+    identidad: EstadoIdentidad | null,
+    evento: EventoBase,
+  ): EstadoIdentidad | null {
+    if (
+      !identidad ||
+      !this.sucursalDeIdentidad ||
+      !this.streamDeIdentidad ||
+      evento.sucursal_id !== this.sucursalDeIdentidad ||
+      evento.stream_id !== this.streamDeIdentidad ||
+      !esEventoIdentidad(evento)
+    ) {
+      return identidad;
+    }
+    return aplicarEventoIdentidad(identidad, evento);
   }
 
   private anotar(nivel: "info" | "aviso" | "error", mensaje: string): void {
@@ -245,13 +342,20 @@ export class Hub {
     const aceptados: Catalogo[] = [];
 
     for (const catalogo of catalogos) {
-      if (typeof catalogo?.clave !== "string" || typeof catalogo.version !== "number") continue;
+      if (!catalogoValido(catalogo)) continue;
+      if (CATALOGOS_RESERVADOS.has(catalogo.clave)) {
+        this.anotar(
+          "aviso",
+          `Terminal ${origen.device_id} intentó publicar el catálogo reservado ${catalogo.clave}.`,
+        );
+        continue;
+      }
 
       const actual = this.catalogos.get(catalogo.clave) ?? null;
       if (!catalogoMasNuevo(catalogo, actual)) continue;
 
       this.catalogos.set(catalogo.clave, catalogo);
-      this.opciones.guardarCatalogo?.(catalogo);
+      this.opciones.guardarCatalogo?.(catalogo, "terminal");
       aceptados.push(catalogo);
     }
 
@@ -265,9 +369,22 @@ export class Hub {
     }
   }
 
-  /** Carga los catálogos guardados al arrancar el Hub. */
+  /** Carga los catálogos replicados por terminales, nunca los reservados. */
   cargarCatalogos(catalogos: readonly Catalogo[]): void {
-    for (const catalogo of catalogos) this.catalogos.set(catalogo.clave, catalogo);
+    for (const catalogo of catalogos) {
+      if (!catalogoValido(catalogo) || CATALOGOS_RESERVADOS.has(catalogo.clave)) continue;
+      const actual = this.catalogos.get(catalogo.clave) ?? null;
+      if (catalogoMasNuevo(catalogo, actual)) this.catalogos.set(catalogo.clave, catalogo);
+    }
+  }
+
+  /** Carga el estado que el proceso del Hub publicó y persistió por separado. */
+  cargarCatalogosInternos(catalogos: readonly Catalogo[]): void {
+    for (const catalogo of catalogos) {
+      if (!catalogoValido(catalogo) || !CATALOGOS_RESERVADOS.has(catalogo.clave)) continue;
+      const actual = this.catalogos.get(catalogo.clave) ?? null;
+      if (catalogoMasNuevo(catalogo, actual)) this.catalogos.set(catalogo.clave, catalogo);
+    }
   }
 
   /** Los datos de un catálogo, para quien los necesite dentro del Hub. */
@@ -290,6 +407,7 @@ export class Hub {
 
     const acks = this.log.ingerir(validos);
     if (acks.length === 0) return;
+    for (const evento of validos) this.identidad = this.actualizarIdentidad(this.identidad, evento);
     this.opciones.alIngerir?.(validos);
 
     const menor = acks.reduce((n, a) => Math.min(n, a.seq), Infinity);
@@ -316,14 +434,24 @@ export class Hub {
    * propia caja.
    */
   publicarCatalogo(clave: string, datos: unknown): void {
+    const previo = this.catalogos.get(clave);
+    /*
+     * Los catálogos reservados usan una versión anclada al reloj del Hub.
+     * Así una licencia falsa de la vulnerabilidad anterior (por ejemplo,
+     * versión 999999) no puede ganarle al primer estado auténtico tras migrar.
+     */
+    const base = CATALOGOS_RESERVADOS.has(clave)
+      ? Math.max(previo?.version ?? 0, Date.now())
+      : (previo?.version ?? 0);
+    const version = base >= Number.MAX_SAFE_INTEGER ? Number.MAX_SAFE_INTEGER : base + 1;
     const catalogo: Catalogo = {
       clave,
-      version: (this.catalogos.get(clave)?.version ?? 0) + 1,
+      version,
       updated_at: Date.now(),
       datos,
     };
     this.catalogos.set(clave, catalogo);
-    this.opciones.guardarCatalogo?.(catalogo);
+    this.opciones.guardarCatalogo?.(catalogo, "hub");
 
     for (const sesion of this.sesiones.values()) {
       if (!sesion.saludado) continue;
@@ -366,6 +494,16 @@ export class Hub {
         tipo: "error",
         codigo: "version_incompatible",
         mensaje: `Este Hub habla la versión ${VERSION_PROTOCOLO} del protocolo y el dispositivo la ${mensaje.v}. Actualiza la terminal.`,
+      });
+      sesion.conexion.cerrar();
+      return;
+    }
+
+    if (this.sucursalDeIdentidad && mensaje.sucursal_id !== this.sucursalDeIdentidad) {
+      sesion.conexion.enviar({
+        tipo: "error",
+        codigo: "sucursal_distinta",
+        mensaje: "Este Hub pertenece a otra sucursal.",
       });
       sesion.conexion.cerrar();
       return;
@@ -436,6 +574,10 @@ export class Hub {
    */
   private ingerir(sesion: Sesion, eventos: readonly unknown[]): void {
     const aceptados: EventoBase[] = [];
+    // El lote puede contener la semilla completa: cada evento siguiente debe
+    // ver lo que los anteriores ya validaron, pero el estado real solo cambia
+    // cuando SQLite confirma todo el lote.
+    let identidadProvisional = this.identidad;
 
     for (const crudo of eventos) {
       if (!eventoValido(crudo)) {
@@ -458,7 +600,7 @@ export class Hub {
         continue;
       }
 
-      const veto = this.revalidarPermiso(crudo);
+      const veto = this.revalidarPermiso(crudo, identidadProvisional);
       if (veto) {
         this.anotar("aviso", `Permiso denegado en el Hub: ${crudo.tipo} de ${crudo.empleado_id}`);
         sesion.conexion.enviar({
@@ -471,11 +613,13 @@ export class Hub {
       }
 
       aceptados.push(crudo);
+      identidadProvisional = this.actualizarIdentidad(identidadProvisional, crudo);
     }
 
     if (aceptados.length === 0) return;
 
     const acks = this.log.ingerir(aceptados);
+    if (acks.length > 0) this.identidad = identidadProvisional;
     if (acks.length > 0) this.opciones.alIngerir?.(aceptados);
     sesion.conexion.enviar({ tipo: "acks", acks });
 
@@ -527,26 +671,139 @@ export class Hub {
    * Vuelve a comprobar el permiso en el servidor.
    *
    * El cliente ya lo evaluó, pero eso es para la experiencia: un cliente
-   * manipulado puede mandar lo que quiera. Sin `usuarioDe` el Hub todavía no
-   * conoce la plantilla de usuarios y solo arbitra la secuencia — se documenta
-   * como pendiente en vez de fingir que valida.
+   * manipulado puede mandar lo que quiera. La proyección del stream de
+   * identidad es la autoridad; si todavía no está cargada, se rechaza una
+   * acción sensible en vez de aceptar a ciegas.
    */
-  private revalidarPermiso(evento: EventoBase): string | null {
-    const accion = PERMISO_POR_EVENTO[evento.tipo];
-    if (!accion || !this.opciones.usuarioDe) return null;
+  private revalidarPermiso(
+    evento: EventoBase,
+    identidad: EstadoIdentidad | null,
+  ): string | null {
+    if (esTipoEventoIdentidad(evento.tipo)) {
+      if (!esEventoIdentidad(evento)) return "El evento de identidad no tiene una forma válida";
+      return this.revalidarEventoIdentidad(evento, identidad);
+    }
 
-    const usuario = this.opciones.usuarioDe(evento.empleado_id);
+    const accion = PERMISO_POR_EVENTO[evento.tipo];
+    if (!accion) return null;
+    return this.revalidarAccion(evento, accion, identidad);
+  }
+
+  /** Las altas y cambios de usuarios no pueden crear una escalada circular. */
+  private revalidarEventoIdentidad(
+    evento: EventoIdentidad,
+    identidad: EstadoIdentidad | null,
+  ): string | null {
+    if (!identidad || !this.sucursalDeIdentidad || !this.streamDeIdentidad) {
+      return "El Hub todavía no cargó la identidad del local";
+    }
+    if (
+      evento.sucursal_id !== this.sucursalDeIdentidad ||
+      evento.stream_id !== this.streamDeIdentidad
+    ) {
+      return "El evento de identidad pertenece a otro stream del local";
+    }
+
+    /*
+     * Arranque de confianza inicial. Antes de existir un usuario no hay quien
+     * firme el primer usuario; se permite únicamente que ese mismo propietario
+     * se declare a sí mismo. Queda en el event log y la primera terminal ya
+     * pasó por la confianza en el primer uso del Hub.
+     */
+    if (
+      evento.tipo === "usuario_creado" &&
+      identidad.usuarios.length === 0 &&
+      evento.rol_id === "propietario" &&
+      evento.usuario_id === evento.empleado_id
+    ) {
+      return null;
+    }
+
+    const accion = PERMISO_POR_EVENTO[evento.tipo];
+    if (!accion) return null;
+
+    const permiso = this.revalidarAccion(evento, accion, identidad, false);
+    if (permiso) return permiso;
+
+    const actor = this.usuarioDe(evento.empleado_id, identidad);
+    if (!actor) return `Empleado desconocido: ${evento.empleado_id}`;
+
+    switch (evento.tipo) {
+      case "usuario_creado": {
+        if (!rolesAsignablesPor(actor).includes(evento.rol_id)) {
+          return `${actor.nombre} no puede crear un usuario con el rol ${evento.rol_id}`;
+        }
+        const permisos = evento.permisos.length > 0
+          ? evento.permisos
+          : permisosDePlantilla(evento.rol_id);
+        if (permisosNoOtorgables(actor, permisos).length > 0) {
+          return `${actor.nombre} intentó otorgar permisos que no posee`;
+        }
+        return null;
+      }
+
+      case "usuario_actualizado": {
+        const objetivo = this.usuarioDe(evento.usuario_id, identidad);
+        if (!objetivo) return `Usuario a actualizar desconocido: ${evento.usuario_id}`;
+        if (!puedeGestionarA(actor, objetivo)) {
+          return `${actor.nombre} no puede administrar a ${objetivo.nombre}`;
+        }
+        if (
+          evento.cambios.rol_id !== undefined &&
+          !rolesAsignablesPor(actor).includes(evento.cambios.rol_id)
+        ) {
+          return `${actor.nombre} no puede asignar el rol ${evento.cambios.rol_id}`;
+        }
+        if (
+          evento.cambios.permisos !== undefined &&
+          permisosNoOtorgables(actor, evento.cambios.permisos).length > 0
+        ) {
+          return `${actor.nombre} intentó otorgar permisos que no posee`;
+        }
+        return null;
+      }
+
+      case "usuario_desbloqueado": {
+        if (evento.desbloqueado_por !== actor.id) {
+          return "El desbloqueo debe quedar firmado por quien lo ejecuta";
+        }
+        const objetivo = this.usuarioDe(evento.usuario_id, identidad);
+        if (!objetivo) return `Usuario a desbloquear desconocido: ${evento.usuario_id}`;
+        if (!puedeGestionarA(actor, objetivo)) {
+          return `${actor.nombre} no puede desbloquear a ${objetivo.nombre}`;
+        }
+        return null;
+      }
+
+      default:
+        return null;
+    }
+  }
+
+  /** Revisa una acción contra la proyección autoritativa del Hub. */
+  private revalidarAccion(
+    evento: EventoBase,
+    accion: Accion,
+    identidad: EstadoIdentidad | null,
+    permiteAutorizador = true,
+  ): string | null {
+    if (!identidad && !this.opciones.usuarioDe) {
+      return "El Hub todavía no cargó la identidad del local";
+    }
+
+    const usuario = this.usuarioDe(evento.empleado_id, identidad);
     if (!usuario) return `Empleado desconocido: ${evento.empleado_id}`;
     if (!usuario.activo) return `El usuario ${usuario.nombre} está desactivado`;
 
-    // Un evento con autorizador ya pasó por la firma de un superior en el
-    // dispositivo; lo que se comprueba aquí es que el autorizador exista y pueda.
-    const autorizadorId = (evento as unknown as { autorizador_id?: ID }).autorizador_id;
+    const autorizadorId = (evento as { autorizador_id?: unknown }).autorizador_id;
+    if (autorizadorId !== undefined && (typeof autorizadorId !== "string" || autorizadorId.length === 0)) {
+      return "El autorizador del evento no es válido";
+    }
     if (autorizadorId) {
-      const autorizador = this.opciones.usuarioDe(autorizadorId);
+      if (!permiteAutorizador) return "Los cambios de usuarios no admiten una autorización delegada";
+      const autorizador = this.usuarioDe(autorizadorId, identidad);
       if (!autorizador) return `Autorizador desconocido: ${autorizadorId}`;
-      const v = evaluar(autorizador, accion);
-      if (v.resultado === "denegado") {
+      if (!puedeAutorizar(autorizador, accion)) {
         return `${autorizador.nombre} no puede autorizar "${accion}"`;
       }
       return null;
@@ -702,15 +959,14 @@ export class Hub {
   /** `null` si puede administrar el CSD; si no, por qué no. */
   private puedeAdministrarCsd(empleadoId: ID): string | null {
     /*
-     * Sin `usuarioDe` el Hub no conoce la tabla de usuarios. Se DENIEGA en vez
-     * de dejar pasar: para todo lo demás no saber significa no arbitrar, pero
-     * aquí significaría regalar la firma fiscal a quien pregunte.
+     * Sin una proyección (o el adaptador heredado) se DENIEGA: no saber quién
+     * pregunta jamás puede equivaler a entregar la firma fiscal.
      */
-    if (!this.opciones.usuarioDe) {
+    if (!this.identidad && !this.opciones.usuarioDe) {
       return "Esta caja todavía no puede verificar quién eres. Administra el CSD desde la caja principal.";
     }
 
-    const usuario = this.opciones.usuarioDe(empleadoId);
+    const usuario = this.usuarioDe(empleadoId);
     if (!usuario) return "Usuario desconocido";
     if (!usuario.activo) return `El usuario ${usuario.nombre} está desactivado`;
 
@@ -750,6 +1006,7 @@ export class Hub {
 
     const acks = this.log.ingerir(validos);
     if (acks.length === 0) return;
+    for (const evento of validos) this.identidad = this.actualizarIdentidad(this.identidad, evento);
     this.opciones.alIngerir?.(validos);
 
     const menor = acks.reduce((n, a) => Math.min(n, a.seq), Infinity);

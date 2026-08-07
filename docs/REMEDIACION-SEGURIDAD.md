@@ -20,7 +20,7 @@ altos, 20 medios, 12 bajos, 4 info) sobre 345 archivos fuente.
 | **2** | Identidad del Hub y registro a archivo | ✅ `2b59b55` |
 | **3** | Credenciales del local | ✅ *(este commit)* |
 | **4** | Cimientos criptográficos (Ed25519) | ✅ *(este commit)* |
-| **5** | El Hub como autoridad | ⬜ |
+| **5** | El Hub como autoridad | ✅ *(este commit)* |
 | **6** | Superficie HTTP del Hub | ⬜ |
 | **7** | El relay | ⬜ |
 | **8** | Correo (CRLF) | ⬜ |
@@ -29,7 +29,7 @@ altos, 20 medios, 12 bajos, 4 info) sobre 345 archivos fuente.
 | **11** | Detalles finos | ⬜ |
 | **12** | Capacitor 8 *(aislada)* | ⬜ |
 
-**Pruebas al cierre de la etapa 3:** 1 466 verdes · lint 0 errores.
+**Pruebas al cierre de la etapa 5:** 1 503 verdes · lint 0 errores.
 
 ---
 
@@ -181,36 +181,39 @@ remoto. La decisión y la secuencia están registradas en
 
 ---
 
-## ⬜ Etapa 5 · El Hub como autoridad
+## ✅ Etapa 5 · El Hub como autoridad
 
-**Hallazgos:** CN-003, CN-013 · **tres trampas halladas al explorar**
+**Hallazgos:** CN-003, CN-013 · más las tres trampas de integración detectadas
+al explorar.
 
-Hoy `revalidarPermiso` falla **abierto** y `main.ts` construye el Hub sin
-`usuarioDe`. El mecanismo **está probado** en `sincronizacion.test.ts` y
-`fiscal-canal.test.ts` — solo está desconectado. Coste ya pagado: **hoy nadie
-puede administrar el CSD por el canal**, porque `puedeAdministrarCsd` sí falla
-cerrado (es la pauta correcta a replicar).
-
-**⚠ Trampa 1 — la semilla.** `USUARIOS_SEMILLA` vive en `pos-ui` y el Hub no
-tiene ruta de importación. Peor: **el propietario no existe en ningún event log**.
-Con proyección vacía sale `undefined` y **el Hub rechazaría cada cobro del dueño**.
-→ Que el POS emita `usuario_creado` para la semilla en el primer arranque.
-
-**⚠ Trampa 2 — el hueco circular.** Ningún evento de identidad está en
-`PERMISO_POR_EVENTO`. Si el Hub deriva usuarios del log sin cerrar esto, un
-cliente empuja `usuario_creado` con `rol_id:"propietario"` y se auto-eleva. **Van
-juntas o no van.**
-
-**⚠ Trampa 3 — la proyección.** `porTipo` **no tiene índice** (recorrido completo,
-6 veces, límite 200) → usar `leerStream(streamIdentidad(...))`.
-`revalidarPermiso` es **síncrona** y `leerStream` asíncrona → proyección **en
-memoria**, construida en `arrancar()` y actualizada incrementalmente.
-`aplicarEventoIdentidad` tiene un `default` con `never` que **devuelve el evento
-como si fuera el estado** → filtrar estrictamente a los 11 tipos.
-
-**CN-013:** `recibirCatalogos` no reserva claves → una terminal publica
-`licencia_estado` con `version:999999`, el Hub lo **persiste y lo difunde** como
-suyo y **sobrevive al reinicio**.
+- **La identidad ya se carga antes de abrir el canal.** `arrancar()` lee una sola
+  vez `leerStream(streamIdentidad(sucursal))` y entrega la proyección al Hub.
+  Éste rechaza una acción sensible si no tiene una autoridad de identidad, usa esa
+  proyección también para el CSD y no acepta un `hola` de otra sucursal.
+- **Semilla y migración idempotentes.** El POS anexa `usuario_creado` para cada
+  usuario sembrado, con el propietario primero y como emisor. También lo hace al
+  abrir una instalación con operación anterior que aún no tiene altas de usuarios;
+  una terminal nueva que espera datos del Hub no inventa una semilla local.
+- **Sin hueco circular.** `usuario_creado`, `usuario_actualizado` y
+  `usuario_desbloqueado` ahora exigen los permisos de administración en el Hub.
+  Además se revalidan jerarquía, roles asignables, permisos delegables, el firmante
+  del desbloqueo y se rechaza una autorización delegada para cambios de usuarios.
+  El único bootstrap permitido es el primer `usuario_creado` de propietario, que se
+  declara a sí mismo sobre una proyección vacía.
+- **Proyección segura y atómica por lote.** Se valida en ejecución la forma de los
+  11 eventos de identidad antes de reducirlos, tanto en Hub como al rehidratar el
+  POS. Dentro de un push, el estado provisional incorpora cada alta aceptada; solo
+  se vuelve real después de que SQLite confirma el lote. Así la semilla completa
+  puede viajar junta sin permitir que una alta posterior se autoeleve.
+- **CN-013 cerrado.** `licencia_estado`, `actualizacion_estado` y `modo_abierto`
+  son claves reservadas: el Hub no las acepta, difunde ni persiste si provienen
+  de una terminal.
+  El estado interno del Hub se guarda separado de los catálogos de terminales; al
+  publicar una clave reservada usa una versión anclada al reloj del Hub para que un
+  `999999` heredado no gane después de la actualización.
+- **Cobertura.** Las pruebas ejercitan rechazo con proyección real, bootstrap en
+  lote, intento de un gerente de crear un propietario, fallo cerrado sin proyección,
+  aislamiento de catálogos reservados y persistencia de la semilla del POS.
 
 ---
 

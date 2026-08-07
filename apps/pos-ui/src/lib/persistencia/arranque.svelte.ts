@@ -6,6 +6,7 @@
  */
 import {
   compararEventos,
+  esEventoIdentidad,
   type EventoBase,
   type EventoAsistencia,
   type EventoCaja,
@@ -14,7 +15,6 @@ import {
   type EventoCompra,
   type EventoEgreso,
   type EventoFiscal,
-  type EventoIdentidad,
   type EventoInventario,
   type EventoOpinion,
   type EventoReserva,
@@ -205,27 +205,12 @@ class Arranque {
         const comanda = ordenados.filter((e) =>
           TIPOS_COMANDA.has((e as EventoComanda).tipo),
         ) as EventoComanda[];
-        const identidad = ordenados.filter(
-          (e) => !TIPOS_COMANDA.has((e as EventoComanda).tipo),
-        ) as EventoIdentidad[];
+        // No basta con excluir las familias conocidas: un tipo nuevo o
+        // malformado jamás debe llegar al reducer de identidad.
+        const identidad = ordenados.filter(esEventoIdentidad);
 
         pos.hidratar(comanda);
-        await sesion.hidratar(
-          identidad.filter(
-            (e) =>
-              !TIPOS_FISCALES.has(e.tipo) &&
-              !TIPOS_INVENTARIO.has(e.tipo) &&
-              !TIPOS_ASISTENCIA.has(e.tipo) &&
-              !TIPOS_EGRESO.has(e.tipo) &&
-              !TIPOS_COMPRA.has(e.tipo) &&
-              !TIPOS_CAJA.has(e.tipo) &&
-              !TIPOS_CLIENTE.has(e.tipo) &&
-              !TIPOS_PRENOMINA.has(e.tipo) &&
-              !TIPOS_OPINION.has(e.tipo) &&
-              !TIPOS_RESERVA.has(e.tipo),
-          ) as EventoIdentidad[],
-          almacen,
-        );
+        await sesion.hidratar(identidad, almacen);
         await fiscal.hidratar(
           ordenados.filter((e) => TIPOS_FISCALES.has((e as EventoFiscal).tipo)) as EventoFiscal[],
           almacen,
@@ -276,6 +261,11 @@ class Arranque {
           ) as EventoReserva[],
         );
       }
+
+      // Migración idempotente: una instalación que ya tenía operación pero
+      // todavía no registraba usuarios deja por fin la semilla que el Hub
+      // necesita. Una terminal nueva que espera datos del Hub no siembra.
+      if (!this.esperandoHub) await sesion.sembrarUsuariosIniciales(almacen);
 
       // A partir de aquí, cada evento emitido se persiste.
       pos.conectarAlmacen(almacen);
@@ -351,6 +341,7 @@ class Arranque {
     }
 
     await sesion.hidratar([], almacen);
+    await sesion.sembrarUsuariosIniciales(almacen);
     await fiscal.hidratar([], almacen);
     inventario.hidratar([]);
     egresos.hidratar([]);

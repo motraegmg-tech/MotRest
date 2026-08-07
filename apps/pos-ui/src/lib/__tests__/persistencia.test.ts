@@ -11,6 +11,7 @@ import {
   proyectarComanda,
   renglonesActivos,
   totalesComanda,
+  type EventoBase,
   type EventoComanda,
 } from "@motrest/dominio";
 import { arranque } from "../persistencia/arranque.svelte";
@@ -44,6 +45,19 @@ describe("arranque con persistencia", () => {
     const mesa12 = await comandaDesdeDisco("mesa-12");
     expect(mesa12).not.toBeNull();
     expect(totalesComanda(mesa12!).total).toBe(pesos(598.56));
+  });
+
+  it("deja la semilla de usuarios en el event log que sincroniza con el Hub", async () => {
+    const eventos = await arranque.repositorio!.eventos.leerTodos();
+    const altas = eventos.filter(
+      (evento): evento is EventoBase & { tipo: "usuario_creado"; usuario_id: string } =>
+       evento.tipo === "usuario_creado" &&
+        typeof (evento as EventoBase & { usuario_id?: unknown }).usuario_id === "string",
+    );
+
+    expect(altas.some((evento) => evento.usuario_id === "usr-gonzalo")).toBe(true);
+    expect(altas.every((evento) => evento.empleado_id === "usr-gonzalo")).toBe(true);
+    expect(altas.every((evento) => evento.stream_id.startsWith("identidad:"))).toBe(true);
   });
 
   it("abre una sesión utilizable", () => {

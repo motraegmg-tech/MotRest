@@ -30,6 +30,7 @@ import {
   type RolId,
   type Usuario,
 } from "../identidad/roles.js";
+import { esEventoIdentidad, esTipoEventoIdentidad } from "../identidad/eventos.js";
 
 function usuario(rol_id: RolId, extra: Partial<Usuario> = {}): Usuario {
   return {
@@ -71,6 +72,61 @@ describe("catálogo de acciones", () => {
     expect(esLectura("fin.costo.ver")).toBe(true);
     expect(esLectura("pos.orden.ver_ajenas")).toBe(true);
     expect(esLectura("pos.item.cancelar_enviado")).toBe(false);
+  });
+});
+
+// --- Frontera de la proyección ----------------------------------------------------
+
+describe("eventos de identidad en tiempo de ejecución", () => {
+  const sobre = {
+    id: "evt-identidad",
+    ts: 1,
+    orden_local: 0,
+    device_id: "dev-caja",
+    empleado_id: "usr-gonzalo",
+    sucursal_id: "suc-centro",
+    stream_id: "identidad:suc-centro",
+    v: 1,
+  };
+
+  it("solo reconoce los once tipos que puede consumir el reducer", () => {
+    expect(esTipoEventoIdentidad("usuario_creado")).toBe(true);
+    expect(esTipoEventoIdentidad("conteo_registrado")).toBe(false);
+    expect(esTipoEventoIdentidad("tipo_inventado")).toBe(false);
+  });
+
+  it("acepta una alta formada y rechaza datos que alterarían la proyección", () => {
+    expect(
+      esEventoIdentidad({
+        ...sobre,
+        tipo: "usuario_creado",
+        usuario_id: "usr-lucia",
+        nombre: "Lucía",
+        puesto: "Mesera",
+        rol_id: "mesero",
+        permisos: [{ accion: "pos.item.agregar", nivel: "operar" }],
+      }),
+    ).toBe(true);
+
+    expect(
+      esEventoIdentidad({
+        ...sobre,
+        tipo: "usuario_actualizado",
+        usuario_id: "usr-lucia",
+        cambios: { rol_id: "mesero", privilegio_oculto: true },
+      }),
+    ).toBe(false);
+    expect(
+      esEventoIdentidad({
+        ...sobre,
+        tipo: "usuario_creado",
+        usuario_id: "usr-lucia",
+        nombre: "Lucía",
+        puesto: "Mesera",
+        rol_id: "rol_inventado",
+        permisos: [],
+      }),
+    ).toBe(false);
   });
 });
 

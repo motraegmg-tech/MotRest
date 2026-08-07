@@ -9,7 +9,15 @@
  * `ws`— que es justo la parte que no tiene lógica de negocio.
  */
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { FabricaEventos, type EventoComanda } from "@motrest/dominio";
+import {
+  FabricaEventos,
+  permisosDePlantilla,
+  streamIdentidad,
+  type EventoComanda,
+  type EventoIdentidad,
+  type RolId,
+  type Usuario,
+} from "@motrest/dominio";
 import {
   VERSION_PROTOCOLO,
   almacenEnMemoria,
@@ -53,6 +61,39 @@ function terminal(deviceId: string, empleadoId: string) {
     sucursal_id: SUC,
   });
   return { deviceId, almacen, fabrica };
+}
+
+function usuarioDePrueba(id: string, rol_id: RolId): Usuario {
+  return {
+    id,
+    nombre: id,
+    iniciales: id.slice(0, 1).toUpperCase(),
+    rol_id,
+    puesto: rol_id,
+    sucursal_id: SUC,
+    permisos: permisosDePlantilla(rol_id),
+    activo: true,
+  };
+}
+
+/** Eventos ya asentados en el stream de identidad, para cargar una proyección. */
+function semillaDeIdentidad(...usuarios: Usuario[]): EventoIdentidad[] {
+  const propietario = usuarios.find((usuario) => usuario.rol_id === "propietario");
+  if (!propietario) throw new Error("La prueba necesita un propietario");
+  const fabrica = new FabricaEventos<EventoIdentidad>({
+    device_id: "dev-semilla",
+    empleado_id: propietario.id,
+    sucursal_id: SUC,
+  });
+  return usuarios.map((usuario) =>
+    fabrica.crear("usuario_creado", streamIdentidad(SUC), {
+      usuario_id: usuario.id,
+      nombre: usuario.nombre,
+      puesto: usuario.puesto,
+      rol_id: usuario.rol_id,
+      permisos: usuario.permisos,
+    }),
+  );
 }
 
 async function venta(
@@ -536,6 +577,61 @@ describe("la carta del local se replica entre terminales", () => {
     expect(caja.cerrada).toBe(false);
   });
 
+  it("una terminal no puede falsificar ni persistir el estado reservado del Hub", () => {
+    const guardados: { clave: string; origen: "terminal" | "hub" }[] = [];
+    const conAutoridad = new Hub({
+      hub_id: "hub-1",
+      log,
+      exigirAprobacion: false,
+      guardarCatalogo: (catalogo, origen) => guardados.push({ clave: catalogo.clave, origen }),
+    });
+    const caja = new ConexionPrueba("cx-caja");
+    const tablet = new ConexionPrueba("cx-tablet");
+    conAutoridad.conectar(caja);
+    conAutoridad.conectar(tablet);
+    conAutoridad.recibir(caja.id, {
+      tipo: "hola", v: VERSION_PROTOCOLO, device_id: "dev-caja", sucursal_id: SUC, desde_seq: 0,
+    });
+    conAutoridad.recibir(tablet.id, {
+      tipo: "hola", v: VERSION_PROTOCOLO, device_id: "dev-tablet", sucursal_id: SUC, desde_seq: 0,
+    });
+
+    conAutoridad.recibir(caja.id, {
+      tipo: "catalogo",
+      catalogos: [{
+        clave: "licencia_estado",
+        version: 999_999,
+        updated_at: T0,
+        datos: { valida: true },
+      }],
+    });
+
+    expect(conAutoridad.catalogoDe("licencia_estado")).toBeUndefined();
+    expect(tablet.ultimo("catalogo")).toBeUndefined();
+    expect(guardados).toEqual([]);
+
+    conAutoridad.publicarCatalogo("licencia_estado", { valida: false });
+    expect(conAutoridad.catalogoDe("licencia_estado")).toEqual({ valida: false });
+    expect(tablet.ultimo("catalogo")!.catalogos[0]!.clave).toBe("licencia_estado");
+    expect(guardados).toHaveLength(1);
+    expect(guardados[0]).toMatchObject({ clave: "licencia_estado", origen: "hub" });
+  });
+
+  it("no reanima una clave reservada desde el almacenamiento de terminales", () => {
+    const reiniciado = new Hub({ hub_id: "hub-1", log, exigirAprobacion: false });
+    const reservado = {
+      clave: "modo_abierto",
+      version: 999_999,
+      updated_at: T0,
+      datos: { activo: true },
+    };
+    reiniciado.cargarCatalogos([reservado]);
+    expect(reiniciado.catalogoDe("modo_abierto")).toBeUndefined();
+
+    reiniciado.cargarCatalogosInternos([reservado]);
+    expect(reiniciado.catalogoDe("modo_abierto")).toEqual({ activo: true });
+  });
+
   it("persiste lo aceptado, para sobrevivir al reinicio del Hub", () => {
     const guardados: { clave: string; version: number }[] = [];
     const conDisco = new Hub({
@@ -727,49 +823,92 @@ describe("enlace de emparejamiento", () => {
 // --- Revalidación de permisos ---------------------------------------------------------------
 
 describe("el Hub revalida permisos", () => {
-  const mesero = {
-    id: "emp-mesero", nombre: "Ana", iniciales: "A", rol_id: "mesero" as const,
-    puesto: "Mesera", sucursal_id: SUC, activo: true,
-    permisos: [{ accion: "pos.item.agregar" as const, nivel: "operar" as const }],
-  };
+  const propietario = usuarioDePrueba("emp-propietario", "propietario");
+  const gerente = usuarioDePrueba("emp-gerente", "gerente");
+  const mesero = usuarioDePrueba("emp-mesero", "mesero");
 
-  it("rechaza una cancelación que el mesero no puede hacer, aunque el cliente la mande", () => {
-    const conPermisos = new Hub({
-      hub_id: "hub-1",
-      log,
-      exigirAprobacion: false,
-      usuarioDe: (id) => (id === mesero.id ? mesero : undefined),
-    });
-
-    const cx = new ConexionPrueba("cx-1");
-    conPermisos.conectar(cx);
-    conPermisos.recibir(cx.id, {
-      tipo: "hola", v: VERSION_PROTOCOLO, device_id: "dev-tablet", sucursal_id: SUC, desde_seq: 0,
-    });
-
+  function cancelacionDe(empleadoId: string) {
     const fabrica = new FabricaEventos<EventoComanda>({
-      device_id: "dev-tablet", empleado_id: mesero.id, sucursal_id: SUC,
+      device_id: "dev-tablet", empleado_id: empleadoId, sucursal_id: SUC,
     });
-    const cancelacion = fabrica.crear("item_cancelado", "ord-1", {
+    return fabrica.crear("item_cancelado", "ord-1", {
       orden_id: "ord-1", renglon_id: "ren-1",
     });
+  }
 
-    conPermisos.recibir(cx.id, { tipo: "push", eventos: [cancelacion] });
+  it("rechaza una cancelación contra la proyección que cargó del stream", () => {
+    const conAutoridad = new Hub({ hub_id: "hub-1", log, exigirAprobacion: false });
+    conAutoridad.cargarIdentidad(SUC, semillaDeIdentidad(propietario, mesero));
+
+    const cx = new ConexionPrueba("cx-1");
+    conAutoridad.conectar(cx);
+    conAutoridad.recibir(cx.id, {
+      tipo: "hola", v: VERSION_PROTOCOLO, device_id: "dev-tablet", sucursal_id: SUC, desde_seq: 0,
+    });
+    conAutoridad.recibir(cx.id, { tipo: "push", eventos: [cancelacionDe(mesero.id)] });
+
     expect(cx.ultimo("error")!.codigo).toBe("permiso_denegado");
   });
 
-  it("sin plantilla de usuarios el Hub solo arbitra la secuencia, sin fingir que valida", () => {
+  it("acepta la semilla en lote y usa el propietario recién creado para validar el resto", () => {
+    const conAutoridad = new Hub({ hub_id: "hub-1", log, exigirAprobacion: false });
+    conAutoridad.cargarIdentidad(SUC, []);
+    const cx = new ConexionPrueba("cx-1");
+    conAutoridad.conectar(cx);
+    conAutoridad.recibir(cx.id, {
+      tipo: "hola", v: VERSION_PROTOCOLO, device_id: "dev-caja", sucursal_id: SUC, desde_seq: 0,
+    });
+
+    const fabrica = new FabricaEventos<EventoIdentidad>({
+      device_id: "dev-caja", empleado_id: propietario.id, sucursal_id: SUC,
+    });
+    const eventos = [propietario, mesero].map((usuario) =>
+      fabrica.crear("usuario_creado", streamIdentidad(SUC), {
+        usuario_id: usuario.id,
+        nombre: usuario.nombre,
+        puesto: usuario.puesto,
+        rol_id: usuario.rol_id,
+        permisos: usuario.permisos,
+      }),
+    );
+
+    conAutoridad.recibir(cx.id, { tipo: "push", eventos });
+    expect(cx.ultimo("acks")!.acks).toHaveLength(2);
+
+    conAutoridad.recibir(cx.id, { tipo: "push", eventos: [cancelacionDe(mesero.id)] });
+    expect(cx.ultimo("error")!.codigo).toBe("permiso_denegado");
+  });
+
+  it("no deja que un gerente se cree un propietario aunque tenga permiso de altas", () => {
+    const conAutoridad = new Hub({ hub_id: "hub-1", log, exigirAprobacion: false });
+    conAutoridad.cargarIdentidad(SUC, semillaDeIdentidad(propietario, gerente));
+    const cx = new ConexionPrueba("cx-1");
+    conAutoridad.conectar(cx);
+    conAutoridad.recibir(cx.id, {
+      tipo: "hola", v: VERSION_PROTOCOLO, device_id: "dev-gerencia", sucursal_id: SUC, desde_seq: 0,
+    });
+
+    const fabrica = new FabricaEventos<EventoIdentidad>({
+      device_id: "dev-gerencia", empleado_id: gerente.id, sucursal_id: SUC,
+    });
+    const autoelevacion = fabrica.crear("usuario_creado", streamIdentidad(SUC), {
+      usuario_id: "emp-intruso",
+      nombre: "Intruso",
+      puesto: "Dirección",
+      rol_id: "propietario",
+      permisos: permisosDePlantilla("propietario"),
+    });
+
+    conAutoridad.recibir(cx.id, { tipo: "push", eventos: [autoelevacion] });
+    expect(cx.ultimo("error")!.codigo).toBe("permiso_denegado");
+    expect(conAutoridad.seqActual).toBe(0);
+  });
+
+  it("falla cerrado cuando no se cargó ninguna autoridad de identidad", () => {
     const cx = new ConexionPrueba("cx-1");
     saludar(cx, "dev-tablet");
 
-    const fabrica = new FabricaEventos<EventoComanda>({
-      device_id: "dev-tablet", empleado_id: "emp-quien-sea", sucursal_id: SUC,
-    });
-    const cancelacion = fabrica.crear("item_cancelado", "ord-1", {
-      orden_id: "ord-1", renglon_id: "ren-1",
-    });
-
-    hub.recibir(cx.id, { tipo: "push", eventos: [cancelacion] });
-    expect(cx.ultimo("acks")!.acks).toHaveLength(1);
+    hub.recibir(cx.id, { tipo: "push", eventos: [cancelacionDe("emp-quien-sea")] });
+    expect(cx.ultimo("error")!.codigo).toBe("permiso_denegado");
   });
 });

@@ -35,7 +35,7 @@ import { networkInterfaces } from "node:os";
 import { dirname, extname, join, normalize, resolve } from "node:path";
 import { WebSocketServer, type WebSocket } from "ws";
 import type { EventoBase, EventoMensajeria, EventoOpinion, MemoriaDeCanal } from "@motrest/dominio";
-import { configuracionVacia, pideBaja, streamMensajeria, uuidv7 } from "@motrest/dominio";
+import { configuracionVacia, pideBaja, streamIdentidad, streamMensajeria, uuidv7 } from "@motrest/dominio";
 import type { ConfiguracionCorreo } from "@motrest/dominio";
 import {
   cifrar,
@@ -392,6 +392,8 @@ function direccionesLan(): string[] {
 
 /** Clave bajo la que se guardan los catálogos replicados. */
 const CLAVE_CATALOGOS = "catalogos";
+/** Estado publicado solo por el Hub; nunca llega desde una terminal. */
+const CLAVE_CATALOGOS_INTERNOS = "catalogos_hub";
 /** Configuración de WhatsApp de este restaurante, si la tiene. */
 const CLAVE_WHATSAPP = "whatsapp";
 /** Clave bajo la que se guarda el secreto del local. */
@@ -499,11 +501,13 @@ const hub = new Hub({
   registrar,
   alIngerir: (eventos) => avisarPorLoQuePaso(eventos),
   fiscal: { sellador, cola: colaTimbrado, facturador, cancelador, nombrePac: pac?.nombre },
-  guardarCatalogo: (catalogo) => {
-    // Se guardan todos juntos: son pocos y así el archivo queda consistente.
-    void almacen.estado.cargar<Catalogo[]>(CLAVE_CATALOGOS).then((previos) => {
+  guardarCatalogo: (catalogo, origen) => {
+    // Se guardan por origen: una terminal jamás puede dejar persistido un
+    // estado que solo le corresponde anunciar al proceso del Hub.
+    const claveDeEstado = origen === "hub" ? CLAVE_CATALOGOS_INTERNOS : CLAVE_CATALOGOS;
+    void almacen.estado.cargar<Catalogo[]>(claveDeEstado).then((previos) => {
       const resto = (previos ?? []).filter((c) => c.clave !== catalogo.clave);
-      void almacen.estado.guardar(CLAVE_CATALOGOS, [...resto, catalogo]);
+      void almacen.estado.guardar(claveDeEstado, [...resto, catalogo]);
     });
   },
 });
@@ -581,14 +585,6 @@ if (sellador.listo) {
       : "Sin CSD: se puede vender, todavía no facturar.",
   );
 }
-
-// La carta del local sobrevive al reinicio del servicio.
-void almacen.estado.cargar<Catalogo[]>(CLAVE_CATALOGOS).then((guardados) => {
-  if (guardados && guardados.length > 0) {
-    hub.cargarCatalogos(guardados);
-    registrar("info", `Catálogos cargados: ${guardados.map((c) => c.clave).join(", ")}`);
-  }
-});
 
 /*
  * HTTP: SOLO diagnóstico.
@@ -1322,10 +1318,21 @@ async function arrancar(): Promise<void> {
   secretoPortal = await derivarSecretoPortal(claveLocal);
   tls = await certificadoTls(carpetaCertificados(RUTA_DB), lan, `${NOMBRE_RED}.local`);
 
-  const guardados = await almacen.estado.cargar<Catalogo[]>(CLAVE_CATALOGOS);
-  if (guardados && guardados.length > 0) {
-    hub.cargarCatalogos(guardados);
-    registrar("info", `Catálogos cargados: ${guardados.map((c) => c.clave).join(", ")}`);
+  // Antes de aceptar una sola terminal, el Hub ya conoce quién puede hacer
+  // qué. Leer el stream evita recorrer el log completo por cada tipo.
+  const sucursalId = sucursalDelLocal();
+  const eventosIdentidad = await almacen.eventos.leerStream(streamIdentidad(sucursalId));
+  hub.cargarIdentidad(sucursalId, eventosIdentidad);
+
+  const catalogosDeTerminal = await almacen.estado.cargar<Catalogo[]>(CLAVE_CATALOGOS);
+  if (catalogosDeTerminal && catalogosDeTerminal.length > 0) {
+    hub.cargarCatalogos(catalogosDeTerminal);
+    registrar("info", `Catálogos replicados evaluados: ${catalogosDeTerminal.length}.`);
+  }
+  const catalogosInternos = await almacen.estado.cargar<Catalogo[]>(CLAVE_CATALOGOS_INTERNOS);
+  if (catalogosInternos && catalogosInternos.length > 0) {
+    hub.cargarCatalogosInternos(catalogosInternos);
+    registrar("info", `Catálogos internos cargados: ${catalogosInternos.length}.`);
   }
 
   servidor = createServer({ cert: tls.cert, key: tls.key }, atender);
