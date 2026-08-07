@@ -169,9 +169,12 @@ export class Correo {
     armado: ReturnType<typeof armarCorreo>,
     peticion: PeticionCorreo,
   ): Promise<ResultadoCorreo> {
-    const usuario = soloDireccion(config.cuenta_gmail?.trim() || armado.de);
-
     try {
+      // Dentro del `try`: `soloDireccion` falla en seco ante una dirección con
+      // saltos de línea, y ese fallo tiene que salir por el camino de siempre
+      // —"Gmail lo rechazó", sin reintento— y no como excepción sin recoger.
+      const usuario = soloDireccion(config.cuenta_gmail?.trim() || armado.de);
+
       const id = await this.entregar(
         {
           host: SMTP_GMAIL.host,

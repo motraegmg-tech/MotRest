@@ -416,10 +416,29 @@ export interface DatosCorreo {
 
 function rellenar(texto: string, config: ConfiguracionCorreo, datos: DatosCorreo): string {
   return texto
-    .replaceAll("{{local}}", config.local || "el restaurante")
-    .replaceAll("{{nombre}}", datos.nombre ?? "")
-    .replaceAll("{{cuando}}", datos.cuando ?? "")
+    .replaceAll("{{local}}", enUnaLinea(config.local || "el restaurante"))
+    .replaceAll("{{nombre}}", enUnaLinea(datos.nombre ?? ""))
+    .replaceAll("{{cuando}}", enUnaLinea(datos.cuando ?? ""))
     .replaceAll("{{personas}}", String(datos.personas ?? ""));
+}
+
+/**
+ * Aplana lo que se interpola, porque el asunto acaba siendo una cabecera.
+ *
+ * `{{nombre}}` sale de una reserva del portal público, donde cualquiera con el
+ * QR escribe lo que quiera. En un asunto, un salto de línea abre una cabecera
+ * nueva: `Juan\r\nBcc: quien-sea@ejemplo.com` manda una copia del correo del
+ * restaurante a quien lo escribió.
+ *
+ * `smtp.ts` vuelve a aplanarlo antes de armar el MIME, y esa repetición es a
+ * propósito: esta capa protege también a quien use este módulo por otro camino
+ * —hoy, el API de Resend—, y la de allá protege aunque un día alguien arme un
+ * asunto sin pasar por aquí. Ninguna de las dos se puede quitar por ser la
+ * segunda.
+ */
+function enUnaLinea(texto: string): string {
+  // eslint-disable-next-line no-control-regex
+  return texto.replace(/[\x00-\x1F\x7F]+/g, " ").trim();
 }
 
 /** Escapa lo que viene del usuario antes de meterlo en el HTML del correo. */

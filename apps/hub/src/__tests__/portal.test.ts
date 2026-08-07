@@ -297,6 +297,37 @@ describe("una reserva pedida desde un teléfono", () => {
     expect(d.ingeridos).toEqual([]);
   });
 
+  /**
+   * El nombre solo se medía, no se filtraba: pasaba cualquier carácter.
+   *
+   * Ese nombre acaba en el asunto del correo de confirmación, y en el correo un
+   * salto de línea abre una cabecera nueva. `Ana\r\nBcc: …` le manda una copia
+   * del correo del restaurante a quien lo escribió desde el QR de la mesa.
+   *
+   * Se limpia aquí, en la entrada, y no solo al mandar: el nombre también se
+   * imprime en el ticket de la reserva y se enseña en la agenda, y un salto de
+   * línea guardado en el log de eventos ya no se quita nunca.
+   */
+  it("aplana el nombre en vez de guardarlo con saltos de línea", () => {
+    const d = deps({});
+    const r = solicitarReserva(
+      { nombre: "Ana\r\nBcc: quien-sea@ejemplo.com", personas: 2, para_ts: manana },
+      d,
+    );
+
+    expect(r.ok).toBe(true);
+    const ev = d.ingeridos[0] as unknown as Record<string, unknown>;
+    expect(ev.nombre).toBe("Ana Bcc: quien-sea@ejemplo.com");
+    expect(String(ev.nombre)).not.toMatch(/[\r\n]/);
+  });
+
+  /* Un nombre que solo son caracteres de control no es un nombre. */
+  it("no acepta un nombre hecho solo de saltos de línea", () => {
+    const d = deps({});
+    expect(solicitarReserva({ nombre: "\r\n\r\n", personas: 2, para_ts: manana }, d).ok).toBe(false);
+    expect(d.ingeridos).toEqual([]);
+  });
+
   /* Un comentario de diez mil caracteres es un intento de llenar el disco. */
   it("recorta lo que el comensal escribe", async () => {
     const { ordenId, eventos } = cuentaCobrada();

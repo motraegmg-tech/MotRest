@@ -78,16 +78,49 @@ function base64Lineas(texto: string): string {
 }
 
 /**
+ * Aplana lo que va a acabar dentro de una cabecera.
+ *
+ * EN EL CORREO, UN SALTO DE LÍNEA ES UNA CABECERA NUEVA. Una reserva a nombre
+ * de `Juan\r\nBcc: quien-sea@ejemplo.com` no es un nombre raro: es un `Bcc:`
+ * real, y el restaurante manda una copia de la confirmación a quien el atacante
+ * quiera. El nombre viene del portal público, donde cualquiera con el QR
+ * escribe lo que quiera y **no hay filtro de caracteres**, solo de longitud.
+ *
+ * Se aplana en vez de rechazar a propósito: el correo tiene que salir igual. Un
+ * nombre con un salto pegado de otro sitio no puede costarle al comensal su
+ * confirmación de reserva, y aplanado no hace daño ninguno.
+ *
+ * Se van también el resto de los caracteres de control —incluido `\0`, que en
+ * algunos servidores trunca la línea— y las tabulaciones al principio, que es
+ * como se continúa una cabecera plegada (RFC 5322 §2.2.3).
+ */
+export function sinSaltos(texto: string): string {
+  return (
+    texto
+      // eslint-disable-next-line no-control-regex
+      .replace(/[\x00-\x1F\x7F]+/g, " ")
+      .trim()
+  );
+}
+
+/**
  * Codifica una cabecera que lleve acentos (RFC 2047).
  *
  * "Café Rodizio" en un `From:` sin codificar llega como "CafÃ© Rodizio" o hace
  * que el servidor rechace el mensaje entero. Solo se codifica si hace falta:
  * envolver texto ASCII sin necesidad ensucia el remitente en algunos clientes.
+ *
+ * **El aplanado va ANTES de decidir si se codifica**, y ese orden es el arreglo.
+ * `\r` y `\n` viven dentro de `\x00-\x7F`, así que un asunto con un salto
+ * inyectado pasaba por "no hace falta codificar" y salía tal cual a la cabecera.
+ * Un asunto con acentos se salvaba de rebote —el base64 se traga el salto—, que
+ * es la clase de protección accidental que un día desaparece.
  */
 function cabecera(texto: string): string {
+  const limpio = sinSaltos(texto);
   // eslint-disable-next-line no-control-regex
-  if (!/[^\x00-\x7F]/.test(texto)) return texto;
-  return `=?UTF-8?B?${Buffer.from(texto, "utf8").toString("base64")}?=`;
+  if (!/[^\x00-\x7F]/.test(limpio)) return limpio;
+  return `=?UTF-8?B?${Buffer.from(limpio, "utf8").toString("base64")}?=`;
 }
 
 /**
@@ -95,17 +128,50 @@ function cabecera(texto: string): string {
  *
  * La dirección NUNCA se codifica —tiene que quedar legible para el servidor—;
  * el nombre de delante sí, que es donde caben los acentos.
+ *
+ * Se aplana antes de intentar partirlo: `.` no casa saltos de línea, así que un
+ * valor con `\r\n` **no casaba el patrón** y se devolvía entero y sin tocar.
+ * El camino de "no lo entiendo, lo dejo como está" era justo el del ataque.
  */
 function remitente(valor: string): string {
-  const partes = valor.match(/^(.*?)\s*<([^>]+)>$/);
-  if (!partes) return valor;
+  const limpio = sinSaltos(valor);
+  const partes = limpio.match(/^(.*?)\s*<([^>]+)>$/);
+  if (!partes) return limpio;
   const [, nombre = "", direccion = ""] = partes;
   return nombre ? `${cabecera(nombre)} <${direccion}>` : `<${direccion}>`;
 }
 
-/** Solo la parte `dir@ección`, que es lo que entiende `MAIL FROM`. */
+/**
+ * Solo la parte `dir@ección`, que es lo que entiende `MAIL FROM`.
+ *
+ * **Aquí sí se falla en seco**, y es el único sitio de este archivo donde se
+ * hace. En `MAIL FROM:<…>` y `RCPT TO:<…>` la dirección no va dentro de una
+ * cabecera: va dentro de un **comando SMTP**. Un salto de línea ahí no añade un
+ * `Bcc:`, añade un comando entero —otro `RCPT TO`, un `DATA`— y eso es tomar
+ * prestada la conversación con el servidor de correo del restaurante.
+ *
+ * Y aplanarlo tampoco valdría: una dirección aplanada es otra dirección, y
+ * mandarle el correo de un comensal a otra parte es peor que no mandarlo.
+ */
 export function soloDireccion(valor: string): string {
-  return (valor.match(/<([^>]+)>/)?.[1] ?? valor).trim();
+  /*
+   * El rechazo va sobre el valor CRUDO, antes de sacar lo de entre `<>`, y esa
+   * es la parte que no se puede mover de sitio. `<([^>]+)>` casa en cualquier
+   * parte de la cadena: `cliente@correo.mx\r\nRCPT TO:<otro@ejemplo.com>`
+   * devolvía `otro@ejemplo.com`, que es una dirección perfectamente válida.
+   * Validar después de extraer no habría dado ningún error — habría entregado
+   * el correo del comensal a quien escribió el ataque, y sin dejar rastro.
+   */
+  // eslint-disable-next-line no-control-regex
+  if (/[\x00-\x1F\x7F]/.test(valor)) {
+    throw new ErrorSmtp("Dirección de correo no válida: lleva saltos de línea", 550);
+  }
+
+  const direccion = (valor.match(/<([^>]+)>/)?.[1] ?? valor).trim();
+  if (!/^[^\s<>@,;:"\\]+@[^\s<>@,;:"\\]+$/.test(direccion)) {
+    throw new ErrorSmtp(`Dirección de correo no válida: ${JSON.stringify(direccion)}`, 550);
+  }
+  return direccion;
 }
 
 /** Fecha en el formato que pide el correo (RFC 5322). */

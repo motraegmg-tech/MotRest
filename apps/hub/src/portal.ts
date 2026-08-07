@@ -208,7 +208,20 @@ export function solicitarReserva(
   peticion: ReservaDelComensal,
   deps: DependenciasPortal,
 ): Resultado<{ solicitada: true }> {
-  const nombre = peticion.nombre?.trim() ?? "";
+  /*
+   * El nombre se aplana ANTES de medirlo.
+   *
+   * Solo se comprobaba la longitud: cualquier carácter pasaba, incluidos `\r` y
+   * `\n`. Ese nombre acaba en el asunto del correo de confirmación, y ahí un
+   * salto de línea es una cabecera nueva — `Juan\r\nBcc: …` le manda una copia
+   * del correo del restaurante a quien lo escribió desde el QR de la mesa.
+   *
+   * Se limpia aquí, en la entrada, y no solo al mandar el correo: el nombre
+   * también se imprime en el ticket de la reserva y se enseña en la agenda, y un
+   * salto de línea guardado en el log de eventos es para siempre.
+   */
+  // eslint-disable-next-line no-control-regex
+  const nombre = (peticion.nombre ?? "").replace(/[\x00-\x1F\x7F]+/g, " ").trim();
   const ahora = (deps.ahora ?? Date.now)();
 
   if (nombre.length < 2 || nombre.length > 80) {

@@ -288,3 +288,43 @@ describe("de dónde sale el correo", () => {
     expect(problemas.some((p) => p.includes("respuesta"))).toBe(true);
   });
 });
+
+/**
+ * El asunto acaba siendo una cabecera de correo, y en una cabecera un salto de
+ * línea abre otra cabecera. `{{nombre}}` sale de una reserva del portal público:
+ * cualquiera con el QR de la mesa escribe lo que quiera.
+ *
+ * `smtp.ts` lo vuelve a aplanar antes de armar el MIME, y esa repetición es a
+ * propósito: esta capa protege también al camino de Resend, que no pasa por
+ * allá, y la de allá protege aunque un día alguien arme un asunto sin pasar por
+ * aquí. Ninguna de las dos sobra por existir la otra.
+ */
+describe("lo que se interpola en el asunto", () => {
+  it("un nombre con salto de línea sale en una sola línea", () => {
+    const c = armarCorreo(
+      "reserva_confirmada",
+      "a@b.mx",
+      { ...CONFIG, asuntos: { reserva_confirmada: "Reserva de {{nombre}}" } },
+      { nombre: "Ana\r\nBcc: quien-sea@ejemplo.com" },
+    );
+
+    expect(c.asunto).not.toMatch(/[\r\n]/);
+    expect(c.asunto).toBe("Reserva de Ana Bcc: quien-sea@ejemplo.com");
+  });
+
+  it("tampoco cuela por el nombre del local ni por la fecha", () => {
+    const c = armarCorreo(
+      "reserva_confirmada",
+      "a@b.mx",
+      { ...CONFIG, local: "Rodizio\r\nBcc: x@y.z", asuntos: { reserva_confirmada: "{{local}} · {{cuando}}" } },
+      { cuando: "viernes\r\nX-Cualquiera: si" },
+    );
+
+    expect(c.asunto).not.toMatch(/[\r\n]/);
+  });
+
+  it("un asunto normal no se toca", () => {
+    const c = armarCorreo("reserva_confirmada", "a@b.mx", CONFIG, { nombre: "Familia Ramírez" });
+    expect(c.asunto).toBe("Su reserva en Rodizio quedó confirmada");
+  });
+});

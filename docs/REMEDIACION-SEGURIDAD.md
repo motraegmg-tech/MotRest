@@ -22,14 +22,14 @@ altos, 20 medios, 12 bajos, 4 info) sobre 345 archivos fuente.
 | **4** | Cimientos criptográficos (Ed25519) | ✅ `aba41ec` |
 | **5** | El Hub como autoridad | ✅ `cf6b677` |
 | **6** | Superficie HTTP del Hub | ✅ `07361d9` |
-| **7** | El relay | ✅ *(este commit)* |
-| **8** | Correo (CRLF) | ⬜ |
+| **7** | El relay | ✅ `f38f36a` |
+| **8** | Correo (CRLF) | ✅ *(este commit)* |
 | **9** | Tauri, certificados y empaquetado | ⬜ |
 | **10** | Proceso y despliegue (CI, guías) | ⬜ |
 | **11** | Detalles finos | ⬜ |
 | **12** | Capacitor 8 *(aislada)* | ⬜ |
 
-**Pruebas al cierre de la etapa 7:** 1 549 verdes (1 omitida) · lint 0 errores.
+**Pruebas al cierre de la etapa 8:** 1 560 verdes (1 omitida) · lint 0 errores.
 
 > La omitida es a propósito: comprueba que el padrón queda en `0600`, y en
 > Windows `chmod` solo mueve el atributo de solo lectura. Los permisos de verdad
@@ -336,11 +336,56 @@ restaurantes sin WhatsApp por un formato de archivo.
 
 ---
 
-## ⬜ Etapas 8 a 12 — resumen
+## ✅ Etapa 8 · Correo
+
+**Commit:** *(este commit)* — CN-011.
+
+En el correo, **un salto de línea es una cabecera nueva**. El `nombre` de una
+reserva viene del portal público —cualquiera con el QR de la mesa— y solo se le
+medía la longitud; de ahí pasa al asunto de la confirmación. `Juan\r\nBcc: …` no
+era un nombre raro: era un `Bcc:` de verdad, y el restaurante mandaba copia de su
+correo a quien lo escribió.
+
+**El agujero estaba en el orden.** `cabecera()` solo codificaba en base64 si había
+caracteres fuera de ASCII, y `\r` y `\n` están **dentro** de `\x00-\x7F`. Un
+asunto en español sin acentos salía tal cual; uno con acentos se salvaba de
+rebote porque el base64 se traga el salto. Esa es la clase de protección
+accidental que un día desaparece sola.
+
+Arreglado en tres capas, y ninguna sobra por existir las otras:
+
+| Capa | Qué hace | Por qué no basta con las otras |
+|---|---|---|
+| `portal.ts` | Aplana el nombre **antes de medirlo** | El nombre también se imprime en el ticket y se guarda en el log de eventos, donde ya no se quita |
+| `correo.ts` (dominio) | `enUnaLinea()` en todo lo que interpola `rellenar()` | Protege también el camino de **Resend**, que no pasa por `smtp.ts` |
+| `smtp.ts` | `sinSaltos()` **antes** de decidir si codifica | Protege aunque un día alguien arme un asunto sin pasar por el dominio |
+
+### Lo que la auditoría no vio: inyección de comandos, no de cabeceras
+
+`soloDireccion()` alimenta `MAIL FROM:<…>` y `RCPT TO:<…>`, que **no son
+cabeceras: son comandos SMTP**. Un salto ahí no añade un `Bcc:`, añade un comando
+entero. Y hay algo peor, que solo salió al escribir la prueba:
+
+```
+soloDireccion("cliente@correo.mx\r\nRCPT TO:<otro@ejemplo.com>")  →  "otro@ejemplo.com"
+```
+
+`<([^>]+)>` casa **en cualquier parte de la cadena**. Validar después de extraer
+no habría dado ningún error: habría entregado el correo del comensal a quien
+escribió el ataque, en silencio. Por eso el rechazo va sobre el valor **crudo**.
+
+Aquí se **falla en seco** y no se aplana, al contrario que en las cabeceras:
+una dirección aplanada es otra dirección, y mandar el correo a otra parte es peor
+que no mandarlo. Sale por el camino de siempre (`ErrorSmtp` 550, no reintentable)
+para que no llene la cola ni escape como excepción sin recoger — por eso
+`soloDireccion` se movió **dentro** del `try` en `porGmail`.
+
+---
+
+## ⬜ Etapas 9 a 12 — resumen
 
 | Etapa | Hallazgos | Lo que hay que saber |
 |---|---|---|
-| **8** Correo | CN-011 | `cabecera()` no detecta `\r\n` porque están en `\x00-\x7F`. El `nombre` de la reserva viene del **portal público sin filtro** |
 | **9** Tauri y empaquetado | CN-015, CN-016, CN-018, CN-026, CN-033, CN-035, CN-037 | `shell:default` **nada lo usa**: `pos-ui` no depende de `@tauri-apps/api` y no hay un solo `invoke` · el certificado del Hub se genera como **CA** · `mode 0o600` **no protege en NTFS** — la protección real son las ACL |
 | **10** Proceso | CN-009, CN-021, CN-022, CN-028 | **Bloqueado parcialmente:** la compra del certificado Authenticode es trámite comercial. Dejar `certificateThumbprint` y la verificación antes del `spawn` listos |
 | **11** Detalles | CN-043, CN-044 | Sesgo de módulo en base32 (78,3 bits reales, no 80) · `cargo-audit` no instalado: 860 crates sin contrastar |

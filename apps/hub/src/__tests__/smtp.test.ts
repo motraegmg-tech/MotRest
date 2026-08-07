@@ -111,3 +111,112 @@ describe("sacar la dirección de un remitente", () => {
     expect(soloDireccion("  espaciada@correo.mx  ")).toBe("espaciada@correo.mx");
   });
 });
+
+/**
+ * INYECCIÓN DE CABECERAS (CN-011).
+ *
+ * En el correo, un salto de línea es una cabecera nueva. El nombre de una
+ * reserva viene del portal público —cualquiera con el QR de la mesa— y acaba en
+ * el asunto de la confirmación. `Juan\r\nBcc: quien-sea@ejemplo.com` no era un
+ * nombre raro: era un `Bcc:` de verdad.
+ *
+ * El agujero estaba en el orden. `cabecera()` solo codificaba en base64 si había
+ * caracteres fuera de ASCII, y `\r` y `\n` están DENTRO de ASCII: un asunto en
+ * español sin acentos salía tal cual. Uno con acentos se salvaba de rebote,
+ * porque el base64 se traga el salto — protección accidental, de la que un día
+ * desaparece sola.
+ */
+describe("nadie mete cabeceras de su cosecha", () => {
+  /**
+   * Las líneas de cabecera: lo que va antes del primer renglón vacío.
+   *
+   * Se comprueba sobre LÍNEAS y no con `toContain`, porque el texto "Bcc:"
+   * aplanado dentro del asunto es inofensivo y aparece igual en el mensaje. Lo
+   * que importa es si existe un renglón que EMPIECE por `Bcc:` — eso es lo que
+   * un servidor de correo obedece.
+   */
+  function cabeceras(crudo: string): string[] {
+    return crudo.split("\r\n\r\n")[0]!.split("\r\n");
+  }
+
+  function nombresDeCabecera(crudo: string): string[] {
+    return cabeceras(crudo)
+      .map((l) => l.match(/^([A-Za-z-]+):/)?.[1] ?? "")
+      .filter(Boolean);
+  }
+
+  it("un nombre con salto de línea no añade un Bcc", () => {
+    const crudo = mime({ asunto: "Reserva de Juan\r\nBcc: quien-sea@ejemplo.com" });
+
+    expect(nombresDeCabecera(crudo)).not.toContain("Bcc");
+    // El asunto entero queda en un solo renglón, con el ataque de texto muerto.
+    expect(cabeceras(crudo)).toContain("Subject: Reserva de Juan Bcc: quien-sea@ejemplo.com");
+  });
+
+  /**
+   * Con el remitente no se aplana: no sale el correo.
+   *
+   * Parece más duro de lo necesario —el salto está en el nombre de delante, no
+   * en la dirección— hasta que se mira cómo se saca la dirección. `<([^>]+)>`
+   * casa en CUALQUIER parte de la cadena, así que un nombre puede colar una
+   * dirección entera y ganarle a la de verdad. Y el remitente no lo escribe un
+   * comensal: es configuración del restaurante, donde un salto de línea es
+   * corrupción o es un ataque, nunca un nombre.
+   */
+  it("un remitente con salto de línea no manda nada", () => {
+    expect(() => mime({ de: "Rodizio\r\nBcc: quien-sea@ejemplo.com <rodizio@gmail.com>" })).toThrow(
+      /no válida/,
+    );
+    // Y esta es la razón: la dirección que gana es la del atacante.
+    expect(
+      "Rodizio\r\nBcc: <yo@ataque.example> <rodizio@gmail.com>".match(/<([^>]+)>/)?.[1],
+    ).toBe("yo@ataque.example");
+  });
+
+  it("tampoco desde el destinatario ni el Reply-To", () => {
+    const crudo = mime({
+      para: "Ana\r\nX-Cualquiera: si <cliente@correo.mx>",
+      responder_a: "Rodizio\r\nX-Otra: si <rodizio@gmail.com>",
+    });
+
+    expect(nombresDeCabecera(crudo)).not.toContain("X-Cualquiera");
+    expect(nombresDeCabecera(crudo)).not.toContain("X-Otra");
+    expect(cabeceras(crudo).filter((l) => l.startsWith("To:"))).toHaveLength(1);
+  });
+
+  /** Un `\0` trunca la línea en algunos servidores: cuenta como salto. */
+  it("los demás caracteres de control tampoco pasan", () => {
+    const crudo = mime({ asunto: "Reserva\u0000de\u000bJuan\u007f" });
+    expect(cabeceras(crudo).filter((l) => l.startsWith("Subject:"))).toHaveLength(1);
+    expect(crudo).toContain("Subject: Reserva de Juan");
+  });
+
+  /**
+   * Lo que NO puede pasar: que el arreglo rompa los acentos. Un asunto con
+   * acentos sigue teniendo que salir codificado en RFC 2047.
+   */
+  it("los acentos siguen saliendo bien", () => {
+    expect(mime({ asunto: "Su reserva en Café Rodizio" })).toContain("Subject: =?UTF-8?B?");
+  });
+
+  /**
+   * En `MAIL FROM:<…>` la dirección va dentro de un COMANDO SMTP, no dentro de
+   * una cabecera. Un salto ahí no añade un `Bcc:`: añade otro `RCPT TO`. Por eso
+   * aquí se falla en seco — y aplanar tampoco valdría, porque una dirección
+   * aplanada es otra dirección.
+   */
+  it("una dirección con salto de línea no se manda a ningún lado", () => {
+    /*
+     * Este caso es el que enseña por qué el rechazo va sobre el valor crudo y no
+     * sobre lo extraído: `<([^>]+)>` casa en cualquier parte de la cadena, así
+     * que aquí sacaba `otro@ejemplo.com` —una dirección válida— y el correo del
+     * comensal se entregaba a quien escribió el ataque, sin un solo error.
+     */
+    expect(() => soloDireccion("cliente@correo.mx\r\nRCPT TO:<otro@ejemplo.com>")).toThrow(
+      /no válida/,
+    );
+    expect(() => soloDireccion("Ana <ana@correo.mx\r\nDATA>")).toThrow(/no válida/);
+    expect(() => soloDireccion("esto no es un correo")).toThrow(/no válida/);
+    expect(() => soloDireccion("")).toThrow(/no válida/);
+  });
+});
