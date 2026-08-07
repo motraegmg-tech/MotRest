@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "panel",
+  "description": "Permisos de MOTRAE Central: solo la ventana. No arranca procesos ni carga nada de la red.",
+  "windows": ["main"],
+  "permissions": ["core:default"]
+}

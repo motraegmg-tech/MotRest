@@ -61,10 +61,13 @@ MotRest arranca **sin licencia** y opera con normalidad, avisando. Es a propósi
 arrancar bloqueado el día de la instalación —justo cuando MOTRAE está ahí
 montándolo— no tiene ningún sentido.
 
-1. En el Hub, ver el `sucursal_id` que se generó (**Administración → Hub**).
-2. En **MOTRAE Central → Restaurantes**, dar de alta el local **con ese mismo
-   identificador** y pulsar «Emitir licencia».
-3. Copiar el `licencia.json` y pegarlo en **Administración → Licencia**.
+El procedimiento completo, paso a paso y con ejemplo, está en
+[`ALTA-DE-LICENCIA.md`](ALTA-DE-LICENCIA.md). En corto:
+
+1. Copiar el `sucursal_id` de **Administración → Hub**.
+2. Dar de alta el local en **MOTRAE Central → Restaurantes** con **ese mismo**
+   identificador, y pulsar «Emitir licencia».
+3. Pegar el `licencia.json` en **Administración → Licencia**.
 
 > **El identificador tiene que coincidir exactamente.** Es el error más
 > frustrante del alta porque no se descubre hasta que uno ya está en el

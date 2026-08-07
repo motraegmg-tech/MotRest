@@ -1,0 +1,17 @@
+{
+  "name": "@motrest/central-escritorio",
+  "version": "1.0.0",
+  "private": true,
+  "description": "MOTRAE Central para Windows — el panel de MOTRAE: cartera de restaurantes, licencias y publicación de versiones. NO se instala en ningún restaurante.",
+  "type": "module",
+  "scripts": {
+    "dev": "tauri dev",
+    "//build": "`tauri build` NO reconstruye lo que empaqueta: toma el panel de central/dist tal como esté. Sin el paso previo, el instalador sale con código viejo y en silencio.",
+    "build": "corepack pnpm@9.15.0 --filter @motrest/central build && tauri build",
+    "build:solo-app": "tauri build",
+    "icono": "tauri icon icono-fuente.svg"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2.11.4"
+  }
+}

@@ -1,0 +1,51 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "MOTRAE Central",
+  "version": "1.0.0",
+  "identifier": "mx.motrae.central",
+  "build": {
+    "frontendDist": "../../central/dist"
+  },
+  "app": {
+    "windows": [
+      {
+        "label": "main",
+        "title": "MOTRAE Central",
+        "width": 1360,
+        "height": 880,
+        "minWidth": 900,
+        "minHeight": 600,
+        "resizable": true
+      }
+    ],
+    "security": {
+      "csp": {
+        "default-src": "'self'",
+        "script-src": "'self' 'unsafe-inline'",
+        "style-src": "'self' 'unsafe-inline'",
+        "img-src": "'self' data: blob:",
+        "font-src": "'self' data:",
+        "connect-src": "'self'",
+        "frame-src": "http://localhost:5173 http://127.0.0.1:5173"
+      },
+      "capabilities": ["panel"]
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": ["nsis"],
+    "icon": ["icons/icon.ico"],
+    "publisher": "MOTRAE",
+    "copyright": "MOTRAE",
+    "category": "Business",
+    "shortDescription": "Panel de MOTRAE: restaurantes, licencias y versiones",
+    "longDescription": "MOTRAE Central: cartera de restaurantes con MotRest, estado de cobro y de salud de cada instalación, emisión de licencias y publicación de actualizaciones firmadas. Uso interno de MOTRAE.",
+    "windows": {
+      "nsis": {
+        "languages": ["Spanish", "SpanishInternational"],
+        "displayLanguageSelector": false,
+        "installMode": "currentUser"
+      }
+    }
+  }
+}

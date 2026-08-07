@@ -1,0 +1,30 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <!--
+    Icono de MOTRAE Central.
+
+    DELIBERADAMENTE DISTINTO del de MotRest, y no por estética: Gonzalo va a
+    tener las dos apps ancladas en la misma barra de tareas, y confundirlas
+    significa abrir el panel que guarda las llaves de firma creyendo que es un
+    punto de venta. Fondo oscuro con el degradado de energía de la marca, en
+    lugar del bloque naranja macizo del POS.
+  -->
+  <defs>
+    <linearGradient id="energia" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#F2853A"/>
+      <stop offset="100%" stop-color="#E0392B"/>
+    </linearGradient>
+  </defs>
+
+  <rect width="1024" height="1024" rx="220" fill="#14181A"/>
+
+  <!-- Anillo: lo que rodea y vigila a los locales. -->
+  <circle cx="512" cy="512" r="330" fill="none" stroke="url(#energia)" stroke-width="56"/>
+
+  <!-- M de MOTRAE, en el centro. -->
+  <path d="M 330 660 L 330 372 L 404 372 L 512 546 L 620 372 L 694 372 L 694 660 L 622 660 L 622 486 L 540 618 L 484 618 L 402 486 L 402 660 Z" fill="#FFFFFF"/>
+
+  <!-- Los tres locales que cuelgan del centro. -->
+  <circle cx="512" cy="150" r="46" fill="#F2853A"/>
+  <circle cx="192" cy="700" r="46" fill="#F2853A"/>
+  <circle cx="832" cy="700" r="46" fill="#F2853A"/>
+</svg>

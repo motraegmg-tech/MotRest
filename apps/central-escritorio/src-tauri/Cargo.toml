@@ -1,27 +1,28 @@
 [package]
-name = "motrest"
+name = "motrae-central"
 version = "1.0.0"
-description = "MotRest — la caja del local"
+description = "MOTRAE Central — el panel de MOTRAE"
 authors = ["MOTRAE"]
 edition = "2021"
 rust-version = "1.77"
 
 [lib]
-name = "motrest_lib"
+name = "motrae_central_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
 
+# Sin `tauri-plugin-shell`: esta app no arranca ningún proceso hijo. La caja
+# levanta el Hub; Central no levanta nada, así que no se le da la capacidad de
+# ejecutar programas. Es la app que guarda las llaves de firma de todos los
+# restaurantes — cada permiso que no necesita es uno que no puede abusarse.
 [dependencies]
 tauri = { version = "2", features = [] }
-tauri-plugin-shell = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 
 [profile.release]
-# Un instalador más pequeño se descarga y se distribuye mejor en un local con
-# internet lento, que es la condición normal de un restaurante.
 opt-level = "s"
 lto = true
 codegen-units = 1
