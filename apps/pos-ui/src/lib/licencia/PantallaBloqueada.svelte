@@ -22,6 +22,54 @@
   import { licencia } from "../licencia.svelte";
 
   const { contacto = "" }: { contacto?: string } = $props();
+  let identificador = $state("");
+  let textoLicencia = $state("");
+  let instalando = $state(false);
+  let error = $state("");
+
+  $effect(() => {
+    void cargarIdentificador();
+  });
+
+  async function cargarIdentificador() {
+    try {
+      const respuesta = await fetch("/licencia", { signal: AbortSignal.timeout(2500) });
+      if (!respuesta.ok) return;
+      const datos = (await respuesta.json()) as { sucursal_id?: unknown };
+      if (typeof datos.sucursal_id === "string") identificador = datos.sucursal_id;
+    } catch {
+      // El mensaje principal ya explica que la caja necesita reactivarse.
+    }
+  }
+
+  async function instalarLicencia(evento: SubmitEvent) {
+    evento.preventDefault();
+    error = "";
+    const licenciaJson = textoLicencia.trim();
+    if (!licenciaJson) {
+      error = "Pegue la licencia emitida desde MOTRAE Central.";
+      return;
+    }
+
+    instalando = true;
+    try {
+      const respuesta = await fetch("/licencia", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: licenciaJson,
+      });
+      const datos = (await respuesta.json()) as { ok?: boolean; error?: unknown };
+      if (!respuesta.ok || !datos.ok) {
+        error = typeof datos.error === "string" ? datos.error : "No se pudo instalar la licencia.";
+        return;
+      }
+      location.reload();
+    } catch {
+      error = "No se pudo comunicar con el Hub local. Reintente en unos segundos.";
+    } finally {
+      instalando = false;
+    }
+  }
 </script>
 
 <div class="bloqueo" role="alertdialog" aria-modal="true" aria-labelledby="bloqueo-titulo">
@@ -45,6 +93,28 @@
   {#if contacto}
     <p class="contacto">Para reactivarlo: <b>{contacto}</b></p>
   {/if}
+
+  <div class="alta">
+    <p>
+      Código de instalación:
+      <code>{identificador || "Cargando…"}</code>
+    </p>
+    <small>Registre este código en MOTRAE Central; después pegue aquí la licencia emitida.</small>
+    <form onsubmit={instalarLicencia}>
+      <label for="licencia">Licencia de MOTRAE</label>
+      <textarea
+        id="licencia"
+        bind:value={textoLicencia}
+        rows="4"
+        spellcheck="false"
+        placeholder="Pegue aquí el contenido de licencia.json"
+      ></textarea>
+      <button type="submit" disabled={instalando}>
+        {instalando ? "Activando…" : "Activar licencia"}
+      </button>
+    </form>
+    {#if error}<p class="error">{error}</p>{/if}
+  </div>
 
   <p class="pie">MotRest · una plataforma de MOTRAE</p>
 </div>
@@ -120,6 +190,69 @@
   }
   .contacto b {
     color: var(--acento);
+  }
+  .alta {
+    width: min(100%, 31rem);
+    margin-top: 0.6rem;
+    padding: 0.9rem;
+    border: 1px solid #2f3a3e;
+    border-radius: var(--r-md);
+    text-align: left;
+  }
+  .alta > p {
+    margin: 0;
+    font-size: 0.82rem;
+  }
+  .alta code {
+    margin-left: 0.3rem;
+    color: var(--acento);
+    font-weight: 700;
+  }
+  .alta small {
+    display: block;
+    margin: 0.3rem 0 0.65rem;
+    color: #97a3a9;
+    font-size: 0.76rem;
+    line-height: 1.45;
+  }
+  .alta form {
+    display: grid;
+    gap: 0.35rem;
+  }
+  .alta label {
+    font-size: 0.78rem;
+    font-weight: 700;
+  }
+  .alta textarea {
+    resize: vertical;
+    min-height: 4.8rem;
+    border: 1px solid #3b474c;
+    border-radius: var(--r-sm);
+    padding: 0.5rem;
+    background: #182024;
+    color: #dfe5e2;
+    font: 0.72rem/1.4 ui-monospace, SFMono-Regular, Consolas, monospace;
+  }
+  .alta button {
+    justify-self: end;
+    padding: 0.45rem 0.8rem;
+    border: 0;
+    border-radius: var(--r-sm);
+    background: var(--acento);
+    color: var(--negro);
+    font: inherit;
+    font-weight: 700;
+    cursor: pointer;
+  }
+  .alta button:disabled {
+    cursor: wait;
+    opacity: 0.7;
+  }
+  .error {
+    margin: 0.6rem 0 0;
+    color: #ff9b94;
+    font-size: 0.78rem;
+    line-height: 1.4;
   }
   .pie {
     position: absolute;

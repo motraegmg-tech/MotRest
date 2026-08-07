@@ -922,6 +922,7 @@ function atenderInterno(peticion: IncomingMessage, respuesta: ServerResponse): v
       json(200, {
         ...(licencia?.paraTerminales(true) ?? { licencia: null, verificada: false }),
         situacion: v?.situacion ?? null,
+        sucursal_id: sucursalDelLocal(),
         version: VERSION,
       });
       return;

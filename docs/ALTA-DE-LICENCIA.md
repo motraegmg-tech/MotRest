@@ -29,15 +29,17 @@ De ahí salen las dos únicas reglas que importan:
 
 ### 1 · Instalar MotRest en la computadora del local
 
-`MotRest_1.0.1_x64-setup.exe`, doble clic. No pide administrador.
+`MotRest_1.0.2_x64-setup.exe`, doble clic. No pide administrador.
 
-Al primer arranque, MotRest **funciona con normalidad** y avisa de que no tiene
-licencia. Es a propósito: arrancar bloqueado el día de la instalación, justo
-cuando estás ahí montándolo, no tendría ningún sentido.
+Al primer arranque sin licencia aparece la pantalla **Servicio suspendido**. No
+borra ni altera la información: muestra el código de instalación y permite pegar
+la licencia firmada cuando Central la emita.
 
 ### 2 · Copiar el identificador que generó el Hub
 
-En la caja: **Administración → Hub**. Sale algo como:
+En la pantalla **Servicio suspendido**, copie el **Código de instalación**. Si el
+local ya tiene una licencia vigente, también aparece en **Administración → Hub**.
+Sale algo como:
 
 ```
 suc-rodizio-centro
@@ -93,7 +95,9 @@ Lo que lleva dentro:
 
 ### 5 · Pegarla en el local
 
-En la caja: **Administración → Licencia** → pegar → guardar.
+Si está en la pantalla **Servicio suspendido**, pegue el texto en **Licencia de
+MOTRAE** y pulse **Activar licencia**. Si el local ya está abierto, también puede
+hacerlo desde **Administración → Licencia** → pegar → guardar.
 
 **Efecto inmediato.** No hay que reiniciar nada; si el equipo estaba bloqueado,
 se desbloquea al momento.
@@ -138,8 +142,9 @@ Sale así:
 | `--desde` | Renovar contando desde el vencimiento anterior |
 | `--salida` | Dónde escribirlo (por defecto `licencia.json`) |
 
-Después se copia el archivo al equipo del local, junto a la base de datos, o se
-pega desde **Administración → Licencia**.
+Después se copia el archivo al equipo del local y se pega en **Licencia de
+MOTRAE** de la pantalla suspendida, o desde **Administración → Licencia** si el
+local ya está abierto.
 
 ---
 

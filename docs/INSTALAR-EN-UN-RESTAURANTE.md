@@ -72,17 +72,19 @@ firmar nada.
 
 ### A.4 · Activar la licencia
 
-MotRest arranca **sin licencia** y opera con normalidad, avisando. Es a propósito:
-arrancar bloqueado el día de la instalación —justo cuando MOTRAE está ahí
-montándolo— no tiene ningún sentido.
+MotRest arranca **sin licencia** con la pantalla **Servicio suspendido**. La
+información del restaurante se conserva intacta y la misma pantalla permite
+pegar la licencia firmada en cuanto Central la emita.
 
 El procedimiento completo, paso a paso y con ejemplo, está en
 [`ALTA-DE-LICENCIA.md`](ALTA-DE-LICENCIA.md). En corto:
 
-1. Copiar el `sucursal_id` de **Administración → Hub**.
+1. Copiar el código de instalación que aparece en **Servicio suspendido** (o el
+   `sucursal_id` de **Administración → Hub** si el local ya está abierto).
 2. Dar de alta el local en **MOTRAE Central → Restaurantes** con **ese mismo**
    identificador, y pulsar «Emitir licencia».
-3. Pegar el `licencia.json` en **Administración → Licencia**.
+3. Pegar el `licencia.json` en **Licencia de MOTRAE** de la pantalla suspendida,
+   o en **Administración → Licencia** si el local ya está abierto.
 
 > **El identificador tiene que coincidir exactamente.** Es el error más
 > frustrante del alta porque no se descubre hasta que uno ya está en el

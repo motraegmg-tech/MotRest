@@ -31,7 +31,7 @@ export const EMPLEADO_ACTUAL: ID = "usr-gonzalo";
  * que el restaurante necesita en ese momento es reactivarse ya, y cada paso
  * entre el bloqueo y el pago es un día más sin cobrar.
  */
-export const CONTACTO_MOTRAE = "MOTRAE · 33 1234 5678";
+export const CONTACTO_MOTRAE = "MOTRAE · 2283536911";
 
 export const cabecera = {
   titulo: "Punto de venta",
