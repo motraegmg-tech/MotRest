@@ -434,6 +434,14 @@ de Rodizio es la que tuviera en el PATH quien empaquetó ese día. Ahora `.nvmrc
 exacta (`24.16.0`), `engines` está alineado, y el empaquetado **aborta** si no
 coinciden.
 
+**Regresión de empaquetado detectada al validar el instalador.** Un ejecutable SEA
+no lleva `apps/hub/package.json`; leerlo con `createRequire(...)("../package.json")`
+hacía que el Hub terminara antes de escuchar en `localhost:8788`. La versión se
+incrusta ahora durante `empaquetar.mjs`, igual que las públicas Ed25519, y el
+empaquetador aborta si el bundle conserva esa ruta. Antes de entregar un instalador
+se arranca el sidecar resultante sobre una base y puerto temporales y se exige
+`GET /salud` con `200`.
+
 **CN-033 · El `0o600` no protegía nada en Windows.** `fs.chmod` ahí solo mueve el
 atributo de solo lectura; las ACL de NTFS quedan como estuvieran. Y Windows es la
 única plataforma donde MotRest se instala, así que la protección existía en el

@@ -29,7 +29,7 @@ De ahí salen las dos únicas reglas que importan:
 
 ### 1 · Instalar MotRest en la computadora del local
 
-`MotRest_1.0.0_x64-setup.exe`, doble clic. No pide administrador.
+`MotRest_1.0.1_x64-setup.exe`, doble clic. No pide administrador.
 
 Al primer arranque, MotRest **funciona con normalidad** y avisa de que no tiene
 licencia. Es a propósito: arrancar bloqueado el día de la instalación, justo

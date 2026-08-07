@@ -31,6 +31,11 @@ const salida = resolve(aqui, "dist-sea");
 /** Dónde espera Tauri el binario, con el sufijo de plataforma que exige. */
 const destinoTauri = resolve(aqui, "../escritorio/src-tauri/binarios");
 const SUFIJO = "x86_64-pc-windows-msvc";
+const version = JSON.parse(readFileSync(join(aqui, "package.json"), "utf8")).version;
+
+if (typeof version !== "string" || !version) {
+  throw new Error("No se encontró una versión válida en apps/hub/package.json.");
+}
 
 /**
  * El binario lleva las llaves públicas, nunca las privadas. Validarlas aquí
@@ -127,8 +132,16 @@ await build({
     "import.meta.url": "import_meta_url",
     __MOTREST_LICENCIA_PUBLICA__: JSON.stringify(LLAVE_PUBLICA_LICENCIAS),
     __MOTREST_ACTUALIZACIONES_PUBLICA__: JSON.stringify(LLAVE_PUBLICA_ACTUALIZACIONES),
+    __MOTREST_VERSION__: JSON.stringify(version),
   },
 });
+
+// El ejecutable SEA vive solo en la carpeta de la instalación: no puede subir
+// un nivel para leer apps/hub/package.json. Si la sustitución anterior no
+// eliminó esa ruta, abortamos aquí en vez de entregar una caja que no arranca.
+if (readFileSync(join(salida, "hub.cjs"), "utf8").includes("../package.json")) {
+  throw new Error("El Hub empaquetado aún depende de ../package.json y no puede instalarse.");
+}
 
 console.log("2/4  Preparando la incrustación…");
 writeFileSync(

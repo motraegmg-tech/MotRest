@@ -91,6 +91,9 @@ import {
 } from "./seguridad-http.js";
 import type { DatabaseSync as TipoDatabaseSync } from "node:sqlite";
 
+/** La versión se incrusta al crear el ejecutable SEA del Hub. */
+declare const __MOTREST_VERSION__: string;
+
 const PUERTO = Number(process.env.MOTREST_HUB_PUERTO ?? 8787);
 /** Puerto de la escucha local sin certificado. Solo responde a 127.0.0.1. */
 const PUERTO_LOCAL = Number(process.env.MOTREST_HUB_PUERTO_LOCAL ?? PUERTO + 1);
@@ -293,7 +296,10 @@ const EXIGIR_APROBACION = process.env.MOTREST_HUB_ABIERTO !== "1";
 const RUTA_LICENCIA = join(dirname(RUTA_DB), "licencia.json");
 
 /** La versión instalada. Se compara contra lo que se publique en GitHub. */
-const VERSION = createRequire(import.meta.url)("../package.json").version as string;
+const VERSION =
+  typeof __MOTREST_VERSION__ === "string"
+    ? __MOTREST_VERSION__
+    : (createRequire(import.meta.url)("../package.json").version as string);
 
 mkdirSync(dirname(RUTA_DB), { recursive: true });
 const almacen = almacenSqlite(RUTA_DB);
