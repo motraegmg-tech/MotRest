@@ -211,7 +211,19 @@
       </div>
 
       {#if mostrarPrevia}
-        <iframe src={previa} title="Vista previa de MotRest"></iframe>
+        <!--
+          `sandbox` contiene lo que la vista previa puede hacer dentro de Central.
+          Lo que se carga aquí es una versión de MotRest que TODAVÍA NO se ha
+          revisado —ese es el propósito del panel—, así que se le deja lo justo
+          para verse funcionando: scripts, su propio origen y formularios. Sin
+          `allow-top-navigation` no puede sacar a Central de su sitio, y sin
+          `allow-popups` no puede abrir ventanas.
+        -->
+        <iframe
+          src={previa}
+          title="Vista previa de MotRest"
+          sandbox="allow-scripts allow-same-origin allow-forms"
+        ></iframe>
       {:else}
         <div class="previa-vacia">
           <span>Pulse «Ver» para cargar la aplicación aquí.</span>

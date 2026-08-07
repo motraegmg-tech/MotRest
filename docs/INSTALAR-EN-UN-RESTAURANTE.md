@@ -18,17 +18,30 @@ Es la máquina que se queda en la caja. Todo lo del restaurante vive ahí.
 | Disco | 128 GB | **SSD**, 256 GB |
 | Red | Wi-Fi | **Cable al módem** |
 
-Tres ajustes de Windows que hay que dejar hechos, y que si se saltan se pagan
+Seis ajustes de Windows que hay que dejar hechos, y que si se saltan se pagan
 caro:
 
-1. **Inicio de sesión automático.** El Hub arranca solo (ADR-22), pero necesita
+1. **BitLocker antes de cualquier inicio de sesión automático.** Activarlo, guardar
+   la clave de recuperación fuera de esta computadora y comprobar el desbloqueo de
+   prearranque antes de configurar `netplwiz`. El cifrado debe proteger el disco
+   desde el encendido; configurar primero el acceso automático deja que quien tenga
+   la máquina llegue al escritorio sin esa barrera.
+2. **Cuenta de trabajo estándar, no administradora.** El usuario que operará la
+   caja solo necesita abrir MotRest. Separarlo de una cuenta de administrador evita
+   que un enlace, instalador o ajuste cotidiano obtenga privilegios del equipo.
+3. **Inicio de sesión automático.** Configurarlo solo después de BitLocker y para
+   la cuenta estándar de trabajo. El Hub arranca solo (ADR-22), pero necesita
    que alguien entre a la sesión. Sin esto, el día que se va la luz el
    restaurante enciende la máquina y se queda en la pantalla de contraseña.
    `netplwiz` → quitar la palomita de "los usuarios deben escribir su nombre y
    contraseña".
-2. **Que no se suspenda.** Configuración → Sistema → Inicio/apagado → Suspender:
+4. **Bloqueo de pantalla con tiempo de espera.** Configurar que la sesión se
+   bloquee tras cinco minutos de inactividad y solicite la contraseña al reanudar.
+   El Hub sigue funcionando, pero una caja desatendida no queda disponible para
+   cualquiera que pase frente a ella.
+5. **Que no se suspenda.** Configuración → Sistema → Inicio/apagado → Suspender:
    **Nunca**. Una caja suspendida deja a las tablets sin Hub.
-3. **Actualizaciones de Windows en horario de cierre.** Un reinicio a las nueve
+6. **Actualizaciones de Windows en horario de cierre.** Un reinicio a las nueve
    de la noche del viernes es exactamente lo que no puede pasar.
 
 > **Un no-break (UPS) barato es la mejor inversión del despliegue.** No por la

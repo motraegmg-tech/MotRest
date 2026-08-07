@@ -1,0 +1,32 @@
+name: Auditoría semanal de dependencias de producción
+
+on:
+  schedule:
+    # Cada lunes a las 04:17 UTC, fuera del horario operativo de los restaurantes.
+    - cron: '17 4 * * 1'
+
+# La auditoría consulta el lockfile y el registro; no necesita permisos de escritura en GitHub.
+permissions:
+  contents: read
+
+# Sin esto, Corepack se para a pedir confirmación para descargar pnpm y el flujo
+# se cuelga: en un runner no hay terminal donde contestar.
+env:
+  COREPACK_ENABLE_DOWNLOAD_PROMPT: "0"
+
+jobs:
+  auditar:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Obtener el código
+        # actions/checkout@v4.3.1
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+
+      - name: Configurar Node.js desde .nvmrc
+        # actions/setup-node@v4.4.0
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version-file: .nvmrc
+
+      - name: Auditar dependencias de producción
+        run: corepack pnpm@9.15.0 audit --prod

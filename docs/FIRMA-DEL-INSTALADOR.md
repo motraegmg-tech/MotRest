@@ -123,6 +123,31 @@ Tauri puede firmar automáticamente al compilar. Se configura en
 `tauri.conf.json` con `windows.certificateThumbprint`, y así ningún artefacto
 sale sin firmar por olvido.
 
+### Hay DOS cosas que firmar, no una
+
+Es el error fácil de cometer, porque el segundo no se ve:
+
+| Qué | Quién lo firma | Por qué hace falta |
+|---|---|---|
+| `MotRest_x.y.z_x64-setup.exe` | Tauri, con `certificateThumbprint` | Es lo que el restaurante descarga y ejecuta una vez |
+| `motrest-hub-x86_64-pc-windows-msvc.exe` | `empaquetar.mjs`, con `MOTREST_FIRMA_HUELLA` | **Es lo que se ejecuta cada mañana en la caja.** La firma del instalador no lo cubre: una vez instalado, ese archivo está en disco y sin firma propia nada lo distingue de otro que alguien deje en su lugar |
+
+El Hub se firma **después** de meterle el código dentro (`inject`), nunca antes:
+la inyección cambia los bytes e invalidaría cualquier firma previa. Por eso el
+script quita primero la firma original de Node y pone la de MOTRAE al final.
+
+Ya está cableado. El día que llegue el certificado:
+
+```powershell
+$env:MOTREST_FIRMA_HUELLA = "<la huella SHA-1 del certificado>"
+corepack pnpm@9.15.0 --filter @motrest/hub empaquetar
+```
+
+Y la misma huella en `windows.certificateThumbprint` de los dos
+`tauri.conf.json` (MotRest y MOTRAE Central). Sin la variable, el empaquetado
+avisa en pantalla de que el Hub sale sin firmar y sigue: es lo que permite
+probar sin certificado, y lo que no debe salir a un restaurante.
+
 ## Lo que la firma NO resuelve
 
 **El aviso del certificado del Hub en las tablets** es otro problema distinto y

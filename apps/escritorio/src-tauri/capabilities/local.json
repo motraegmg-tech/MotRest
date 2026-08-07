@@ -1,10 +1,10 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "local",
-  "description": "Permisos de la caja: la ventana carga el punto de venta desde el Hub de este mismo equipo.",
+  "description": "Permisos de la caja: la ventana carga el punto de venta desde el Hub de este mismo equipo. SIN shell:default, y esa es la decisión que importa de este archivo: el permiso se concedía a un `remote`, o sea no a la aplicación empaquetada sino a lo que el Hub sirva en localhost:8788, así que cualquier cosa que acabara ejecutándose dentro del POS podía lanzar procesos en la caja del restaurante. No hacía falta para nada: pos-ui no depende de @tauri-apps/api y no hay un solo `invoke` en su código; el sidecar del Hub se lanza desde Rust con app.shell().sidecar(), que es API nativa y no pasa por estas capabilities. Si algún día el POS necesitara llamar a Tauri, se añade el permiso concreto que necesite, nunca el `default` de un plugin entero.",
   "windows": ["main"],
   "remote": {
     "urls": ["http://localhost:8788/*", "http://127.0.0.1:8788/*"]
   },
-  "permissions": ["core:default", "shell:default"]
+  "permissions": ["core:default"]
 }

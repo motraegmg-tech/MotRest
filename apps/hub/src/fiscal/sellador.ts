@@ -8,9 +8,9 @@
  *
  * DÓNDE SE GUARDA Y QUÉ PROTEGE ESO
  *
- * En la carpeta de datos del local, con permisos de solo-el-dueño (0600), igual
- * que la llave del canal LAN. Conviene decir con claridad qué significa y qué
- * no:
+ * En la carpeta de datos del local, restringida con ACL de NTFS a SYSTEM, a los
+ * administradores y al usuario que corre el Hub (`soloElDueno`). Conviene decir
+ * con claridad qué significa y qué no:
  *
  *   - Protege de otro usuario del mismo equipo y de una copia descuidada de la
  *     carpeta del programa.
@@ -19,15 +19,22 @@
  *     tiene que poder sellar sin que nadie la teclee cuando el restaurante
  *     reinicia el equipo un sábado a las nueve de la noche.
  *
+ * **Esto antes no era verdad, y estaba escrito como si lo fuera.** Decía «con
+ * permisos de solo-el-dueño (0600)», y en Windows —la única plataforma donde
+ * MotRest se instala— `fs.chmod` no toca las ACL: solo pone el atributo de solo
+ * lectura. Los permisos efectivos seguían siendo los heredados de la carpeta
+ * padre. El `mode: 0o600` se queda porque no estorba y sirve fuera de Windows,
+ * pero la protección real la pone `permisos.ts`.
+ *
  * Cifrarla con otra llave guardada en el mismo disco sería ofuscación disfrazada
- * de seguridad. Lo que de verdad protege esta carpeta es el control físico de la
- * caja y el cifrado del disco; queda escrito para que la decisión sea consciente
- * y no un descuido.
+ * de seguridad. Contra el disco robado lo que protege es BitLocker, y por eso
+ * está en la guía de instalación.
  */
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { KeyObject } from "node:crypto";
 import { cadenaOriginal, type Comprobante } from "@motrest/dominio";
+import { soloElDueno } from "../permisos.js";
 import {
   abrirLlave,
   leerCertificado,
@@ -63,8 +70,14 @@ export class Sellador {
   private csd: Csd | null = null;
   private llave: KeyObject | null = null;
 
+  /** Qué pasó al restringir la carpeta. Lo consulta `main.ts` para registrarlo. */
+  readonly permisos: { ok: boolean; detalle: string };
+
   constructor(private carpeta: string) {
     mkdirSync(carpeta, { recursive: true });
+    // Antes de leer o escribir nada: si la carpeta acaba de nacer, se cierra
+    // ahora; si ya existía de una versión anterior, se corrige ahora.
+    this.permisos = soloElDueno(carpeta);
     this.cargarDelDisco();
   }
 

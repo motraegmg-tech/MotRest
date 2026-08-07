@@ -23,13 +23,14 @@ altos, 20 medios, 12 bajos, 4 info) sobre 345 archivos fuente.
 | **5** | El Hub como autoridad | ✅ `cf6b677` |
 | **6** | Superficie HTTP del Hub | ✅ `07361d9` |
 | **7** | El relay | ✅ `f38f36a` |
-| **8** | Correo (CRLF) | ✅ *(este commit)* |
-| **9** | Tauri, certificados y empaquetado | ⬜ |
-| **10** | Proceso y despliegue (CI, guías) | ⬜ |
+| **8** | Correo (CRLF) | ✅ `19b70f6` |
+| **9** | Tauri, certificados y empaquetado | ✅ *(este commit)* |
+| **10** | Proceso y despliegue (CI, guías) | ✅ *(este commit)* |
 | **11** | Detalles finos | ⬜ |
 | **12** | Capacitor 8 *(aislada)* | ⬜ |
 
-**Pruebas al cierre de la etapa 8:** 1 560 verdes (1 omitida) · lint 0 errores.
+**Pruebas al cierre de las etapas 9 y 10:** 1 570 verdes (1 omitida) · lint 0
+errores · `cargo check --release` limpio en las dos apps de escritorio.
 
 > La omitida es a propósito: comprueba que el padrón queda en `0600`, y en
 > Windows `chmod` solo mueve el atributo de solo lectura. Los permisos de verdad
@@ -382,12 +383,101 @@ para que no llene la cola ni escape como excepción sin recoger — por eso
 
 ---
 
-## ⬜ Etapas 9 a 12 — resumen
+## ✅ Etapas 9 y 10 · Tauri, certificados, empaquetado y proceso
+
+**Commit:** *(este commit)* — CN-015, CN-016, CN-018, CN-026, CN-033, CN-035,
+CN-037 (etapa 9, hechas por Claude) y CN-009, CN-021, CN-022, CN-028 (etapa 10,
+hechas por Codex en paralelo).
+
+> **Cómo se repartieron.** CN-009 se movió de la etapa 10 a la 9 porque toca los
+> dos `tauri.conf.json`, igual que CN-015 y CN-016: dejarlo donde estaba habría
+> hecho que las dos ramas escribieran el mismo archivo a la vez. Con ese cambio,
+> el reparto queda sin un solo archivo en común.
+
+**CN-015 · `shell:default`, y por qué era peor de lo que parecía.** El permiso no
+estaba concedido a la aplicación empaquetada sino a un `remote`: la capability
+lista `http://localhost:8788/*`, que es **lo que el Hub sirve**. Traducido:
+cualquier cosa que acabara ejecutándose dentro del POS podía lanzar procesos en
+la caja. No hacía falta para nada —`pos-ui` no depende de `@tauri-apps/api` y no
+hay un solo `invoke`—, y el sidecar se lanza desde Rust con
+`app.shell().sidecar()`, que **no pasa por las capabilities**. Verificado con
+`cargo check --release`: compila igual sin el permiso.
+
+**CN-016 · El certificado del Hub era una autoridad certificadora**, con
+`keyCertSign` y diez años de vigencia. Cada terminal lo acepta al emparejarse, y
+en algunos sistemas aceptarlo es confiar en él *como autoridad*: quien copiara la
+llave privada —que vive en el disco de una computadora detrás de la barra— podría
+emitir certificados válidos para cualquier sitio, y esa tablet se los creería.
+Sin revocación posible, durante una década. Ahora `cA: false`, sin `keyCertSign`,
+con `serverAuth` y 397 días.
+
+> ⚠ **La trampa: bajar la vigencia sin renovación era peor que el problema.** El
+> certificado solo se regeneraba si cambiaban las direcciones del equipo — nunca
+> por vencimiento. Con 397 días, el local se habría quedado a los trece meses sin
+> poder abrir el POS, y **sin poder saltárselo**: un certificado caducado no se
+> acepta ni pulsando «continuar». Se añadió renovación 30 días antes, con prueba
+> propia (`certificado.test.ts`).
+
+**CN-018 · El `<script>` de la pantalla de arranque** obligaba a poner
+`script-src 'unsafe-inline'` en la CSP — y esa CSP no cubre solo esa pantalla,
+cubre también el POS que se carga desde el Hub. Doce líneas en línea permitían
+*cualquier* script en línea en toda la aplicación. Sacado a `arranque.js`;
+`script-src 'self'` en las dos apps. Comprobado sobre el HTML compilado: cero
+scripts en línea.
+
+**CN-026 · La versión de Node.** `.nvmrc` decía `24`, `engines.node` decía
+`>=20`, y esbuild apuntaba a `node22`. Lo que hace que importe está en
+`empaquetar.mjs`: `copyFileSync(process.execPath, exe)` — **el ejecutable del Hub
+es una copia del Node que corrió el empaquetado**. La versión que acaba en la caja
+de Rodizio es la que tuviera en el PATH quien empaquetó ese día. Ahora `.nvmrc` es
+exacta (`24.16.0`), `engines` está alineado, y el empaquetado **aborta** si no
+coinciden.
+
+**CN-033 · El `0o600` no protegía nada en Windows.** `fs.chmod` ahí solo mueve el
+atributo de solo lectura; las ACL de NTFS quedan como estuvieran. Y Windows es la
+única plataforma donde MotRest se instala, así que la protección existía en el
+comentario y no en el disco — el propio `SEGURIDAD.md` la publicaba como un
+hecho. Nuevo `permisos.ts` (`icacls`, SID en vez de nombres para que funcione en
+Windows en español) sobre la carpeta del CSD y la del certificado TLS.
+
+**CN-035 · Desviación deliberada: el `frame-src` se queda.** El plan pedía
+quitarlo del build de producción. No se hizo, porque no es configuración de
+desarrollo olvidada: es **la vista previa que Gonzalo pidió** para revisar MotRest
+antes de publicar una actualización, y en la Central instalada apunta al servidor
+de desarrollo de su propia máquina. Quitarlo habría roto la función. En su lugar
+se acotó a bucle local (ya lo estaba) y se añadió `sandbox` al `iframe`, que
+contiene lo que una versión sin revisar puede hacer dentro de Central.
+
+**CN-009 · Hay DOS cosas que firmar, no una.** El instalador lo firma Tauri; el
+**sidecar del Hub** hay que firmarlo aparte, y es el que se ejecuta cada mañana en
+la caja. Además tiene que firmarse **después** de la inyección SEA, que cambia los
+bytes e invalida cualquier firma previa — por eso el script quita primero la de
+Node. Cableado a `MOTREST_FIRMA_HUELLA`: el día que llegue el certificado se
+enciende sin tocar código, y sin la variable el empaquetado avisa en pantalla.
+
+**CN-021 · El checklist estaba en el orden que anula BitLocker.** Activar primero
+el inicio de sesión automático y después el cifrado deja que la máquina arranque
+sola hasta el escritorio. Reordenado, más bloqueo de pantalla y cuenta estándar.
+
+**CN-022 · El `.cmd` del servicio SYSTEM** vivía en una ruta escribible por
+usuarios normales: quien pudiera reescribirlo ejecutaba como SYSTEM. Movido a
+`%ProgramFiles%\MotRest\Hub` con herencia cortada y ACL por SID. Se conserva
+SYSTEM a propósito: el Hub debe levantar antes de que nadie inicie sesión.
+
+**CN-028 · CI**, con acciones fijadas por SHA, `permissions: contents: read`,
+`--frozen-lockfile`, Node desde `.nvmrc`, y auditoría semanal.
+
+> **Corregido sobre lo que entregó Codex:** faltaba
+> `COREPACK_ENABLE_DOWNLOAD_PROMPT: "0"`. Sin eso, Corepack se para a pedir
+> confirmación para descargar pnpm y en un runner no hay terminal donde
+> contestar: el flujo se cuelga en el primer comando y el fallo no dice por qué.
+
+---
+
+## ⬜ Etapas 11 y 12 — resumen
 
 | Etapa | Hallazgos | Lo que hay que saber |
 |---|---|---|
-| **9** Tauri y empaquetado | CN-015, CN-016, CN-018, CN-026, CN-033, CN-035, CN-037 | `shell:default` **nada lo usa**: `pos-ui` no depende de `@tauri-apps/api` y no hay un solo `invoke` · el certificado del Hub se genera como **CA** · `mode 0o600` **no protege en NTFS** — la protección real son las ACL |
-| **10** Proceso | CN-009, CN-021, CN-022, CN-028 | **Bloqueado parcialmente:** la compra del certificado Authenticode es trámite comercial. Dejar `certificateThumbprint` y la verificación antes del `spawn` listos |
 | **11** Detalles | CN-043, CN-044 | Sesgo de módulo en base32 (78,3 bits reales, no 80) · `cargo-audit` no instalado: 860 crates sin contrastar |
 | **12** Capacitor | CN-027 | Aislada al final: **único cambio que solo se comprueba en una tablet física** |
 

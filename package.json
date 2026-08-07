@@ -4,8 +4,9 @@
   "private": true,
   "description": "MotRest — ERP restaurantero de MOTRAE. Monorepo (F1: núcleo operativo).",
   "packageManager": "pnpm@9.15.0",
+  "//engines": "Alineado con .nvmrc, que es la fuente única. `>=20` era falso: el Hub usa `node:sqlite`, que no existe antes de Node 22, así que un Node 20 pasaba la comprobación y fallaba al arrancar en el restaurante.",
   "engines": {
-    "node": ">=20"
+    "node": ">=24.16.0"
   },
   "type": "module",
   "scripts": {

@@ -57,6 +57,41 @@ async function llavePublicaDeEntorno(nombre) {
   }
 }
 
+/**
+ * El Node que corre esto ES el Node que se instala en el restaurante.
+ *
+ * Más abajo hay un `copyFileSync(process.execPath, exe)`: el ejecutable del Hub
+ * se fabrica copiando el propio intérprete y metiéndole el código dentro. No es
+ * un detalle de implementación — significa que la versión de Node que acabe en
+ * la caja de Rodizio es, literalmente, la que tuviera en el PATH quien empaquetó
+ * ese día.
+ *
+ * Por eso esto **aborta** en vez de avisar. Los síntomas de empaquetar con la
+ * versión equivocada no aparecen aquí, aparecen en el restaurante: `node:sqlite`
+ * no existe antes de Node 22 y el Hub no arranca, y entre versiones cercanas las
+ * diferencias son sutiles y salen un viernes por la noche. Un instalador se
+ * fabrica una vez y se instala muchas: es el peor sitio para "seguramente da
+ * igual".
+ *
+ * La versión buena vive en `.nvmrc`, que es el mismo archivo que lee CI. Un solo
+ * sitio donde cambiarla.
+ */
+function comprobarVersionDeNode() {
+  const esperada = readFileSync(resolve(aqui, "../../.nvmrc"), "utf8").trim();
+  const actual = process.version.replace(/^v/, "");
+
+  if (actual !== esperada) {
+    throw new Error(
+      `Este empaquetado tiene que hacerse con Node ${esperada}, y se está usando ${actual}.\n` +
+        `El ejecutable del Hub es una copia del Node que corre este script, así que esa\n` +
+        `diferencia viajaría a todos los restaurantes.\n\n` +
+        `  nvm use ${esperada}    (o instala esa versión y vuelve a intentarlo)`,
+    );
+  }
+}
+
+comprobarVersionDeNode();
+
 const [LLAVE_PUBLICA_LICENCIAS, LLAVE_PUBLICA_ACTUALIZACIONES] = await Promise.all([
   llavePublicaDeEntorno("MOTREST_LICENCIA_PUBLICA"),
   llavePublicaDeEntorno("MOTREST_ACTUALIZACIONES_PUBLICA"),
@@ -134,6 +169,57 @@ try {
 await inject(exe, "NODE_SEA_BLOB", readFileSync(join(salida, "sea.blob")), {
   sentinelFuse: "NODE_SEA_FUSE_fce680ab2cc467b6e072b8b5df1996b2",
 });
+
+/*
+ * AQUÍ, y no antes, es donde se firma el Hub.
+ *
+ * El orden no es negociable: la inyección del código dentro del ejecutable
+ * modifica sus bytes, así que cualquier firma anterior queda inválida —por eso
+ * unas líneas más arriba se quita la de Node—. Firmar antes de `inject` sería
+ * producir un ejecutable que Windows rechaza por firma rota.
+ *
+ * Y hay que firmar el sidecar aparte, no basta con firmar el instalador: la
+ * firma del instalador acredita al INSTALADOR, y una vez instalado, el que se
+ * ejecuta cada mañana en la caja es este archivo. Sin firma propia, nada
+ * distingue al Hub de MOTRAE de un ejecutable que alguien haya dejado en su
+ * lugar en la carpeta del programa.
+ *
+ * Está cableado a una variable de entorno porque el certificado Authenticode es
+ * un trámite comercial que todavía no está cerrado. El día que llegue, esto se
+ * enciende poniendo la huella y no hay que tocar código.
+ */
+const HUELLA_FIRMA = process.env.MOTREST_FIRMA_HUELLA?.trim();
+
+if (HUELLA_FIRMA) {
+  console.log("3.5/4  Firmando el Hub…");
+  execFileSync(
+    "signtool",
+    [
+      "sign",
+      "/sha1",
+      HUELLA_FIRMA,
+      "/fd",
+      "SHA256",
+      // El sellado de tiempo no es opcional: sin él la firma deja de valer el
+      // día que caduque el certificado, y en las cajas ya instaladas.
+      "/tr",
+      "http://timestamp.sectigo.com",
+      "/td",
+      "SHA256",
+      exe,
+    ],
+    { stdio: "inherit" },
+  );
+  // Se verifica lo que acaba de salir, no se da por bueno: `signtool sign`
+  // puede terminar bien y dejar una firma que no valida.
+  execFileSync("signtool", ["verify", "/pa", "/v", exe], { stdio: "inherit" });
+} else {
+  console.log(
+    "\n  AVISO: el Hub sale SIN FIRMAR (falta MOTREST_FIRMA_HUELLA).\n" +
+      "  Sirve para probar. Para lo que se instala en un restaurante, no:\n" +
+      "  ver docs/FIRMA-DEL-INSTALADOR.md.\n",
+  );
+}
 
 console.log("4/4  Copiando donde Tauri lo espera…");
 mkdirSync(destinoTauri, { recursive: true });

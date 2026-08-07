@@ -1,0 +1,38 @@
+name: Validación continua
+
+on:
+  push:
+  pull_request:
+
+# El flujo solo necesita leer el repositorio; no debe poder modificarlo ni crear tokens con más privilegios.
+permissions:
+  contents: read
+
+# Corepack descarga pnpm la primera vez y, si no hay terminal, se para a pedir
+# confirmación en vez de continuar. En un runner no hay terminal: sin esto, el
+# flujo se queda colgado en el primer comando y el fallo no dice por qué.
+env:
+  COREPACK_ENABLE_DOWNLOAD_PROMPT: "0"
+
+jobs:
+  validar:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Obtener el código
+        # actions/checkout@v4.3.1
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+
+      - name: Configurar Node.js desde .nvmrc
+        # actions/setup-node@v4.4.0
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version-file: .nvmrc
+
+      - name: Instalar dependencias bloqueadas
+        run: corepack pnpm@9.15.0 install --frozen-lockfile
+
+      - name: Ejecutar lint de todos los paquetes
+        run: corepack pnpm@9.15.0 -r lint
+
+      - name: Ejecutar pruebas de todos los paquetes
+        run: corepack pnpm@9.15.0 -r test

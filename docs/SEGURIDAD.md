@@ -252,19 +252,33 @@ El Certificado de Sello Digital es, en la práctica, la firma del contribuyente:
 quien tenga la llave privada puede emitir facturas a nombre del restaurante. Se
 trata en consecuencia.
 
-**Dónde vive.** Solo en la caja, en la carpeta de datos del local, con permisos
-de solo-el-dueño (0600). No se sincroniza, no viaja por el canal LAN y no se
-guarda en ninguna terminal. La única pieza que sella es el Hub.
+**Dónde vive.** Solo en la caja, en la carpeta de datos del local, restringida a
+SYSTEM, a los administradores y al usuario que corre el Hub. No se sincroniza, no
+viaja por el canal LAN y no se guarda en ninguna terminal. La única pieza que
+sella es el Hub.
 
 **Por qué no puede estar en el navegador.** Además de la razón de seguridad, hay
 una técnica que cierra la puerta: WebCrypto no descifra el PKCS#8 protegido con
 contraseña en que el SAT entrega el `.key`.
 
-**Qué protege ese 0600 y qué no.** Protege de otro usuario del mismo equipo y de
-una copia descuidada de la carpeta del programa. **No** protege de quien tenga
-acceso de administrador a la caja ni de quien se lleve el disco. La contraseña
-de la llave se guarda al lado, porque el Hub tiene que poder sellar sin que
-nadie la teclee cuando el restaurante reinicia el equipo un sábado por la noche.
+**Corrección importante (CN-033): el `0600` no protegía nada en Windows.** Este
+documento decía que los permisos de solo-el-dueño protegían de otro usuario del
+mismo equipo. En Linux es cierto; en Windows —la única plataforma donde MotRest
+se instala— **`fs.chmod` no toca las ACL de NTFS**: lo único que hace es poner o
+quitar el atributo de solo lectura. Los permisos efectivos seguían siendo los que
+la carpeta heredara. Era una protección que existía en el comentario y no en el
+disco.
+
+Desde agosto de 2026 el Hub aplica ACL de verdad (`permisos.ts`, con `icacls`)
+sobre la carpeta del CSD y sobre la del certificado TLS: corta la herencia y deja
+dentro a SYSTEM, a los administradores y al usuario que lo ejecuta. El `mode:
+0o600` se conserva porque no estorba y sí significa algo fuera de Windows.
+
+**Qué protege eso y qué no.** Protege de otro usuario del mismo equipo y de una
+copia descuidada de la carpeta del programa. **No** protege de quien tenga acceso
+de administrador a la caja ni de quien se lleve el disco. La contraseña de la
+llave se guarda al lado, porque el Hub tiene que poder sellar sin que nadie la
+teclee cuando el restaurante reinicia el equipo un sábado por la noche.
 
 Cifrarla con otra llave guardada en el mismo disco sería ofuscación disfrazada
 de seguridad. Lo que de verdad protege esa carpeta es el control físico de la
@@ -302,6 +316,31 @@ número de certificado y cuántos días le quedan. Nunca la llave ni la contrase
 | Sin expiración de sesión por inactividad | **Abierto** | F2 (por perfil de dispositivo) |
 | Sin MFA para perfiles administrativos | **Abierto** | F2 (Supabase Auth) |
 | La contraseña del CSD se guarda junto a la llave | **Aceptado (CN-004)** | Sellar sin intervención lo exige; se mitiga con BitLocker en la caja (ver arriba) |
+| Los `0o600` no restringían a nadie en Windows | **Resuelto (CN-033)** | ACL de NTFS con `icacls` sobre las carpetas con secretos (`permisos.ts`) |
+| MotRest se instala **por usuario**, no para toda la máquina | **Aceptado (CN-037)** | Ver abajo |
+
+### El compromiso de instalar «solo para este usuario» (CN-037)
+
+Los dos instaladores usan `installMode: "currentUser"`. Es una decisión, no un
+descuido, y tiene dos caras:
+
+**Lo que gana.** El instalador **no pide administrador**. Un restaurantero puede
+instalar MotRest él solo, sin llamar a nadie y sin que MOTRAE tenga que entrar a
+la máquina. Para un producto que se vende a locales que no tienen sistemas, eso
+es la diferencia entre instalarse y no instalarse. También significa que MotRest
+no corre con privilegios de máquina: si algo se compromete, se compromete dentro
+de una cuenta.
+
+**Lo que cuesta.** El programa queda bajo `%LOCALAPPDATA%`, una carpeta donde
+**ese usuario puede escribir**. Es decir, un proceso corriendo con la cuenta del
+restaurante puede reemplazar el ejecutable del Hub. La firma Authenticode del
+sidecar (ver `FIRMA-DEL-INSTALADOR.md`) es lo que hace ese cambio detectable, y
+por eso el Hub se firma aparte del instalador.
+
+**Lo que lo cierra en la práctica**, y está en la guía de instalación: que la
+cuenta con la que opera el restaurante sea **estándar**, con BitLocker activo y
+bloqueo de pantalla. Un atacante que ya tiene esa cuenta tiene la caja; lo que
+esto evita es que la tenga cualquiera que pase por el mostrador.
 
 ## Convenciones permanentes
 

@@ -23,6 +23,7 @@ import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import selfsigned from "selfsigned";
+import { soloElDueno } from "./permisos.js";
 
 export interface CertificadoTls {
   cert: string;
@@ -33,8 +34,32 @@ export interface CertificadoTls {
   nuevo: boolean;
 }
 
-/** Diez años: un restaurante no debería renovar certificados a mano. */
-const DIAS_VIGENCIA = 3650;
+/**
+ * Trece meses, que es el tope que aceptan hoy los navegadores.
+ *
+ * Antes eran diez años, con el argumento de que un restaurante no debería
+ * renovar certificados a mano — y el argumento es bueno, pero la conclusión era
+ * la contraria. Un certificado de diez años es una llave de diez años: si la
+ * copian de la tablet de un mesero, sirve hasta 2036 y no hay forma de retirarla
+ * (un autofirmado no tiene lista de revocación). Lo que hace que el restaurante
+ * no renueve a mano no es que dure una década: es que se renueve solo.
+ *
+ * 397 días es el máximo que Chrome y Safari admiten desde 2020. Pasarse de ahí
+ * hace que el navegador lo rechace incluso tras aceptar el aviso.
+ */
+const DIAS_VIGENCIA = 397;
+
+/**
+ * Con cuánta antelación se renueva.
+ *
+ * Treinta días es margen de sobra para que el Hub arranque al menos una vez —un
+ * restaurante enciende su caja todos los días— y para que las terminales acepten
+ * el nuevo sin prisa. Renovar el mismo día del vencimiento sería descubrirlo un
+ * viernes por la noche con el salón lleno.
+ */
+const DIAS_ANTES_DE_RENOVAR = 30;
+
+const DIA_MS = 24 * 60 * 60 * 1000;
 
 /**
  * Carga el certificado del Hub, o lo crea la primera vez.
@@ -47,8 +72,13 @@ export async function certificadoTls(
   carpeta: string,
   direcciones: readonly string[],
   nombreRed?: string,
+  /** Inyectable para poder probar la renovación sin esperar trece meses. */
+  ahora: Date = new Date(),
 ): Promise<CertificadoTls> {
   mkdirSync(carpeta, { recursive: true });
+  // La llave privada del certificado vive aquí. En Windows el `mode: 0o600` con
+  // que se escribe no restringe a nadie: las ACL son lo que de verdad cierra.
+  soloElDueno(carpeta);
   const rutaCert = join(carpeta, "hub.crt");
   const rutaKey = join(carpeta, "hub.key");
   const rutaCubre = join(carpeta, "hub.cubre.json");
@@ -65,16 +95,28 @@ export async function certificadoTls(
   const cubre = [...(nombreRed ? [nombreRed] : []), ...direcciones].sort();
 
   if (existsSync(rutaCert) && existsSync(rutaKey)) {
-    const previo = leerCubre(rutaCubre);
-    const sigueSirviendo = cubre.every((d) => previo.includes(d));
+    const previo = leerGuardado(rutaCubre);
+    const sigueSirviendo = cubre.every((d) => previo.cubre.includes(d));
 
-    if (sigueSirviendo) {
+    /*
+     * LA RENOVACIÓN, que antes no existía.
+     *
+     * El certificado solo se regeneraba si cambiaban las direcciones. Con diez
+     * años de vigencia eso no se notaba; con trece meses, un Hub se quedaría con
+     * un certificado vencido y **ninguna terminal podría entrar** — ni aceptando
+     * el aviso, porque un certificado caducado no se puede aceptar. Sin esto, el
+     * arreglo de la vigencia sería peor que el problema.
+     */
+    const caduca = previo.hasta > 0 && previo.hasta - ahora.getTime() < DIAS_ANTES_DE_RENOVAR * DIA_MS;
+
+    if (sigueSirviendo && !caduca) {
       const cert = readFileSync(rutaCert, "utf8");
       const key = readFileSync(rutaKey, "utf8");
       return { cert, key, huella: huellaDe(cert), nuevo: false };
     }
-    // Si no cubre lo de hoy se regenera. Cada terminal tendrá que aceptar el
-    // nuevo una vez; es preferible a que vean un aviso extra cada día.
+    // Si no cubre lo de hoy, o está por vencer, se regenera. Cada terminal
+    // tendrá que aceptar el nuevo una vez; es preferible a que vean un aviso
+    // extra cada día, y mucho mejor que quedarse fuera sin poder aceptar nada.
   }
 
   // `type: 2` es un nombre DNS y `type: 7` una dirección IP, según el estándar
@@ -89,8 +131,8 @@ export async function certificadoTls(
     ...direcciones.map((ip) => ({ type: 7 as const, ip })),
   ];
 
-  const desde = new Date();
-  const hasta = new Date(desde.getTime() + DIAS_VIGENCIA * 24 * 60 * 60 * 1000);
+  const desde = ahora;
+  const hasta = new Date(desde.getTime() + DIAS_VIGENCIA * DIA_MS);
 
   const generado = await selfsigned.generate(
     [{ name: "commonName", value: "MotRest Hub" }],
@@ -100,13 +142,28 @@ export async function certificadoTls(
       keySize: 2048,
       algorithm: "sha256",
       extensions: [
-        { name: "basicConstraints", cA: true },
+        /*
+         * `cA: false` y sin `keyCertSign`, que es el arreglo de fondo.
+         *
+         * Se generaba como AUTORIDAD CERTIFICADORA, con permiso para firmar
+         * otros certificados. Eso importa por lo que pasa después: cada terminal
+         * acepta este certificado una vez, y en algunos sistemas aceptarlo
+         * significa **confiar en él como autoridad**. Quien copiara la llave
+         * privada del Hub —que vive en el disco de una computadora de
+         * restaurante— podría entonces emitir certificados válidos para
+         * cualquier sitio, banco incluido, y esa tablet se los creería.
+         *
+         * Este certificado solo tiene que servir una cosa: identificar a ESTE
+         * servidor. `serverAuth` lo dice, y sin `keyCertSign` no puede firmar
+         * nada más aunque alguien se lo lleve.
+         */
+        { name: "basicConstraints", cA: false },
         {
           name: "keyUsage",
-          keyCertSign: true,
           digitalSignature: true,
           keyEncipherment: true,
         },
+        { name: "extKeyUsage", serverAuth: true },
         { name: "subjectAltName", altNames: alternativos },
       ],
     },
@@ -115,7 +172,7 @@ export async function certificadoTls(
   writeFileSync(rutaCert, generado.cert, { mode: 0o600 });
   // La llave privada solo la puede leer quien corre el servicio.
   writeFileSync(rutaKey, generado.private, { mode: 0o600 });
-  writeFileSync(rutaCubre, JSON.stringify(cubre), { mode: 0o600 });
+  writeFileSync(rutaCubre, JSON.stringify({ cubre, hasta: hasta.getTime() }), { mode: 0o600 });
 
   return {
     cert: generado.cert,
@@ -125,15 +182,28 @@ export async function certificadoTls(
   };
 }
 
-/** Lo que cubría el certificado guardado. Vacío si no se sabe. */
-function leerCubre(ruta: string): string[] {
-  if (!existsSync(ruta)) return [];
+/**
+ * Qué cubría el certificado guardado y hasta cuándo vale.
+ *
+ * Acepta el formato viejo —un array pelado de direcciones, sin fecha— porque hay
+ * Hubs con ese archivo en disco. Se les asigna `hasta: 0`, que se lee como "no
+ * se sabe cuándo vence": no fuerza la renovación por sí solo, pero en cuanto el
+ * certificado se regenere por cualquier motivo queda ya con fecha. Reventar aquí
+ * dejaría al local sin poder abrir el POS por un formato de archivo.
+ */
+function leerGuardado(ruta: string): { cubre: string[]; hasta: number } {
+  if (!existsSync(ruta)) return { cubre: [], hasta: 0 };
   try {
     const dato: unknown = JSON.parse(readFileSync(ruta, "utf8"));
-    return Array.isArray(dato) ? (dato as string[]) : [];
+    if (Array.isArray(dato)) return { cubre: dato as string[], hasta: 0 };
+    const objeto = dato as { cubre?: unknown; hasta?: unknown };
+    return {
+      cubre: Array.isArray(objeto.cubre) ? (objeto.cubre as string[]) : [],
+      hasta: typeof objeto.hasta === "number" ? objeto.hasta : 0,
+    };
   } catch {
     // Archivo corrupto: se trata como si no cubriera nada y se regenera.
-    return [];
+    return { cubre: [], hasta: 0 };
   }
 }
 

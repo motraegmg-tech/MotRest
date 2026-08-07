@@ -73,7 +73,69 @@ if (-not (Test-Path $posCompilado)) {
 
 # --- Registro de la tarea ---------------------------------------------------------
 
-$arranque = Join-Path $carpetaHub "arrancar.cmd"
+# Se conserva SYSTEM porque el Hub debe quedar disponible antes de que alguien
+# inicie sesión. En lugar de bajar la cuenta y perder ese arranque, el lanzador se
+# guarda bajo Program Files y se protege: solo Administradores pueden modificarlo;
+# SYSTEM y Usuarios estándar solo pueden leerlo y ejecutarlo.
+$carpetaArranque = Join-Path $env:ProgramFiles "MotRest\Hub"
+$arranque = Join-Path $carpetaArranque "arrancar.cmd"
+
+function Proteger-RutaDeArranque {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Ruta,
+        [switch]$EsDirectorio
+    )
+
+    $acl = Get-Acl -LiteralPath $Ruta
+    $acl.SetAccessRuleProtection($true, $false)
+
+    foreach ($reglaExistente in @($acl.Access)) {
+        [void]$acl.RemoveAccessRuleAll($reglaExistente)
+    }
+
+    $herencia = [System.Security.AccessControl.InheritanceFlags]::None
+    if ($EsDirectorio) {
+        $herencia = [System.Security.AccessControl.InheritanceFlags]::ContainerInherit -bor `
+            [System.Security.AccessControl.InheritanceFlags]::ObjectInherit
+    }
+
+    $propagacion = [System.Security.AccessControl.PropagationFlags]::None
+    $permitir = [System.Security.AccessControl.AccessControlType]::Allow
+    $administradores = New-Object System.Security.Principal.SecurityIdentifier("S-1-5-32-544")
+    $sistema = New-Object System.Security.Principal.SecurityIdentifier("S-1-5-18")
+    $usuarios = New-Object System.Security.Principal.SecurityIdentifier("S-1-5-32-545")
+
+    [void]$acl.AddAccessRule([System.Security.AccessControl.FileSystemAccessRule]::new(
+        $administradores,
+        [System.Security.AccessControl.FileSystemRights]::FullControl,
+        $herencia,
+        $propagacion,
+        $permitir
+    ))
+    [void]$acl.AddAccessRule([System.Security.AccessControl.FileSystemAccessRule]::new(
+        $sistema,
+        [System.Security.AccessControl.FileSystemRights]::ReadAndExecute,
+        $herencia,
+        $propagacion,
+        $permitir
+    ))
+    [void]$acl.AddAccessRule([System.Security.AccessControl.FileSystemAccessRule]::new(
+        $usuarios,
+        [System.Security.AccessControl.FileSystemRights]::ReadAndExecute,
+        $herencia,
+        $propagacion,
+        $permitir
+    ))
+
+    Set-Acl -LiteralPath $Ruta -AclObject $acl
+}
+
+if (-not (Test-Path -LiteralPath $carpetaArranque)) {
+    New-Item -ItemType Directory -Path $carpetaArranque -Force | Out-Null
+}
+
+Proteger-RutaDeArranque -Ruta $carpetaArranque -EsDirectorio
 
 # tsx es quien ejecuta el TypeScript del Hub. `node --experimental-strip-types`
 # NO sirve aquí: no reescribe las extensiones .js de los imports internos y el
@@ -88,11 +150,15 @@ if (-not (Test-Path $tsx)) {
 @"
 @echo off
 rem Arranque del Hub de MotRest. Lo genera instalar-servicio.ps1; no editar a mano.
-cd /d "%~dp0"
-call "$tsx" "%~dp0src\main.ts"
-"@ | Set-Content -Path $arranque -Encoding utf8
+cd /d "$carpetaHub"
+call "$tsx" "$carpetaHub\src\main.ts"
+"@ | Set-Content -LiteralPath $arranque -Encoding utf8
 
-$accion = New-ScheduledTaskAction -Execute $arranque -WorkingDirectory $carpetaHub
+# También se limpia una ACL heredada o preexistente del archivo antes de que SYSTEM
+# pueda ejecutarlo; así no basta con crear el directorio protegido una sola vez.
+Proteger-RutaDeArranque -Ruta $arranque
+
+$accion = New-ScheduledTaskAction -Execute $arranque -WorkingDirectory $carpetaArranque
 $disparador = New-ScheduledTaskTrigger -AtStartup
 
 # SYSTEM para que arranque sin que nadie inicie sesión en Windows: la caja debe
