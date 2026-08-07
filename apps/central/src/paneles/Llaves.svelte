@@ -10,6 +10,7 @@
   let guardado = $state("");
   let error = $state("");
   let trabajando = $state(false);
+  let confirmacionGenerar = $state(false);
   let contrasena = $state("");
   let repetida = $state("");
   let avisoSoporte = $state("");
@@ -45,17 +46,20 @@
     setTimeout(() => (guardado = ""), 4000);
   }
 
-  async function generarPares() {
+  function pedirGenerarPares() {
     error = "";
-    if (
-      (tieneLicencias || tienePublicacion) &&
-      !confirm(
-        "Cambiar los pares invalida las licencias actuales y exige un instalador nuevo. ¿Continuar?",
-      )
-    ) {
-      return;
-    }
+    if (trabajando || !puedeEditarSecretos) return;
+    confirmacionGenerar = true;
+  }
 
+  function cancelarGeneracion() {
+    if (!trabajando) confirmacionGenerar = false;
+  }
+
+  async function generarParesConfirmados() {
+    if (!confirmacionGenerar || trabajando) return;
+
+    confirmacionGenerar = false;
     trabajando = true;
     const resultado = await central.generarPares();
     trabajando = false;
@@ -66,13 +70,34 @@
     guardado = "Pares Ed25519 generados y protegidos con Windows DPAPI.";
   }
 
+  function copiarConRespaldo(texto: string) {
+    const auxiliar = document.createElement("textarea");
+    auxiliar.value = texto;
+    auxiliar.setAttribute("readonly", "");
+    auxiliar.style.cssText = "position:fixed; opacity:0; pointer-events:none";
+    document.body.append(auxiliar);
+    auxiliar.focus();
+    auxiliar.select();
+    auxiliar.setSelectionRange(0, auxiliar.value.length);
+
+    try {
+      return document.execCommand("copy");
+    } finally {
+      auxiliar.remove();
+    }
+  }
+
   async function copiar(texto: string, cual: string) {
+    error = "";
     try {
       await navigator.clipboard.writeText(texto);
-      guardado = `Llave pública de ${cual} copiada.`;
     } catch {
-      error = "No se pudo copiar. Seleccione el texto manualmente.";
+      if (!copiarConRespaldo(texto)) {
+        error = "No se pudo copiar automáticamente. Seleccione el texto y cópielo manualmente.";
+        return;
+      }
     }
+    guardado = `Llave pública de ${cual} copiada.`;
   }
 
   async function fijarSoporte() {
@@ -123,6 +148,42 @@
 </script>
 
 <section>
+  {#if confirmacionGenerar}
+    <div class="modal-fondo" role="presentation">
+      <div
+        class="modal"
+        role="alertdialog"
+        aria-modal="true"
+        aria-labelledby="confirmar-pares-titulo"
+      >
+        <h2 id="confirmar-pares-titulo">Confirmar generación de pares</h2>
+        {#if central.estadoSecretos === "migracion"}
+          <p>
+            Se crearán los dos pares Ed25519 y se migrará la Central. El secreto HMAC anterior
+            se borrará solo después de que Windows proteja correctamente los nuevos pares.
+          </p>
+        {:else if tieneLicencias || tienePublicacion}
+          <p>
+            Vas a reemplazar los pares actuales. Las licencias vigentes dejarán de validar con
+            el próximo Hub y tendrás que emitir licencias e instalador nuevos.
+          </p>
+        {:else}
+          <p>
+            Se crearán dos pares Ed25519: uno para licencias y otro para actualizaciones. Las
+            llaves privadas quedarán protegidas por Windows DPAPI y no se volverán a mostrar.
+          </p>
+        {/if}
+        <p class="modal-aviso">Esta acción requiere cuidado y no se puede deshacer.</p>
+        <div class="acciones-modal">
+          <button type="button" onclick={cancelarGeneracion}>Cancelar</button>
+          <button type="button" class="peligro" onclick={generarParesConfirmados}>
+            Sí, generar los pares
+          </button>
+        </div>
+      </div>
+    </div>
+  {/if}
+
   <h1>Llaves</h1>
 
   <div class="alerta">
@@ -151,7 +212,7 @@
       Esos secretos no se pueden convertir a Ed25519. Generar pares nuevos conserva el
       repositorio y el acceso de soporte, los guarda con DPAPI y borra el secreto legado
       solo después de confirmar el guardado.
-      <button class="primario" disabled={trabajando || !puedeEditarSecretos} onclick={generarPares}>
+      <button class="primario" disabled={trabajando || !puedeEditarSecretos} onclick={pedirGenerarPares}>
         {trabajando ? "Generando…" : "Generar pares y migrar"}
       </button>
     </div>
@@ -164,7 +225,7 @@
     </p>
 
     {#if !tieneLicencias || !tienePublicacion}
-      <button class="primario" disabled={trabajando || !puedeEditarSecretos} onclick={generarPares}>
+      <button class="primario" disabled={trabajando || !puedeEditarSecretos} onclick={pedirGenerarPares}>
         {trabajando ? "Generando…" : "Generar los dos pares"}
       </button>
     {:else}
@@ -173,14 +234,24 @@
           Llave pública de licencias
           <div class="campo">
             <input value={central.secretos.licencias!.publica} readonly spellcheck="false" />
-            <button onclick={() => copiar(central.secretos.licencias!.publica, "licencias")}>Copiar</button>
+            <button
+              type="button"
+              class="copiar"
+              aria-label="Copiar llave pública de licencias"
+              onclick={() => copiar(central.secretos.licencias!.publica, "licencias")}
+            >Copiar</button>
           </div>
         </label>
         <label>
           Llave pública de publicación
           <div class="campo">
             <input value={central.secretos.publicacion!.publica} readonly spellcheck="false" />
-            <button onclick={() => copiar(central.secretos.publicacion!.publica, "publicación")}>Copiar</button>
+            <button
+              type="button"
+              class="copiar"
+              aria-label="Copiar llave pública de publicación"
+              onclick={() => copiar(central.secretos.publicacion!.publica, "publicación")}
+            >Copiar</button>
           </div>
         </label>
       </div>
@@ -188,7 +259,7 @@
         Al regenerar estos pares, reemita las licencias <b>antes</b> de distribuir el
         Hub nuevo. Una licencia HMAC no verifica con Ed25519.
       </p>
-      <button disabled={trabajando || !puedeEditarSecretos} onclick={generarPares}>Regenerar pares…</button>
+      <button disabled={trabajando || !puedeEditarSecretos} onclick={pedirGenerarPares}>Regenerar pares…</button>
     {/if}
 
     <h2>Canal de actualizaciones</h2>
@@ -265,6 +336,7 @@
   label { display: flex; flex-direction: column; gap: 0.25rem; font-size: 0.78rem; font-weight: 600; color: var(--pizarra); margin-bottom: 0.9rem; }
   .campo, .acciones { display: flex; gap: 0.4rem; align-items: center; flex-wrap: wrap; }
   .campo input { flex: 1; min-width: 0; }
+  .copiar { white-space: nowrap; }
   input { font: inherit; font-size: 0.88rem; font-weight: 400; padding: 0.5rem 0.6rem; border: 1px solid var(--borde); border-radius: var(--r-sm); background: var(--blanco); color: var(--pizarra); }
   input:focus { outline: 2px solid var(--acento); outline-offset: -1px; }
   input[readonly] { color: var(--gris); background: var(--fondo); }
@@ -285,6 +357,13 @@
   .bloque { line-height: 1.5; }
   .llaves { display: flex; flex-direction: column; gap: 0.1rem; }
   .oculto { display: none; }
+  .modal-fondo { position: fixed; inset: 0; z-index: 20; display: grid; place-items: center; padding: 1.25rem; background: rgb(20 24 26 / 0.62); }
+  .modal { width: min(100%, 31rem); padding: 1.3rem; border: 1px solid var(--borde); border-radius: var(--r-md); background: var(--blanco); box-shadow: 0 1rem 3rem rgb(0 0 0 / 0.28); }
+  .modal h2 { margin: 0 0 0.85rem; color: var(--pizarra); }
+  .modal p { margin: 0; font-size: 0.9rem; line-height: 1.55; color: var(--pizarra); }
+  .modal .modal-aviso { margin-top: 0.8rem; font-weight: 700; color: var(--peligro); }
+  .acciones-modal { display: flex; justify-content: flex-end; gap: 0.5rem; margin-top: 1.2rem; }
+  .peligro { border-color: var(--peligro); background: var(--peligro); color: var(--blanco); }
   section > button:last-child { margin-top: 0.65rem; }
   @media (max-width: 600px) { .dos { grid-template-columns: 1fr; } }
 </style>
