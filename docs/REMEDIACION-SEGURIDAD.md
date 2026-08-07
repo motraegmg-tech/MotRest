@@ -26,7 +26,7 @@ altos, 20 medios, 12 bajos, 4 info) sobre 345 archivos fuente.
 | **8** | Correo (CRLF) | ✅ `19b70f6` |
 | **9** | Tauri, certificados y empaquetado | ✅ *(este commit)* |
 | **10** | Proceso y despliegue (CI, guías) | ✅ *(este commit)* |
-| **11** | Detalles finos | ⬜ |
+| **11** | Detalles finos | ✅ *(este commit)* |
 | **12** | Capacitor 8 *(aislada)* | ⬜ |
 
 **Pruebas al cierre de las etapas 9 y 10:** 1 570 verdes (1 omitida) · lint 0
@@ -474,12 +474,122 @@ SYSTEM a propósito: el Hub debe levantar antes de que nadie inicie sesión.
 
 ---
 
-## ⬜ Etapas 11 y 12 — resumen
+## ✅ Etapa 11 · Detalles finos
 
-| Etapa | Hallazgos | Lo que hay que saber |
-|---|---|---|
-| **11** Detalles | CN-043, CN-044 | Sesgo de módulo en base32 (78,3 bits reales, no 80) · `cargo-audit` no instalado: 860 crates sin contrastar |
-| **12** Capacitor | CN-027 | Aislada al final: **único cambio que solo se comprueba en una tablet física** |
+**CN-043 · Sesgo de módulo en el enlace del ticket. ✅ Hecho.**
+`aBase32()` hacía `byte % 30`, y 256 no es múltiplo de 30: los valores 0..15
+salían nueve veces de cada 256 y los 16..29 solo ocho — media alfabeto aparecía
+un 12 % más a menudo. Ahora se **descartan** los bytes ≥ 240 en vez de doblarlos.
+
+Se puede descartar aunque esto tenga que ser determinista (el Hub y el enlace del
+comensal deben coincidir) porque el descarte depende solo de los bytes del HMAC,
+iguales en los dos lados. Hay respaldo por si el HMAC trajera una racha de bytes
+altos: una firma corta rompería el enlace de esa cuenta para siempre.
+
+Corregido también el comentario: decía «16 × 5 bits = 80 bits» y no sale —cinco
+bits serían 32 símbolos y el alfabeto tiene 30—. Son **78,5 bits**. Si algún día
+se quieren 80 de verdad son 17 caracteres (83,4 bits) y una línea.
+
+**CN-044 · Contrastar los crates de Rust. ✅ Hecho.**
+
+Se instaló `cargo-audit` y se corrió sobre los dos `src-tauri/`. **Resultado: cero
+vulnerabilidades** en 441 crates (MotRest) y 419 (MOTRAE Central), contra 1 190
+avisos de RustSec.
+
+Sí salen **17 avisos de mantenimiento** en cada uno —`glib` (unsound),
+`unic-ucd-ident`, `unic-ucd-version` (sin mantenimiento) y otros— y **ninguno es
+una dependencia de MOTRAE**: entran por debajo de Tauri y de GTK. No se pueden
+cerrar desde aquí; se cierran cuando Tauri los suba. No se silencian con un
+`ignore` a propósito: el día que uno de ellos pase de «sin mantenimiento» a
+«vulnerable», tiene que verse.
+
+Automatizado en `.github/workflows/auditoria-semanal.yml`, que hasta ahora solo
+auditaba npm. **npm y cargo son dos árboles distintos**: auditar uno no dice nada
+del otro, y el que acaba corriendo en la caja del restaurante es el de cargo.
+
+### ⚠ Una prueba que hubo que rehacer
+
+La primera versión de la prueba del sesgo firmaba mil enlaces y comprobaba que el
+reparto saliera plano. Pasaba —y **fallaba de vez en cuando** al correr toda la
+suite en paralelo, por tiempo, no por el sesgo—. Una prueba que falla a veces es
+peor que no tenerla: enseña a ignorar los fallos rojos.
+
+Se rehízo por **enumeración completa**: los bytes posibles son 256, caben todos,
+y con el descarte cada letra sale exactamente ocho veces (240 ÷ 30). Sin
+márgenes, sin azar y en 27 ms. Para eso se exportó `aBase32`.
+
+---
+
+## ⬜ Relevo: lo que falta y cómo hacerlo
+
+> **Para quien retome (Codex).** Todo lo de abajo está sin hacer. Trabaja en la
+> rama `feature/e1-cimientos`. **Un commit por etapa.** Al terminar cada una,
+> actualiza la tabla de Estado de este documento y escribe aquí lo que se desvió
+> del plan y por qué — igual que están escritas las diez anteriores.
+
+### (CN-044 ya está hecho — ver arriba)
+
+Hay dos proyectos Rust y **~860 crates** que nunca se han contrastado contra la
+base de avisos de RustSec:
+
+- `apps/escritorio/src-tauri/` (MotRest)
+- `apps/central-escritorio/src-tauri/` (MOTRAE Central)
+
+Qué hacer:
+
+1. `cargo install cargo-audit --locked` *(puede que ya esté: compruébalo con
+   `cargo audit --version`)*.
+2. Correrlo sobre los **dos** `src-tauri/`, desde la carpeta de cada uno.
+3. **Arreglar lo que salga**, o justificar por escrito lo que se deje. Un aviso
+   que no llega al binario del restaurante no es lo mismo que uno que sí: dilo.
+4. Dejarlo automatizado: añadir un paso al workflow semanal
+   `.github/workflows/auditoria-semanal.yml`, que hoy solo audita npm. Fija la
+   acción por SHA como las que ya están, y respeta `permissions: contents: read`.
+5. Documentar en `docs/SEGURIDAD.md` que la cadena de Rust también se audita.
+
+Ojo con el entorno: `CARGO_TARGET_DIR=C:/motrest-build`. Compilar dentro de
+`Documents` lo bloquea Defender.
+
+### Etapa 12 · Capacitor 8 *(aislada, y va la última por eso)*
+
+**CN-027.** `@capacitor/core` y `@capacitor/android` están en **6.2.1**. Hay que
+llevarlos a **8.x**, regenerar el proyecto Android, y dejar `minSdkVersion` en
+24+ y `targetSdkVersion` en 35/36.
+
+Va sola y al final porque es **el único cambio de todo el operativo cuyo
+resultado no se puede comprobar aquí**: se comprueba en una tablet física. No la
+mezcles con nada más en el mismo commit — si hay que revertirla, tiene que poder
+revertirse sin arrastrar los arreglos de seguridad de las once etapas anteriores.
+
+Qué hacer:
+
+1. Subir las dos dependencias en el `package.json` que las declara.
+2. `npx cap sync android` y regenerar lo que haga falta del proyecto Android.
+3. Ajustar `minSdkVersion` y `targetSdkVersion` en el Gradle del proyecto.
+4. Revisar los *breaking changes* de Capacitor 7 y 8 —son dos saltos mayores, no
+   uno— y ajustar el código que los toque.
+5. `corepack pnpm@9.15.0 -r lint` y `-r test` verdes.
+6. **Dejar escrito, en el commit y en este documento, qué NO se pudo verificar**
+   sin tablet. Es información que Gonzalo necesita antes de instalar en Rodizio,
+   no un detalle.
+
+### Cómo se cierra cada etapa
+
+```bash
+corepack pnpm@9.15.0 -r test     # 1 573 verdes, 1 omitida, al escribir esto
+corepack pnpm@9.15.0 -r lint     # 0 errores
+```
+
+`pnpm` **no está en el PATH**: siempre `corepack pnpm@9.15.0`. La prueba omitida
+lo es a propósito (permisos `0600` en Windows, ver arriba).
+
+Y la verificación que de verdad cuenta, **sobre lo compilado y no sobre el
+código** — es la que atrapó que «Gonz Motrae» no existía en producción con doce
+pruebas verdes:
+
+```bash
+grep -a "MotRest.Inicio" apps/pos-ui/dist/assets/*.js    # debe estar ausente
+```
 
 ---
 

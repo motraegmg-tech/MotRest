@@ -18,7 +18,7 @@
  * orden_id con un secreto que solo conoce el Hub, recortado a 16 caracteres.
  *
  *   - No se puede FABRICAR: sin el secreto no se puede firmar otro orden_id.
- *   - No se puede ADIVINAR: 16 caracteres base32 son 80 bits.
+ *   - No se puede ADIVINAR: 16 caracteres de un alfabeto de 30 son 78,5 bits.
  *   - No se puede ENUMERAR: tener el enlace de tu mesa no da el de la de al lado.
  *   - No hay que registrarse ni dar el teléfono para opinar.
  *
@@ -27,19 +27,63 @@
  */
 import type { ID } from "../comun/ids.js";
 
-/** Longitud de la firma en el enlace. 16 × 5 bits = 80 bits de fuerza. */
+/**
+ * Longitud de la firma en el enlace: **78,5 bits**, no 80.
+ *
+ * Aquí decía «16 × 5 bits = 80 bits» y la cuenta no sale: cinco bits por
+ * carácter serían 32 símbolos, y el alfabeto tiene 30 —se quitaron los
+ * ambiguos—. Lo real es 16 × log₂(30) = 78,5 bits.
+ *
+ * La diferencia no cambia nada en la práctica: adivinar un enlace sigue estando
+ * a 2⁷⁸ intentos contra un Hub que además limita el ritmo. Se corrige porque una
+ * cifra inflada en un comentario es la que alguien cita el día que decide si
+ * puede acortar la firma «que total, sobra margen». Si algún día se quieren 80
+ * bits de verdad, son 17 caracteres (83,4 bits) y una línea.
+ */
 const LARGO_FIRMA = 16;
 
 /** Sin I, L, O, U ni dígitos ambiguos: un QR mal leído se teclea a mano. */
 const ALFABETO = "23456789ABCDEFGHJKMNPQRSTVWXYZ";
 
+/**
+ * El mayor múltiplo de 30 que cabe en un byte.
+ *
+ * 256 no es múltiplo de 30: al hacer `byte % 30`, los valores 0..15 salen nueve
+ * veces de 256 y los 16..29 solo ocho. Es decir, la mitad del alfabeto aparece
+ * un 12 % más a menudo que la otra. Se descartan los bytes por encima de 240 y
+ * el reparto queda plano.
+ */
+const TOPE_SIN_SESGO = 240;
+
 const cifrador = new TextEncoder();
 
-function aBase32(bytes: Uint8Array, largo: number): string {
+/**
+ * Convierte el HMAC en caracteres del alfabeto, sin sesgo.
+ *
+ * **Descarta bytes en vez de doblarlos**, que es lo que hacía antes con `%`. Y
+ * se puede descartar aunque esto tenga que ser determinista —el Hub y el enlace
+ * del comensal tienen que llegar al mismo resultado— porque el descarte depende
+ * solo de los bytes del HMAC, que son los mismos en los dos lados.
+ *
+ * El HMAC trae 32 bytes y hacen falta 16 caracteres: de media pasan 30, así que
+ * quedarse corto tiene una probabilidad de una entre miles de millones. Aun así
+ * hay respaldo, porque una firma corta rompería el enlace de esa cuenta **para
+ * siempre**, y «no puede pasar» no es lo mismo que «no pasa».
+ */
+export function aBase32(bytes: Uint8Array, largo: number): string {
   let salida = "";
-  for (let i = 0; i < largo; i++) {
+
+  for (const byte of bytes) {
+    if (salida.length === largo) break;
+    if (byte >= TOPE_SIN_SESGO) continue;
+    salida += ALFABETO[byte % ALFABETO.length];
+  }
+
+  // Respaldo: solo si el HMAC trajera una racha de bytes altos irrepetible.
+  for (let i = 0; salida.length < largo; i++) {
     salida += ALFABETO[bytes[i % bytes.length]! % ALFABETO.length];
   }
+
   return salida;
 }
 

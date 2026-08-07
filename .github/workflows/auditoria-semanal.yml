@@ -30,3 +30,18 @@ jobs:
 
       - name: Auditar dependencias de producción
         run: corepack pnpm@9.15.0 audit --prod
+
+      # Las dos apps de escritorio arrastran ~860 crates de Rust por debajo de
+      # Tauri, y hasta agosto de 2026 no se habían contrastado nunca contra
+      # RustSec. npm y cargo son dos árboles distintos: auditar uno no dice nada
+      # del otro, y el que acaba en la caja del restaurante es el de cargo.
+      - name: Instalar cargo-audit
+        run: cargo install cargo-audit --locked
+
+      - name: Auditar los crates de MotRest
+        working-directory: apps/escritorio/src-tauri
+        run: cargo audit
+
+      - name: Auditar los crates de MOTRAE Central
+        working-directory: apps/central-escritorio/src-tauri
+        run: cargo audit
