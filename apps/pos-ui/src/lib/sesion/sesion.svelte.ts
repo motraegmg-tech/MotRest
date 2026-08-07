@@ -26,7 +26,10 @@ import {
   uuidv7,
   generarCodigoRescate,
   normalizarCodigo,
+  credencialDeSoporte,
+  usuarioSoporte,
   usuariosVisibles,
+  USUARIO_SOPORTE_ID,
   validarSecreto,
   verificarCredencial,
   type Accion,
@@ -35,6 +38,7 @@ import {
   type EstadoIntentos,
   type EventoIdentidad,
   type ID,
+  type Licencia,
   type Permiso,
   type RolId,
   type TipoCredencial,
@@ -149,6 +153,22 @@ class Sesion {
       }
     }
 
+    /*
+     * El acceso de soporte de MOTRAE.
+     *
+     * Va DESPUÉS de cargar las credenciales del disco y ANTES de restaurar la
+     * sesión: si fuera antes, las credenciales guardadas lo sobrescribirían; si
+     * fuera después de restaurar, un soporte con sesión previa no se
+     * reconocería.
+     *
+     * Se arma en memoria a partir de la licencia y NO se persiste, ni el usuario
+     * ni su credencial. Es deliberado: así el acceso existe exactamente mientras
+     * exista una licencia firmada que lo diga. Quitarle la licencia a un local
+     * le quita también el acceso de MOTRAE, sin que quede un usuario huérfano
+     * con todos los permisos en su disco.
+     */
+    await this.montarSoporte();
+
     const activa = await almacen.estado.cargar<ID>(CLAVES.sesion);
     const usuario = activa ? this.usuarioDe(activa) : undefined;
     if (usuario?.activo && !this.estaBloqueado(usuario.id)) {
@@ -230,6 +250,46 @@ class Sesion {
 
   get debeCambiarCredencial(): boolean {
     return this.usuarioActual?.debe_cambiar_credencial === true;
+  }
+
+  /**
+   * Monta el acceso de MOTRAE si la licencia de este equipo lo trae.
+   *
+   * La credencial llega por `/licencia`, que **solo contesta a la propia caja**.
+   * En una tablet del salón esta llamada falla y no pasa nada: no hay soporte
+   * ahí, que es lo correcto — el hash de la contraseña que abre todos los
+   * restaurantes no tiene por qué viajar al teléfono de un mesero.
+   *
+   * Un fallo aquí NUNCA puede impedir que la caja abra. Si el Hub no contesta,
+   * el local opera igual y simplemente no hay acceso de soporte hasta el
+   * siguiente arranque.
+   */
+  private async montarSoporte(): Promise<void> {
+    /*
+     * Solo en la CAJA. Es el único equipo cuya página sirve el propio Hub, y por
+     * eso el único que lleva `__MOTREST_HUB__` — el mismo marcador que usa la
+     * impresión para saber que puede hablar con el puerto local.
+     */
+    const enLaCaja = !!(globalThis as { __MOTREST_HUB__?: unknown }).__MOTREST_HUB__;
+    if (!enLaCaja) return;
+
+    try {
+      // Mismo origen: la página de la caja la sirve el Hub.
+      const respuesta = await fetch("/licencia", { signal: AbortSignal.timeout(2500) });
+      if (!respuesta.ok) return;
+
+      const cuerpo = (await respuesta.json()) as { licencia: Licencia | null; verificada: boolean };
+      const credencial = credencialDeSoporte(cuerpo.licencia, cuerpo.verificada);
+      if (!credencial) return;
+
+      const sucursal = cuerpo.licencia?.sucursal_id ?? SUCURSAL_ID;
+      if (!this.usuarios.some((u) => u.id === USUARIO_SOPORTE_ID)) {
+        this.usuarios = [...this.usuarios, usuarioSoporte(sucursal)];
+      }
+      this.credenciales.set(USUARIO_SOPORTE_ID, [credencial]);
+    } catch {
+      // Sin Hub local, sin soporte. La caja abre igual.
+    }
   }
 
   /**
