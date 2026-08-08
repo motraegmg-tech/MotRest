@@ -59,8 +59,12 @@ apps/kds-android/www/
 apps/kds-android/android/
 apps/motrest-android/www/
 apps/motrest-android/android/
-entregables/*.exe
-entregables/*.apk
+# Instaladores y paquetes: pesan decenas de MB y se reconstruyen desde el código.
+# Con `**/` a propósito: el patrón anterior solo cubría la raíz de `entregables/`,
+# y cada entrega por versión vive en su propia subcarpeta —donde el `.exe` sí
+# entraba al índice—.
+entregables/**/*.exe
+entregables/**/*.apk
 
 # Notas del dueño con secretos: el código de rescate, contraseñas apuntadas.
 # Nunca al repositorio, ni siquiera vacías — el archivo existe para llenarse.
