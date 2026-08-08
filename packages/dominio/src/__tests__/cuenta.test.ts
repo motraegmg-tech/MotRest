@@ -4,10 +4,10 @@
 import { describe, expect, it } from "vitest";
 import { CERO, pesos, repartir, restar, sumar } from "../comun/dinero.js";
 import { uuidv7, type ID } from "../comun/ids.js";
-import { IVA_16, snapshotTasas } from "../comun/impuestos.js";
+import { IVA_16, desglosarConTasas, snapshotTasas } from "../comun/impuestos.js";
 import type { EventoComanda } from "../comanda/eventos.js";
 import { proyectarComanda, renglonesActivos } from "../comanda/reducers.js";
-import type { RenglonComanda } from "../comanda/renglon.js";
+import { importeRenglon, type RenglonComanda } from "../comanda/renglon.js";
 import { totalesComanda } from "../comanda/totales.js";
 import type { EventoCaja } from "../caja/eventos.js";
 import { calcularCorte, diferenciaArqueo, proyectarCaja } from "../caja/reducers.js";
@@ -315,5 +315,62 @@ describe("sesión de caja y corte", () => {
       sello: "0000-0000",
     });
     expect(() => proyectarCaja([suelto])).toThrow();
+  });
+});
+
+/*
+ * Aritmética de la pre-cuenta.
+ *
+ * El papel que se lleva a la mesa imprime cada renglón CON su impuesto dentro,
+ * porque quien lo recibe suma los renglones y espera llegar al total. Con el
+ * perfil de Rodizio (IVA_16, `incluido_en_precio: false`) el precio de carta no
+ * trae el IVA, así que esa suma solo cuadra si se desglosa renglón por renglón
+ * igual que lo hacen los totales. Estas pruebas fijan esa correspondencia: si
+ * alguien cambia cómo se reparte el impuesto, el papel del comensal deja de
+ * cuadrar y hay que enterarse aquí, no en la mesa.
+ */
+describe("pre-cuenta: los renglones con IVA suman el total", () => {
+  /** Lo mismo que calcula el POS para cada renglón del papel. */
+  function importeConImpuesto(r: RenglonComanda) {
+    return desglosarConTasas(importeRenglon(r), r.impuesto).total;
+  }
+
+  it("sin rebajas, la suma de renglones es exactamente el total", () => {
+    const estado = proyectarComanda(cuentaBase().eventos);
+    const t = totalesComanda(estado);
+
+    const suma = renglonesActivos(estado).reduce((a, r) => a + importeConImpuesto(r), 0);
+
+    expect(suma).toBe(t.total);
+  });
+
+  it("con descuento, suma − rebaja da el total sin perder centavos", () => {
+    const { f, orden_id, eventos } = cuentaBase();
+    const estado = proyectarComanda([
+      ...eventos,
+      f.crear("descuento_aplicado", orden_id, {
+        orden_id, alcance: "cuenta", modo: "monto", valor: pesos(50), motivo: "Cortesía de la casa",
+      }),
+    ]);
+    const t = totalesComanda(estado);
+
+    const suma = renglonesActivos(estado).reduce((a, r) => a + importeConImpuesto(r), 0);
+    // Es como el POS deriva la rebaja del papel: por diferencia, nunca aparte.
+    const rebaja = suma - t.total;
+
+    expect(rebaja).toBeGreaterThan(0);
+    expect(suma - rebaja).toBe(t.total);
+  });
+
+  it("un renglón cuyo precio YA incluye impuesto no lo suma dos veces", () => {
+    const conIvaDentro: RenglonComanda = {
+      id: uuidv7(), producto_id: "p9", descripcion: "Refresco", cantidad: 1,
+      precio_unitario: pesos(58), costo_unitario: pesos(20),
+      impuesto: snapshotTasas({ ...IVA_16, incluido_en_precio: true }),
+      estado: "capturado",
+    };
+
+    // El comensal paga los $58 de la carta, ni un centavo más.
+    expect(importeConImpuesto(conIvaDentro)).toBe(pesos(58));
   });
 });

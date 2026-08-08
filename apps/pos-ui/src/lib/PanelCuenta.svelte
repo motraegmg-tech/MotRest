@@ -338,6 +338,18 @@
             ? "✓ Todo enviado a cocina"
             : `Enviar a cocina (${pos.pendientes.length})`}
         </button>
+        <!--
+          La cuenta va ANTES del cobro, que es el orden real de una mesa: el
+          comensal ve lo que debe, y luego se le cobra. Sale con el IVA dentro
+          de cada renglón para que la suma cuadre a ojo.
+        -->
+        <button
+          class="b2"
+          disabled={!pos.hayCuenta}
+          onclick={() => pos.imprimirPrecuenta()}
+        >
+          Imprimir cuenta
+        </button>
         <button
           class="b2 cobrar"
           disabled={!pos.hayCuenta}

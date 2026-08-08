@@ -42,7 +42,13 @@ export interface Impresora {
   activa: boolean;
 }
 
-export type TipoDocumento = "comanda" | "ticket" | "corte" | "prueba" | "factura";
+export type TipoDocumento =
+  | "comanda"
+  | "ticket"
+  | "precuenta"
+  | "corte"
+  | "prueba"
+  | "factura";
 
 export type EstadoTrabajo = "pendiente" | "imprimiendo" | "impreso" | "fallido";
 

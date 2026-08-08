@@ -10,7 +10,9 @@ import {
   agruparPorMesa,
   compararEventos,
   construirRenglon,
+  desglosarConTasas,
   etiquetaFormaPago,
+  importeRenglon,
   pesos,
   mesasConCuentaDuplicada,
   proyectarSentadas,
@@ -890,6 +892,72 @@ class TiendaPOS {
    * al imprimir abriría la puerta a que el papel diga una cosa y la cuenta otra,
    * y el papel es el que se lleva el cliente.
    */
+  /**
+   * Imprime la cuenta para llevarla a la mesa, antes de cobrar.
+   *
+   * Aquí cada renglón sale **con su impuesto dentro**, y esa es toda la razón
+   * de que exista esta función en vez de reusar el ticket. En la carta de
+   * Rodizio el precio NO incluye IVA (perfil `IVA_16`, `incluido_en_precio:
+   * false`), así que el ticket imprime la base por renglón y suma el IVA al
+   * final. Ese papel es correcto como comprobante pero ilegible en una mesa:
+   * quien lo recibe suma los renglones, no le da el total, y llama al mesero.
+   *
+   * No emite ningún evento: pedir la cuenta no mueve dinero ni cambia la
+   * comanda. Lo que sí queda registrado es el cobro, después.
+   */
+  imprimirPrecuenta(): boolean {
+    const comanda = this.comanda;
+    const t = this.totales;
+    if (!comanda || !t) return false;
+
+    const renglones = renglonesActivos(comanda).map((r) => ({
+      cantidad: r.cantidad,
+      descripcion: r.descripcion,
+      detalle: r.detalle,
+      // `.total` es lo que paga el comensal por ese renglón: si el precio ya
+      // traía el impuesto lo deja igual, y si no, se lo agrega.
+      importe: desglosarConTasas(importeRenglon(r), r.impuesto).total,
+    }));
+
+    const suma = renglones.reduce((acc, r) => (acc + r.importe) as Centavos, 0 as Centavos);
+
+    /*
+     * Las rebajas se derivan de la diferencia, no se recalculan.
+     *
+     * Los totales aplican descuentos sobre la base y DESPUÉS el impuesto, así
+     * que la rebaja que ve el comensal trae también su parte de IVA. Restando
+     * `suma - total` se obtiene esa cifra exacta, y el papel cuadra siempre;
+     * calcularla por separado dejaría descuadres de centavos en el documento
+     * que el cliente tiene en la mano.
+     */
+    const rebaja = Math.max(0, suma - t.total);
+    const rebajable = t.descuentos + t.cortesias;
+    const descuentos = (
+      rebajable > 0 ? Math.round((rebaja * t.descuentos) / rebajable) : 0
+    ) as Centavos;
+    const cortesias = (rebaja - descuentos) as Centavos;
+
+    impresion.precuenta({
+      folio: comanda.orden_id.slice(-8).toUpperCase(),
+      ts: Date.now(),
+      local: {
+        nombre: datosLocal.nombre,
+        direccion: datosLocal.direccion,
+        telefono: datosLocal.telefono,
+      },
+      mesa: this.nombreMesaActiva,
+      mesero: sesion.nombreDe(comanda.mesero_id),
+      renglones,
+      suma,
+      descuentos,
+      cortesias,
+      total: t.total,
+    });
+
+    this.flash("Cuenta impresa");
+    return true;
+  }
+
   /**
    * Vuelve a imprimir el ticket de la cuenta.
    *

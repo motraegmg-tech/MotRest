@@ -25,12 +25,14 @@ import {
   comandaCocina,
   corteCaja,
   impresoraPara,
+  precuenta,
   representacionCfdi,
   sellarCorte,
   ticketVenta,
   type CifrasCorte,
   type DatosComanda,
   type DatosCorte,
+  type DatosPrecuenta,
   type DatosTicket,
   type Impresora,
   type ResultadoEnvio,
@@ -263,6 +265,25 @@ class StoreImpresion {
       impresas += 1;
     }
     return impresas;
+  }
+
+  /**
+   * La cuenta que se lleva a la mesa antes de cobrar.
+   *
+   * Va a la impresora de caja, como el ticket. Si no hay ninguna configurada
+   * queda en la vista previa y la operación sigue: pedir la cuenta nunca puede
+   * bloquear una mesa.
+   */
+  precuenta(datos: DatosPrecuenta): boolean {
+    const impresora = impresoraPara(this.impresoras, "caja");
+    if (!impresora) {
+      this.vistaPrevia = { titulo: `Cuenta ${datos.folio}`, texto: precuenta(datos).aTexto() };
+      return false;
+    }
+    const ticket = precuenta(datos, impresora.ancho);
+    this.encolar(impresora, "precuenta", ticket, datos.folio);
+    this.vistaPrevia = { titulo: `Cuenta ${datos.folio}`, texto: ticket.aTexto() };
+    return true;
   }
 
   ticket(datos: DatosTicket): boolean {
