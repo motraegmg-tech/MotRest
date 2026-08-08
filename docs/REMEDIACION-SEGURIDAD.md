@@ -112,6 +112,15 @@ la clave del local habría quedado escrita sin caducidad.
   **sin credenciales** en producción; el primer arranque genera una contraseña
   (`7KX9-MQ2P-4VN8`, ~58 bits) y un PIN de **8 dígitos**, únicos de ese local, y
   los enseña **una sola vez** (`CredencialesIniciales.svelte`).
+
+> **Actualizado después.** El hallazgo sigue cerrado, pero por una vía más simple:
+> en producción **no se siembra ningún usuario**, así que no hay ninguna clave que
+> generar ni que enseñar. El primer arranque pide crear la cuenta del responsable
+> con el PIN que él elija (`AltaResponsable.svelte`). Lo que motivó el cambio no
+> fue la seguridad sino el restaurante: quien cerraba esa pantalla sin apuntar las
+> claves se quedaba fuera de su propio negocio, y la cuenta se seguía llamando
+> «Gonzalo DJA» en un local ajeno. Ver `docs/SEGURIDAD.md` § Credenciales
+> iniciales.
 - Las credenciales de demostración viven dentro de `credencialesDeDemostracion()`
   —una **función**, no constantes de módulo— para que el empaquetador las
   elimine. Es la misma técnica que ya protegía a Marco y Lucía.

@@ -38,6 +38,7 @@ import { canales } from "../canales.svelte";
 import { prenomina } from "../prenomina.svelte";
 import { cartaVacia, catalogo, impuestos } from "../catalogo";
 import { menuDemostracion } from "../demo/carta";
+import { esLaCaja } from "../entorno";
 import { fiscal } from "../fiscal.svelte";
 import { impresion } from "../impresion.svelte";
 import { existenciasDemo } from "../insumos";
@@ -187,6 +188,17 @@ class Arranque {
       // Con qué Hub trabaja esta terminal. Se resuelve ANTES de decidir si
       // sembrar, porque de eso depende la decisión.
       await sync.resolverDestino(almacen);
+
+      /*
+       * Quién puede dar de alta al responsable del restaurante.
+       *
+       * La caja, porque es el equipo del local. Y una terminal que todavía no
+       * está enlazada con ningún Hub, porque entonces ella es el local. Una
+       * tablet ya emparejada, no: su personal llega por sincronización, y un
+       * alta de propietario en el salón le daría el negocio completo a quien
+       * tomara la tablet.
+       */
+      sesion.marcarTerminalPrincipal(esLaCaja() || !sync.configurado);
 
       const guardados = await almacen.eventos.leerTodos();
 

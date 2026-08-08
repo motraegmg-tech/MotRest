@@ -111,7 +111,12 @@ describe("el acceso licenciado en la caja", () => {
       debe_cambiar_credencial: true,
     });
     expect(sesion.usuariosDelLocal.some((u) => u.id === USUARIO_RESPONSABLE_ID)).toBe(true);
-    expect(sesion.credencialesIniciales).toBeNull();
+    /*
+     * Y en un local que YA tiene personal, montar al responsable licenciado no
+     * abre el alta inicial: eso dejaría dos propietarios en el mismo restaurante.
+     * El camino contrario —local en blanco— se prueba en `primer-arranque.test.ts`.
+     */
+    expect(sesion.requiereAltaInicial).toBe(false);
 
     expect((await sesion.iniciarSesion(USUARIO_RESPONSABLE_ID, PIN_RESPONSABLE)).ok).toBe(true);
   });

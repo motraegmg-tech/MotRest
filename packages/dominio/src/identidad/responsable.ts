@@ -1,9 +1,20 @@
 /**
- * El responsable que MOTRAE Central prepara para cada restaurante nuevo.
+ * El responsable del restaurante: la cuenta con el control total del local.
  *
  * A diferencia del soporte, esta cuenta sí pertenece al restaurante y se ve
- * normalmente. La licencia firmada solo puede darle el perfil inicial; una vez
- * que el responsable cambia su PIN, ese cambio queda guardado en su caja.
+ * normalmente. Hay dos caminos para que exista, y los dos acaban en el mismo
+ * usuario:
+ *
+ *  1. **La da de alta el propio restaurante en el primer arranque.** Es el
+ *     camino normal: el software abre, pide crear la cuenta del responsable con
+ *     el PIN que él elija, y a partir de ahí cada apertura pide identificarse.
+ *     Nadie tiene que dictarle una clave por teléfono.
+ *
+ *  2. **La prepara MOTRAE Central dentro de la licencia firmada.** Sirve para
+ *     entregar el local ya con nombre y PIN, y es la vía por la que MOTRAE puede
+ *     reponer el acceso de un responsable en remoto. La licencia solo puede dar
+ *     el perfil INICIAL; en cuanto el responsable elige su propio PIN, ese
+ *     cambio queda guardado en su caja.
  */
 import type { ID } from "../comun/ids.js";
 import type { Licencia, ResponsableLicenciado } from "../organizacion/licencia.js";
@@ -42,7 +53,47 @@ function esCredencialDePin(
   );
 }
 
-/** Construye la cuenta visible del restaurante a partir del perfil firmado. */
+/**
+ * ¿Este local todavía no tiene NINGUNA cuenta que se pueda usar?
+ *
+ * Es la pregunta que decide si el software arranca pidiendo el alta del
+ * responsable en vez de pidiendo un PIN. «Usable» es más estricto que «existe»,
+ * y las tres condiciones importan:
+ *
+ *  - **activo** — una cuenta desactivada no abre el sistema.
+ *  - **con credencial** — un usuario sin PIN guardado no puede entrar. Es el
+ *    caso de un local recién instalado.
+ *  - **sin cambio de credencial pendiente** — la cuenta que MOTRAE preparó en la
+ *    licencia y que nadie ha estrenado todavía NO cuenta como usable: su PIN lo
+ *    conoce quien la provisionó, no el restaurante. Por eso el primer arranque
+ *    le deja elegir el suyo en vez de exigirle uno que quizá nadie le dictó.
+ *
+ * En cuanto hay una sola cuenta usable —el responsable, o cualquier empleado que
+ * ya estrenó su PIN— esta puerta se cierra para siempre: el alta inicial no
+ * puede volver a servir para fabricar un propietario en un local que ya opera.
+ *
+ * `tieneCredencial` se recibe como función porque los hashes NO viven en el
+ * dominio ni en el event log: viven en el almacén de secretos del dispositivo.
+ */
+export function requiereAltaDeResponsable(
+  usuariosDelLocal: readonly Usuario[],
+  tieneCredencial: (id: ID) => boolean,
+): boolean {
+  return !usuariosDelLocal.some(
+    (usuario) =>
+      usuario.activo &&
+      usuario.debe_cambiar_credencial !== true &&
+      tieneCredencial(usuario.id),
+  );
+}
+
+/**
+ * Construye la cuenta visible del restaurante.
+ *
+ * La usan los dos caminos —el alta que hace el propio local y el perfil firmado
+ * que llega en la licencia— justo para que no puedan divergir: mismo rol, mismos
+ * permisos y mismo puesto por defecto, venga de donde venga.
+ */
 export function usuarioResponsable(
   perfil: Pick<ResponsableLicenciado, "id" | "nombre" | "puesto">,
   sucursal_id: ID,

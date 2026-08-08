@@ -68,8 +68,12 @@ Central propone el identificador a partir del nombre. **Si el que muestra el Hub
 es distinto, gana el del Hub** — cámbialo en el formulario.
 
 Al guardar, Central crea al responsable como **Propietario**, muestra un PIN
-inicial de ocho dígitos una sola vez y lo guarda cifrado como hash. Entrégalo por
-un medio privado: el responsable debe cambiarlo en su primer acceso.
+inicial de ocho dígitos una sola vez y lo guarda cifrado como hash.
+
+**No hace falta entregarlo.** Lo que el restaurante usa es el PIN que él elige la
+primera vez que abre MotRest: la caja le enseña el nombre que capturaste aquí y le
+pide su PIN. Guarda el de Central como repuesto —es lo que permite reponerle el
+acceso desde MOTRAE si algún día se queda fuera—, y entrégalo solo en ese caso.
 
 ### 4 · Emitir la licencia
 

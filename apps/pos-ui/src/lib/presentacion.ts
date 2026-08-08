@@ -18,9 +18,11 @@ export const MODO_DEMO = import.meta.env.PROD !== true;
  * Empleado con el que se sella la semilla del salón, y respaldo cuando aún no
  * hay sesión.
  *
- * Es el propietario, no un usuario de demostración: el propietario existe en
- * TODA instalación —también en la de producción, donde Marco y Lucía no se
- * siembran—, así que la bitácora nunca queda con un identificador huérfano.
+ * Es el id del **responsable del restaurante** (`USUARIO_RESPONSABLE_ID`), el
+ * mismo en toda instalación: lo recibe la cuenta que el local crea en su primer
+ * arranque y también la que MOTRAE provisiona por licencia. Así la bitácora no
+ * queda con un identificador huérfano ni siquiera en los eventos que se emiten
+ * antes de que alguien inicie sesión.
  */
 export const EMPLEADO_ACTUAL: ID = "usr-gonzalo";
 

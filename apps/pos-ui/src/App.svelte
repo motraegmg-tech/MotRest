@@ -29,8 +29,8 @@
   import Salones from "./lib/modulos/admin/Salones.svelte";
   import Usuarios from "./lib/modulos/admin/Usuarios.svelte";
   import Acceso from "./lib/sesion/Acceso.svelte";
+  import AltaResponsable from "./lib/sesion/AltaResponsable.svelte";
   import CambioCredencial from "./lib/sesion/CambioCredencial.svelte";
-  import CredencialesIniciales from "./lib/sesion/CredencialesIniciales.svelte";
   import DialogoAutorizacion from "./lib/sesion/DialogoAutorizacion.svelte";
   import AvisoActualizacion from "./lib/licencia/AvisoActualizacion.svelte";
   import PantallaBloqueada from "./lib/licencia/PantallaBloqueada.svelte";
@@ -188,16 +188,15 @@
 {/if}
 
 <!--
-  Primer arranque de un local nuevo: sus claves, una sola vez.
+  Primer arranque de un restaurante nuevo: crear la cuenta del responsable.
 
-  Va ANTES que la pantalla de acceso porque no tiene sentido pedirle a alguien
-  una contraseña que todavía no ha visto.
+  Va ANTES que la pantalla de acceso porque no tiene sentido pedir un PIN cuando
+  todavía no existe nadie que pueda tenerlo. Y no se muestra mientras la terminal
+  espera la operación del Hub: si el local ya tiene personal, viene de ahí, y dar
+  de alta un propietario aquí crearía un segundo dueño del negocio.
 -->
-{#if sesion.credencialesIniciales}
-  <CredencialesIniciales
-    contrasena={sesion.credencialesIniciales.contrasena}
-    pin={sesion.credencialesIniciales.pin}
-  />
+{#if sesion.requiereAltaInicial && !arranque.esperandoHub}
+  <AltaResponsable />
 {:else if mostrarAcceso || !sesion.autenticado}
   <Acceso onCerrar={() => (mostrarAcceso = false)} />
 {:else if sesion.debeCambiarCredencial}

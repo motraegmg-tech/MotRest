@@ -52,15 +52,36 @@ testigo**, no para proteger secretos.
 
 ## Credenciales iniciales
 
-En producción el propietario se siembra **sin credenciales**. Si no hay una
-licencia de Central, el primer arranque genera una contraseña y un PIN únicos
-del local, conserva solamente sus hashes y los muestra una sola vez.
+**En producción no se siembra ningún usuario.** Un restaurante recién instalado
+abre sin nadie dentro y lo primero que pide es crear la cuenta del
+**responsable**: su nombre y el PIN que él elija. Esa es la primera credencial
+del local, no la conoce nadie más y por eso no hay que cambiarla después. A
+partir de ese momento cada apertura de MotRest pide identificarse contra la
+lista de personal.
+
+Tres consecuencias buscadas:
+
+- **Nada de lo que va dentro del instalador abre ningún restaurante.** No hay
+  clave de fábrica ni cuenta con hash empaquetado: no hay cuentas.
+- **Ninguna clave se dicta por teléfono ni se apunta de una pantalla que solo
+  aparece una vez.** Las dos versiones anteriores —clave de fábrica y clave
+  generada que se enseñaba al instalar— fallaban por lo mismo: el secreto lo
+  elegía el software y lo perdía el cliente.
+- **El alta solo la ofrece la caja** —la terminal a la que el propio Hub sirve la
+  pantalla— o una terminal que todavía no está enlazada con ningún local. En una
+  tablet emparejada nunca aparece: su personal llega por sincronización, y un
+  alta de propietario en el salón entregaría el negocio a quien tomara la tablet.
+- **Solo funciona una vez.** En cuanto existe una cuenta activa con su credencial
+  estrenada, esa pantalla no vuelve a aparecer en la vida del local.
 
 Cuando MOTRAE Central da de alta un restaurante, crea además el perfil del
 **responsable** como `propietario` y un PIN inicial aleatorio de ocho dígitos.
 Central guarda solo el hash dentro de DPAPI; la licencia firmada lo entrega
-solamente a la caja, nunca a las tablets. MotRest exige que el responsable lo
-cambie en su primer acceso.
+solamente a la caja, nunca a las tablets. Ese perfil **fija el nombre** del
+responsable —el alta lo enseña y no lo vuelve a pedir— pero el PIN lo elige el
+restaurante en la caja, así que ya no hace falta entregarlo. Sigue sirviendo como
+vía de reposición: reprovisionar al responsable desde Central emite una provisión
+nueva, y esa sí reemplaza su PIN. Reemitir la misma licencia por cobro, no.
 
 El acceso técnico **Gonzalo DJA** es una cuenta distinta, oculta de las listas
 de personal y superior al propietario. Su contraseña fuerte se configura en

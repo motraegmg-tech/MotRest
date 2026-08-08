@@ -180,23 +180,42 @@
 
   {#if !elegido}
     <h2>¿Quién eres?</h2>
-    <div class="lista">
-      {#each sesion.usuariosDelLocal as usuario (usuario.id)}
-        <button class="usuario" onclick={() => elegir(usuario)}>
-          <span class="av">{usuario.iniciales}</span>
-          <span class="datos">
-            <b>{usuario.nombre}</b>
-            <small>{usuario.puesto}</small>
-          </span>
-        </button>
-      {/each}
-    </div>
+    {#if sesion.usuariosDelLocal.length === 0}
+      <!--
+        Una terminal enlazada que todavía no ha recibido el personal del local.
+        Sin este mensaje, la pantalla era una lista vacía sin explicación: parecía
+        que el sistema había perdido a los usuarios.
+      -->
+      <p class="pista vacia">
+        Esta terminal todavía no ha recibido el personal del restaurante. En cuanto
+        el Hub del local responda, aparecerá aquí para poder entrar.
+      </p>
+    {:else}
+      <div class="lista">
+        {#each sesion.usuariosDelLocal as usuario (usuario.id)}
+          <button class="usuario" onclick={() => elegir(usuario)}>
+            <span class="av">{usuario.iniciales}</span>
+            <span class="datos">
+              <b>{usuario.nombre}</b>
+              <small>{usuario.puesto}</small>
+            </span>
+          </button>
+        {/each}
+      </div>
+    {/if}
     {#if soporteDisponible}
       <button class="acceso-soporte" onclick={() => elegir(soporteDisponible)}>
         Acceso de soporte MOTRAE
       </button>
     {/if}
-    <button class="volver" onclick={onCerrar}>Cancelar</button>
+    <!--
+      «Cancelar» solo cuando hay a dónde volver. Con la sesión cerrada, esta
+      pantalla ES la aplicación: un botón que no hace nada invita a pulsarlo dos
+      veces y a pensar que el sistema se quedó colgado.
+    -->
+    {#if sesion.autenticado}
+      <button class="volver" onclick={onCerrar}>Cancelar</button>
+    {/if}
   {:else}
     <h2>Hola, {elegido.nombre}</h2>
 
@@ -430,6 +449,11 @@
   .pista {
     font-size: 0.9rem;
     color: #b9c2bc;
+  }
+  .vacia {
+    max-width: min(24rem, 100%);
+    text-align: center;
+    line-height: 1.55;
   }
   .lista {
     display: flex;

@@ -86,9 +86,13 @@ El procedimiento completo, paso a paso y con ejemplo, está en
 3. Pegar el `licencia.json` en **Licencia de MOTRAE** de la pantalla suspendida,
    o en **Administración → Licencia** si el local ya está abierto.
 
-Al dar de alta el local, Central muestra una sola vez el PIN inicial del
-**Responsable**. Entrégalo por un medio privado; entra como **Propietario** y
-MotRest le exigirá cambiarlo en su primera sesión.
+**Al PIN del responsable no hay que hacerle nada.** La primera vez que MotRest
+abre en el restaurante, la caja pide crear la cuenta del responsable con el PIN
+que él elija; si Central ya mandó su nombre en la licencia, lo enseña y solo pide
+el PIN. Desde la segunda apertura, MotRest abre con la lista de personal y cada
+uno entra con el suyo. El PIN que Central muestra al dar de alta el local queda
+como repuesto: solo hace falta si algún día hay que reponerle el acceso desde
+MOTRAE.
 
 > **El identificador tiene que coincidir exactamente.** Es el error más
 > frustrante del alta porque no se descubre hasta que uno ya está en el

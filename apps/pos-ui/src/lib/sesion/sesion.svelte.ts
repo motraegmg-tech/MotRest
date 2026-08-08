@@ -28,8 +28,12 @@ import {
   normalizarCodigo,
   cuentaResponsableDeLicencia,
   credencialDeSoporte,
+  requiereAltaDeResponsable,
+  usuarioResponsable,
   usuarioSoporte,
   usuariosVisibles,
+  PUESTO_RESPONSABLE,
+  USUARIO_RESPONSABLE_ID,
   USUARIO_SOPORTE_ID,
   validarSecreto,
   verificarCredencial,
@@ -55,13 +59,20 @@ import { CLAVES, type Almacen } from "@motrest/protocolo-sync";
  * propietario, cambiar de dueño invalidaría la llave de repuesto del negocio.
  */
 const RESCATE_ID = "local:rescate";
+import { esLaCaja } from "../entorno";
 import { SUCURSAL_ID, obtenerDeviceId } from "../presentacion";
-import {
-  USUARIOS_SEMILLA,
-  USUARIO_POR_DEFECTO,
-  generarContrasenaDeLocal,
-  generarPinDeLocal,
-} from "./usuarios";
+import { USUARIOS_SEMILLA, USUARIO_POR_DEFECTO } from "./usuarios";
+
+/**
+ * Dónde se apunta quién tiene la sesión abierta.
+ *
+ * `sessionStorage` y no el almacén del dispositivo, y esa es toda la diferencia
+ * entre «recargar la pantalla no me echa fuera» y «cualquiera que encienda la
+ * caja entra como el dueño». Sobrevive a un F5 y a que el Hub reinicie la vista;
+ * NO sobrevive a cerrar y volver a abrir la aplicación, que es justo cuando hay
+ * que volver a preguntar quién está frente a la caja.
+ */
+const LLAVE_SESION = "motrest.sesion_activa";
 
 export interface Resultado {
   ok: boolean;
@@ -75,14 +86,16 @@ class Sesion {
   usuarioActual = $state<Usuario | null>(null);
 
   /**
-   * Las credenciales recién generadas para un local nuevo, para enseñarlas UNA
-   * vez. `null` en cuanto se confirman o en cuanto se recarga la aplicación.
+   * ¿Este equipo es el que puede dar de alta al responsable del restaurante?
    *
-   * No se persisten en claro en ninguna parte. Si se cierra sin apuntarlas, se
-   * pierden y hay que usar el código de rescate — incómodo a propósito: la
-   * alternativa es dejar la contraseña del dueño escrita en el disco.
+   * Lo es la caja —la terminal a la que el propio Hub le sirve la pantalla— y lo
+   * es una terminal suelta que todavía no está enlazada con ningún local. NO lo
+   * es una tablet emparejada: ahí el personal llega por sincronización, y ofrecer
+   * un alta de propietario en el salón crearía un segundo dueño del negocio en la
+   * mano de quien tomara la tablet. Lo fija el arranque, que es quien sabe con
+   * qué Hub trabaja esta terminal.
    */
-  credencialesIniciales = $state<{ contrasena: string; pin: string } | null>(null);
+  private terminalPrincipal = $state(false);
 
   /** Bitácora de identidad (se fusiona con la operativa en la vista de auditoría). */
   eventos = $state.raw<EventoIdentidad[]>([]);
@@ -120,9 +133,9 @@ class Sesion {
   }
 
   private sembrarCredenciales(): void {
+    // En producción la semilla está VACÍA: la primera credencial del local la
+    // crea el responsable en `crearResponsableInicial`.
     for (const sembrado of USUARIOS_SEMILLA) {
-      // En producción el propietario nace SIN credencial: se le generan unas
-      // únicas en el primer arranque (`generarCredencialesIniciales`).
       if (!sembrado.credencial) continue;
       const lista: Credencial[] = [sembrado.credencial];
       if (sembrado.pin) lista.push(sembrado.pin);
@@ -198,14 +211,15 @@ class Sesion {
     await this.montarCuentasDeLicencia();
 
     /*
-     * Primer arranque de una instalación real sin responsable licenciado: hay
-     * que darle credenciales al propietario. Va DESPUÉS de la licencia para no
-     * mostrar unas claves locales que el PIN firmado de Central reemplazaría en
-     * el mismo arranque.
+     * Sesión abierta en ESTA ejecución de la aplicación.
+     *
+     * Antes se leía del almacén del dispositivo, y eso hacía que abrir MotRest
+     * dejara dentro al último que entró: la caja amanecía con la sesión del dueño
+     * puesta desde la noche anterior. Ahora solo sobrevive a recargar la pantalla
+     * (`sessionStorage`), así que cada vez que el software se abre pide el PIN
+     * contra la lista de personal. Un turno nuevo se identifica.
      */
-    await this.generarCredencialesIniciales();
-
-    const activa = await almacen.estado.cargar<ID>(CLAVES.sesion);
+    const activa = this.sesionDeEstaEjecucion();
     const usuario = activa ? this.usuarioDe(activa) : undefined;
     if (usuario?.activo && !this.estaBloqueado(usuario.id)) {
       // Se restaura la sesión sin volver a emitir un inicio: no hubo uno nuevo.
@@ -223,7 +237,20 @@ class Sesion {
   conectarAlmacen(almacen: Almacen): void {
     this.almacen = almacen;
     void this.guardarSecretos();
-    void this.guardarSesionActiva();
+    void this.olvidarSesionEnDisco(almacen);
+    this.guardarSesionActiva();
+  }
+
+  /**
+   * Le dice al store si este equipo puede dar de alta al responsable.
+   *
+   * Lo llama el arranque en cuanto sabe con qué Hub trabaja la terminal. Va por
+   * aquí y no leyendo `sync` desde este archivo para no atar la identidad al
+   * enlace de red: quién puede entrar no debería depender de un store que existe
+   * para sincronizar comandas.
+   */
+  marcarTerminalPrincipal(esPrincipal: boolean): void {
+    this.terminalPrincipal = esPrincipal;
   }
 
   /**
@@ -232,8 +259,13 @@ class Sesion {
    * La proyección local ya parte de esta semilla para poder mostrar el primer
    * acceso, pero el Hub no puede confiar en una constante que solo vive en la
    * interfaz. El propietario se emite primero y firma el resto del lote.
+   *
+   * **En producción no hay semilla y esto no hace nada**: el primer usuario del
+   * restaurante lo escribe el alta del responsable (`crearResponsableInicial`),
+   * con el nombre que el local dio y firmado por él mismo.
    */
   async sembrarUsuariosIniciales(almacen: Almacen): Promise<void> {
+    if (USUARIOS_SEMILLA.length === 0) return;
     if (this.eventos.some((evento) => evento.tipo === "usuario_creado")) return;
 
     const propietario = USUARIOS_SEMILLA.find((sembrado) => sembrado.usuario.rol_id === "propietario")
@@ -276,16 +308,43 @@ class Sesion {
     }
   }
 
-  private async guardarSesionActiva(): Promise<void> {
-    if (!this.almacen) return;
+  /** Quién tenía la sesión abierta en esta misma ejecución de la aplicación. */
+  private sesionDeEstaEjecucion(): ID | null {
     try {
+      return globalThis.sessionStorage?.getItem(LLAVE_SESION) ?? null;
+    } catch {
+      // Sin sessionStorage no se recuerda nada y se vuelve a pedir el PIN. Es el
+      // lado seguro del fallo.
+      return null;
+    }
+  }
+
+  private guardarSesionActiva(): void {
+    try {
+      const almacenaje = globalThis.sessionStorage;
+      if (!almacenaje) return;
       if (this.usuarioActual) {
-        await this.almacen.estado.guardar(CLAVES.sesion, this.usuarioActual.id);
+        almacenaje.setItem(LLAVE_SESION, this.usuarioActual.id);
       } else {
-        await this.almacen.estado.eliminar(CLAVES.sesion);
+        almacenaje.removeItem(LLAVE_SESION);
       }
     } catch (causa) {
-      console.error("No se pudo guardar la sesión activa", causa);
+      console.error("No se pudo recordar la sesión de esta ejecución", causa);
+    }
+  }
+
+  /**
+   * Borra la sesión que las versiones anteriores dejaban en el disco.
+   *
+   * Sin esto, una caja actualizada seguiría teniendo ahí escrito el id del último
+   * que entró. Ya nadie lo lee, pero un secreto operativo que sobra en el disco se
+   * quita, no se ignora.
+   */
+  private async olvidarSesionEnDisco(almacen: Almacen): Promise<void> {
+    try {
+      await almacen.estado.eliminar(CLAVES.sesion);
+    } catch {
+      // Que no se pueda limpiar no puede impedir que la caja abra.
     }
   }
 
@@ -311,7 +370,7 @@ class Sesion {
       rol_id: usuario.rol_id,
       cambio_rapido: cambioRapido,
     });
-    void this.guardarSesionActiva();
+    this.guardarSesionActiva();
   }
 
   // --- Consultas ------------------------------------------------------------------
@@ -324,43 +383,144 @@ class Sesion {
     return this.usuarioActual?.debe_cambiar_credencial === true;
   }
 
-  /**
-   * Las credenciales del propietario en el primer arranque de un local real.
-   *
-   * ANTES ESTO NO EXISTÍA: el propietario venía con una clave de fábrica escrita
-   * en el repositorio, idéntica en toda instalación. Ahora se genera una única
-   * para ESTE restaurante y se enseña una sola vez.
-   *
-   * Se genera solo si de verdad no hay nada guardado. Reinstalar el POS sobre
-   * una operación existente **no** regenera nada: eso dejaría al dueño fuera de
-   * su propio sistema con una contraseña que nadie vio.
-   */
-  private async generarCredencialesIniciales(): Promise<void> {
-    const propietario = this.usuarios.find((u) => u.rol_id === "propietario");
-    if (!propietario) return;
-    if ((this.credenciales.get(propietario.id) ?? []).length > 0) return;
+  // --- El primer arranque del restaurante -------------------------------------------
 
-    const contrasena = generarContrasenaDeLocal();
-    const pin = generarPinDeLocal();
-
-    this.credenciales.set(propietario.id, [
-      await crearCredencial(propietario.id, contrasena, "contrasena"),
-      await crearCredencial(propietario.id, pin, "pin"),
-    ]);
-    await this.guardarSecretos();
-
-    /*
-     * Se exponen EN MEMORIA y solo para esta sesión. No se persisten en claro
-     * en ningún sitio: si la pantalla se cierra sin apuntarlas, se pierden y
-     * hay que usar el código de rescate. Es incómodo a propósito — la
-     * alternativa es dejar la contraseña del dueño escrita en el disco.
-     */
-    this.credencialesIniciales = { contrasena, pin };
+  /** ¿Hay algún hash guardado para este usuario? */
+  private tieneCredencial(id: ID): boolean {
+    return (this.credenciales.get(id) ?? []).length > 0;
   }
 
-  /** Olvida las credenciales recién generadas, una vez que se anotaron. */
-  confirmarCredencialesAnotadas(): void {
-    this.credencialesIniciales = null;
+  /**
+   * ¿El software tiene que abrir pidiendo el alta del responsable?
+   *
+   * Solo cuando las dos cosas se cumplen: que este equipo sea el que puede darla
+   * (la caja, o una terminal todavía sin local) y que en el local no haya ni una
+   * cuenta usable. Ver `requiereAltaDeResponsable` en el dominio para qué cuenta
+   * como usable y por qué la cuenta que MOTRAE preparó y nadie estrenó no lo es.
+   */
+  get requiereAltaInicial(): boolean {
+    if (!this.terminalPrincipal) return false;
+    return requiereAltaDeResponsable(this.usuariosDelLocal, (id) => this.tieneCredencial(id));
+  }
+
+  /** La cuenta de propietario que este local ya tiene, venga de donde venga. */
+  private get responsablePrevio(): Usuario | undefined {
+    return this.usuariosDelLocal.find((u) => u.rol_id === "propietario" && u.activo);
+  }
+
+  /**
+   * El responsable que MOTRAE preparó dentro de la licencia y nadie ha estrenado.
+   *
+   * Si lo hay, el alta **no pide el nombre**: lo enseña y solo pide el PIN, porque
+   * el nombre lo manda el perfil firmado y volver a escribirlo aquí solo serviría
+   * para que la licencia lo sobrescribiera en el siguiente arranque.
+   *
+   * Se distingue por tener PROVISIÓN, no por ser propietario. La diferencia
+   * importa en una caja que se actualiza desde una versión anterior: ahí puede
+   * haber un propietario heredado —el viejo «Gonzalo DJA» sembrado, sin
+   * credencial que sirva— y a ese SÍ hay que dejarle poner su nombre real, que es
+   * justo lo que esta pantalla viene a arreglar.
+   */
+  get responsablePendiente(): Usuario | undefined {
+    const previo = this.responsablePrevio;
+    return previo && this.provisionesResponsable[previo.id] ? previo : undefined;
+  }
+
+  /**
+   * Da de alta al responsable del restaurante en el primer arranque.
+   *
+   * ES LA PRIMERA CUENTA DEL LOCAL y la crea el propio restaurante, con el PIN
+   * que elija. Por eso no nace con `debe_cambiar_credencial`: nadie más lo
+   * conoce, así que no hay nada que cambiar después.
+   *
+   * CUATRO DECISIONES QUE NO SON DE ESTILO:
+   *
+   *  1. **Reutiliza la cuenta de propietario si el local ya tenía una.** Un alta
+   *     que creara un usuario nuevo dejaría el local con dos propietarios, cada
+   *     uno con todos los permisos: el heredado y el de la casa.
+   *
+   *  2. **El nombre solo lo manda la licencia firmada.** Si el propietario previo
+   *     no viene de una provisión de MOTRAE —el «Gonzalo DJA» que sembraban las
+   *     versiones anteriores— se renombra con el que escriba el restaurante. Era
+   *     media razón de ser de este cambio: que la cuenta del dueño lleve su nombre.
+   *
+   *  3. **Se firma con el propio responsable.** El alta queda en la bitácora a su
+   *     nombre y no a nombre de «sistema»: es él quien está frente a la caja.
+   *
+   *  4. **Emite `credencial_cambiada`.** Es lo que hace que el alta sea
+   *     irreversible al reproyectar el log: al siguiente arranque la cuenta ya
+   *     consta como estrenada y esta pantalla no vuelve a salir.
+   */
+  async crearResponsableInicial(datos: {
+    nombre: string;
+    puesto?: string;
+    pin: string;
+  }): Promise<Resultado> {
+    if (!this.requiereAltaInicial) {
+      return { ok: false, error: "Este restaurante ya tiene usuarios dados de alta" };
+    }
+
+    const previo = this.responsablePrevio;
+    const nombre = (this.responsablePendiente?.nombre ?? datos.nombre).trim();
+    if (nombre.length < 2) return { ok: false, error: "Escribe el nombre del responsable" };
+
+    const problema = validarSecreto(datos.pin, "pin");
+    if (problema) return { ok: false, error: problema };
+
+    const id = previo?.id ?? USUARIO_RESPONSABLE_ID;
+    // El puesto se hereda solo del perfil firmado. El de un propietario heredado
+    // («Dirección General») era una etiqueta de la semilla de MOTRAE, no del local.
+    const puesto =
+      datos.puesto?.trim() || this.responsablePendiente?.puesto || PUESTO_RESPONSABLE;
+    const usuario = usuarioResponsable({ id, nombre, puesto }, SUCURSAL_ID, false);
+
+    this.credenciales.set(id, [await crearCredencial(id, datos.pin, "pin")]);
+    /*
+     * Se reemplaza POR ID, no por `previo`.
+     *
+     * `previo` solo ve a los propietarios activos, y un local pudo haber
+     * desactivado al suyo: ahí `previo` es `undefined` pero el id sigue ocupado, y
+     * añadirlo dejaría dos entradas con el mismo id en la lista de usuarios.
+     */
+    const existe = this.usuarios.some((u) => u.id === id);
+    this.usuarios = existe
+      ? this.usuarios.map((u) => (u.id === id ? usuario : u))
+      : [...this.usuarios, usuario];
+
+    this.fabrica.actualizarContexto({ empleado_id: id });
+
+    const yaEnElLog = this.eventos.some(
+      (evento) => evento.tipo === "usuario_creado" && evento.usuario_id === id,
+    );
+    if (yaEnElLog) {
+      // `activo` va explícito: si la cuenta estaba desactivada, sin esto volvería a
+      // estarlo al reproyectar el log y el local quedaría fuera otra vez.
+      this.emitir("usuario_actualizado", { usuario_id: id, cambios: { nombre, activo: true } });
+    } else {
+      this.emitir("usuario_creado", {
+        usuario_id: id,
+        nombre,
+        puesto,
+        rol_id: usuario.rol_id,
+        permisos: usuario.permisos.map((permiso) => ({ ...permiso })),
+      });
+    }
+    this.emitir("credencial_cambiada", { usuario_id: id, tipo_credencial: "pin" });
+
+    // La provisión de MOTRAE queda como ya aplicada: reemitir la misma licencia
+    // por cobro no puede volver a pisar el PIN que el responsable acaba de elegir.
+    const provision = this.provisionesResponsable[id];
+    this.provisionesResponsable = {
+      ...this.provisionesResponsable,
+      [id]: {
+        provision_id: provision?.provision_id ?? `local:${id}`,
+        debe_cambiar_credencial: false,
+      },
+    };
+
+    await this.guardarSecretos();
+    this.establecerSesion(usuario, false);
+    return { ok: true };
   }
 
   /**
@@ -380,8 +540,7 @@ class Sesion {
      * eso el único que lleva `__MOTREST_HUB__` — el mismo marcador que usa la
      * impresión para saber que puede hablar con el puerto local.
      */
-    const enLaCaja = !!(globalThis as { __MOTREST_HUB__?: unknown }).__MOTREST_HUB__;
-    if (!enLaCaja) return;
+    if (!esLaCaja()) return;
 
     try {
       // Mismo origen: la página de la caja la sirve el Hub.
@@ -699,7 +858,7 @@ class Sesion {
     if (!this.usuarioActual) return;
     this.emitir("sesion_cerrada", { usuario_id: this.usuarioActual.id });
     this.usuarioActual = null;
-    void this.guardarSesionActiva();
+    this.guardarSesionActiva();
   }
 
   private async verificarAlguna(usuarioId: ID, secreto: string): Promise<boolean> {

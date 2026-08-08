@@ -1,31 +1,37 @@
 /**
  * Semilla de usuarios del local.
  *
- * ## Lo que cambió, y por qué
+ * ## Cómo funciona
  *
- * Antes el propietario venía con una **clave de fábrica idéntica en toda
- * instalación**, escrita en claro en este archivo, y con el hash de un PIN de
- * cuatro dígitos empaquetado en el instalador. La justificación era la analogía
- * del router que sale con una clave por defecto.
+ * **En producción no hay semilla: un restaurante recién instalado no tiene ni un
+ * usuario.** El primer arranque abre el alta del responsable —nombre y el PIN que
+ * él elija— y esa es la primera cuenta del local (ver `AltaResponsable.svelte` y
+ * `sesion.crearResponsableInicial`). A partir de ahí cada apertura pide
+ * identificarse contra la lista de personal.
  *
- * La analogía no se sostiene: **un router moderno trae clave única por equipo**,
- * no una constante idéntica para todo el parque. Y el hash acompañaba al texto
- * claro en el mismo archivo, así que no protegía nada. Cualquier local que no la
- * cambiara —y se quitó el cambio obligatorio por molesto— quedaba accesible con
- * una credencial publicada en el repositorio.
+ * ## Lo que hubo antes, para no repetirlo
  *
- * ## Cómo funciona ahora
+ * 1. Una **clave de fábrica idéntica en toda instalación**, escrita en claro en
+ *    este archivo. La analogía del router que sale con clave por defecto no se
+ *    sostiene: un router moderno trae clave única por equipo, no una constante
+ *    para todo el parque.
  *
- * En producción el propietario se siembra **SIN credenciales**. El primer
- * arranque genera una contraseña y un PIN **únicos de ese restaurante**, los
- * guarda como hash, y los enseña **una sola vez**. Nada de lo que hay en este
- * repositorio sirve para entrar en ningún local.
+ * 2. Un propietario sembrado **sin credenciales** al que el primer arranque le
+ *    generaba una contraseña y un PIN únicos y los enseñaba una sola vez. Mejor
+ *    que lo anterior, pero seguía teniendo dos defectos en el restaurante real:
+ *    la cuenta se llamaba «Gonzalo DJA» en un local que no es de Gonzalo, y si
+ *    esa pantalla se cerraba sin apuntar las claves —o si la caja arrancaba
+ *    esperando al Hub y no llegaba a mostrarla— el dueño se quedaba fuera de su
+ *    propio sistema mirando un usuario cuya contraseña nadie había visto.
+ *
+ * Lo que se conserva de esa historia es el principio: **nada de lo que hay en
+ * este repositorio sirve para entrar en ningún local.** Ahora se cumple por la
+ * vía más simple, que es no traer ninguna cuenta.
  *
  * En desarrollo y en las pruebas (`MODO_DEMO`) siguen las credenciales conocidas
  * de siempre, para no tener que inventárselas en cada prueba.
  */
 import {
-  generarPinSeguro,
   permisosDePlantilla,
   type Credencial,
   type RolId,
@@ -40,9 +46,8 @@ export interface UsuarioSembrado {
   /**
    * Credencial principal: contraseña para administración, PIN para piso.
    *
-   * **Opcional a propósito.** En producción el propietario nace sin ninguna, y
-   * el primer arranque le genera las suyas. Un usuario sin credencial no puede
-   * entrar hasta que se le asigne una, que es exactamente lo que se quiere.
+   * **Opcional a propósito.** Un usuario sin credencial no puede entrar hasta
+   * que se le asigne una, que es exactamente lo que se quiere.
    */
   credencial?: Credencial;
   /** PIN adicional para el cambio rápido y para firmar autorizaciones. */
@@ -70,7 +75,7 @@ function usuario(
   };
 }
 
-/** El propietario. En producción, sin credenciales: se generan al arrancar. */
+/** El propietario de la demostración. En producción NO se siembra a nadie. */
 function propietario(): Usuario {
   return usuario("usr-gonzalo", "Gonzalo DJA", "G", "propietario", "Dirección General");
 }
@@ -161,12 +166,13 @@ function usuariosDemo(): UsuarioSembrado[] {
 /**
  * Con qué usuarios arranca una instalación.
  *
- * En producción, **solo el propietario y sin credenciales**: el primer arranque
- * le genera las suyas, únicas de ese restaurante.
+ * En producción, **con ninguno**. El restaurante da de alta a su responsable en
+ * el primer arranque y él da de alta a su personal. Sembrar aquí un propietario
+ * llamado «Gonzalo DJA» en el local de otro no aportaba nada: la cuenta había que
+ * renombrarla igual, y mientras nadie lo hacía la bitácora del restaurante
+ * atribuía sus movimientos a un nombre que ahí no significa nada.
  */
-export const USUARIOS_SEMILLA: UsuarioSembrado[] = MODO_DEMO
-  ? usuariosDemo()
-  : [{ usuario: propietario() }];
+export const USUARIOS_SEMILLA: UsuarioSembrado[] = MODO_DEMO ? usuariosDemo() : [];
 
 /**
  * Con quién arranca el POS mientras no hay login.
@@ -177,55 +183,12 @@ export const USUARIOS_SEMILLA: UsuarioSembrado[] = MODO_DEMO
  */
 export const USUARIO_POR_DEFECTO: string | null = MODO_DEMO ? "usr-lucia" : null;
 
-// --- Las credenciales que se generan en el primer arranque -----------------------------------
-
-/**
- * Alfabeto sin caracteres que se confunden al dictarlos por teléfono.
+/*
+ * AQUÍ VIVÍAN `generarContrasenaDeLocal` y `generarPinDeLocal`.
  *
- * Sin `0/O`, sin `1/I/L`, sin `U` (se oye como `V`). Esta contraseña se apunta a
- * mano en un papel el día de la instalación y se dicta en llamadas de soporte:
- * que no haya dudas al leerla vale más que dos bits de entropía.
+ * Inventaban una contraseña y un PIN para el propietario en el primer arranque y
+ * los enseñaban una sola vez. Se retiraron con el alta del responsable: ya no hay
+ * ninguna clave que el restaurante tenga que apuntar de una pantalla que solo
+ * aparece una vez, porque la elige él. Un secreto que el sistema genera y el
+ * cliente no eligió es un secreto que el cliente pierde.
  */
-const ALFABETO_CLARO = "23456789ABCDEFGHJKMNPQRSTVWXYZ";
-
-/** Toma un símbolo sin sesgo de módulo (ver `rescate.ts`, misma técnica). */
-function simboloSinSesgo(): string {
-  const tope = 256 - (256 % ALFABETO_CLARO.length);
-  const byte = new Uint8Array(1);
-  do {
-    crypto.getRandomValues(byte);
-  } while (byte[0]! >= tope);
-  return ALFABETO_CLARO[byte[0]! % ALFABETO_CLARO.length]!;
-}
-
-/**
- * La contraseña que se genera para el propietario de ESTE local.
- *
- * Doce símbolos en tres grupos de cuatro (`7KX9-MQ2P-4VN8`), ~58 bits. Los
- * guiones no son decorativos: un bloque de doce caracteres se copia mal a mano,
- * y esto se apunta en papel.
- *
- * Se comprueba contra `validarSecreto` antes de devolverla —exige letras y
- * dígitos— porque una tirada podría salir toda de letras.
- */
-export function generarContrasenaDeLocal(): string {
-  for (;;) {
-    const grupos = [0, 1, 2].map(() =>
-      [0, 1, 2, 3].map(() => simboloSinSesgo()).join(""),
-    );
-    const clave = grupos.join("-");
-    if (/[A-Z]/.test(clave) && /\d/.test(clave)) return clave;
-  }
-}
-
-/**
- * El PIN que se genera para el propietario.
- *
- * **Ocho dígitos, no cuatro.** No lo teclea nadie a diario —para eso está la
- * contraseña— y es el que firma autorizaciones: cancelar un renglón ya enviado,
- * un descuento, un retiro de caja. Que sea largo no cuesta nada aquí y sube de
- * diez mil a cien millones el espacio a probar.
- */
-export function generarPinDeLocal(): string {
-  return generarPinSeguro(8);
-}

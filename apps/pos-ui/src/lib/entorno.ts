@@ -21,6 +21,18 @@
  * nativa corre en un origen que siempre es seguro.
  */
 
+/**
+ * ¿Esta pantalla la está sirviendo el propio Hub del local? (o sea: es la caja)
+ *
+ * El Hub inyecta `__MOTREST_HUB__` en la página que sirve a su propio equipo, así
+ * que el marcador solo existe en la caja. Lo usan tres cosas que **solo** valen
+ * ahí: hablar con el puerto local de impresión, pedir la licencia con las cuentas
+ * que MOTRAE firmó, y dar de alta al responsable del restaurante.
+ */
+export function esLaCaja(): boolean {
+  return !!(globalThis as { __MOTREST_HUB__?: unknown }).__MOTREST_HUB__;
+}
+
 /** ¿El navegador expone el motor criptográfico? */
 export function contextoSeguro(): boolean {
   return (
