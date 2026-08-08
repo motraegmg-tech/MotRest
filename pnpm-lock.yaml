@@ -117,6 +117,19 @@ importers:
         specifier: ^8.4.2
         version: 8.5.0
 
+  apps/motrest-android:
+    dependencies:
+      '@capacitor/android':
+        specifier: ^8.4.2
+        version: 8.5.0(@capacitor/core@8.5.0)
+      '@capacitor/core':
+        specifier: ^8.4.2
+        version: 8.5.0
+    devDependencies:
+      '@capacitor/cli':
+        specifier: ^8.4.2
+        version: 8.5.0
+
   apps/portal:
     dependencies:
       '@motrest/dominio':

@@ -1,0 +1,17 @@
+{
+  "appId": "mx.motrae.motrest",
+  "appName": "MotRest",
+  "webDir": "www",
+  "android": {
+    "allowMixedContent": false,
+    "backgroundColor": "#14181A"
+  },
+  "server": {
+    "androidScheme": "https"
+  },
+  "plugins": {
+    "CapacitorHttp": {
+      "enabled": false
+    }
+  }
+}

@@ -57,6 +57,8 @@ apps/escritorio/src-tauri/target/
 apps/escritorio/src-tauri/gen/
 apps/kds-android/www/
 apps/kds-android/android/
+apps/motrest-android/www/
+apps/motrest-android/android/
 entregables/*.exe
 entregables/*.apk
 
