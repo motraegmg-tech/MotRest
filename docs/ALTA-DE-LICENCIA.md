@@ -29,7 +29,7 @@ De ahí salen las dos únicas reglas que importan:
 
 ### 1 · Instalar MotRest en la computadora del local
 
-`MotRest_1.0.2_x64-setup.exe`, doble clic. No pide administrador.
+`MotRest_1.0.3_x64-setup.exe`, doble clic. No pide administrador.
 
 Al primer arranque sin licencia aparece la pantalla **Servicio suspendido**. No
 borra ni altera la información: muestra el código de instalación y permite pegar
@@ -62,10 +62,14 @@ Anótalo tal cual, con guiones y todo.
 | Identificador | `suc-rodizio-centro` ← **el del paso 2** |
 | Plan | Mensual |
 | Cuota | Lo que cobres |
-| Contacto | Quien manda ahí, con su teléfono |
+| Responsable | Quien tendrá el control total del restaurante |
 
 Central propone el identificador a partir del nombre. **Si el que muestra el Hub
 es distinto, gana el del Hub** — cámbialo en el formulario.
+
+Al guardar, Central crea al responsable como **Propietario**, muestra un PIN
+inicial de ocho dígitos una sola vez y lo guarda cifrado como hash. Entrégalo por
+un medio privado: el responsable debe cambiarlo en su primer acceso.
 
 ### 4 · Emitir la licencia
 
@@ -83,14 +87,18 @@ Lo que lleva dentro:
   "gracia_dias": 3,
   "emitida_ts": 1786065228769,
   "soporte": { "sal": "…", "hash": "…", "iteraciones": 600000 },
+  "responsable": { "id": "usr-gonzalo", "nombre": "…", "credencial": { "hash": "…" } },
   "firma": "509b00ca418d00e407046bbcc82b8267…"
 }
 ```
 
 - `vence_ts` — hasta cuándo está pagada.
 - `gracia_dias` — **3**. Al cuarto día el sistema se bloquea.
-- `soporte` — el hash de **tu** contraseña. Es lo que hace que «Gonz Motrae»
-  exista en ese MotRest.
+- `soporte` — el hash de la contraseña de soporte de MOTRAE. Es lo que hace que
+  **Gonzalo DJA** pueda entrar desde «Acceso de soporte MOTRAE» sin aparecer
+  entre el personal del restaurante.
+- `responsable` — el perfil y hash del PIN inicial del responsable. Solo la
+  caja lo recibe; las tablets no reciben esa credencial.
 - `firma` — sobre todo lo anterior. Cambiar **cualquier** campo la invalida.
 
 ### 5 · Pegarla en el local
@@ -115,10 +123,10 @@ en un guion.
 # La llave privada entra por variable de entorno, NUNCA como argumento del comando:
 # los argumentos quedan en el historial y en la lista de procesos de la máquina.
 $env:MOTRAE_LLAVE_PRIVADA_LICENCIAS = "<respaldo seguro de MOTRAE; Central no la muestra>"
-$env:MOTRAE_CONTRASENA_SOPORTE = "<tu contraseña de Gonz Motrae>"
+$env:MOTRAE_CONTRASENA_SOPORTE = "<tu contraseña fuerte de soporte>"
 
 corepack pnpm@9.15.0 --filter @motrest/central licencia -- `
-  --sucursal suc-rodizio-centro --nombre "Rodizio" --meses 1
+  --sucursal suc-rodizio-centro --nombre "Rodizio" --responsable "Responsable de Rodizio" --meses 1
 ```
 
 Sale así:
@@ -129,18 +137,23 @@ Sale así:
   Plan:     mensual
   Vence:    6 de septiembre de 2026 (30 días)
   Gracia:   3 días, y después el sistema se bloquea
-  Soporte:  incluido (Gonz Motrae puede entrar)
+  Soporte:  incluido (Gonzalo DJA puede entrar)
   Archivo:  licencia.json
+  PIN inicial del responsable: ********
 ```
 
 | Opción | Qué hace |
 |---|---|
 | `--sucursal` | **Obligatorio.** El identificador del Hub |
 | `--nombre` | Cómo se lee en la licencia |
+| `--responsable` | **Obligatorio.** Nombre de quien entra como Propietario |
 | `--meses` | Cuántos pagó. `--meses 3` = tres meses |
 | `--plan` | `mensual` (por defecto), `anual` o `prueba` |
 | `--desde` | Renovar contando desde el vencimiento anterior |
 | `--salida` | Dónde escribirlo (por defecto `licencia.json`) |
+
+> Usa este comando para la **primera emisión**. Para renovar, usa MOTRAE Central:
+> así conserva el PIN que el responsable ya haya cambiado.
 
 Después se copia el archivo al equipo del local y se pega en **Licencia de
 MOTRAE** de la pantalla suspendida, o desde **Administración → Licencia** si el
@@ -181,5 +194,5 @@ Para reactivar: emitir licencia nueva y pegarla. Su información sigue intacta.
 |---|---|
 | «Esa licencia no es de este local» | El identificador no coincide. Copia el de **Administración → Hub** |
 | Sigue diciendo que no tiene licencia | El Hub no trae la pública Ed25519 correspondiente, o se pegó una licencia HMAC anterior; reemite primero y actualiza después |
-| «Gonz Motrae» no puede entrar | La licencia se emitió sin `soporte`. Reemítela con la contraseña definida |
+| «Acceso de soporte MOTRAE» no aparece o Gonzalo DJA no puede entrar | La licencia se emitió sin `soporte`. Define la contraseña de soporte en Central → Llaves y reemítela |
 | El comando dice «La licencia emitida no se verifica» | La llave privada se pegó mal o no es Ed25519. Vuelve a copiarla desde Central |

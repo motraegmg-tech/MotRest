@@ -24,49 +24,67 @@ beforeEach(async () => {
   await central.guardarConfiguracion({ repositorio: "motrae/motrest" });
 });
 
-function alta(nombre = "Rodizio", sufijo = "Centro") {
+async function alta(nombre = "Rodizio", sufijo = "Centro") {
   return central.alta({
     nombre, sufijo, contacto: "Dueño", plan: "mensual", cuota: pesos(1_500),
   });
 }
 
 describe("dar de alta un restaurante", () => {
-  it("propone un identificador legible que se pueda dictar por teléfono", () => {
-    expect(alta().cliente!.id).toBe("suc-rodizio-centro");
+  it("propone un identificador legible que se pueda dictar por teléfono", async () => {
+    expect((await alta()).cliente!.id).toBe("suc-rodizio-centro");
   });
 
-  it("no admite dos locales con el mismo identificador", () => {
-    alta();
-    const r = alta();
+  it("no admite dos locales con el mismo identificador", async () => {
+    await alta();
+    const r = await alta();
     expect(r.ok).toBe(false);
-    expect(r.error).toContain("Ya existe");
+    if (!r.ok) expect(r.error).toContain("Ya existe");
   });
 
-  it("sin nombre no se da de alta", () => {
-    expect(central.alta({ nombre: "  ", contacto: "", plan: "mensual", cuota: pesos(0) }).ok).toBe(false);
+  it("sin nombre no se da de alta", async () => {
+    expect((await central.alta({ nombre: "  ", contacto: "", plan: "mensual", cuota: pesos(0) })).ok).toBe(false);
   });
 
   /*
    * Un cliente que se fue sigue siendo historia del negocio, y volver a darlo de
    * alta el día que regrese vale más que la línea que ahorra borrarlo.
    */
-  it("dar de baja no borra: desactiva", () => {
-    const id = alta().cliente!.id;
+  it("dar de baja no borra: desactiva", async () => {
+    const id = (await alta()).cliente!.id;
     central.baja(id);
     expect(central.clientes).toHaveLength(1);
     expect(central.activos).toHaveLength(0);
   });
 
   /* Un local nuevo NO nace con licencia: primero se instala y se ve su id. */
-  it("nace sin licencia, a propósito", () => {
-    expect(alta().cliente!.licencia).toBeNull();
+  it("nace sin licencia, a propósito", async () => {
+    expect((await alta()).cliente!.licencia).toBeNull();
+  });
+
+  it("crea al responsable como propietario y solo entrega su PIN una vez", async () => {
+    const creado = await alta();
+    const cliente = creado.cliente!;
+    const pin = creado.credencialesResponsable!.pin;
+
+    expect(cliente.responsable).toMatchObject({
+      id: "usr-gonzalo",
+      nombre: "Dueño",
+      puesto: "Responsable del restaurante",
+    });
+    expect(pin).toMatch(/^\d{8}$/);
+
+    const licencia = (await central.emitir(cliente.id)).licencia!;
+    expect(licencia.responsable?.provision_id).toBe(cliente.responsable?.provision_id);
+    expect(await verificarCredencial(pin, licencia.responsable!.credencial)).toBe(true);
+    expect(central.exportar()).not.toContain(licencia.responsable!.credencial.hash);
   });
 });
 
 describe("emitir la licencia", () => {
   it("sin secreto de firma no emite nada", async () => {
     central = crearCentralParaPruebas();
-    const id = alta().cliente!.id;
+    const id = (await alta()).cliente!.id;
 
     const r = await central.emitir(id);
     expect(r.ok).toBe(false);
@@ -74,7 +92,7 @@ describe("emitir la licencia", () => {
   });
 
   it("la emitida se verifica en SU local y en ningún otro", async () => {
-    const id = alta().cliente!.id;
+    const id = (await alta()).cliente!.id;
     const r = await central.emitir(id);
 
     expect(r.ok).toBe(true);
@@ -83,7 +101,7 @@ describe("emitir la licencia", () => {
   });
 
   it("sale con los tres días de gracia", async () => {
-    const id = alta().cliente!.id;
+    const id = (await alta()).cliente!.id;
     expect((await central.emitir(id)).licencia!.gracia_dias).toBe(3);
   });
 
@@ -94,7 +112,7 @@ describe("emitir la licencia", () => {
    */
   it("lleva dentro la credencial de soporte, si está configurada", async () => {
     await central.fijarContrasenaSoporte("una-contrasena-larga-de-motrae");
-    const id = alta().cliente!.id;
+    const id = (await alta()).cliente!.id;
     const licencia = (await central.emitir(id)).licencia!;
 
     expect(licencia.soporte).toBeDefined();
@@ -114,7 +132,7 @@ describe("emitir la licencia", () => {
 
   /* Renovar cuenta desde el vencimiento anterior: pagar antes no regala días. */
   it("renovar suma sobre lo que quedaba, no sobre hoy", async () => {
-    const id = alta().cliente!.id;
+    const id = (await alta()).cliente!.id;
     const primera = (await central.emitir(id)).licencia!;
     const segunda = (await central.emitir(id)).licencia!;
 
@@ -207,7 +225,7 @@ describe("respaldar la cartera", () => {
    */
   it("el respaldo NO lleva los secretos", async () => {
     await central.fijarContrasenaSoporte("una-contrasena-larga-de-motrae");
-    alta();
+    await alta();
 
     const json = central.exportar();
     expect(json).toContain("Rodizio");
@@ -215,8 +233,8 @@ describe("respaldar la cartera", () => {
     expect(json).not.toContain(central.secretos.soporte!.hash);
   });
 
-  it("lo exportado se puede volver a importar", () => {
-    alta();
+  it("lo exportado se puede volver a importar", async () => {
+    await alta();
     const copia = central.exportar();
     central.clientes = [];
 
@@ -224,8 +242,8 @@ describe("respaldar la cartera", () => {
     expect(central.clientes).toHaveLength(1);
   });
 
-  it("un archivo que no es una cartera se rechaza sin romper nada", () => {
-    alta();
+  it("un archivo que no es una cartera se rechaza sin romper nada", async () => {
+    await alta();
     expect(central.importar("{{{").ok).toBe(false);
     expect(central.importar('{"otra":"cosa"}').ok).toBe(false);
     expect(central.clientes).toHaveLength(1);
@@ -234,8 +252,8 @@ describe("respaldar la cartera", () => {
 
 describe("los pulsos de los Hubs", () => {
   /* Un Hub que reintentó manda el pulso dos veces: se queda el último. */
-  it("solo se guarda el último de cada local", () => {
-    const id = alta().cliente!.id;
+  it("solo se guarda el último de cada local", async () => {
+    const id = (await alta()).cliente!.id;
     central.recibirPulso({ sucursal_id: id, ts: 1_000, version: "1.3.0" });
     central.recibirPulso({ sucursal_id: id, ts: 2_000, version: "1.4.0" });
 

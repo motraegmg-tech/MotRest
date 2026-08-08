@@ -11,6 +11,7 @@ import {
   compararVersiones,
   crearCredencial,
   emitirLicencia,
+  generarPinSeguro,
   firmarVersion,
   generarPar,
   idDeSucursal,
@@ -19,12 +20,17 @@ import {
   saludDeCliente,
   siguienteVencimiento,
   situacionDeCliente,
+  uuidv7,
+  PUESTO_RESPONSABLE,
+  USUARIO_RESPONSABLE_ID,
   type Centavos,
   type ClienteMotRest,
+  type Credencial,
   type CredencialSoporte,
   type Licencia,
   type ParDeLlaves,
   type Plan,
+  type PerfilResponsable,
   type PulsoCliente,
   type VersionDisponible,
 } from "@motrest/dominio";
@@ -53,8 +59,15 @@ interface SecretosProtegidos {
   publicacion?: ParDeLlaves;
   repositorio: string;
   soporte?: CredencialSoporte;
+  /** PINes de responsables, cifrados con DPAPI y nunca en la cartera. */
+  responsables?: Record<string, ResponsableProtegido>;
   /** Impide que un reloj atrasado repita un `publicado_ts`. */
   ultimo_publicado_ts?: number;
+}
+
+interface ResponsableProtegido {
+  provision_id: string;
+  credencial: Credencial;
 }
 
 interface SecretosLegados {
@@ -72,8 +85,29 @@ export interface MigracionPendiente {
 export type EstadoSecretos = "cargando" | "listo" | "desarrollo" | "migracion" | "error";
 
 type Resultado = { ok: true } | { ok: false; error: string };
-type ResultadoConLicencia = Resultado & { licencia?: Licencia };
-type ResultadoConManifiesto = Resultado & { manifiesto?: VersionDisponible };
+export interface CredencialesResponsableIniciales {
+  /** Solo se entrega al terminar el alta; nunca se persiste en claro. */
+  pin: string;
+}
+
+type ResultadoAlta =
+  | {
+      ok: true;
+      cliente: ClienteMotRest;
+      credencialesResponsable: CredencialesResponsableIniciales;
+    }
+  | {
+      ok: false;
+      error: string;
+      cliente?: undefined;
+      credencialesResponsable?: undefined;
+    };
+type ResultadoConLicencia =
+  | { ok: true; licencia: Licencia; credencialesResponsable?: CredencialesResponsableIniciales }
+  | { ok: false; error: string; licencia?: undefined; credencialesResponsable?: undefined };
+type ResultadoConManifiesto =
+  | { ok: true; manifiesto: VersionDisponible }
+  | { ok: false; error: string; manifiesto?: undefined };
 
 let secretosDeDesarrollo: string | null = null;
 
@@ -135,18 +169,65 @@ function esPar(valor: unknown): valor is ParDeLlaves {
   return typeof par.publica === "string" && typeof par.privada === "string";
 }
 
+function esCredencialDeResponsable(valor: unknown): valor is Credencial {
+  if (!valor || typeof valor !== "object") return false;
+  const credencial = valor as Record<string, unknown>;
+  return (
+    credencial.tipo === "pin" &&
+    credencial.algoritmo === "PBKDF2-SHA256" &&
+    typeof credencial.empleado_id === "string" &&
+    credencial.empleado_id === USUARIO_RESPONSABLE_ID &&
+    typeof credencial.iteraciones === "number" &&
+    Number.isInteger(credencial.iteraciones) &&
+    credencial.iteraciones > 0 &&
+    typeof credencial.sal === "string" &&
+    credencial.sal.length > 0 &&
+    typeof credencial.hash === "string" &&
+    credencial.hash.length > 0 &&
+    typeof credencial.creada_ts === "number" &&
+    Number.isFinite(credencial.creada_ts)
+  );
+}
+
+function esResponsablesProtegidos(valor: unknown): valor is Record<string, ResponsableProtegido> {
+  if (!valor || typeof valor !== "object" || Array.isArray(valor)) return false;
+  return Object.values(valor as Record<string, unknown>).every((responsable) => {
+    if (!responsable || typeof responsable !== "object") return false;
+    const dato = responsable as Record<string, unknown>;
+    return (
+      typeof dato.provision_id === "string" &&
+      dato.provision_id.length > 0 &&
+      esCredencialDeResponsable(dato.credencial)
+    );
+  });
+}
+
 function decodificarSecretos(texto: string): SecretosProtegidos | null {
   try {
     const valor = JSON.parse(texto) as Partial<SecretosProtegidos>;
     if (!valor || valor.formato !== 2 || typeof valor.repositorio !== "string") return null;
     if ((valor.licencias !== undefined && !esPar(valor.licencias)) ||
-      (valor.publicacion !== undefined && !esPar(valor.publicacion))) {
+      (valor.publicacion !== undefined && !esPar(valor.publicacion)) ||
+      (valor.responsables !== undefined && !esResponsablesProtegidos(valor.responsables))) {
       return null;
     }
     return valor as SecretosProtegidos;
   } catch {
     return null;
   }
+}
+
+/** La cartera se puede respaldar: los hashes de acceso se quedan en DPAPI. */
+function licenciaParaCartera(licencia: Licencia): Licencia {
+  const { soporte: _soporte, responsable: _responsable, ...publica } = licencia;
+  return publica;
+}
+
+function carteraSinCredenciales(clientes: readonly ClienteMotRest[]): ClienteMotRest[] {
+  return clientes.map((cliente) => ({
+    ...cliente,
+    ...(cliente.licencia ? { licencia: licenciaParaCartera(cliente.licencia) } : {}),
+  }));
 }
 
 async function cargarProtegidos(): Promise<string | null> {
@@ -183,7 +264,9 @@ function esUrlGitHubSegura(texto: string): boolean {
 }
 
 export class StoreCentral {
-  clientes = $state<ClienteMotRest[]>(leer(LLAVE_CARTERA, [] as ClienteMotRest[]));
+  clientes = $state<ClienteMotRest[]>(
+    carteraSinCredenciales(leer(LLAVE_CARTERA, [] as ClienteMotRest[])),
+  );
   pulsos = $state<PulsoCliente[]>(leer(LLAVE_PULSOS, [] as PulsoCliente[]));
   /** Solo públicas, repo y hash de soporte: nunca una privada. */
   secretos = $state<Secretos>(vistaDe(vacio()));
@@ -303,7 +386,7 @@ export class StoreCentral {
 
   // --- Altas y bajas --------------------------------------------------------------------
 
-  alta(datos: {
+  async alta(datos: {
     nombre: string;
     sufijo?: string;
     contacto: string;
@@ -312,18 +395,26 @@ export class StoreCentral {
     plan: Plan;
     cuota: Centavos;
     id?: string;
-  }): { ok: boolean; error?: string; cliente?: ClienteMotRest } {
+  }): Promise<ResultadoAlta> {
     const id = datos.id?.trim() || idDeSucursal(datos.nombre, datos.sufijo);
+    const responsable = datos.contacto.trim();
 
     if (!datos.nombre.trim()) return { ok: false, error: "Falta el nombre del restaurante" };
+    if (responsable.length < 2) {
+      return { ok: false, error: "Falta el nombre del responsable del restaurante" };
+    }
     if (this.clientes.some((c) => c.id === id)) {
       return { ok: false, error: `Ya existe un local con el identificador ${id}` };
     }
 
+    const preparado = await this.prepararResponsable(id, responsable);
+    if (!preparado.ok) return preparado;
+
     const cliente: ClienteMotRest = {
       id,
       nombre: datos.nombre.trim(),
-      contacto: datos.contacto.trim(),
+      contacto: responsable,
+      responsable: preparado.responsable,
       telefono: datos.telefono?.trim() || undefined,
       correo: datos.correo?.trim() || undefined,
       plan: datos.plan,
@@ -335,7 +426,11 @@ export class StoreCentral {
 
     this.clientes = [...this.clientes, cliente];
     this.guardarCartera();
-    return { ok: true, cliente };
+    return {
+      ok: true,
+      cliente,
+      credencialesResponsable: preparado.credencialesResponsable,
+    };
   }
 
   actualizar(id: string, cambios: Partial<ClienteMotRest>): void {
@@ -345,6 +440,51 @@ export class StoreCentral {
 
   baja(id: string): void {
     this.actualizar(id, { activo: false });
+  }
+
+  /**
+   * Crea o restablece el PIN de un responsable. La parte persistida se queda
+   * en el almacén DPAPI de Central; el PIN en claro solo vive hasta que la UI lo
+   * muestra una vez a quien lo va a entregar.
+   */
+  private async prepararResponsable(
+    sucursalId: string,
+    nombre: string,
+  ): Promise<
+    | {
+        ok: true;
+        responsable: PerfilResponsable;
+        credencialesResponsable: CredencialesResponsableIniciales;
+      }
+    | { ok: false; error: string }
+  > {
+    const limpio = nombre.trim();
+    if (limpio.length < 2) {
+      return { ok: false, error: "Falta el nombre del responsable del restaurante" };
+    }
+
+    const pin = generarPinSeguro(8);
+    const credencial = await crearCredencial(USUARIO_RESPONSABLE_ID, pin, "pin");
+    const provision_id = uuidv7();
+    const guardado = await this.reemplazarProtegidos({
+      ...this.protegidos,
+      responsables: {
+        ...this.protegidos.responsables,
+        [sucursalId]: { provision_id, credencial },
+      },
+    });
+    if (!guardado.ok) return guardado;
+
+    return {
+      ok: true,
+      responsable: {
+        id: USUARIO_RESPONSABLE_ID,
+        nombre: limpio,
+        puesto: PUESTO_RESPONSABLE,
+        provision_id,
+      },
+      credencialesResponsable: { pin },
+    };
   }
 
   // --- Licencias y publicaciones --------------------------------------------------------
@@ -358,8 +498,31 @@ export class StoreCentral {
       return { ok: false, error: "Falta la llave privada Ed25519 de licencias (ver Llaves)" };
     }
 
-    const cliente = this.clientes.find((c) => c.id === id);
+    let cliente = this.clientes.find((c) => c.id === id);
     if (!cliente) return { ok: false, error: "No existe ese local" };
+
+    let responsable = cliente.responsable;
+    let protegido = this.protegidos.responsables?.[id];
+    let credencialesResponsable: CredencialesResponsableIniciales | undefined;
+
+    /*
+     * Los locales dados de alta antes de esta versión no traen responsable.
+     * Al reemitir su primera licencia se prepara usando el contacto ya capturado
+     * y se devuelve el PIN una sola vez, para que Rodizio y los demás migren sin
+     * borrar su historial ni registrar un restaurante duplicado.
+     */
+    if (!responsable || !protegido || protegido.provision_id !== responsable.provision_id) {
+      const preparado = await this.prepararResponsable(id, responsable?.nombre || cliente.contacto);
+      if (!preparado.ok) return preparado;
+      responsable = preparado.responsable;
+      protegido = this.protegidos.responsables?.[id];
+      credencialesResponsable = preparado.credencialesResponsable;
+      cliente = { ...cliente, responsable };
+      this.actualizar(id, { responsable });
+    }
+    if (!protegido) {
+      return { ok: false, error: "No se pudo preparar el acceso del responsable" };
+    }
 
     const vence_ts = siguienteVencimiento(
       cliente.licencia?.vence_ts ?? null,
@@ -376,13 +539,14 @@ export class StoreCentral {
         gracia_dias: 3,
         emitida_ts: Date.now(),
         ...(this.protegidos.soporte ? { soporte: this.protegidos.soporte } : {}),
+        responsable: { ...responsable, credencial: protegido.credencial },
         ...(opciones.bloqueo_inmediato ? { bloqueo_inmediato: true } : {}),
       },
       privada,
     );
 
-    this.actualizar(id, { licencia });
-    return { ok: true, licencia };
+    this.actualizar(id, { licencia: licenciaParaCartera(licencia) });
+    return { ok: true, licencia, ...(credencialesResponsable ? { credencialesResponsable } : {}) };
   }
 
   async firmarActualizacion(
@@ -577,12 +741,12 @@ export class StoreCentral {
   }
 
   private guardarCartera(): void {
-    escribir(LLAVE_CARTERA, this.clientes);
+    escribir(LLAVE_CARTERA, carteraSinCredenciales(this.clientes));
   }
 
   /** La cartera se puede circular; por diseño no contiene material criptográfico. */
   exportar(): string {
-    return JSON.stringify({ clientes: this.clientes, pulsos: this.pulsos }, null, 2);
+    return JSON.stringify({ clientes: carteraSinCredenciales(this.clientes), pulsos: this.pulsos }, null, 2);
   }
 
   importar(json: string): Resultado {
@@ -590,7 +754,7 @@ export class StoreCentral {
       const datos = JSON.parse(json) as { clientes?: ClienteMotRest[]; pulsos?: PulsoCliente[] };
       if (!Array.isArray(datos.clientes)) return { ok: false, error: "El archivo no trae clientes" };
 
-      this.clientes = datos.clientes;
+      this.clientes = carteraSinCredenciales(datos.clientes);
       this.pulsos = datos.pulsos ?? [];
       this.guardarCartera();
       escribir(LLAVE_PULSOS, this.pulsos);

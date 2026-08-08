@@ -50,27 +50,25 @@ combinación de:
 El PIN es apropiado para lo que es: **autorizar acciones de piso ante un
 testigo**, no para proteger secretos.
 
-## Credenciales sembradas
+## Credenciales iniciales
 
-El usuario propietario **Gonzalo DJA** se siembra con una **clave de fábrica**,
-no con una contraseña personal. `CONTRASENA_INICIAL_PROPIETARIO` es un valor por
-defecto conocido —el mismo para toda instalación nueva—, y en el repositorio
-vive únicamente su par sal + hash. Es la misma lógica de un router que sale con
-una clave por defecto: sirve para el primer arranque y se cambia enseguida.
+En producción el propietario se siembra **sin credenciales**. Si no hay una
+licencia de Central, el primer arranque genera una contraseña y un PIN únicos
+del local, conserva solamente sus hashes y los muestra una sola vez.
 
-**Ninguna contraseña personal se escribe jamás en un archivo**, ni en el código
-ni en las pruebas. Las pruebas que necesitan entrar como propietario usan la
-constante de fábrica, nunca un literal. Esta regla es la que revisa la
-auditoría de seguridad; romperla es un hallazgo.
+Cuando MOTRAE Central da de alta un restaurante, crea además el perfil del
+**responsable** como `propietario` y un PIN inicial aleatorio de ocho dígitos.
+Central guarda solo el hash dentro de DPAPI; la licencia firmada lo entrega
+solamente a la caja, nunca a las tablets. MotRest exige que el responsable lo
+cambie en su primer acceso.
 
-Cambiar la clave de fábrica se hace desde **«Cambiar mi contraseña»** en el menú
-de usuario. No se fuerza en el primer inicio —ese aviso, al cerrarse sin leer,
-reaparecía en cada arranque y no protegía nada (ver más abajo)—, pero es lo
-primero que debería hacer quien instala el local.
+El acceso técnico **Gonzalo DJA** es una cuenta distinta, oculta de las listas
+de personal y superior al propietario. Su contraseña fuerte se configura en
+Central → Llaves y nunca se incrusta como un PIN común en código, instaladores o
+licencias de otras sucursales.
 
-**Los PIN de los usuarios de demostración (Marco y Lucía) también son de
-fábrica** y su hash está en el código. Deben eliminarse antes de cualquier
-instalación real; hoy existen solo para poder probar el flujo de autorización.
+**Los usuarios de demostración (Marco y Lucía) existen solo en modo demo.** Sus
+credenciales conocidas no se incluyen en un instalador de producción.
 
 ## Restablecer una credencial olvidada
 

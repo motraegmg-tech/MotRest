@@ -13,15 +13,19 @@
  *
  *   $env:MOTRAE_LLAVE_PRIVADA_LICENCIAS = "..."      # PowerShell
  *   corepack pnpm@9.15.0 --filter @motrest/central licencia -- \
- *     --sucursal suc-rodizio-centro --nombre "Rodizio" --meses 1
+ *     --sucursal suc-rodizio-centro --nombre "Rodizio" --responsable "Responsable" --meses 1
  */
 import { writeFileSync } from "node:fs";
 import {
   crearCredencial,
   emitirLicencia,
+  generarPinSeguro,
+  PUESTO_RESPONSABLE,
   publicaDe,
   siguienteVencimiento,
   situacionDe,
+  USUARIO_RESPONSABLE_ID,
+  uuidv7,
   verificarLicencia,
   type Licencia,
   type Plan,
@@ -30,6 +34,7 @@ import {
 interface Opciones {
   sucursal: string;
   nombre: string;
+  responsable: string;
   plan: Plan;
   meses: number;
   salida: string;
@@ -47,6 +52,11 @@ function leerArgumentos(argv: string[]): Opciones | string {
   const sucursal = dado.get("sucursal")?.trim();
   if (!sucursal) return "Falta --sucursal (el identificador que muestra el Hub del local)";
 
+  const responsable = dado.get("responsable")?.trim();
+  if (!responsable || responsable.length < 2) {
+    return "Falta --responsable (la persona que tendrá el control total del restaurante)";
+  }
+
   const plan = (dado.get("plan") ?? "mensual") as Plan;
   if (!["prueba", "mensual", "anual"].includes(plan)) {
     return `Plan desconocido: ${plan}. Usa prueba, mensual o anual.`;
@@ -58,6 +68,7 @@ function leerArgumentos(argv: string[]): Opciones | string {
   return {
     sucursal,
     nombre: dado.get("nombre")?.trim() || sucursal,
+    responsable,
     plan,
     meses,
     salida: dado.get("salida")?.trim() || "licencia.json",
@@ -83,7 +94,7 @@ async function principal(): Promise<void> {
 
   const opciones = leerArgumentos(process.argv.slice(2));
   if (typeof opciones === "string") {
-    console.error(`${opciones}\n\nEjemplo:\n  --sucursal suc-rodizio-centro --nombre "Rodizio" --meses 1\n`);
+    console.error(`${opciones}\n\nEjemplo:\n  --sucursal suc-rodizio-centro --nombre "Rodizio" --responsable "Responsable" --meses 1\n`);
     process.exit(1);
   }
 
@@ -101,6 +112,18 @@ async function principal(): Promise<void> {
       })()
     : undefined;
 
+  /*
+   * Este comando es para la primera emisión desde la terminal. Central guarda
+   * el hash protegido por DPAPI y conserva el PIN al renovar; aquí se genera
+   * una sola vez y se muestra para entregarlo por un canal privado.
+   */
+  const pinResponsable = generarPinSeguro(8);
+  const credencialResponsable = await crearCredencial(
+    USUARIO_RESPONSABLE_ID,
+    pinResponsable,
+    "pin",
+  );
+
   // Se calcula mes a mes con `siguienteVencimiento` para respetar los meses de
   // distinta duración: sumar 30 días desperdicia días en enero y regala en febrero.
   let vence = opciones.desde ?? null;
@@ -117,6 +140,13 @@ async function principal(): Promise<void> {
       gracia_dias: 3,
       emitida_ts: Date.now(),
       ...(soporte ? { soporte } : {}),
+      responsable: {
+        id: USUARIO_RESPONSABLE_ID,
+        nombre: opciones.responsable,
+        puesto: PUESTO_RESPONSABLE,
+        provision_id: uuidv7(),
+        credencial: credencialResponsable,
+      },
     },
     llavePrivada,
   );
@@ -139,10 +169,13 @@ async function principal(): Promise<void> {
   console.log(`\n  Licencia emitida para ${opciones.nombre}`);
   console.log(`  Local:    ${opciones.sucursal}`);
   console.log(`  Plan:     ${opciones.plan}`);
+  console.log(`  Responsable: ${opciones.responsable} (Propietario)`);
   console.log(`  Vence:    ${new Date(licencia.vence_ts).toLocaleDateString("es-MX", { dateStyle: "long" })} (${situacion.dias} días)`);
   console.log(`  Gracia:   ${licencia.gracia_dias} días, y después el sistema se bloquea`);
-  console.log(`  Soporte:  ${soporte ? "incluido (Gonz Motrae puede entrar)" : "SIN ACCESO — define MOTRAE_CONTRASENA_SOPORTE"}`);
+  console.log(`  Soporte:  ${soporte ? "incluido (Gonzalo DJA puede entrar)" : "SIN ACCESO — define MOTRAE_CONTRASENA_SOPORTE"}`);
   console.log(`  Archivo:  ${opciones.salida}\n`);
+  console.log(`  PIN inicial del responsable: ${pinResponsable}`);
+  console.log("  Entrégalo por un medio privado: debe cambiarlo al entrar por primera vez.\n");
 
   if (!soporte) {
     console.warn(

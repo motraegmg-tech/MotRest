@@ -123,13 +123,13 @@ describe("nadie del restaurante puede quitarlo ni fabricarse uno", () => {
 
 describe("lo que hace queda a la vista", () => {
   /*
-   * Se llama "Gonz Motrae" en la bitácora, con nombre y apellido. Ocultarlo de
+   * Se llama "Gonzalo DJA" en la bitácora, con nombre y apellido. Ocultarlo de
    * las LISTAS es una cosa; ocultarlo de la auditoría sería otra muy distinta, y
    * es la que convertiría esto en una puerta trasera.
    */
   it("tiene nombre propio para la bitácora", () => {
     expect(usuarioSoporte(SUC).nombre).toBe(NOMBRE_SOPORTE);
-    expect(NOMBRE_SOPORTE).toBe("Gonz Motrae");
+    expect(NOMBRE_SOPORTE).toBe("Gonzalo DJA");
   });
 
   it("se reconoce a sí mismo", () => {

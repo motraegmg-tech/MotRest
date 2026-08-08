@@ -1,6 +1,6 @@
 [package]
 name = "motrest"
-version = "1.0.2"
+version = "1.0.3"
 description = "MotRest — la caja del local"
 authors = ["MOTRAE"]
 edition = "2021"

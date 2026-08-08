@@ -3,7 +3,7 @@
    * Pantalla de acceso. Los perfiles administrativos entran con contraseña;
    * el personal de piso con PIN.
    */
-  import { MAX_INTENTOS, type Usuario } from "@motrest/dominio";
+  import { MAX_INTENTOS, USUARIO_SOPORTE_ID, type Usuario } from "@motrest/dominio";
   import { contextoSeguro, explicacionContextoInseguro } from "../entorno";
   import { sesion } from "./sesion.svelte";
   import TecladoPin from "./TecladoPin.svelte";
@@ -21,6 +21,8 @@
   const esContrasena = $derived(elegido ? sesion.tipoCredencialDe(elegido.id) === "contrasena" : false);
   const bloqueado = $derived(elegido ? sesion.estaBloqueado(elegido.id) : false);
   const restantes = $derived(elegido ? sesion.intentosRestantes(elegido.id) : 0);
+  /** No es personal del local; solo ofrece el punto de entrada del soporte licenciado. */
+  const soporteDisponible = $derived(sesion.usuarioDe(USUARIO_SOPORTE_ID));
 
   /*
    * No se ofrece un botón que no lleva a ningún lado.
@@ -189,6 +191,11 @@
         </button>
       {/each}
     </div>
+    {#if soporteDisponible}
+      <button class="acceso-soporte" onclick={() => elegir(soporteDisponible)}>
+        Acceso de soporte MOTRAE
+      </button>
+    {/if}
     <button class="volver" onclick={onCerrar}>Cancelar</button>
   {:else}
     <h2>Hola, {elegido.nombre}</h2>
@@ -563,6 +570,12 @@
     margin-top: 0.5rem;
     font-size: 0.85rem;
     color: #b9c2bc;
+    text-decoration: underline;
+  }
+  .acceso-soporte {
+    margin-top: 0.25rem;
+    font-size: 0.76rem;
+    color: #8a969c;
     text-decoration: underline;
   }
 

@@ -86,6 +86,10 @@ El procedimiento completo, paso a paso y con ejemplo, está en
 3. Pegar el `licencia.json` en **Licencia de MOTRAE** de la pantalla suspendida,
    o en **Administración → Licencia** si el local ya está abierto.
 
+Al dar de alta el local, Central muestra una sola vez el PIN inicial del
+**Responsable**. Entrégalo por un medio privado; entra como **Propietario** y
+MotRest le exigirá cambiarlo en su primera sesión.
+
 > **El identificador tiene que coincidir exactamente.** Es el error más
 > frustrante del alta porque no se descubre hasta que uno ya está en el
 > restaurante con el archivo pegado y no pasa nada. Una licencia de otro local
@@ -213,12 +217,14 @@ momento.
 
 ## Parte C bis — El acceso de soporte
 
-Cada instalación lleva el usuario **Gonz Motrae**, que no aparece en la lista de
+Cada instalación con licencia de soporte lleva el usuario **Gonzalo DJA**, que no aparece en la lista de
 personal del restaurante y sirve para que MOTRAE entre a resolver un problema sin
 pedirle a nadie su contraseña. Es el único que puede entrar a un local bloqueado.
 
 Su contraseña la fija Gonzalo en **Central → Llaves** y viaja **dentro de la
-licencia firmada**. Consecuencias prácticas:
+licencia firmada**; nunca se incrusta un PIN común en el instalador. Se entra
+desde **Acceso de soporte MOTRAE**, separado de la lista de empleados.
+Consecuencias prácticas:
 
 - Un local sin licencia **no tiene acceso de soporte**.
 - Cambiar la contraseña exige **reemitir las licencias** de los locales.

@@ -18,6 +18,21 @@ import { GestorLicencia } from "../licencia.js";
 
 const SUC = "suc-rodizio-centro";
 const SOPORTE = { sal: "c2Fs", hash: "aGFzaA==", iteraciones: 600_000 };
+const RESPONSABLE = {
+  id: "usr-gonzalo",
+  nombre: "Responsable Rodizio",
+  puesto: "Responsable del restaurante",
+  provision_id: "018f8fe4-6740-7d0d-98b5-a4a3e0000001",
+  credencial: {
+    empleado_id: "usr-gonzalo",
+    tipo: "pin" as const,
+    algoritmo: "PBKDF2-SHA256" as const,
+    iteraciones: 310_000,
+    sal: "c2Fs",
+    hash: "aGFzaA==",
+    creada_ts: 1,
+  },
+};
 
 let carpeta: string;
 let ruta: string;
@@ -154,21 +169,23 @@ describe("lo que se le manda a cada terminal", () => {
    * viajar a la tablet de un mesero: no le sirve de nada ahí, y sí es material
    * para intentar adivinarla con calma.
    */
-  it("a una tablet del salón va SIN la credencial de soporte", async () => {
+  it("a una tablet del salón van SIN las credenciales de soporte ni responsable", async () => {
     const { g } = gestor();
-    await g.instalar(await licencia(30));
+    await g.instalar(await licencia(30, { responsable: RESPONSABLE }));
 
     const paraTablet = g.paraTerminales(false);
     expect(paraTablet.licencia?.soporte).toBeUndefined();
+    expect(paraTablet.licencia?.responsable).toBeUndefined();
     expect(paraTablet.verificada).toBe(true);
   });
 
   /* A la caja sí: es la máquina donde MOTRAE se conecta a resolver. */
-  it("a la caja sí, que es donde hace falta", async () => {
+  it("a la caja sí, que es donde hacen falta", async () => {
     const { g } = gestor();
-    await g.instalar(await licencia(30));
+    await g.instalar(await licencia(30, { responsable: RESPONSABLE }));
 
     expect(g.paraTerminales(true).licencia?.soporte).toEqual(SOPORTE);
+    expect(g.paraTerminales(true).licencia?.responsable).toEqual(RESPONSABLE);
   });
 
   it("sin licencia verificada no hay credencial de soporte", async () => {

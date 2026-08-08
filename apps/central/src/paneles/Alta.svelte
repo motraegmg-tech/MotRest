@@ -10,12 +10,17 @@
    * Ese es el error más frustrante del alta, porque no se descubre hasta que uno
    * ya está en el restaurante con el archivo pegado y no pasa nada.
    */
-  import { central } from "../lib/central.svelte";
+  import { central, type CredencialesResponsableIniciales } from "../lib/central.svelte";
   import { pesos, type Plan } from "@motrest/dominio";
   import { idDeSucursal } from "@motrest/dominio";
 
-  const { onCerrar, onCreado }: { onCerrar: () => void; onCreado: (id: string) => void } =
-    $props();
+  const {
+    onCerrar,
+    onCreado,
+  }: {
+    onCerrar: () => void;
+    onCreado: (id: string, credenciales: CredencialesResponsableIniciales) => void;
+  } = $props();
 
   let nombre = $state("");
   let sufijo = $state("");
@@ -26,29 +31,36 @@
   let cuota = $state(1500);
   let idManual = $state("");
   let error = $state("");
+  let guardando = $state(false);
 
   const idPropuesto = $derived(idManual.trim() || idDeSucursal(nombre, sufijo));
 
-  function guardar(evento: Event) {
+  async function guardar(evento: Event) {
     evento.preventDefault();
+    if (guardando) return;
+    guardando = true;
     error = "";
 
-    const r = central.alta({
-      nombre,
-      sufijo,
-      contacto,
-      telefono,
-      correo,
-      plan,
-      cuota: pesos(cuota),
-      id: idManual.trim() || undefined,
-    });
+    try {
+      const r = await central.alta({
+        nombre,
+        sufijo,
+        contacto,
+        telefono,
+        correo,
+        plan,
+        cuota: pesos(cuota),
+        id: idManual.trim() || undefined,
+      });
 
-    if (!r.ok) {
-      error = r.error ?? "No se pudo dar de alta";
-      return;
+      if (!r.ok) {
+        error = r.error;
+        return;
+      }
+      onCreado(r.cliente.id, r.credencialesResponsable);
+    } finally {
+      guardando = false;
     }
-    onCreado(r.cliente!.id);
   }
 </script>
 
@@ -103,8 +115,9 @@
     </div>
 
     <label>
-      Contacto
-      <input bind:value={contacto} placeholder="Nombre de la persona de contacto" />
+      Responsable del restaurante
+      <input bind:value={contacto} placeholder="Nombre de quien tendrá el control total" required />
+      <small>Se crea como <b>Propietario</b>: es el rango más alto del restaurante.</small>
     </label>
 
     <div class="dos">
@@ -128,8 +141,10 @@
     </p>
 
     <div class="botones">
-      <button type="button" class="cancelar" onclick={onCerrar}>Cancelar</button>
-      <button type="submit" class="primario">Dar de alta</button>
+      <button type="button" class="cancelar" onclick={onCerrar} disabled={guardando}>Cancelar</button>
+      <button type="submit" class="primario" disabled={guardando}>
+        {guardando ? "Creando acceso…" : "Dar de alta"}
+      </button>
     </div>
   </form>
 </div>

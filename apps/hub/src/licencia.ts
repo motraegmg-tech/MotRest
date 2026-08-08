@@ -138,7 +138,8 @@ export class GestorLicencia {
   /**
    * Lo que se le manda a una terminal.
    *
-   * LA CREDENCIAL DE SOPORTE SOLO VA A LA CAJA, nunca a las tablets del salón.
+   * LAS CREDENCIALES DE SOPORTE Y DEL RESPONSABLE SOLO VAN A LA CAJA, nunca a
+   * las tablets del salón.
    *
    * No es desconfianza del personal: es que ese hash no le sirve de nada a una
    * tablet y sí es material para intentar adivinar con calma la contraseña que
@@ -153,7 +154,7 @@ export class GestorLicencia {
     if (!this.licencia) return { licencia: null, verificada: this.verificada };
     if (esLocal) return { licencia: this.licencia, verificada: this.verificada };
 
-    const { soporte: _soporte, ...resto } = this.licencia;
+    const { soporte: _soporte, responsable: _responsable, ...resto } = this.licencia;
     return { licencia: resto as Licencia, verificada: this.verificada };
   }
 

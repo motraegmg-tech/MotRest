@@ -89,7 +89,7 @@ describe("lo que llega al restaurante", () => {
    *
    *   grep -a "MotRest.Inicio" apps/pos-ui/dist/assets/*.js
    *
-   * Se deja anotado porque es exactamente la trampa que dejó a «Gonz Motrae»
+   * Se deja anotado porque es exactamente la trampa que dejó a «Gonzalo DJA»
    * sin existir en producción con doce pruebas verdes: el empaquetador elimina
    * lo que nadie llama, y ninguna prueba de este archivo lo detectaría.
    */

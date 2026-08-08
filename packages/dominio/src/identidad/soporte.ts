@@ -1,7 +1,8 @@
 /**
  * El acceso de soporte de MOTRAE dentro de cada MotRest.
  *
- * QUÉ ES. Un usuario —"Gonz Motrae"— que existe en todas las instalaciones, no
+ * QUÉ ES. Un usuario —"Gonzalo DJA"— que existe en cada instalación con
+ * licencia de soporte, no
  * aparece en la lista de personal del restaurante y sirve para que MOTRAE entre
  * a resolver un problema sin pedirle a nadie su contraseña. Es lo mismo que
  * tiene cualquier proveedor serio de software administrado: sin él, "no me
@@ -40,7 +41,7 @@ import { permisosDePlantilla, type Usuario } from "./roles.js";
 export const USUARIO_SOPORTE_ID = "usr-motrae-soporte";
 
 /** Como lo verá la bitácora del restaurante cuando MOTRAE entre. */
-export const NOMBRE_SOPORTE = "Gonz Motrae";
+export const NOMBRE_SOPORTE = "Gonzalo DJA";
 
 /**
  * Construye el usuario de soporte para este local.
@@ -54,7 +55,7 @@ export function usuarioSoporte(sucursal_id: ID): Usuario {
   return {
     id: USUARIO_SOPORTE_ID,
     nombre: NOMBRE_SOPORTE,
-    iniciales: "GM",
+    iniciales: "GD",
     rol_id: "soporte",
     puesto: "Soporte MOTRAE",
     sucursal_id,

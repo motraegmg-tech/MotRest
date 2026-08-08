@@ -185,3 +185,30 @@ export function validarSecreto(secreto: string, tipo: TipoCredencial): string | 
   }
   return null;
 }
+
+/**
+ * Genera un PIN de administración que no depende de una semilla ni de una
+ * constante del instalador.
+ *
+ * Se usa al dar de alta al responsable desde Central. Ocho dígitos dejan un
+ * espacio de cien millones de combinaciones y, con el límite de intentos del
+ * Hub, son apropiados para una cuenta que no se teclea a cada rato.
+ */
+export function generarPinSeguro(longitud = 8): string {
+  if (!Number.isInteger(longitud) || longitud < 4 || longitud > 8) {
+    throw new Error("La longitud del PIN debe estar entre 4 y 8 dígitos");
+  }
+
+  /* 250 es el múltiplo mayor de diez que cabe en un byte: evita sesgo de módulo. */
+  const tope = 250;
+  for (;;) {
+    let pin = "";
+    while (pin.length < longitud) {
+      const byte = new Uint8Array(1);
+      crypto.getRandomValues(byte);
+      if (byte[0]! >= tope) continue;
+      pin += String(byte[0]! % 10);
+    }
+    if (validarSecreto(pin, "pin") === null && pin !== "12345678") return pin;
+  }
+}

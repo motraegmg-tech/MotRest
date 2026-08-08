@@ -83,4 +83,6 @@ export const CLAVES = {
   versionSemilla: "version_semilla",
   /** Hash del código de rescate del propietario. Nunca el código en claro. */
   rescate: "rescate",
+  /** Provisión firmada que ya entregó el PIN inicial al responsable local. */
+  provisionesResponsable: "provisiones_responsable",
 } as const;

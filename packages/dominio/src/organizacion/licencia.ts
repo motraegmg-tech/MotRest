@@ -28,6 +28,7 @@
  */
 import { contenidoFirmableDe, firmar, verificar } from "../comun/firma.js";
 import type { ID } from "../comun/ids.js";
+import type { Credencial } from "../identidad/credenciales.js";
 
 export type Plan = "prueba" | "mensual" | "anual";
 
@@ -42,6 +43,26 @@ export interface CredencialSoporte {
   sal: string;
   hash: string;
   iteraciones: number;
+}
+
+/** Datos públicos del responsable que Central deja preparados para un local. */
+export interface PerfilResponsable {
+  /** Id estable para que una reinstalación no duplique al responsable. */
+  id: ID;
+  nombre: string;
+  puesto: string;
+  /** Cambia únicamente cuando Central restablece su acceso inicial. */
+  provision_id: ID;
+}
+
+/**
+ * Perfil inicial del responsable, incluido dentro de la licencia firmada.
+ *
+ * La credencial es un hash y solo llega a la caja por `/licencia`; nunca se
+ * publica en el catálogo que reciben las tablets del salón.
+ */
+export interface ResponsableLicenciado extends PerfilResponsable {
+  credencial: Credencial;
 }
 
 /**
@@ -64,6 +85,8 @@ export interface Licencia {
   emitida_ts: number;
   /** Credencial de soporte de MOTRAE para este local. */
   soporte?: CredencialSoporte;
+  /** Responsable creado por MOTRAE Central al dar de alta el restaurante. */
+  responsable?: ResponsableLicenciado;
   /**
    * true = el bloqueo cae en cuanto vence la gracia, aunque haya turno abierto.
    *

@@ -6,7 +6,7 @@
    * versión tiene, y sacar el archivo que se pega en el local. Por eso el botón
    * de renovar está arriba y no escondido al final — es lo que se viene a hacer.
    */
-  import { central } from "../lib/central.svelte";
+  import { central, type CredencialesResponsableIniciales } from "../lib/central.svelte";
   import { desde, dinero, fecha, plazo } from "../lib/formato";
   import Alta from "./Alta.svelte";
 
@@ -17,6 +17,7 @@
   let dandoAlta = $state(false);
   let aviso = $state("");
   let licenciaGenerada = $state("");
+  let accesoResponsable = $state<{ nombre: string; pin: string } | null>(null);
 
   const cliente = $derived(central.clientes.find((c) => c.id === seleccionado) ?? null);
   const situacion = $derived(cliente ? central.situacionDe(cliente) : null);
@@ -40,6 +41,12 @@
       return;
     }
     licenciaGenerada = JSON.stringify(r.licencia, null, 2);
+    if (r.credencialesResponsable) {
+      accesoResponsable = {
+        nombre: cliente.responsable?.nombre || cliente.contacto,
+        pin: r.credencialesResponsable.pin,
+      };
+    }
     aviso = `Licencia emitida. Vence el ${fecha(r.licencia!.vence_ts)}.`;
   }
 
@@ -47,9 +54,22 @@
     void navigator.clipboard?.writeText(licenciaGenerada);
     aviso = "Copiada. Péguela en el local: Administración → Licencia.";
   }
+
+  function copiarPinResponsable() {
+    if (!accesoResponsable) return;
+    void navigator.clipboard?.writeText(accesoResponsable.pin);
+  }
+
+  function mostrarAccesoResponsable(id: string, credenciales: CredencialesResponsableIniciales) {
+    const nuevo = central.clientes.find((c) => c.id === id);
+    accesoResponsable = {
+      nombre: nuevo?.responsable?.nombre || nuevo?.contacto || "Responsable",
+      pin: credenciales.pin,
+    };
+  }
 </script>
 
-<section>
+<main class="contenido">
   <aside class="lista">
     <div class="cabeza">
       <h1>Restaurantes</h1>
@@ -135,8 +155,8 @@
           <em>{cliente.plan === "anual" ? "al año" : "al mes"}</em>
         </div>
         <div>
-          <span>Contacto</span>
-          <b>{cliente.contacto || "—"}</b>
+          <span>Responsable</span>
+          <b>{cliente.responsable?.nombre || cliente.contacto || "—"}</b>
           <em>{cliente.telefono ?? cliente.correo ?? ""}</em>
         </div>
         <div>
@@ -182,20 +202,43 @@
       {/if}
     {/if}
   </div>
-</section>
+</main>
 
 {#if dandoAlta}
   <Alta
     onCerrar={() => (dandoAlta = false)}
-    onCreado={(id) => {
+    onCreado={(id, credenciales) => {
       seleccionado = id;
       dandoAlta = false;
+      mostrarAccesoResponsable(id, credenciales);
     }}
   />
 {/if}
 
+{#if accesoResponsable}
+  <div class="modal-fondo" role="presentation">
+    <div class="modal-acceso" role="dialog" aria-modal="true" aria-labelledby="acceso-responsable-titulo">
+      <h2 id="acceso-responsable-titulo">Acceso del responsable</h2>
+      <p>
+        Se creó la cuenta de <b>{accesoResponsable.nombre}</b> como <b>Propietario</b>.
+        Es el nivel más alto del restaurante.
+      </p>
+      <p class="pin-etiqueta">PIN inicial</p>
+      <div class="pin">
+        <code>{accesoResponsable.pin}</code>
+        <button onclick={copiarPinResponsable}>Copiar</button>
+      </div>
+      <p class="aviso-pin">
+        Entrégalo por un medio privado. El responsable deberá cambiarlo al entrar por primera vez;
+        este valor no se guarda en Central ni en el respaldo de la cartera.
+      </p>
+      <button class="renovar" onclick={() => (accesoResponsable = null)}>Ya lo anoté</button>
+    </div>
+  </div>
+{/if}
+
 <style>
-  section {
+  .contenido {
     display: grid;
     grid-template-columns: 17rem 1fr;
     height: 100%;
@@ -449,9 +492,32 @@
     border-color: var(--peligro);
     color: var(--peligro);
   }
+  .modal-fondo {
+    position: fixed;
+    z-index: 80;
+    inset: 0;
+    display: grid;
+    place-items: center;
+    padding: 1.25rem;
+    background: rgb(20 24 26 / 0.56);
+  }
+  .modal-acceso {
+    width: min(100%, 29rem);
+    padding: 1.35rem;
+    border-radius: var(--r-md);
+    background: var(--blanco);
+    box-shadow: var(--sombra-lg);
+  }
+  .modal-acceso h2 { font-size: 1.2rem; }
+  .modal-acceso p { font-size: 0.86rem; line-height: 1.55; color: var(--pizarra); }
+  .pin-etiqueta { margin: 1.1rem 0 0.25rem; font-size: 0.72rem !important; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--gris) !important; }
+  .pin { display: flex; align-items: center; justify-content: space-between; gap: 0.75rem; padding: 0.65rem 0.75rem; border-radius: var(--r-sm); background: var(--fondo); }
+  .pin code { font-size: 1.3rem; font-weight: 700; letter-spacing: 0.12em; color: var(--pizarra); }
+  .pin button { font: inherit; font-size: 0.78rem; font-weight: 600; padding: 0.35rem 0.65rem; border: 1px solid var(--borde); border-radius: var(--r-sm); background: var(--blanco); cursor: pointer; }
+  .aviso-pin { color: var(--gris) !important; }
 
   @media (max-width: 900px) {
-    section {
+    .contenido {
       grid-template-columns: 1fr;
     }
     .lista {

@@ -28,6 +28,7 @@ import {
   situacionDe,
   type EstadoLicencia,
   type Licencia,
+  type PerfilResponsable,
   type Plan,
 } from "./licencia.js";
 
@@ -38,6 +39,8 @@ export interface ClienteMotRest {
   nombre: string;
   /** A quién se le llama cuando algo pasa. */
   contacto: string;
+  /** Cuenta propietaria preparada por Central, sin su hash de acceso. */
+  responsable?: PerfilResponsable;
   telefono?: string;
   correo?: string;
   plan: Plan;

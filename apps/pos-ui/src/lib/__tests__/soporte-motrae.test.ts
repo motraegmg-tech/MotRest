@@ -2,7 +2,7 @@
  * El acceso de soporte de MOTRAE, cableado de verdad en la caja.
  *
  * ESTE ARCHIVO EXISTE POR UN HUECO REAL. El dominio de soporte estaba escrito y
- * probado, y aun así «Gonz Motrae» NO podía entrar a un MotRest: nadie llamaba a
+ * probado, y aun así «Gonzalo DJA» NO podía entrar a un MotRest: nadie llamaba a
  * `credencialDeSoporte` desde la aplicación. Las pruebas del dominio pasaban al
  * cien por cien y la función no se ejecutaba nunca en producción.
  *
@@ -16,6 +16,8 @@ import {
   emitirLicencia,
   generarPar,
   NOMBRE_SOPORTE,
+  PUESTO_RESPONSABLE,
+  USUARIO_RESPONSABLE_ID,
   USUARIO_SOPORTE_ID,
   type Licencia,
   type ParDeLlaves,
@@ -24,6 +26,7 @@ import { arranque } from "../persistencia/arranque.svelte";
 import { sesion } from "../sesion/sesion.svelte";
 
 const CONTRASENA_SOPORTE = "contrasena-de-soporte-de-prueba";
+const PIN_RESPONSABLE = "28164937";
 const SUCURSAL = "suc-rodizio-centro";
 let MOTRAE: ParDeLlaves;
 
@@ -38,6 +41,28 @@ async function licenciaConSoporte(): Promise<Licencia> {
       gracia_dias: 3,
       emitida_ts: Date.now(),
       soporte: { sal: c.sal, hash: c.hash, iteraciones: c.iteraciones },
+    },
+    MOTRAE.privada,
+  );
+}
+
+async function licenciaConResponsable(): Promise<Licencia> {
+  const credencial = await crearCredencial(USUARIO_RESPONSABLE_ID, PIN_RESPONSABLE, "pin");
+  return emitirLicencia(
+    {
+      sucursal_id: SUCURSAL,
+      nombre: "Rodizio",
+      plan: "mensual",
+      vence_ts: Date.now() + 30 * 86_400_000,
+      gracia_dias: 3,
+      emitida_ts: Date.now(),
+      responsable: {
+        id: USUARIO_RESPONSABLE_ID,
+        nombre: "Responsable Rodizio",
+        puesto: PUESTO_RESPONSABLE,
+        provision_id: "018f8fe4-6740-7d0d-98b5-a4a3e0000001",
+        credencial,
+      },
     },
     MOTRAE.privada,
   );
@@ -73,7 +98,24 @@ beforeEach(async () => {
   MOTRAE = await generarPar();
 });
 
-describe("Gonz Motrae en la caja", () => {
+describe("el acceso licenciado en la caja", () => {
+  it("monta al responsable licenciado como el propietario visible del local", async () => {
+    montarCaja(await licenciaConResponsable());
+    await arranque.iniciar();
+
+    const responsable = sesion.usuarioDe(USUARIO_RESPONSABLE_ID);
+    expect(responsable).toMatchObject({
+      nombre: "Responsable Rodizio",
+      rol_id: "propietario",
+      puesto: PUESTO_RESPONSABLE,
+      debe_cambiar_credencial: true,
+    });
+    expect(sesion.usuariosDelLocal.some((u) => u.id === USUARIO_RESPONSABLE_ID)).toBe(true);
+    expect(sesion.credencialesIniciales).toBeNull();
+
+    expect((await sesion.iniciarSesion(USUARIO_RESPONSABLE_ID, PIN_RESPONSABLE)).ok).toBe(true);
+  });
+
   /*
    * LA PRUEBA QUE FALTABA. No comprueba el dominio —eso ya estaba probado—:
    * comprueba que la aplicación LLAMA al dominio y que la credencial acaba donde

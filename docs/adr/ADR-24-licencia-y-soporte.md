@@ -59,11 +59,14 @@ versión nueva.
 
 ---
 
-## Decisión 2 · El acceso de soporte «Gonz Motrae»
+## Decisión 2 · El acceso de soporte «Gonzalo DJA»
 
-Existe un usuario en **todas** las instalaciones que no aparece en ninguna lista
+Existe un usuario en **cada instalación con licencia de soporte** que no aparece en ninguna lista
 del restaurante. Sirve para que MOTRAE entre a resolver un problema sin pedirle a
 nadie su contraseña.
+
+La pantalla lo ofrece únicamente como **Acceso de soporte MOTRAE**, separado del
+personal del local; su nombre sigue siendo visible en la bitácora.
 
 ### Por qué esto no es una puerta trasera
 

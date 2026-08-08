@@ -276,8 +276,9 @@
 
   <h2>Mi acceso a los restaurantes</h2>
   <p class="explica">
-    El usuario <b>Gonz Motrae</b> existe en todas las instalaciones y no aparece en la lista
-    del restaurante. Todo lo que haga queda en la bitácora del local.
+    El usuario <b>Gonzalo DJA</b> se habilita por licencia y no aparece en la lista
+    de personal del restaurante. Se entra desde «Acceso de soporte MOTRAE» y todo lo que
+    haga queda en la bitácora del local.
   </p>
 
   {#if tieneSoporte}

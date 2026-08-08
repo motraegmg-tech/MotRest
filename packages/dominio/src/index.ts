@@ -108,6 +108,7 @@ export * from "./identidad/roles.js";
 export * from "./identidad/matriz.js";
 export * from "./identidad/credenciales.js";
 export * from "./identidad/rescate.js";
+export * from "./identidad/responsable.js";
 export * from "./identidad/soporte.js";
 export * from "./identidad/eventos.js";
 export * from "./identidad/reducers.js";

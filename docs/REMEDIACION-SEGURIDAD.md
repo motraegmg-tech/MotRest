@@ -682,7 +682,7 @@ corepack pnpm@9.15.0 -r lint
 ```
 
 **Y la que de verdad cuenta — sobre el paquete compilado, no sobre el código.**
-Es la que atrapó que «Gonz Motrae» no existía en producción con doce pruebas
+Es la que atrapó que «Gonzalo DJA» no existía en producción con doce pruebas
 verdes: el empaquetador elimina lo que nadie llama, y ninguna prueba lo detecta.
 
 ```bash

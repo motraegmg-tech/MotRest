@@ -26,6 +26,7 @@ import {
   uuidv7,
   generarCodigoRescate,
   normalizarCodigo,
+  cuentaResponsableDeLicencia,
   credencialDeSoporte,
   usuarioSoporte,
   usuariosVisibles,
@@ -88,6 +89,8 @@ class Sesion {
 
   /** Credenciales por usuario. No es estado reactivo: no se muestra jamás. */
   private credenciales = new Map<ID, Credencial[]>();
+  /** Qué provisión firmada ya se aplicó al responsable de este local. */
+  private provisionesResponsable = $state<Record<ID, { provision_id: string; debe_cambiar_credencial: boolean }>>({});
   /** Hash del código de rescate. El código en claro nunca se guarda. */
   private rescate = $state.raw<Credencial | null>(null);
   /**
@@ -148,6 +151,13 @@ class Sesion {
     if (guardadas) {
       this.credenciales = new Map(Object.entries(guardadas));
     }
+    /* El soporte se deriva de la licencia actual; nunca sobrevive por su cuenta. */
+    this.credenciales.delete(USUARIO_SOPORTE_ID);
+
+    const provisiones = await almacen.estado.cargar<
+      Record<ID, { provision_id: string; debe_cambiar_credencial: boolean }>
+    >(CLAVES.provisionesResponsable);
+    if (provisiones) this.provisionesResponsable = provisiones;
 
     this.rescate = (await almacen.estado.cargar<Credencial>(CLAVES.rescate)) ?? null;
     /*
@@ -172,15 +182,7 @@ class Sesion {
     }
 
     /*
-     * Primer arranque de una instalación real: hay que darle credenciales al
-     * propietario. Va aquí, después de cargar lo guardado, para que solo ocurra
-     * cuando de verdad no hay nada — reinstalar el POS sobre una operación
-     * existente no debe regenerar nada ni dejar al dueño fuera.
-     */
-    await this.generarCredencialesIniciales();
-
-    /*
-     * El acceso de soporte de MOTRAE.
+     * Las cuentas que llegan con la licencia de MOTRAE.
      *
      * Va DESPUÉS de cargar las credenciales del disco y ANTES de restaurar la
      * sesión: si fuera antes, las credenciales guardadas lo sobrescribirían; si
@@ -193,7 +195,15 @@ class Sesion {
      * le quita también el acceso de MOTRAE, sin que quede un usuario huérfano
      * con todos los permisos en su disco.
      */
-    await this.montarSoporte();
+    await this.montarCuentasDeLicencia();
+
+    /*
+     * Primer arranque de una instalación real sin responsable licenciado: hay
+     * que darle credenciales al propietario. Va DESPUÉS de la licencia para no
+     * mostrar unas claves locales que el PIN firmado de Central reemplazaría en
+     * el mismo arranque.
+     */
+    await this.generarCredencialesIniciales();
 
     const activa = await almacen.estado.cargar<ID>(CLAVES.sesion);
     const usuario = activa ? this.usuarioDe(activa) : undefined;
@@ -254,9 +264,12 @@ class Sesion {
     try {
       await this.almacen.estado.guardar(
         CLAVES.credenciales,
-        Object.fromEntries(this.credenciales),
+        Object.fromEntries(
+          [...this.credenciales].filter(([usuarioId]) => usuarioId !== USUARIO_SOPORTE_ID),
+        ),
       );
       await this.almacen.estado.guardar(CLAVES.intentos, this.intentos);
+      await this.almacen.estado.guardar(CLAVES.provisionesResponsable, this.provisionesResponsable);
       if (this.rescate) await this.almacen.estado.guardar(CLAVES.rescate, this.rescate);
     } catch (causa) {
       console.error("No se pudieron guardar las credenciales", causa);
@@ -351,7 +364,7 @@ class Sesion {
   }
 
   /**
-   * Monta el acceso de MOTRAE si la licencia de este equipo lo trae.
+   * Monta las cuentas que viajan dentro de una licencia verificada.
    *
    * La credencial llega por `/licencia`, que **solo contesta a la propia caja**.
    * En una tablet del salón esta llamada falla y no pasa nada: no hay soporte
@@ -359,10 +372,9 @@ class Sesion {
    * restaurantes no tiene por qué viajar al teléfono de un mesero.
    *
    * Un fallo aquí NUNCA puede impedir que la caja abra. Si el Hub no contesta,
-   * el local opera igual y simplemente no hay acceso de soporte hasta el
-   * siguiente arranque.
+   * el local opera igual y las cuentas se revisan de nuevo al siguiente arranque.
    */
-  private async montarSoporte(): Promise<void> {
+  private async montarCuentasDeLicencia(): Promise<void> {
     /*
      * Solo en la CAJA. Es el único equipo cuya página sirve el propio Hub, y por
      * eso el único que lleva `__MOTREST_HUB__` — el mismo marcador que usa la
@@ -377,16 +389,60 @@ class Sesion {
       if (!respuesta.ok) return;
 
       const cuerpo = (await respuesta.json()) as { licencia: Licencia | null; verificada: boolean };
+      const sucursal = cuerpo.licencia?.sucursal_id ?? SUCURSAL_ID;
+      this.montarResponsable(cuerpo.licencia, cuerpo.verificada, sucursal);
+
       const credencial = credencialDeSoporte(cuerpo.licencia, cuerpo.verificada);
       if (!credencial) return;
-
-      const sucursal = cuerpo.licencia?.sucursal_id ?? SUCURSAL_ID;
       if (!this.usuarios.some((u) => u.id === USUARIO_SOPORTE_ID)) {
         this.usuarios = [...this.usuarios, usuarioSoporte(sucursal)];
       }
       this.credenciales.set(USUARIO_SOPORTE_ID, [credencial]);
     } catch {
       // Sin Hub local, sin soporte. La caja abre igual.
+    }
+  }
+
+  /**
+   * Aplica una sola vez el PIN inicial que Central firmó para el responsable.
+   * Reemitir una licencia por cobro no pisa un PIN que el responsable ya cambió.
+   */
+  private montarResponsable(
+    licencia: Licencia | null,
+    verificada: boolean,
+    sucursal: ID,
+  ): void {
+    const perfilPrevio = licencia?.responsable;
+    const estadoPrevio = perfilPrevio
+      ? this.provisionesResponsable[perfilPrevio.id]
+      : undefined;
+    const provisionNueva = estadoPrevio?.provision_id !== perfilPrevio?.provision_id;
+    const cuenta = cuentaResponsableDeLicencia(
+      licencia,
+      verificada,
+      sucursal,
+      provisionNueva || estadoPrevio?.debe_cambiar_credencial === true,
+    );
+    if (!cuenta) return;
+
+    const aplicadoAntes = !provisionNueva;
+    const usuario = cuenta.usuario;
+    if (this.usuarios.some((u) => u.id === usuario.id)) {
+      this.usuarios = this.usuarios.map((u) => (u.id === usuario.id ? usuario : u));
+    } else {
+      this.usuarios = [...this.usuarios, usuario];
+    }
+    if (this.usuarioActual?.id === usuario.id) this.usuarioActual = usuario;
+
+    if (!aplicadoAntes) {
+      this.credenciales.set(usuario.id, [cuenta.credencial]);
+      this.provisionesResponsable = {
+        ...this.provisionesResponsable,
+        [usuario.id]: {
+          provision_id: cuenta.provision_id,
+          debe_cambiar_credencial: true,
+        },
+      };
     }
   }
 
@@ -884,6 +940,15 @@ class Sesion {
     const actualizado: Usuario = { ...usuario, debe_cambiar_credencial: false };
     this.usuarios = this.usuarios.map((u) => (u.id === usuario.id ? actualizado : u));
     this.usuarioActual = actualizado;
+    if (this.provisionesResponsable[usuario.id]) {
+      this.provisionesResponsable = {
+        ...this.provisionesResponsable,
+        [usuario.id]: {
+          ...this.provisionesResponsable[usuario.id]!,
+          debe_cambiar_credencial: false,
+        },
+      };
+    }
 
     this.emitir("credencial_cambiada", { usuario_id: usuario.id, tipo_credencial: tipo });
     await this.guardarSecretos();
@@ -969,6 +1034,15 @@ class Sesion {
         // Restablecer la credencial levanta el bloqueo por intentos fallidos:
         // quien olvidó su PIN suele haberlo agotado intentando recordarlo.
         this.intentos = { ...this.intentos, [objetivoId]: { fallos: 0, ultimo_fallo_ts: 0 } };
+        if (this.provisionesResponsable[objetivoId]) {
+          this.provisionesResponsable = {
+            ...this.provisionesResponsable,
+            [objetivoId]: {
+              ...this.provisionesResponsable[objetivoId]!,
+              debe_cambiar_credencial: false,
+            },
+          };
+        }
 
         this.emitir("credencial_cambiada", {
           usuario_id: objetivoId,

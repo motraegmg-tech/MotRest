@@ -24,7 +24,13 @@
  * En desarrollo y en las pruebas (`MODO_DEMO`) siguen las credenciales conocidas
  * de siempre, para no tener que inventárselas en cada prueba.
  */
-import { permisosDePlantilla, type Credencial, type RolId, type Usuario } from "@motrest/dominio";
+import {
+  generarPinSeguro,
+  permisosDePlantilla,
+  type Credencial,
+  type RolId,
+  type Usuario,
+} from "@motrest/dominio";
 import { MODO_DEMO, SUCURSAL_ID } from "../presentacion";
 
 const AHORA = Date.now();
@@ -221,12 +227,5 @@ export function generarContrasenaDeLocal(): string {
  * diez mil a cien millones el espacio a probar.
  */
 export function generarPinDeLocal(): string {
-  const digitos = new Uint8Array(8);
-  for (;;) {
-    crypto.getRandomValues(digitos);
-    const pin = [...digitos].map((b) => b % 10).join("");
-    // Ni todo el mismo dígito, ni una escalera: `validarSecreto` rechaza lo
-    // primero y lo segundo es igual de adivinable si alguien mira los dedos.
-    if (!/^(\d)\1+$/.test(pin) && pin !== "12345678") return pin;
-  }
+  return generarPinSeguro(8);
 }

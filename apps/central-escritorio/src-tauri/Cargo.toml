@@ -1,6 +1,6 @@
 [package]
 name = "motrae-central"
-version = "1.0.1"
+version = "1.0.2"
 description = "MOTRAE Central — el panel de MOTRAE"
 authors = ["MOTRAE"]
 edition = "2021"
