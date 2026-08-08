@@ -87,10 +87,15 @@
   <div class="rejilla">
     {#each productos as producto (producto.id)}
       {@const requiere = pista(producto)}
-      <button class="producto" onclick={() => tocar(producto)}>
-        <span class="nombre">{producto.nombre}</span>
-        {#if requiere}<span class="pista">{requiere}</span>{/if}
-        <span class="precio">{mxn(producto.precio)}</span>
+      <button class="producto" class:con-foto={!!producto.foto} onclick={() => tocar(producto)}>
+        {#if producto.foto}
+          <div class="foto" style={`background-image: url('/foto/${producto.foto}')`}></div>
+        {/if}
+        <div class="contenido">
+          <span class="nombre">{producto.nombre}</span>
+          {#if requiere}<span class="pista">{requiere}</span>{/if}
+          <span class="precio">{mxn(producto.precio)}</span>
+        </div>
       </button>
     {:else}
       <p class="vacio">
@@ -163,17 +168,15 @@
   .producto {
     display: flex;
     flex-direction: column;
-    align-items: flex-start;
-    gap: 0.2rem;
     background: #fff;
     border: 1.5px solid var(--borde);
     border-radius: var(--r-md);
-    padding: 0.75rem 0.85rem;
     text-align: left;
     min-height: 4.5rem;
     transition:
       border-color 0.1s ease,
       transform 0.08s ease;
+    overflow: hidden;
   }
   .producto:hover {
     border-color: var(--acento);
@@ -181,6 +184,27 @@
   }
   .producto:active {
     transform: translateY(0);
+  }
+  .producto .contenido {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.2rem;
+    padding: 0.75rem 0.85rem;
+    height: 100%;
+    width: 100%;
+  }
+  .producto.con-foto .contenido {
+    padding-top: 0.5rem;
+  }
+  .producto .foto {
+    width: 100%;
+    height: 6rem;
+    background-size: cover;
+    background-position: center;
+    background-color: var(--fondo);
+    border-bottom: 1px solid var(--borde);
+    flex-shrink: 0;
   }
   .nombre {
     font-size: 0.92rem;

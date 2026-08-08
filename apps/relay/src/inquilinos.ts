@@ -29,10 +29,12 @@
  * un `docker cp` distraído no pueden ser suficientes. La llave va en el entorno
  * (`MOTREST_RELAY_LLAVE_PADRON`), nunca junto al archivo.
  */
-import { createCipheriv, createDecipheriv, randomBytes } from "node:crypto";
 import { chmodSync, existsSync, mkdirSync, readFileSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { generarCredencial, huellaCoincide, huellaDe, type Destino, type Inquilino } from "./nucleo.js";
+import { cifrar, descifrar, type SobreCifrado } from "./sobre.js";
+
+export { llaveDelPadron } from "./sobre.js";
 
 /** Enlace vivo con el Hub de un restaurante. */
 export interface EnlaceHub {
@@ -44,54 +46,6 @@ export interface EnlaceHub {
 
 /** Lo que puede pasar cuando un Hub publica su número de WhatsApp. */
 export type ResultadoWhatsApp = "actualizado" | "sin-cambios" | "ajeno";
-
-/** El sobre cifrado tal y como queda en disco. */
-interface SobreCifrado {
-  v: 1;
-  iv: string;
-  tag: string;
-  datos: string;
-}
-
-/**
- * Convierte lo que venga en `MOTREST_RELAY_LLAVE_PADRON` en 32 bytes.
- *
- * Se exige base64 de 32 bytes exactos y **no** se acepta una frase corta
- * derivada al vuelo: una llave débil aquí no da ningún error visible, cifra
- * igual, y solo se descubre el día que alguien la rompe.
- */
-export function llaveDelPadron(valor: string | undefined): Buffer {
-  const llave = Buffer.from(valor ?? "", "base64");
-  if (llave.length !== 32) {
-    throw new Error(
-      "MOTREST_RELAY_LLAVE_PADRON debe ser 32 bytes en base64. " +
-        "Genera una con: pnpm --filter @motrest/relay padron llave",
-    );
-  }
-  return llave;
-}
-
-function cifrar(texto: string, llave: Buffer): string {
-  const iv = randomBytes(12);
-  const cifrador = createCipheriv("aes-256-gcm", llave, iv);
-  const datos = Buffer.concat([cifrador.update(texto, "utf8"), cifrador.final()]);
-  const sobre: SobreCifrado = {
-    v: 1,
-    iv: iv.toString("base64"),
-    tag: cifrador.getAuthTag().toString("base64"),
-    datos: datos.toString("base64"),
-  };
-  return JSON.stringify(sobre);
-}
-
-function descifrar(sobre: SobreCifrado, llave: Buffer): string {
-  const descifrador = createDecipheriv("aes-256-gcm", llave, Buffer.from(sobre.iv, "base64"));
-  descifrador.setAuthTag(Buffer.from(sobre.tag, "base64"));
-  return Buffer.concat([
-    descifrador.update(Buffer.from(sobre.datos, "base64")),
-    descifrador.final(),
-  ]).toString("utf8");
-}
 
 export class Inquilinos {
   private porNumero = new Map<string, Inquilino>();

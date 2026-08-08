@@ -148,6 +148,8 @@
     align-items: center;
     justify-content: center;
     padding: 1.5rem;
+    /* Opaco: esta pantalla es lo único que hay: detrás no hay aplicación que
+       dejar entrever, y un velo translúcido sobre nada se ve como un fallo. */
     background: var(--negro);
     overflow-y: auto;
   }

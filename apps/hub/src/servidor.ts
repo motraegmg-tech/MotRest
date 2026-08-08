@@ -21,6 +21,7 @@ import {
   evaluar,
   permisosDePlantilla,
   permisosNoOtorgables,
+  puedeEliminarA,
   puedeAutorizar,
   puedeGestionarA,
   proyectarIdentidad,
@@ -82,6 +83,15 @@ export interface OpcionesHub {
   usuarioDe?: (empleadoId: ID) => Usuario | undefined;
   /** Persiste un catálogo aceptado, separando el origen de confianza. */
   guardarCatalogo?: (catalogo: Catalogo, origen: "terminal" | "hub") => void;
+  /**
+   * Fija la identidad del local con la que trae su primera terminal.
+   *
+   * Solo se llama con el registro EN BLANCO, y por eso es seguro: un local que
+   * ya operó tiene eventos, y esos eventos son los que definen a qué sucursal
+   * pertenece. Devuelve `false` si quien instaló ya decidió la identidad y no
+   * se debe tocar.
+   */
+  adoptarSucursal?: (sucursalId: ID) => boolean;
   /** Enlaces de emparejamiento, uno por dirección del Hub en la red. */
   enlaces?: () => { etiqueta: string; url: string }[];
   registrar?: (nivel: "info" | "aviso" | "error", mensaje: string) => void;
@@ -121,6 +131,7 @@ const PERMISO_POR_EVENTO: Partial<Record<string, Accion>> = {
   conteo_registrado: "inv.conteo.cerrar",
   usuario_creado: "admin.usuario.crear",
   usuario_actualizado: "admin.usuario.editar",
+  usuario_eliminado: "admin.usuario.eliminar",
   usuario_desbloqueado: "admin.usuario.editar",
 };
 
@@ -500,13 +511,48 @@ export class Hub {
     }
 
     if (this.sucursalDeIdentidad && mensaje.sucursal_id !== this.sucursalDeIdentidad) {
-      sesion.conexion.enviar({
-        tipo: "error",
-        codigo: "sucursal_distinta",
-        mensaje: "Este Hub pertenece a otra sucursal.",
-      });
-      sesion.conexion.cerrar();
-      return;
+      /*
+       * UN HUB RECIÉN INSTALADO NO TIENE IDENTIDAD PROPIA TODAVÍA.
+       *
+       * Al arrancar sobre un registro en blanco, el Hub no tiene de dónde sacar
+       * a qué sucursal pertenece, así que se inventa una (`suc-xxxxxxxx`) y la
+       * fija. Pero las terminales se presentan con la suya, que es otra — y esta
+       * comprobación las rechazaba TODAS, incluida la caja del propio equipo.
+       *
+       * El resultado era un local que no podía abrir nunca: sin terminales no
+       * entra un solo evento, sin eventos el registro sigue en blanco, y la
+       * identidad inventada no cambiaba jamás porque queda escrita en disco. La
+       * caja mostraba «Modo isla» contra su propio Hub.
+       *
+       * Con el registro vacío no hay nada que proteger: nada del local se
+       * atribuye todavía a ninguna sucursal. Así que la primera terminal que se
+       * presenta es la que dice cuál es —la misma confianza en el primer uso con
+       * la que se aprueba el primer dispositivo unas líneas más abajo— y a
+       * partir de ahí queda fijada.
+       */
+      const enBlanco = this.log.seqActual === 0;
+      const adoptada = enBlanco && this.opciones.adoptarSucursal?.(mensaje.sucursal_id) === true;
+
+      if (!adoptada) {
+        // Se anota: rechazar en silencio es lo que hacía este fallo invisible.
+        this.anotar(
+          "aviso",
+          `Terminal rechazada: se presentó como ${mensaje.sucursal_id} y este Hub es ${this.sucursalDeIdentidad}.`,
+        );
+        sesion.conexion.enviar({
+          tipo: "error",
+          codigo: "sucursal_distinta",
+          mensaje: "Este Hub pertenece a otra sucursal.",
+        });
+        sesion.conexion.cerrar();
+        return;
+      }
+
+      this.anotar(
+        "aviso",
+        `Local sin identidad: se adopta la de su primera terminal, ${mensaje.sucursal_id}.`,
+      );
+      this.cargarIdentidad(mensaje.sucursal_id, []);
     }
 
     /*
@@ -759,6 +805,24 @@ export class Hub {
           permisosNoOtorgables(actor, evento.cambios.permisos).length > 0
         ) {
           return `${actor.nombre} intentó otorgar permisos que no posee`;
+        }
+        return null;
+      }
+
+      /*
+       * Borrar a alguien de la plantilla se revalida aquí con más motivo que
+       * nada: no se deshace. Una terminal manipulada que mandara este evento
+       * dejaría al restaurante sin personal, y el `filter` de la proyección no
+       * tiene vuelta atrás.
+       */
+      case "usuario_eliminado": {
+        if (evento.eliminado_por !== actor.id) {
+          return "La baja definitiva debe quedar firmada por quien la ejecuta";
+        }
+        const objetivo = this.usuarioDe(evento.usuario_id, identidad);
+        if (!objetivo) return `Usuario a eliminar desconocido: ${evento.usuario_id}`;
+        if (!puedeEliminarA(actor, objetivo)) {
+          return `${actor.nombre} no puede eliminar a ${objetivo.nombre}`;
         }
         return null;
       }

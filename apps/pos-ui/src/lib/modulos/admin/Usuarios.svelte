@@ -69,6 +69,42 @@
     vista = { modo: "editar", usuario };
   }
 
+  /*
+   * Eliminar se confirma escribiendo el nombre, no con un «¿seguro?».
+   *
+   * Un «¿seguro?» se contesta que sí sin leerlo: es un reflejo, no una decisión.
+   * Y esto no se deshace — el usuario desaparece de la plantilla y su credencial
+   * se destruye—. Teclear el nombre obliga a mirar a quién se está borrando, que
+   * es exactamente el error que hay que evitar: eliminar al de la fila de al
+   * lado.
+   */
+  let eliminando = $state<Usuario | null>(null);
+  let nombreEscrito = $state("");
+  let errorEliminar = $state("");
+
+  const nombreCoincide = $derived(
+    eliminando !== null &&
+      nombreEscrito.trim().toLocaleLowerCase("es") ===
+        eliminando.nombre.trim().toLocaleLowerCase("es"),
+  );
+
+  function pedirEliminar(usuario: Usuario) {
+    eliminando = usuario;
+    nombreEscrito = "";
+    errorEliminar = "";
+  }
+
+  function confirmarEliminar() {
+    if (!eliminando || !nombreCoincide) return;
+    const r = sesion.eliminarUsuario(eliminando.id);
+    if (r.ok) {
+      eliminando = null;
+      nombreEscrito = "";
+    } else {
+      errorEliminar = r.error ?? "No se pudo eliminar al usuario";
+    }
+  }
+
   function guardarEdicion(usuario: Usuario) {
     const r = sesion.actualizarPermisos(usuario.id, permisosEdicion);
     if (r.ok) vista = { modo: "lista" };
@@ -150,6 +186,16 @@
             <button class="accion" onclick={() => sesion.cambiarActivo(usuario.id, !usuario.activo)}>
               {usuario.activo ? "Desactivar" : "Activar"}
             </button>
+            <!--
+              Eliminar solo aparece para quien de verdad puede. Enseñar un botón
+              que va a contestar «no tienes permiso» no informa: enfada, y encima
+              revela que la función existe a quien no le toca.
+            -->
+            {#if sesion.puedeEliminar(usuario.id)}
+              <button class="accion peligro" onclick={() => pedirEliminar(usuario)}>
+                Eliminar
+              </button>
+            {/if}
           {:else}
             <button class="accion" onclick={() => editar(usuario)}>Ver permisos</button>
             {#if puedeEditar}
@@ -164,6 +210,37 @@
 
     {#if !puedeCrear && !puedeEditar}
       <p class="nota">Tu rol permite consultar la lista, pero no modificarla.</p>
+    {/if}
+
+    {#if eliminando}
+      <div class="eliminar" role="alertdialog" aria-labelledby="eliminar-titulo">
+        <h2 id="eliminar-titulo">Eliminar a {eliminando.nombre}</h2>
+        <p>
+          Desaparecerá de la plantilla y su PIN dejará de servir para entrar y para
+          firmar cancelaciones o descuentos. <b>Esto no se puede deshacer.</b>
+        </p>
+        <!--
+          Se dice qué NO se borra, porque es lo que la gente teme y lo que le
+          hace elegir mal. Sin esta línea, el dueño desactiva en vez de eliminar
+          «por si acaso» y la lista se llena de gente que ya no trabaja ahí.
+        -->
+        <p class="matiz">
+          Su historial se conserva: las cuentas que cobró siguen a su nombre en la
+          bitácora, y ahí queda escrito que tú lo eliminaste hoy. Si solo dejó de
+          trabajar aquí y puede volver, usa <b>Desactivar</b>.
+        </p>
+        <label>
+          <span>Escribe <b>{eliminando.nombre}</b> para confirmar</span>
+          <input bind:value={nombreEscrito} placeholder={eliminando.nombre} autocomplete="off" />
+        </label>
+        {#if errorEliminar}<p class="error">{errorEliminar}</p>{/if}
+        <div class="botones">
+          <button class="accion urgente" disabled={!nombreCoincide} onclick={confirmarEliminar}>
+            Eliminar en definitiva
+          </button>
+          <button class="accion" onclick={() => (eliminando = null)}>Cancelar</button>
+        </div>
+      </div>
     {/if}
 
     {#if sesion.puedeOperar("admin.usuario.editar")}
@@ -377,6 +454,64 @@
   .accion.urgente:hover {
     background: var(--peligro);
     color: #fff;
+  }
+  /* Eliminar se distingue del resto de acciones sin gritar: la confirmación es
+     la que frena, no el color. */
+  .accion.peligro {
+    color: var(--peligro);
+  }
+  .accion.peligro:hover {
+    border-color: var(--peligro);
+    background: var(--peligro);
+    color: #fff;
+  }
+  .accion:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+  }
+  .accion:disabled:hover {
+    background: #fff;
+    border-color: var(--borde);
+    color: var(--pizarra);
+  }
+  .eliminar {
+    margin-top: 1rem;
+    padding: 1rem 1.1rem;
+    border: 1.5px solid var(--peligro);
+    border-radius: var(--r-md);
+    background: #fff;
+    display: flex;
+    flex-direction: column;
+    gap: 0.6rem;
+  }
+  .eliminar h2 {
+    font-size: 1rem;
+    margin: 0;
+  }
+  .eliminar p {
+    margin: 0;
+    font-size: 0.88rem;
+    line-height: 1.45;
+  }
+  .eliminar .matiz {
+    color: var(--gris);
+    font-size: 0.82rem;
+  }
+  .eliminar label {
+    display: flex;
+    flex-direction: column;
+    gap: 0.3rem;
+    font-size: 0.82rem;
+  }
+  .eliminar input {
+    padding: 0.6rem 0.8rem;
+    border: 1.5px solid var(--borde);
+    border-radius: var(--r-sm);
+    font-size: 0.92rem;
+  }
+  .eliminar .botones {
+    display: flex;
+    gap: 0.5rem;
   }
   .campos {
     display: flex;

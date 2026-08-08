@@ -65,6 +65,15 @@
   const bloqueado = $derived(licencia.bloqueado && !esSoporte(sesion.usuarioActual));
 
   /*
+   * Primer arranque de un restaurante nuevo: crear la cuenta del responsable.
+   *
+   * No se muestra mientras la terminal espera la operación del Hub: si el local
+   * ya tiene personal, viene de ahí, y dar de alta un propietario aquí crearía
+   * un segundo dueño del negocio en la mano de quien tomara la tablet.
+   */
+  const altaInicial = $derived(sesion.requiereAltaInicial && !arranque.esperandoHub);
+
+  /*
    * El bloqueo no cae con un turno de caja abierto.
    *
    * Bloquear con doce mesas abiertas encierra ese dinero: el restaurante no
@@ -87,6 +96,18 @@
     que no va a poder hacer nada con ella.
   -->
   <PantallaBloqueada contacto={CONTACTO_MOTRAE} />
+{:else if altaInicial}
+  <!--
+    Restaurante nuevo: lo único que hay que hacer es crear la cuenta del
+    responsable, así que es lo único que se ve.
+
+    Antes esto se pintaba ENCIMA de la aplicación, y como todavía no hay nadie en
+    sesión, detrás se leía «Sin acceso». El apaño fue inventar un usuario con
+    permisos de propietario para que el fondo se viera bien — y con él, cualquiera
+    que abriera la caja tenía el negocio completo. Pintarla sola cuesta una rama y
+    no regala permisos a nadie.
+  -->
+  <AltaResponsable />
 {:else}
 <div class="app">
   <Sidebar />
@@ -188,15 +209,11 @@
 {/if}
 
 <!--
-  Primer arranque de un restaurante nuevo: crear la cuenta del responsable.
-
-  Va ANTES que la pantalla de acceso porque no tiene sentido pedir un PIN cuando
-  todavía no existe nadie que pueda tenerlo. Y no se muestra mientras la terminal
-  espera la operación del Hub: si el local ya tiene personal, viene de ahí, y dar
-  de alta un propietario aquí crearía un segundo dueño del negocio.
+  El alta del responsable ya se pintó sola, arriba: aquí solo queda decidir entre
+  pedir acceso y forzar el cambio de credencial.
 -->
-{#if sesion.requiereAltaInicial && !arranque.esperandoHub}
-  <AltaResponsable />
+{#if altaInicial}
+  <!-- Ya está en pantalla; no se apila nada encima. -->
 {:else if mostrarAcceso || !sesion.autenticado}
   <Acceso onCerrar={() => (mostrarAcceso = false)} />
 {:else if sesion.debeCambiarCredencial}

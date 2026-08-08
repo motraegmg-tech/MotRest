@@ -27,6 +27,17 @@
   let instalando = $state(false);
   let error = $state("");
 
+  /**
+   * ¿Es un equipo recién instalado, o un local que dejó de pagar?
+   *
+   * No son la misma pantalla ni de lejos. Al restaurante que se instala hoy
+   * decirle «servicio suspendido» lo asusta sin motivo; al que debe, hablarle de
+   * un alta le da una excusa. El Hub sabe cuál es cada uno —si su identidad
+   * todavía es provisional, nadie le ha asignado restaurante— y aquí solo se
+   * pinta lo que corresponde.
+   */
+  let sinAsignar = $state(false);
+
   $effect(() => {
     void cargarIdentificador();
   });
@@ -35,8 +46,12 @@
     try {
       const respuesta = await fetch("/licencia", { signal: AbortSignal.timeout(2500) });
       if (!respuesta.ok) return;
-      const datos = (await respuesta.json()) as { sucursal_id?: unknown };
+      const datos = (await respuesta.json()) as {
+        sucursal_id?: unknown;
+        sin_asignar?: unknown;
+      };
       if (typeof datos.sucursal_id === "string") identificador = datos.sucursal_id;
+      sinAsignar = datos.sin_asignar === true;
     } catch {
       // El mensaje principal ya explica que la caja necesita reactivarse.
     }
@@ -78,28 +93,52 @@
     <span class="barra"></span>
   </div>
 
-  <h1 id="bloqueo-titulo">Servicio suspendido</h1>
-  <p class="motivo">{licencia.situacion.mensaje}</p>
+  {#if sinAsignar}
+    <h1 id="bloqueo-titulo">Active su MotRest</h1>
+    <p class="motivo">
+      Este equipo todavía no está asignado a ningún restaurante. Pegue abajo la
+      licencia que MOTRAE emitió para el suyo y quedará listo para trabajar.
+    </p>
+  {:else}
+    <h1 id="bloqueo-titulo">Servicio suspendido</h1>
+    <p class="motivo">{licencia.situacion.mensaje}</p>
 
-  <!--
-    Lo que más tranquiliza y lo que menos cuesta decir. Sin esta línea, el
-    restaurantero asume que perdió su historial.
-  -->
-  <p class="datos">
-    Toda la información de su restaurante está guardada. En cuanto se registre el
-    pago, el sistema vuelve exactamente como lo dejó.
-  </p>
+    <!--
+      Lo que más tranquiliza y lo que menos cuesta decir. Sin esta línea, el
+      restaurantero asume que perdió su historial.
+    -->
+    <p class="datos">
+      Toda la información de su restaurante está guardada. En cuanto se registre el
+      pago, el sistema vuelve exactamente como lo dejó.
+    </p>
+  {/if}
 
   {#if contacto}
-    <p class="contacto">Para reactivarlo: <b>{contacto}</b></p>
+    <p class="contacto">
+      {sinAsignar ? "Si no tiene su licencia:" : "Para reactivarlo:"} <b>{contacto}</b>
+    </p>
   {/if}
 
   <div class="alta">
-    <p>
-      Código de instalación:
-      <code>{identificador || "Cargando…"}</code>
-    </p>
-    <small>Registre este código en MOTRAE Central; después pegue aquí la licencia emitida.</small>
+    <!--
+      El código solo se pide cuando hace falta.
+
+      Un equipo sin asignar no necesita registrar nada: la propia licencia le
+      dice qué restaurante es. Enseñarle un identificador provisional que nadie
+      va a teclear en Central solo sirve para que alguien lo copie mal.
+    -->
+    {#if !sinAsignar}
+      <p>
+        Código de instalación:
+        <code>{identificador || "Cargando…"}</code>
+      </p>
+      <small>Registre este código en MOTRAE Central; después pegue aquí la licencia emitida.</small>
+    {:else}
+      <small>
+        Dé de alta el restaurante en MOTRAE Central, descargue su
+        <code>licencia.json</code> y pegue aquí su contenido.
+      </small>
+    {/if}
     <form onsubmit={instalarLicencia}>
       <label for="licencia">Licencia de MOTRAE</label>
       <textarea

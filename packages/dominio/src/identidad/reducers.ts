@@ -54,6 +54,27 @@ export function aplicarEventoIdentidad(
         ),
       };
 
+    /*
+     * Baja definitiva: desaparece de la plantilla, no se marca de ningún color.
+     *
+     * Se quita del arreglo en vez de dejarlo con una bandera porque «eliminado»
+     * no es un estado del empleado: es que ya no es uno. Mientras siguiera en la
+     * lista, cada pantalla tendría que acordarse de filtrarlo —y la que se
+     * olvidara lo ofrecería para iniciar sesión, para asignarle una mesa o para
+     * firmar una cancelación—.
+     *
+     * También sale de `bloqueados`: no tiene sentido arrastrar el bloqueo de una
+     * credencial de alguien que ya no existe.
+     */
+    case "usuario_eliminado": {
+      const bloqueados = new Set(estado.bloqueados);
+      bloqueados.delete(ev.usuario_id);
+      return {
+        usuarios: estado.usuarios.filter((u) => u.id !== ev.usuario_id),
+        bloqueados,
+      };
+    }
+
     // Recuperar el acceso levanta el bloqueo: quien llegó al código de rescate
     // ya agotó sus intentos intentando recordar la contraseña.
     case "acceso_recuperado": {

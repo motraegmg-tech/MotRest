@@ -22,12 +22,32 @@
     version: string;
     notas: string;
     obligatoria?: boolean;
-    onDecidir: (eleccion: EleccionActualizacion) => void;
+    onDecidir: (
+      eleccion: EleccionActualizacion,
+    ) => Promise<{ ok: true } | { ok: false; error: string }>;
   } = $props();
 
   /** Horas de cierre típicas. Nada dentro del servicio. */
   const HORAS = [23, 0, 1, 2, 3, 4, 5, 6];
   let eligiendoHora = $state(false);
+  let mandando = $state(false);
+  let error = $state("");
+
+  /**
+   * La decisión no se da por tomada hasta que el Hub la confirma.
+   *
+   * Quien instala es el Hub, no esta pantalla. Cerrar el diálogo al pulsar y
+   * confiar en que llegó es exactamente cómo esto estuvo roto: la elección se
+   * quedaba en la terminal y el restaurante creía haber actualizado.
+   */
+  async function decidir(eleccion: EleccionActualizacion) {
+    if (mandando) return;
+    mandando = true;
+    error = "";
+    const resultado = await onDecidir(eleccion);
+    if (!resultado.ok) error = resultado.error;
+    mandando = false;
+  }
 </script>
 
 <div class="fondo" role="dialog" aria-modal="true" aria-labelledby="act-titulo">
@@ -51,20 +71,24 @@
       abierto: si lo hay, se esperará a que cierre.
     </p>
 
+    {#if error}
+      <p class="error">{error}</p>
+    {/if}
+
     {#if obligatoria}
       <p class="obligatoria">
         Esta actualización es necesaria y no se puede posponer.
       </p>
       <div class="botones">
-        <button class="primario" onclick={() => onDecidir({ cuando: "ahora" })}>
-          Instalar
+        <button class="primario" disabled={mandando} onclick={() => decidir({ cuando: "ahora" })}>
+          {mandando ? "Avisando al Hub…" : "Instalar"}
         </button>
       </div>
     {:else if eligiendoHora}
       <p class="pregunta">¿A qué hora?</p>
       <div class="horas">
         {#each HORAS as hora (hora)}
-          <button onclick={() => onDecidir({ cuando: "a_las", hora })}>
+          <button disabled={mandando} onclick={() => decidir({ cuando: "a_las", hora })}>
             {String(hora).padStart(2, "0")}:00
           </button>
         {/each}
@@ -72,11 +96,11 @@
       <button class="volver" onclick={() => (eligiendoHora = false)}>Volver</button>
     {:else}
       <div class="botones">
-        <button class="primario" onclick={() => onDecidir({ cuando: "ahora" })}>
-          Actualizar ahora
+        <button class="primario" disabled={mandando} onclick={() => decidir({ cuando: "ahora" })}>
+          {mandando ? "Avisando al Hub…" : "Actualizar ahora"}
         </button>
-        <button onclick={() => onDecidir({ cuando: "mas_tarde" })}>Más tarde</button>
-        <button onclick={() => (eligiendoHora = true)}>A una hora…</button>
+        <button disabled={mandando} onclick={() => decidir({ cuando: "mas_tarde" })}>Más tarde</button>
+        <button disabled={mandando} onclick={() => (eligiendoHora = true)}>A una hora…</button>
       </div>
     {/if}
   </div>
@@ -143,6 +167,15 @@
     color: var(--peligro);
     margin: 0 0 1rem;
   }
+  .error {
+    font-size: 0.82rem;
+    line-height: 1.5;
+    color: var(--peligro);
+    background: var(--fondo);
+    border-radius: var(--r-sm);
+    padding: 0.55rem 0.7rem;
+    margin: 0 0 0.9rem;
+  }
   .pregunta {
     font-size: 0.85rem;
     font-weight: 600;
@@ -175,6 +208,10 @@
   }
   button:hover {
     border-color: var(--acento);
+  }
+  button:disabled {
+    opacity: 0.6;
+    cursor: progress;
   }
   .primario {
     background: var(--acento);

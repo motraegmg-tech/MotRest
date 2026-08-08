@@ -195,6 +195,27 @@ export class EnlaceRelayWs {
     );
   }
 
+  /**
+   * Manda a MOTRAE el parte de vida del local: qué versión tiene y cómo está.
+   *
+   * Sin esto, MOTRAE publica a ciegas —no sabe qué versión corre cada
+   * restaurante— y se entera de que un local lleva dos días caído porque llama
+   * por teléfono. Va por el mismo enlace que ya existe, sin abrir nada nuevo.
+   *
+   * **El `sucursal_id` no viaja**, igual que en el saludo: el relay lo deduce de
+   * la credencial con la que este Hub se autenticó. Un local no puede reportar
+   * en nombre de otro ni por error ni a propósito.
+   *
+   * Si el enlace está caído, el pulso se pierde y no se encola. Es correcto: el
+   * siguiente sustituye al anterior por completo, y lo que se guarda es el
+   * último. Un pulso de hace cuatro horas no le sirve a nadie.
+   */
+  reportarPulso(pulso: Record<string, unknown>): void {
+    if (!this.conectado()) return;
+    const { sucursal_id: _propio, ...cuerpo } = pulso;
+    this.socket?.send(JSON.stringify({ tipo: "pulso", pulso: cuerpo }));
+  }
+
   /** Actualiza las credenciales de WhatsApp del local, sin reconectar. */
   publicarCredenciales(cred: { phone_number_id: string; token: string; nombre: string }): void {
     this.opciones.credenciales = cred;

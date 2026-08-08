@@ -61,6 +61,19 @@ export interface VersionDisponible {
    * que lo dice.
    */
   version_minima_soportada?: string;
+  /**
+   * A qué porcentaje de la flota se le ofrece esta versión (1–100).
+   *
+   * Sin este campo van todos, que es lo que se hacía antes y es exactamente el
+   * riesgo que documenta este archivo: si sale rota, salen rotos todos a la vez
+   * y no hay forma de deshacerlo. Con un anillo se publica al 10 %, se ve un fin
+   * de semana completo y después se sube.
+   *
+   * Cada Hub se aplica la regla a sí mismo con `leTocaElAnillo`. No hay lista de
+   * sucursales aquí a propósito: el manifiesto es un archivo público de GitHub y
+   * la cartera de MOTRAE no tiene por qué estar en él.
+   */
+  anillo?: number;
   /** Firma de MOTRAE sobre todo lo anterior. */
   firma: string;
 }
@@ -185,9 +198,30 @@ export function marcarInstalada(
 /** ¿Hay que enseñarle el diálogo AHORA? */
 export function debeAvisar(estado: EstadoActualizacion, ahora: number): boolean {
   if (!estado.disponible) return false;
+  /*
+   * Ya dijo que sí. Lo que falta es que llegue un momento seguro —puede tardar
+   * horas si hay un turno abierto—, y volver a preguntárselo cada minuto
+   * mientras tanto no adelanta la instalación: solo tapa la pantalla de la caja
+   * con un diálogo que ya contestó. El estado sigue visible en la barra lateral.
+   */
+  if (estado.eleccion && estado.eleccion.cuando !== "mas_tarde") return false;
   // Lo obligatorio no se puede posponer, así que se avisa siempre.
   if (estado.disponible.obligatoria) return true;
   return (estado.aplazada_hasta ?? 0) <= ahora;
+}
+
+/**
+ * ¿El restaurante ya pidió instalar y llegó la hora que eligió?
+ *
+ * Distingue las dos respuestas afirmativas de las tres del diálogo. «Más tarde»
+ * es *recuérdamelo*, y por eso nunca instala: vencido el plazo se vuelve a
+ * preguntar. «Ahora» y «a las 23:00» son *hazlo*, y lo único que queda es que el
+ * momento sea seguro — eso lo decide `puedeInstalarse`, no esta función.
+ */
+export function debeInstalar(estado: EstadoActualizacion, ahora: number): boolean {
+  if (!estado.disponible || !estado.eleccion) return false;
+  if (estado.eleccion.cuando === "mas_tarde") return false;
+  return (estado.aplazada_hasta ?? ahora) <= ahora;
 }
 
 /**
@@ -233,6 +267,86 @@ export function puedeInstalarse(
     };
   }
   return { puede: true };
+}
+
+/**
+ * La primera hora de la madrugada en que se puede reiniciar, y la última.
+ *
+ * Son las mismas que ofrece el diálogo del POS (23:00 a 06:00). Si esta ventana
+ * y aquella lista se separan, el sistema acabaría ofreciendo una hora a la que
+ * después se niega a instalar, que es la peor combinación posible: el
+ * restaurante eligió, esperó, y no pasó nada.
+ */
+export const HORA_INICIO_VENTANA = 23;
+export const HORA_FIN_VENTANA = 6;
+
+/**
+ * ¿Estamos en horas en las que un restaurante puede estar sirviendo?
+ *
+ * Todo lo que no sea la madrugada se considera servicio. Es deliberadamente
+ * conservador: un local con comidas y cenas, otro que abre solo de noche y otro
+ * que da desayunos no comparten horario, y el sistema no lo conoce. Lo único
+ * cierto para todos es que a las tres de la mañana no hay nadie cobrando.
+ */
+export function enHorarioDeServicio(ahora: number): boolean {
+  const hora = new Date(ahora).getHours();
+  return !(hora >= HORA_INICIO_VENTANA || hora <= HORA_FIN_VENTANA);
+}
+
+/**
+ * ¿Queda algún turno de caja sin cerrar?
+ *
+ * Se resuelve con los `sesion_id`, no contando eventos: en un local con varias
+ * cajas los turnos se abren y se cierran entrelazados, y «hay más aperturas que
+ * cierres» daría igual de bien un turno abierto que un cierre que se registró
+ * dos veces.
+ */
+export function hayTurnoAbierto(
+  aperturas: readonly { sesion_id: ID }[],
+  cierres: readonly { sesion_id: ID }[],
+): boolean {
+  const cerradas = new Set(cierres.map((c) => c.sesion_id));
+  return aperturas.some((a) => !cerradas.has(a.sesion_id));
+}
+
+// --- Anillos de despliegue --------------------------------------------------------------------
+
+/**
+ * Qué lugar ocupa un restaurante en la cola de despliegue (0–99).
+ *
+ * FNV-1a sobre el `sucursal_id`. No es criptográfico ni tiene por qué serlo:
+ * aquí no se protege nada, solo se reparte la flota de forma estable y
+ * repartida. Lo que sí importa es que **no dependa de la versión**. Si cada
+ * release rifara un grupo distinto, no habría canario que valiera: nunca se
+ * probaría dos veces en el mismo local, y el aprendizaje de un despliegue no
+ * serviría para el siguiente.
+ *
+ * Es la misma cuenta que hace Central para enseñar quién entra con cada
+ * porcentaje antes de firmar.
+ */
+export function posicionEnLaFlota(sucursal_id: ID): number {
+  let hash = 0x811c9dc5;
+  for (let i = 0; i < sucursal_id.length; i++) {
+    hash ^= sucursal_id.charCodeAt(i);
+    // Multiplicación FNV en 32 bits sin desbordar el entero de JavaScript.
+    hash = Math.imul(hash, 0x01000193) >>> 0;
+  }
+  return hash % 100;
+}
+
+/**
+ * ¿A este local ya le toca esta versión?
+ *
+ * Sin `anillo` van todos —es el comportamiento de siempre—. Con anillo, entra
+ * quien ocupe una posición por debajo del porcentaje, lo que hace la regla
+ * **monótona**: pasar de 10 a 50 nunca saca a nadie que ya estaba dentro, así
+ * que ampliar el despliegue no puede dejar a un restaurante a medias.
+ */
+export function leTocaElAnillo(sucursal_id: ID, anillo?: number): boolean {
+  if (anillo === undefined) return true;
+  if (!Number.isFinite(anillo) || anillo <= 0) return false;
+  if (anillo >= 100) return true;
+  return posicionEnLaFlota(sucursal_id) < anillo;
 }
 
 /** Cómo se le resume al restaurantero lo que va a pasar. */

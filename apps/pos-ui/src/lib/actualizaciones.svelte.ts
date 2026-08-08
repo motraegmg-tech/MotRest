@@ -79,11 +79,54 @@ class StoreActualizaciones {
     });
   }
 
-  /** Lo que contestó el restaurante en el diálogo. */
-  decidir(eleccion: EleccionActualizacion): void {
+  /**
+   * Lo que contestó el restaurante, **de camino al Hub**.
+   *
+   * Antes esto se guardaba aquí y se acababa el viaje: el estado vivía en el
+   * almacén de esta terminal, y quien instala es el Hub. El restaurante pulsaba
+   * «Actualizar ahora» y no pasaba nada, para siempre. Ahora la decisión se
+   * manda, y lo que vuelve del Hub es lo que manda.
+   *
+   * Se aplica primero en local para que el diálogo responda al instante, y se
+   * revierte si el Hub no la acepta. Una elección que se ve tomada pero que el
+   * Hub no tiene es la misma avería de antes, solo que más difícil de ver.
+   */
+  async decidir(eleccion: EleccionActualizacion): Promise<{ ok: true } | { ok: false; error: string }> {
+    const previo = this.datos;
     this.datos = aplazar(this.datos, eleccion, Date.now());
     this.ahora = Date.now();
-    this.guardar();
+
+    try {
+      const respuesta = await fetch("/actualizacion", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(eleccion),
+        signal: AbortSignal.timeout(5000),
+      });
+
+      if (!respuesta.ok) {
+        this.datos = previo;
+        /*
+         * El Hub solo acepta esto desde la propia caja, igual que la licencia:
+         * reiniciar el sistema del restaurante no es algo que deba poder pedir
+         * cualquiera desde la wifi del local. A quien lo intenta desde una
+         * tablet hay que decírselo, no dejarlo pensando que ya está hecho.
+         */
+        const error =
+          respuesta.status === 403
+            ? "La actualización se confirma desde la caja, no desde esta terminal."
+            : `El Hub no aceptó la decisión (${respuesta.status}).`;
+        return { ok: false, error };
+      }
+
+      this.datos = (await respuesta.json()) as EstadoActualizacion;
+      this.ahora = Date.now();
+      this.guardar();
+      return { ok: true };
+    } catch {
+      this.datos = previo;
+      return { ok: false, error: "No se pudo avisar al Hub. Inténtelo de nuevo." };
+    }
   }
 
   /**

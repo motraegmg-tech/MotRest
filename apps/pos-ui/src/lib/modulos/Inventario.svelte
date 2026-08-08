@@ -16,6 +16,7 @@
     formatearCantidad,
     valorDe,
     type MotivoMovimiento,
+    calcularRendimiento
   } from "@motrest/dominio";
   import { catalogo } from "../catalogo";
   import { hora, mxn, pct } from "../formato";
@@ -24,7 +25,7 @@
   import { inventario } from "../inventario.svelte";
   import { sesion } from "../sesion/sesion.svelte";
 
-  type Vista = "existencias" | "movimiento" | "conteo" | "costeo";
+  type Vista = "existencias" | "movimiento" | "conteo" | "costeo" | "rendimiento";
   let vista = $state<Vista>("existencias");
 
   // Movimiento manual
@@ -40,6 +41,17 @@
   const puedeMerma = $derived(sesion.puedeOperar("inv.merma.registrar"));
   const puedeConteo = $derived(sesion.puedeOperar("inv.conteo.cerrar"));
   const puedeVerCostos = $derived(sesion.puedeVer("fin.costo.ver"));
+
+  // Rendimiento
+  let prodRendimientoId = $state(
+    [...catalogo.productos.values()].find(p => p.receta_id)?.id ?? ""
+  );
+
+  const rendimiento = $derived.by(() => {
+    if (!prodRendimientoId) return null;
+    const mapaInsumos = new Map(inventario.insumos.map((i) => [i.id, i]));
+    return calcularRendimiento(prodRendimientoId, catalogo, inventario.existencias, mapaInsumos);
+  });
 
   /*
    * Costeo ideal contra real (F2), sobre la jornada en curso: lo que las recetas
@@ -122,6 +134,9 @@
           Ideal vs. real
         </button>
       {/if}
+      <button class:on={vista === "rendimiento"} onclick={() => (vista = "rendimiento")}>
+        Calculadora
+      </button>
     </div>
   </div>
 
@@ -326,7 +341,7 @@
         {/if}
       {/if}
     </section>
-  {:else}
+  {:else if vista === "conteo"}
     <section class="tarjeta">
       <h2>Conteo cíclico</h2>
       <p class="pista">
@@ -374,6 +389,46 @@
         </button>
         <button class="principal" onclick={cerrarConteo}>Cerrar conteo</button>
       </div>
+    </section>
+  {:else if vista === "rendimiento"}
+    <section class="tarjeta">
+      <div class="encabezado">
+        <div>
+          <h2>Calculadora de rendimiento</h2>
+          <p class="pista">
+            Calcula cuántas unidades de un producto puedes preparar con el almacén actual.
+            Identifica qué ingrediente te limita para saber qué necesitas comprar.
+          </p>
+        </div>
+      </div>
+      
+      <div class="campos" style="margin-top: 1rem; margin-bottom: 1.5rem;">
+        <label class="ancho">
+          <span>Producto</span>
+          <select bind:value={prodRendimientoId}>
+            {#each [...catalogo.productos.values()].filter(p => p.receta_id) as p (p.id)}
+              <option value={p.id}>{p.nombre}</option>
+            {/each}
+          </select>
+        </label>
+      </div>
+
+      {#if prodRendimientoId && rendimiento}
+        <div class="rendimiento-resultado">
+          <div class="dato-grande">
+            <span>Salen aprox.</span>
+            <b>{rendimiento.piezas}</b>
+            <span class="unidades">unidades</span>
+          </div>
+          
+          <div class="limitante">
+            <span class="etiqueta">Insumo limitante (topa la producción):</span>
+            <b>{inventario.insumo(rendimiento.insumo_limitante_id)?.nombre ?? rendimiento.insumo_limitante_id}</b>
+          </div>
+        </div>
+      {:else if prodRendimientoId}
+        <p class="vacio">No hay existencias suficientes o el producto no requiere insumos inventariables.</p>
+      {/if}
     </section>
   {/if}
 </div>
@@ -659,5 +714,49 @@
   .encabezado .dato {
     flex: none;
     min-width: 9rem;
+  }
+  .rendimiento-resultado {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 2rem;
+    align-items: center;
+    background: var(--fondo);
+    border: 1px solid var(--borde);
+    border-radius: var(--r-md);
+    padding: 1.5rem;
+  }
+  .dato-grande {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+  }
+  .dato-grande span {
+    font-size: 0.8rem;
+    font-weight: 600;
+    color: var(--gris);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+  }
+  .dato-grande b {
+    font-family: var(--font-titulo);
+    font-size: 3rem;
+    line-height: 1;
+    color: var(--acento);
+    margin: 0.2rem 0;
+  }
+  .dato-grande .unidades {
+    font-size: 0.85rem;
+    color: var(--pizarra);
+    text-transform: none;
+    letter-spacing: normal;
+  }
+  .limitante {
+    display: flex;
+    flex-direction: column;
+    gap: 0.35rem;
+  }
+  .limitante b {
+    font-size: 1.15rem;
+    color: var(--peligro);
   }
 </style>

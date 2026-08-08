@@ -69,6 +69,7 @@ export type Accion =
   | "cat.area.editar"
   | "admin.usuario.crear"
   | "admin.usuario.editar"
+  | "admin.usuario.eliminar"
   | "admin.rol.editar"
   | "admin.dispositivo.aprobar"
   | "admin.bitacora.ver";
@@ -220,6 +221,27 @@ export const CATALOGO_ACCIONES: GrupoAcciones[] = [
       def("cat.area.editar", "m9", "Editar salones y mesas", "Configurar áreas, plano de piso y mesas"),
       def("admin.usuario.crear", "m9", "Crear usuarios", "Dar de alta personal con acceso al sistema", true),
       def("admin.usuario.editar", "m9", "Editar usuarios", "Modificar permisos y datos de acceso", true),
+      /*
+       * Borrar a alguien de la plantilla, y no solo desactivarlo.
+       *
+       * Va aparte de «Editar usuarios» porque no se deshace: desactivar a un
+       * empleado que se fue es reversible el día que vuelve; eliminarlo lo saca
+       * de todas las listas para siempre y destruye su credencial. Es la
+       * decisión de quien manda en el restaurante, no del gerente de turno, y
+       * por eso solo el rango más alto la tiene.
+       *
+       * LO QUE NO BORRA, Y NO PUEDE: sus movimientos. La bitácora es el registro
+       * fiscal del negocio y solo agrega. Un empleado eliminado sigue siendo
+       * quien cobró la mesa 4 aquel viernes; lo que desaparece es su acceso y su
+       * presencia en la operación de hoy.
+       */
+      def(
+        "admin.usuario.eliminar",
+        "m9",
+        "Eliminar usuarios",
+        "Borrar a alguien de la plantilla en definitiva, sin poder deshacerlo",
+        true,
+      ),
       /*
        * Aparte de «Editar usuarios» porque es otra cosa y con otro riesgo.
        *

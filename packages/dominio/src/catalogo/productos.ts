@@ -38,6 +38,15 @@ export interface Producto {
   /** OPCIONAL: grupos de modificadores aplicables (etapa 6). */
   grupos_modificadores?: ID[];
 
+  /**
+   * OPCIONAL: nombre del archivo de foto que sirve el Hub (`fotos.ts`).
+   *
+   * Solo el NOMBRE. Los bytes viven en el disco del Hub porque el catálogo se
+   * replica entero a cada terminal y una carta con las imágenes dentro haría que
+   * arrancar una tablet costara decenas de megas.
+   */
+  foto?: string;
+
   /** Estación de cocina a la que se rutea (KDS e impresión). */
   estacion_id?: ID;
   /**

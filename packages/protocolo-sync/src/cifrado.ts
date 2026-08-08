@@ -179,6 +179,50 @@ export async function derivarSecretoPortal(claveLocal: string): Promise<string> 
   return aBase64Url(new Uint8Array(bits));
 }
 
+/**
+ * El secreto con que una terminal se identifica para subir fotos al Hub.
+ *
+ * POR QUÉ NO SE MANDA LA CLAVE DEL LOCAL Y YA
+ *
+ * Subir una foto es HTTP, no el canal cifrado: hay bytes de imagen de por medio
+ * y meterlos en el WebSocket obligaría a cargarlos enteros en memoria en ambos
+ * extremos. Pero una petición HTTP tiene que llevar consigo la prueba de que
+ * quien la manda pertenece al local, y esa prueba **no puede ser la clave del
+ * local**: esa clave abre la sincronización entera del restaurante, y viaja en
+ * una cabecera que puede acabar en un registro o en un mensaje de error.
+ *
+ * Se deriva un secreto propio, con su etiqueta, exactamente como el del portal:
+ * si algún día se filtra, lo que se filtra es la posibilidad de subir una foto —
+ * no la de leer las ventas ni la de inyectar pagos falsos. Lo derivan por igual
+ * el Hub y cada terminal emparejada, así que no hay nada que distribuir.
+ */
+export async function derivarSecretoFotos(claveLocal: string): Promise<string> {
+  if (!claveValida(claveLocal)) {
+    throw new Error("La clave del local no tiene la forma esperada");
+  }
+
+  const material = await crypto.subtle.importKey(
+    "raw",
+    deBase64Url(claveLocal) as BufferSource,
+    "HKDF",
+    false,
+    ["deriveBits"],
+  );
+
+  const bits = await crypto.subtle.deriveBits(
+    {
+      name: "HKDF",
+      hash: "SHA-256",
+      salt: new Uint8Array(0),
+      info: new TextEncoder().encode("motrest:fotos:subida:v1"),
+    },
+    material,
+    256,
+  );
+
+  return aBase64Url(new Uint8Array(bits));
+}
+
 // --- Sobre cifrado -----------------------------------------------------------------------
 
 /**

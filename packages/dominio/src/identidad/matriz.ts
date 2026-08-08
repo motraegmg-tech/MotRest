@@ -163,6 +163,26 @@ export function puedeGestionarA(actor: Usuario, objetivo: Usuario): boolean {
 }
 
 /**
+ * ¿`actor` puede BORRAR a `objetivo` de la plantilla, en definitiva?
+ *
+ * Dos candados, y hacen falta los dos:
+ *
+ *   1. Tener la acción al nivel «autorizar». Por plantilla la tiene el
+ *      propietario y nadie más: es el rango más alto del restaurante y esta
+ *      decisión no se deshace.
+ *   2. Rango estrictamente mayor que el del objetivo. Con esto, ni un gerente
+ *      borra a otro gerente, ni nadie se borra a sí mismo, ni el restaurante
+ *      puede borrar el acceso de soporte de MOTRAE —que va por encima y firmado
+ *      en la licencia—.
+ *
+ * Desactivar es otra cosa y sigue donde estaba: para el empleado que se fue y
+ * puede volver está `usuario_actualizado { activo: false }`, que sí se deshace.
+ */
+export function puedeEliminarA(actor: Usuario, objetivo: Usuario): boolean {
+  return puedeAutorizar(actor, "admin.usuario.eliminar") && puedeGestionarA(actor, objetivo);
+}
+
+/**
  * Roles que `actor` puede asignar al dar de alta: solo por debajo del suyo.
  *
  * Y nunca uno oculto, ni siquiera desde Soporte. El acceso de MOTRAE se emite

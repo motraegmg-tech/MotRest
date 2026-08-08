@@ -11,6 +11,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   firmarVersion,
   generarPar,
+  leTocaElAnillo,
   type ParDeLlaves,
   type VersionDisponible,
 } from "@motrest/dominio";
@@ -61,6 +62,7 @@ function hub(
   registro: string[] = [],
   memoria = {},
   token?: string,
+  sucursalId?: string,
 ) {
   return {
     actualizaciones: new Actualizaciones(
@@ -69,6 +71,8 @@ function hub(
       (nivel, texto) => registro.push(`${nivel}: ${texto}`),
       llamar,
       memoria,
+      () => undefined,
+      sucursalId
     ),
     registro,
   };
@@ -100,6 +104,18 @@ describe("buscar una versión nueva", () => {
   it("no ofrece una versión más vieja que la instalada", async () => {
     const { actualizaciones } = hub(github(RELEASE, await manifiesto("1.3.0")), "1.4.0");
     expect(await actualizaciones.buscar()).toBeNull();
+  });
+
+  it("si el anillo no le toca, no lo ofrece ni lo recuerda", async () => {
+    // Le pasamos un anillo muy restrictivo (1%) y un sucursalId que sabemos que cae fuera.
+    // Como el hash reparte uniformemente, "suc-fuera-del-1-por-ciento" casi seguro no está en el 1%.
+    const archivo = await manifiesto("1.5.0", { anillo: 1, publicado_ts: 2000 });
+    const memoria: { ultimo_publicado_ts?: number } = {};
+    const { actualizaciones } = hub(github(RELEASE, archivo), "1.4.0", [], memoria, undefined, "suc-muy-lejos-del-anillo-1");
+
+    expect(await actualizaciones.buscar()).toBeNull();
+    // No debe recordarlo, porque si lo recuerda nunca más lo verá cuando el anillo se amplíe.
+    expect(memoria.ultimo_publicado_ts).toBeUndefined();
   });
 
   it("no acepta un manifiesto firmado que retrocede el publicado_ts", async () => {
@@ -167,6 +183,35 @@ describe("buscar una versión nueva", () => {
     expect(calls[0]?.authorization).toBe("Bearer token-privado");
     expect(calls[1]?.url).toContain("objects.githubusercontent.com");
     expect(calls[1]?.authorization).toBeUndefined();
+  });
+
+  it("no recuerda el manifiesto si el anillo no le toca (impide que quede ignorado para siempre)", async () => {
+    const archivo = await manifiesto("1.5.0", { anillo: 5, publicado_ts: 5_000 });
+    const llamar = github(RELEASE, archivo);
+    const memoria: { ultimo_publicado_ts?: number } = {};
+    
+    // Buscamos un ID que sepamos que queda fuera del anillo del 5%
+    let sucursalId = "sucursal-1";
+    while (leTocaElAnillo(sucursalId, 5)) {
+      sucursalId += "a";
+    }
+
+    const actualizaciones = new Actualizaciones(
+      REPO(),
+      "1.4.0",
+      () => {},
+      llamar,
+      memoria,
+      () => {},
+      sucursalId
+    );
+
+    const resultado = await actualizaciones.buscar();
+    
+    expect(resultado).toBeNull();
+    // La memoria no se debió modificar: si se hubiera recordado el 5000, 
+    // la sucursal nunca vería esta versión cuando el anillo crezca
+    expect(memoria.ultimo_publicado_ts).toBeUndefined();
   });
 });
 

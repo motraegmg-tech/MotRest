@@ -18,12 +18,17 @@ import {
   compararVersiones,
   cuandoRecordar,
   debeAvisar,
+  debeInstalar,
+  enHorarioDeServicio,
   estadoInicial,
   firmarVersion,
   hayNovedad,
   hayPendiente,
+  hayTurnoAbierto,
   instaladaPorDebajoDelMinimo,
+  leTocaElAnillo,
   marcarInstalada,
+  posicionEnLaFlota,
   puedeInstalarse,
   registrarDisponible,
   resumenDeEleccion,
@@ -195,6 +200,125 @@ describe("cuando el restaurante lo pospone", () => {
   });
 });
 
+// --- De la decisión a la instalación --------------------------------------------------------
+
+describe("cuándo se pasa de decidir a instalar", () => {
+  const disponible = () => registrarDisponible(estadoInicial(), version(), VIERNES_21H);
+
+  /*
+   * EL CABLE QUE FALTABA. Antes el POS recogía la decisión y la guardaba en su
+   * propio almacén; nadie la convertía en una instalación. Esta función es la
+   * que traduce «dijo que sí» en «hazlo», y separa las dos respuestas
+   * afirmativas del diálogo de la que solo pide un recordatorio.
+   */
+  it("«ahora» pide instalar de inmediato", () => {
+    const estado = aplazar(disponible(), { cuando: "ahora" }, VIERNES_21H);
+    expect(debeInstalar(estado, VIERNES_21H)).toBe(true);
+  });
+
+  it("«a las 23:00» no instala a las nueve, sí a las once", () => {
+    const estado = aplazar(disponible(), { cuando: "a_las", hora: 23 }, VIERNES_21H);
+    expect(debeInstalar(estado, VIERNES_21H)).toBe(false);
+    expect(debeInstalar(estado, new Date(2026, 6, 24, 23, 0).getTime())).toBe(true);
+  });
+
+  /* «Más tarde» es recuérdamelo, no hazlo. Nunca instala por su cuenta. */
+  it("«más tarde» no instala nunca: vuelve a preguntar", () => {
+    const estado = aplazar(disponible(), { cuando: "mas_tarde" }, VIERNES_21H);
+    expect(debeInstalar(estado, VIERNES_21H + MAS_TARDE_MS + 1)).toBe(false);
+    expect(debeAvisar(estado, VIERNES_21H + MAS_TARDE_MS + 1)).toBe(true);
+  });
+
+  it("sin decisión no se instala nada", () => {
+    expect(debeInstalar(disponible(), VIERNES_21H)).toBe(false);
+  });
+
+  /*
+   * Quien dice «ahora» con la caja abierta puede esperar horas a que sea seguro.
+   * Repetirle el diálogo cada minuto mientras tanto le tapa la pantalla de cobro
+   * con una pregunta que ya contestó.
+   */
+  it("después de decir que sí, el diálogo no vuelve a salir", () => {
+    const estado = aplazar(disponible(), { cuando: "ahora" }, VIERNES_21H);
+    expect(debeAvisar(estado, VIERNES_21H + 60_000)).toBe(false);
+    expect(hayPendiente(estado)).toBe(true);
+  });
+});
+
+describe("los dos guardias del momento seguro", () => {
+  it("de día es horario de servicio; de madrugada no", () => {
+    expect(enHorarioDeServicio(VIERNES_21H)).toBe(true);
+    expect(enHorarioDeServicio(new Date(2026, 6, 24, 14, 0).getTime())).toBe(true);
+    expect(enHorarioDeServicio(new Date(2026, 6, 24, 23, 30).getTime())).toBe(false);
+    expect(enHorarioDeServicio(new Date(2026, 6, 25, 3, 0).getTime())).toBe(false);
+  });
+
+  /*
+   * Las horas que ofrece el diálogo tienen que ser horas a las que el sistema
+   * de verdad instale. Ofrecer una y luego negarse es lo peor: el restaurante
+   * eligió, esperó, y no pasó nada.
+   */
+  it("todas las horas que ofrece el POS caen fuera del servicio", () => {
+    for (const hora of [23, 0, 1, 2, 3, 4, 5, 6]) {
+      expect(enHorarioDeServicio(new Date(2026, 6, 25, hora, 0).getTime())).toBe(false);
+    }
+  });
+
+  /* Con varias cajas los turnos se entrelazan: contar eventos no sirve. */
+  it("un turno sin cerrar se detecta aunque otros ya cerraran", () => {
+    const aperturas = [{ sesion_id: "ses-1" }, { sesion_id: "ses-2" }];
+    expect(hayTurnoAbierto(aperturas, [{ sesion_id: "ses-1" }])).toBe(true);
+    expect(hayTurnoAbierto(aperturas, [{ sesion_id: "ses-2" }, { sesion_id: "ses-1" }])).toBe(false);
+    expect(hayTurnoAbierto([], [])).toBe(false);
+  });
+});
+
+// --- Anillos --------------------------------------------------------------------------------
+
+describe("anillos de despliegue", () => {
+  const LOCALES = Array.from({ length: 200 }, (_, i) => `suc-restaurante-${i}`);
+
+  it("sin anillo va toda la flota, como siempre", () => {
+    expect(LOCALES.every((id) => leTocaElAnillo(id))).toBe(true);
+    expect(leTocaElAnillo("suc-rodizio", 100)).toBe(true);
+  });
+
+  /*
+   * LA PROPIEDAD QUE HACE UTILIZABLE EL CANARIO: el mismo local ocupa siempre la
+   * misma posición. Si dependiera de la versión, cada release probaría en un
+   * restaurante distinto y no se aprendería nada de ninguno.
+   */
+  it("la posición de un local no cambia entre versiones ni entre llamadas", () => {
+    const primera = posicionEnLaFlota("suc-rodizio");
+    expect(posicionEnLaFlota("suc-rodizio")).toBe(primera);
+    expect(primera).toBeGreaterThanOrEqual(0);
+    expect(primera).toBeLessThan(100);
+  });
+
+  /* Ampliar el despliegue no puede sacar a nadie que ya estaba dentro. */
+  it("subir el porcentaje solo añade locales, nunca quita", () => {
+    const dentroDe = (anillo: number) => LOCALES.filter((id) => leTocaElAnillo(id, anillo));
+    const diez = dentroDe(10);
+    const cincuenta = dentroDe(50);
+
+    expect(diez.every((id) => cincuenta.includes(id))).toBe(true);
+    expect(cincuenta.length).toBeGreaterThan(diez.length);
+  });
+
+  it("reparte la flota de forma pareja, no todos en el mismo cajón", () => {
+    const dentro = LOCALES.filter((id) => leTocaElAnillo(id, 25)).length;
+    // 25 % de 200 son 50; se acepta holgura porque es un hash, no una cuota.
+    expect(dentro).toBeGreaterThan(25);
+    expect(dentro).toBeLessThan(75);
+  });
+
+  it("un anillo de cero o negativo no despliega a nadie", () => {
+    expect(leTocaElAnillo("suc-rodizio", 0)).toBe(false);
+    expect(leTocaElAnillo("suc-rodizio", -5)).toBe(false);
+    expect(leTocaElAnillo("suc-rodizio", Number.NaN)).toBe(false);
+  });
+});
+
 // --- La firma -------------------------------------------------------------------------------
 
 describe("de dónde viene la actualización", () => {
@@ -224,6 +348,17 @@ describe("de dónde viene la actualización", () => {
   it("marcarla obligatoria por su cuenta invalida la firma", async () => {
     const firmada = await firmarVersion(version(), MOTRAE.privada);
     expect(await verificarVersion({ ...firmada, obligatoria: true }, MOTRAE.publica)).toBe(false);
+  });
+
+  /*
+   * El anillo entra en la firma como todo lo demás. Si no, quien controlara el
+   * release podría borrar el `anillo: 10` de un despliegue de prueba y soltarlo
+   * a la flota entera — justo la protección que el anillo existe para dar.
+   */
+  it("ampliar el anillo por su cuenta invalida la firma", async () => {
+    const firmada = await firmarVersion(version("1.4.0", { anillo: 10 }), MOTRAE.privada);
+    expect(await verificarVersion(firmada, MOTRAE.publica)).toBe(true);
+    expect(await verificarVersion({ ...firmada, anillo: 100 }, MOTRAE.publica)).toBe(false);
   });
 
   it("otra llave privada no puede publicar", async () => {

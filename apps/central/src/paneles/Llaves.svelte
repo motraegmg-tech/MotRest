@@ -6,6 +6,8 @@
   import { central } from "../lib/central.svelte";
 
   let repositorio = $state(central.secretos.repositorio);
+  let relayUrl = $state(central.secretos.relay_url ?? "");
+  let relayClaveAdmin = $state("");
   let repositorioCargado = "";
   let guardado = $state("");
   let error = $state("");
@@ -36,7 +38,12 @@
 
   async function guardar() {
     error = "";
-    const resultado = await central.guardarConfiguracion({ repositorio });
+    const cambios: { repositorio: string; relay_url?: string; relay_clave_admin?: string } = {
+      repositorio,
+    };
+    if (relayUrl.trim()) cambios.relay_url = relayUrl.trim();
+    if (relayClaveAdmin.trim()) cambios.relay_clave_admin = relayClaveAdmin.trim();
+    const resultado = await central.guardarConfiguracion(cambios);
     if (!resultado.ok) {
       error = resultado.error;
       return;
@@ -262,13 +269,29 @@
       <button disabled={trabajando || !puedeEditarSecretos} onclick={pedirGenerarPares}>Regenerar pares…</button>
     {/if}
 
-    <h2>Canal de actualizaciones</h2>
+    <h2>Canal de actualizaciones y estado</h2>
     <label>
       Repositorio de GitHub
       <input bind:value={repositorio} spellcheck="false" placeholder="motrae/motrest" />
       <small>Los Hubs bajan solo desde HTTPS de GitHub; el token opcional nunca sale a otro host.</small>
     </label>
-    <button class="primario" disabled={!puedeEditarSecretos} onclick={guardar}>Guardar repositorio</button>
+    <div class="dos">
+      <label>
+        URL del Relay
+        <input bind:value={relayUrl} spellcheck="false" placeholder="https://relay.motrae.com" />
+      </label>
+      <label>
+        Clave de administración del Relay
+        <input
+          type="password"
+          bind:value={relayClaveAdmin}
+          placeholder={central.secretos.relay_url ? "Guardada (escriba para cambiar)" : ""}
+        />
+      </label>
+    </div>
+    <button class="primario" disabled={!puedeEditarSecretos} onclick={guardar}>
+      Guardar canal y relay
+    </button>
   {/if}
 
   {#if error}<p class="error">{error}</p>{/if}

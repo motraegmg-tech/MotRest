@@ -34,8 +34,32 @@ import { createRequire } from "node:module";
 import { networkInterfaces } from "node:os";
 import { dirname, extname, join, resolve } from "node:path";
 import { WebSocketServer, type WebSocket } from "ws";
-import type { EventoBase, EventoMensajeria, EventoOpinion, MemoriaDeCanal } from "@motrest/dominio";
-import { configuracionVacia, pideBaja, streamIdentidad, streamMensajeria, uuidv7 } from "@motrest/dominio";
+import type {
+  Centavos,
+  EleccionActualizacion,
+  EstadoActualizacion,
+  EventoBase,
+  EventoMensajeria,
+  EventoOpinion,
+  MemoriaDeCanal,
+  PulsoCliente,
+} from "@motrest/dominio";
+import {
+  CERO,
+  aplazar,
+  configuracionVacia,
+  debeInstalar,
+  enHorarioDeServicio,
+  estadoInicial,
+  hayTurnoAbierto,
+  marcarInstalada,
+  pideBaja,
+  puedeInstalarse,
+  registrarDisponible,
+  streamIdentidad,
+  streamMensajeria,
+  uuidv7,
+} from "@motrest/dominio";
 import type { ConfiguracionCorreo } from "@motrest/dominio";
 import {
   cifrar,
@@ -56,6 +80,7 @@ import { Actualizaciones, CADA_MS as ACTUALIZAR_CADA_MS } from "./actualizacione
 import {
   LLAVE_PUBLICA_ACTUALIZACIONES,
   LLAVE_PUBLICA_LICENCIAS,
+  REPOSITORIO_ACTUALIZACIONES,
 } from "./llaves-motrae.js";
 import { registrarPedido, type PlatilloDeKiosco } from "./kiosco.js";
 import { registrarOpinion, solicitarReserva, verCuenta } from "./portal.js";
@@ -89,6 +114,7 @@ import {
   politicaDeRitmoHttp,
   type AutoridadHub,
 } from "./seguridad-http.js";
+import { manejarSubidaFoto, rutaFotoSegura } from "./fotos-http.js";
 import type { DatabaseSync as TipoDatabaseSync } from "node:sqlite";
 
 /** La versión se incrusta al crear el ejecutable SEA del Hub. */
@@ -171,6 +197,18 @@ let licencia: GestorLicencia | null = null;
 let actualizador: Actualizaciones | null = null;
 /** Lo último que se encontró publicado, para contárselo a las terminales. */
 let versionDisponible: import("@motrest/dominio").VersionDisponible | null = null;
+/**
+ * Qué versión hay pendiente y qué contestó el restaurante.
+ *
+ * Vive AQUÍ y no en la terminal. Antes cada tablet guardaba la decisión en su
+ * propio almacén, así que «instalar a las 23:00» solo lo sabía la pantalla en la
+ * que alguien lo pulsó —y quien instala es el Hub—. La consecuencia era que la
+ * respuesta del restaurante no llegaba a ninguna parte.
+ */
+const CLAVE_ESTADO_ACTUALIZACION = "actualizacion_estado";
+let estadoActualizacion: EstadoActualizacion = estadoInicial();
+/** Evita que dos vueltas del reloj lancen dos veces el mismo instalador. */
+let instalandoActualizacion = false;
 
 /**
  * Cuántos pedidos lleva el kiosco. Alimenta el número que se grita para recoger.
@@ -183,6 +221,38 @@ let pedidosDeKioscoHoy = 0;
 
 /** Dónde se guarda la identidad del local, junto a la base y no al ejecutable. */
 const RUTA_SUCURSAL = join(dirname(RUTA_DB), "sucursal.txt");
+
+/**
+ * Marca de que la identidad del local **todavía no la confirmó MOTRAE**.
+ *
+ * Un equipo recién instalado se pone un identificador para poder arrancar, pero
+ * ese no es el restaurante: es un apaño. Mientras exista este archivo, la
+ * licencia que se active puede sustituirlo por el de verdad — que es lo que
+ * convierte «pegar la licencia» en «dar de alta el restaurante».
+ *
+ * Su AUSENCIA significa identidad firme, y por eso es lo correcto para los
+ * locales instalados antes de que esto existiera: llevan tiempo operando con su
+ * identificador y toda su historia está sellada con él.
+ */
+const RUTA_SUCURSAL_PROVISIONAL = join(dirname(RUTA_DB), "sucursal-provisional");
+
+/** ¿La identidad de este equipo es todavía un apaño del primer arranque? */
+function identidadProvisional(): boolean {
+  return existsSync(RUTA_SUCURSAL_PROVISIONAL);
+}
+
+function marcarProvisional(esProvisional: boolean): void {
+  try {
+    if (esProvisional) {
+      mkdirSync(dirname(RUTA_SUCURSAL_PROVISIONAL), { recursive: true });
+      writeFileSync(RUTA_SUCURSAL_PROVISIONAL, "", { encoding: "utf8", mode: 0o600 });
+    } else if (existsSync(RUTA_SUCURSAL_PROVISIONAL)) {
+      rmSync(RUTA_SUCURSAL_PROVISIONAL);
+    }
+  } catch (causa) {
+    registrar("aviso", `No se pudo anotar el estado de la identidad: ${String(causa)}`);
+  }
+}
 
 /**
  * A qué sucursal pertenece este Hub. **Se fija una vez y no vuelve a cambiar.**
@@ -240,10 +310,93 @@ function sucursalDelLocal(): string {
 
   sucursalFijada = identidad;
   if (!aprendida) {
-    registrar("aviso", `Local sin identificador asignado. Se generó ${identidad}.`);
-    registrar("aviso", "Al dar de alta el restaurante en MOTRAE Central, usa ESE identificador.");
+    // Provisional: es un apaño para poder arrancar, no el restaurante. La
+    // licencia que se active lo sustituye por el de verdad.
+    marcarProvisional(true);
+    registrar("aviso", `Local sin identificador asignado. Se generó ${identidad} de momento.`);
+    registrar("aviso", "Al activar la licencia quedará con el identificador que emita MOTRAE.");
   }
   return identidad;
+}
+
+/**
+ * Fija la identidad del local con la que trae su licencia. **Es el alta.**
+ *
+ * Gonzalo da de alta el restaurante en MOTRAE Central, Central emite el archivo
+ * firmado, y ese archivo se pega en la caja. A partir de ahí el equipo sabe qué
+ * restaurante es, sin que nadie teclee un identificador ni lo lleve el código.
+ *
+ * Se niega en dos casos, y los dos son el mismo principio —no pisar una
+ * identidad que ya significa algo—:
+ *
+ *   - El local ya tiene identidad firme: una licencia ajena no puede
+ *     apropiárselo. Sin esto, la licencia de un restaurante que paga valdría
+ *     para todos los demás.
+ *   - Quien instaló la impuso con `MOTREST_SUCURSAL_ID`.
+ */
+function fijarSucursalPorLicencia(sucursalId: string): boolean {
+  if (process.env.MOTREST_SUCURSAL_ID) return false;
+  if (!identidadProvisional()) return sucursalFijada === sucursalId;
+
+  if (sucursalFijada !== sucursalId) {
+    escribirSucursal(sucursalId);
+    /*
+     * Lo que ya se hubiera registrado quedó sellado con el identificador
+     * anterior. En el camino previsto no hay nada —el local no opera hasta
+     * estar licenciado— pero si lo hay, se dice: un dato que cambia de dueño
+     * en silencio es peor que uno que se pierde a la vista.
+     */
+    if (hub.seqActual > 0) {
+      registrar(
+        "aviso",
+        `${hub.seqActual} evento(s) quedaron registrados como ${sucursalFijada}. Revísalos antes de operar.`,
+      );
+    }
+    sucursalFijada = sucursalId;
+    hub.cargarIdentidad(sucursalId, []);
+  }
+
+  marcarProvisional(false);
+  return true;
+}
+
+/** Deja la identidad escrita junto a la base, para que sobreviva al reinicio. */
+function escribirSucursal(sucursalId: string): void {
+  try {
+    mkdirSync(dirname(RUTA_SUCURSAL), { recursive: true });
+    writeFileSync(RUTA_SUCURSAL, sucursalId, { encoding: "utf8", mode: 0o600 });
+  } catch (causa) {
+    // Sin poder escribirlo se opera igual, en memoria: el restaurante tiene
+    // que poder abrir hoy. Se volverá a resolver en el siguiente arranque.
+    registrar("aviso", `No se pudo fijar la identidad del local: ${String(causa)}`);
+  }
+}
+
+/**
+ * Toma como identidad del local la que trae su primera terminal.
+ *
+ * El Hub solo pregunta esto con el registro EN BLANCO. Hasta ese momento el
+ * identificador que tiene es uno inventado en el primer arranque, y rechazar
+ * con él a las terminales dejaba el local incapaz de abrir: sin terminales no
+ * hay eventos, y sin eventos el identificador inventado no se corrige nunca.
+ *
+ * Se niega en un solo caso: que quien instaló haya dicho explícitamente cuál es
+ * la sucursal. Esa decisión es de MOTRAE y no la pisa una terminal.
+ */
+function adoptarSucursal(sucursalId: string): boolean {
+  if (process.env.MOTREST_SUCURSAL_ID) return false;
+  if (sucursalFijada === sucursalId) return true;
+
+  escribirSucursal(sucursalId);
+  sucursalFijada = sucursalId;
+  /*
+   * SIGUE SIENDO PROVISIONAL. Lo dijo una terminal, no MOTRAE: sirve para que
+   * el local pueda abrir hoy, y la licencia lo sustituirá por el identificador
+   * de verdad cuando se active.
+   */
+  marcarProvisional(true);
+  registrar("info", `Identidad del local fijada de momento: ${sucursalId}.`);
+  return true;
 }
 
 /**
@@ -453,8 +606,12 @@ let clavesHub: ClavesCanal;
  * nadie teclee una IP ni 43 caracteres de clave.
  */
 function enlacesEmparejamiento(): { etiqueta: string; url: string }[] {
+  // El enlace lleva también de QUÉ local es. Sin eso, la tablet sellaría sus
+  // eventos con el identificador que trajera de fábrica y el Hub se los
+  // rechazaría por ser de otra sucursal.
   const enlace = (host: string) =>
-    `https://${host}:${PUERTO}/?hub=wss://${host}:${PUERTO}/sync&k=${claveLocal}`;
+    `https://${host}:${PUERTO}/?hub=wss://${host}:${PUERTO}/sync&k=${claveLocal}` +
+    `&s=${encodeURIComponent(sucursalDelLocal())}`;
 
   return [
     // El nombre va PRIMERO: sobrevive a que el router cambie la IP del equipo,
@@ -516,6 +673,7 @@ const hub = new Hub({
   log: almacen.log,
   exigirAprobacion: EXIGIR_APROBACION,
   enlaces: enlacesEmparejamiento,
+  adoptarSucursal,
   registrar,
   alIngerir: (eventos) => avisarPorLoQuePaso(eventos),
   fiscal: { sellador, cola: colaTimbrado, facturador, cancelador, nombrePac: pac?.nombre },
@@ -859,6 +1017,65 @@ function atenderInterno(peticion: IncomingMessage, respuesta: ServerResponse): v
     return;
   }
 
+  /*
+   * Fotos de productos.
+   * La subida va con CORS porque ocurre desde la terminal (que corre bajo un
+   * file://, o desde otra IP en tablet). Se pide permiso `cat.producto.editar`.
+   * El servicio de fotos usa GET público pero está protegido contra path traversal.
+   */
+  if (url.pathname.startsWith("/foto/")) {
+    if (peticion.method !== "GET") {
+      json(405, { error: "Usa GET" });
+      return;
+    }
+    const rutaSegura = rutaFotoSegura(dirname(RUTA_DB), url.pathname);
+    if (!rutaSegura) {
+      json(400, { error: "Nombre de foto inválido" });
+      return;
+    }
+    if (!existsSync(rutaSegura)) {
+      json(404, { error: "Foto no encontrada" });
+      return;
+    }
+    const tipo = TIPOS[extname(rutaSegura).toLowerCase()] ?? "application/octet-stream";
+    respuesta.writeHead(200, {
+      "content-type": tipo,
+      "cache-control": "public, max-age=31536000, immutable",
+    });
+    createReadStream(rutaSegura).pipe(respuesta);
+    return;
+  }
+
+  if (url.pathname === "/api/fotos/producto") {
+    if (peticion.method === "OPTIONS") {
+      respuesta.setHeader("access-control-allow-origin", "*");
+      respuesta.setHeader("access-control-allow-methods", "POST, OPTIONS");
+      respuesta.setHeader("access-control-allow-headers", "content-type");
+      respuesta.writeHead(204);
+      respuesta.end();
+      return;
+    }
+
+    if (peticion.method !== "POST") {
+      json(405, { error: "Usa POST" });
+      return;
+    }
+
+    respuesta.setHeader("access-control-allow-origin", "*");
+
+    void (async () => {
+      try {
+        const cuerpo = await leerCuerpo(peticion);
+        const contentType = peticion.headers["content-type"] || "";
+        const nombre = manejarSubidaFoto(dirname(RUTA_DB), contentType, cuerpo);
+        json(200, { ok: true, nombre });
+      } catch (error) {
+        json(400, { error: String(error) });
+      }
+    })();
+    return;
+  }
+
   if (url.pathname === "/imprimir") {
     if (!esLocal) {
       json(403, { error: "La impresión solo se acepta desde el propio equipo" });
@@ -923,6 +1140,13 @@ function atenderInterno(peticion: IncomingMessage, respuesta: ServerResponse): v
         ...(licencia?.paraTerminales(true) ?? { licencia: null, verificada: false }),
         situacion: v?.situacion ?? null,
         sucursal_id: sucursalDelLocal(),
+        /*
+         * true = este equipo todavía no está asignado a ningún restaurante.
+         * La pantalla lo usa para pedir el alta en vez de hablar de un servicio
+         * suspendido: no es lo mismo un local que dejó de pagar que uno que se
+         * acaba de instalar y aún no tiene dueño.
+         */
+        sin_asignar: identidadProvisional(),
         version: VERSION,
       });
       return;
@@ -949,6 +1173,63 @@ function atenderInterno(peticion: IncomingMessage, respuesta: ServerResponse): v
     }
 
     json(405, { error: "Usa GET o POST" });
+    return;
+  }
+
+  /*
+   * LA RESPUESTA DEL RESTAURANTE AL AVISO DE ACTUALIZACIÓN.
+   *
+   * Este es el cable que faltaba: el POS recogía la decisión y la guardaba en el
+   * almacén de su propia terminal, donde no la veía nadie. Quien instala es el
+   * Hub, así que la decisión tiene que llegar hasta aquí.
+   *
+   * Solo desde la propia caja y con el origen del Hub, igual que `/licencia`:
+   * reiniciar el sistema del restaurante no es algo que deba poder pedir
+   * cualquiera que esté en la wifi del local.
+   */
+  if (url.pathname === "/actualizacion") {
+    if (!esLocal) {
+      json(403, { error: "Solo desde la caja" });
+      return;
+    }
+    if (!esOrigenDelHub(peticion.headers.origin, seguro, autoridad)) {
+      json(403, { error: "Origen no autorizado" });
+      return;
+    }
+
+    if (peticion.method === "GET") {
+      json(200, estadoActualizacion);
+      return;
+    }
+
+    if (peticion.method !== "POST") {
+      json(405, { error: "Usa GET o POST" });
+      return;
+    }
+
+    void (async () => {
+      try {
+        const cuerpo = JSON.parse((await leerCuerpo(peticion, 4 * 1024)).toString("utf8")) as {
+          cuando?: unknown;
+          hora?: unknown;
+        };
+
+        const eleccion = eleccionValida(cuerpo);
+        if (!eleccion) {
+          json(400, { error: "Elección no reconocida" });
+          return;
+        }
+        if (!estadoActualizacion.disponible) {
+          json(409, { error: "No hay ninguna actualización pendiente" });
+          return;
+        }
+
+        await decidirActualizacion(eleccion);
+        json(200, estadoActualizacion);
+      } catch (causa) {
+        json(400, { error: `No se pudo registrar la decisión: ${String(causa)}` });
+      }
+    })();
     return;
   }
 
@@ -1294,6 +1575,10 @@ function servirPos(
        window.__MOTREST_HUB__ = ${JSON.stringify({
          url: `ws://localhost:${PUERTO_LOCAL}/sync`,
          clave: claveLocal,
+         // De qué restaurante es esta caja. Lo dice el Hub —que lo tomó de la
+         // licencia firmada— y no una constante del POS, que era la misma en
+         // todas las instalaciones.
+         sucursal_id: sucursalDelLocal(),
       })};
     </script>
   </head>`,
@@ -1565,9 +1850,12 @@ function avisarPorLoQuePaso(eventos: readonly EventoBase[]): void {
 async function prepararLicencia(): Promise<void> {
   licencia = new GestorLicencia(
     RUTA_LICENCIA,
-    sucursalDelLocal(),
+    // Se PREGUNTA cada vez: la identidad puede cambiar debajo, justo cuando la
+    // licencia que se está comprobando es la que la fija.
+    () => sucursalDelLocal(),
     LLAVE_PUBLICA_LICENCIAS,
     registrar,
+    fijarSucursalPorLicencia,
   );
   await licencia.cargar();
   difundirLicencia();
@@ -1587,15 +1875,34 @@ function difundirLicencia(): void {
 }
 
 /**
- * Busca versiones nuevas y avisa a las terminales.
+ * Busca versiones nuevas, avisa a las terminales y —cuando el restaurante lo
+ * pide y el momento es seguro— instala.
  *
- * NO INSTALA NADA POR SU CUENTA. Aquí solo se descubre y se avisa; quien decide
- * cuándo es el restaurante, y quien comprueba que el momento sea seguro es el
- * dominio (`puedeInstalarse`). Un Hub que se actualiza solo a las nueve de la
- * noche del viernes es exactamente lo que no puede pasar.
+ * NO INSTALA NADA POR SU CUENTA. Quien decide cuándo es el restaurante, y quien
+ * comprueba que el momento sea seguro es el dominio (`puedeInstalarse`). Un Hub
+ * que se actualiza solo a las nueve de la noche del viernes es exactamente lo
+ * que no puede pasar.
+ *
+ * El reloj de un minuto es lo que hace que «a las 23:00» signifique algo: nadie
+ * tiene que estar delante de la pantalla a esa hora para que ocurra.
  */
 async function prepararActualizaciones(): Promise<void> {
-  const repositorio = process.env.MOTREST_ACTUALIZACIONES_REPO;
+  /*
+   * El repositorio viaja incrustado en el binario junto a las llaves públicas.
+   * Antes solo se leía del entorno, y como nada lo escribía —ni el instalador ni
+   * Tauri al lanzar el Hub—, el canal venía apagado en cada instalación: los
+   * locales no llegaban ni a preguntar si había versión nueva. La variable de
+   * entorno sigue mandando, para poder apuntar un equipo a un repo de pruebas.
+   */
+  const repositorio = process.env.MOTREST_ACTUALIZACIONES_REPO || REPOSITORIO_ACTUALIZACIONES;
+
+  estadoActualizacion =
+    (await almacen.estado.cargar<EstadoActualizacion>(CLAVE_ESTADO_ACTUALIZACION)) ??
+    estadoInicial();
+  if (estadoActualizacion.disponible) {
+    versionDisponible = estadoActualizacion.disponible;
+    difundirActualizacion();
+  }
 
   if (!repositorio || !LLAVE_PUBLICA_ACTUALIZACIONES) {
     // Un local sin canal de actualización es un caso normal —se actualiza a
@@ -1620,6 +1927,7 @@ async function prepararActualizaciones(): Promise<void> {
     async (nuevaMemoria) => {
       await almacen.estado.guardar(CLAVE_MEMORIA_ACTUALIZACIONES, nuevaMemoria);
     },
+    sucursalDelLocal(),
   );
 
   const revisar = async () => {
@@ -1628,10 +1936,8 @@ async function prepararActualizaciones(): Promise<void> {
       if (!encontrada || encontrada.version === versionDisponible?.version) return;
 
       versionDisponible = encontrada;
-      hub.publicarCatalogo("actualizacion_estado", {
-        disponible: encontrada,
-        revisada_ts: Date.now(),
-      });
+      estadoActualizacion = registrarDisponible(estadoActualizacion, encontrada, Date.now());
+      await guardarEstadoActualizacion();
     } catch (causa) {
       registrar("aviso", `No se pudo revisar si hay versión nueva: ${String(causa)}`);
     }
@@ -1639,7 +1945,219 @@ async function prepararActualizaciones(): Promise<void> {
 
   await revisar();
   setInterval(() => void revisar(), ACTUALIZAR_CADA_MS).unref?.();
+  setInterval(() => void evaluarActualizacion(), 60_000).unref?.();
   registrar("info", `MotRest ${VERSION}. Actualizaciones desde ${repositorio}.`);
+}
+
+/**
+ * Cada cuánto el local le cuenta a MOTRAE cómo está.
+ *
+ * Un día. Central da por «sin señal» a las 30 horas (`HORAS_SIN_SENAL`), así que
+ * un pulso diario deja margen para un reinicio o una tarde sin internet sin
+ * disparar una alarma falsa.
+ */
+const PULSO_CADA_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * El parte que este local manda a MOTRAE.
+ *
+ * QUÉ NO VA AQUÍ: ventas por producto, clientes, recetas, nada del negocio del
+ * restaurante. Van cifras gruesas del último corte porque sirven para detectar
+ * una avería —un local que cierra en cero un viernes tiene un problema—, no para
+ * husmear. La operación vive en el local y esa es una ventaja del producto.
+ */
+function pulsoDelLocal(): PulsoCliente {
+  const copias = listarRespaldos(RUTA_RESPALDOS);
+  const crecimiento = evaluarCrecimiento(hub.seqActual, tamanoDelRegistro());
+  const corte = ultimoCorteCerrado();
+
+  const problemas: string[] = [];
+  if (!arranqueAutomatico.activo && INSTALACION_REAL) {
+    problemas.push("El Hub no arranca solo al encender el equipo");
+  }
+  if (crecimiento.nivel !== "sano") {
+    problemas.push(`El registro del local va por ${crecimiento.eventos} eventos`);
+  }
+  if (licencia?.veredicto().situacion.estado === "gracia") {
+    problemas.push("La licencia está en periodo de gracia");
+  }
+
+  return {
+    sucursal_id: sucursalDelLocal(),
+    ts: Date.now(),
+    version: VERSION,
+    terminales: hub.conectados,
+    eventos: hub.seqActual,
+    ...(copias[0] ? { respaldo_ts: copias[0].ts } : {}),
+    ...(corte ? { ventas_dia: corte.ventas, cuentas_dia: corte.cuentas } : {}),
+    ...(problemas.length > 0 ? { problemas } : {}),
+  };
+}
+
+/** Las cifras del último turno que se cerró, para el pulso. */
+function ultimoCorteCerrado(): { ventas: Centavos; cuentas: number } | null {
+  const cierres = almacen.log.porTipo("caja_cerrada", 0, 20_000) as unknown as {
+    resumen?: { total_vendido?: Centavos; cuentas_cerradas?: number };
+  }[];
+  const ultimo = cierres[cierres.length - 1];
+  if (!ultimo?.resumen) return null;
+  return {
+    ventas: ultimo.resumen.total_vendido ?? CERO,
+    cuentas: ultimo.resumen.cuentas_cerradas ?? 0,
+  };
+}
+
+function reportarPulso(): void {
+  if (!enlaceRelay?.conectado()) return;
+  try {
+    enlaceRelay.reportarPulso(pulsoDelLocal() as unknown as Record<string, unknown>);
+  } catch (causa) {
+    // Que no se pueda reportar no puede tumbar nada: es información para
+    // MOTRAE, no para el restaurante, y el local sigue vendiendo igual.
+    registrar("aviso", `No se pudo reportar el estado del local: ${String(causa)}`);
+  }
+}
+
+/** Guarda el estado y se lo cuenta a todas las terminales a la vez. */
+async function guardarEstadoActualizacion(): Promise<void> {
+  difundirActualizacion();
+  try {
+    await almacen.estado.guardar(CLAVE_ESTADO_ACTUALIZACION, estadoActualizacion);
+  } catch (causa) {
+    registrar("aviso", `No se pudo guardar el estado de la actualización: ${String(causa)}`);
+  }
+}
+
+function difundirActualizacion(): void {
+  hub.publicarCatalogo("actualizacion_estado", estadoActualizacion);
+}
+
+/**
+ * Traduce lo que llega por HTTP a una de las tres respuestas del diálogo.
+ *
+ * Se acepta cualquier hora del día, no solo las de madrugada que ofrece el POS.
+ * Elegir las 14:00 no adelanta nada —`puedeInstalarse` seguirá negándose en
+ * horario de servicio— pero tampoco hace daño, y rechazarlo obligaría a que esta
+ * lista y la del diálogo no se separaran nunca.
+ */
+function eleccionValida(cuerpo: { cuando?: unknown; hora?: unknown }): EleccionActualizacion | null {
+  if (cuerpo.cuando === "ahora") return { cuando: "ahora" };
+  if (cuerpo.cuando === "mas_tarde") return { cuando: "mas_tarde" };
+  if (
+    cuerpo.cuando === "a_las" &&
+    typeof cuerpo.hora === "number" &&
+    Number.isInteger(cuerpo.hora) &&
+    cuerpo.hora >= 0 &&
+    cuerpo.hora <= 23
+  ) {
+    return { cuando: "a_las", hora: cuerpo.hora };
+  }
+  return null;
+}
+
+/**
+ * Lo que contestó el restaurante en el diálogo.
+ *
+ * Llega por `POST /actualizacion` desde la caja. El Hub no se fía de que la
+ * terminal haya mirado el reloj o la caja: guarda la elección y deja que
+ * `evaluarActualizacion` decida si este momento sirve.
+ */
+async function decidirActualizacion(eleccion: EleccionActualizacion): Promise<void> {
+  estadoActualizacion = aplazar(estadoActualizacion, eleccion, Date.now());
+  await guardarEstadoActualizacion();
+  await evaluarActualizacion();
+}
+
+/**
+ * ¿Hay algo que instalar, ya toca, y es seguro hacerlo ahora mismo?
+ *
+ * Se llama cada minuto y en cuanto el restaurante contesta. Las tres respuestas
+ * negativas son distintas y se tratan distinto: «todavía no toca» calla, «la
+ * caja está abierta» se anota una vez para que se entienda la espera, y un fallo
+ * de descarga se anota y se reintenta en la siguiente vuelta.
+ */
+async function evaluarActualizacion(ahora = Date.now()): Promise<void> {
+  if (instalandoActualizacion || !actualizador) return;
+
+  const version = estadoActualizacion.disponible;
+  if (!version || !debeInstalar(estadoActualizacion, ahora)) return;
+
+  const veredicto = puedeInstalarse(turnoDeCajaAbierto(), enHorarioDeServicio(ahora));
+  if (!veredicto.puede) {
+    /*
+     * Se dice UNA vez por motivo, no una por minuto. Un Hub que espera ocho
+     * horas a que cierre la caja llenaría la bitácora con la misma línea 480
+     * veces y taparía todo lo demás.
+     */
+    if (motivoDeEsperaAnotado !== veredicto.motivo) {
+      motivoDeEsperaAnotado = veredicto.motivo;
+      registrar("info", `MotRest ${version.version}: ${veredicto.razon}`);
+    }
+    return;
+  }
+  motivoDeEsperaAnotado = null;
+
+  instalandoActualizacion = true;
+  try {
+    const instalador = await actualizador.descargar(version);
+    /*
+     * Se marca instalada ANTES de lanzar el instalador, no después: el relevo
+     * cierra este mismo proceso a los pocos segundos, y si el estado no está
+     * escrito para entonces, al volver a arrancar el Hub creería que sigue
+     * pendiente y volvería a descargar los mismos cien megas.
+     */
+    estadoActualizacion = marcarInstalada(estadoActualizacion, version.version);
+    versionDisponible = null;
+    await guardarEstadoActualizacion();
+
+    await actualizador.instalar(instalador, version, appDeEscritorio());
+  } catch (causa) {
+    registrar("error", `No se pudo instalar MotRest ${version.version}: ${String(causa)}`);
+    // Vuelve a quedar pendiente: el fallo casi siempre es de red y el siguiente
+    // intento funciona. Lo que no puede pasar es que desaparezca sin instalarse.
+    estadoActualizacion = registrarDisponible(estadoActualizacion, version, ahora);
+    versionDisponible = version;
+    await guardarEstadoActualizacion();
+  } finally {
+    instalandoActualizacion = false;
+  }
+}
+
+/** El último motivo por el que se está esperando, para no repetirlo cada minuto. */
+let motivoDeEsperaAnotado: string | null = null;
+
+/**
+ * ¿Queda algún turno de caja sin cerrar?
+ *
+ * Se proyecta del propio registro. El tope existe porque esto se consulta cada
+ * minuto mientras haya algo pendiente: 20 000 turnos son más de veinte años de
+ * operación, y si alguna vez se alcanzara, **se asume que hay caja abierta**.
+ * Ante la duda no se reinicia la caja de un restaurante.
+ */
+function turnoDeCajaAbierto(): boolean {
+  const TOPE = 20_000;
+  const aperturas = almacen.log.porTipo("caja_abierta", 0, TOPE) as unknown as {
+    sesion_id: string;
+  }[];
+  if (aperturas.length >= TOPE) return true;
+
+  const cierres = almacen.log.porTipo("caja_cerrada", 0, TOPE) as unknown as {
+    sesion_id: string;
+  }[];
+  return hayTurnoAbierto(aperturas, cierres);
+}
+
+/**
+ * Dónde está el MotRest que hay que volver a abrir después de instalar.
+ *
+ * El Hub corre como sidecar dentro de la carpeta de la instalación, así que la
+ * aplicación es su vecina. En desarrollo no hay tal cosa: se devuelve `undefined`
+ * y el instalador —que tampoco existe— no tendría a quién relanzar.
+ */
+function appDeEscritorio(): string | undefined {
+  if (!INSTALADO) return undefined;
+  const candidata = join(dirname(process.execPath), "MotRest.exe");
+  return existsSync(candidata) ? candidata : undefined;
 }
 
 async function prepararCorreo(): Promise<void> {
@@ -1706,7 +2224,12 @@ async function conectarAlRelay(): Promise<void> {
           }
         : undefined,
     registrar,
-    alConectar: () => avisos?.alReconectar(),
+    alConectar: () => {
+      avisos?.alReconectar();
+      // En cuanto hay enlace, MOTRAE sabe qué versión corre este local. Es el
+      // momento útil: justo después de una actualización, el Hub reconecta.
+      reportarPulso();
+    },
     alLlegarMensaje: (mensaje) => atenderMensajeDelComensal(mensaje),
   });
 
@@ -1717,6 +2240,13 @@ async function conectarAlRelay(): Promise<void> {
   );
 
   enlaceRelay.conectar();
+
+  /*
+   * El pulso diario. `alConectar` ya manda el primero; este es el que sostiene
+   * la señal en un local que lleva semanas encendido sin reiniciarse — que es
+   * justo el que se quiere vigilar.
+   */
+  setInterval(() => reportarPulso(), PULSO_CADA_MS).unref?.();
 }
 
 /**

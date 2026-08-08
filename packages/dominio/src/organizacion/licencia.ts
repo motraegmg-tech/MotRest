@@ -306,7 +306,27 @@ export async function verificarLicencia(
   llaveDeVerificacion: string,
 ): Promise<boolean> {
   if (licencia.sucursal_id !== sucursalEsperada) return false;
+  return firmaDeMotrae(licencia, llaveDeVerificacion);
+}
 
+/**
+ * ¿La firmó MOTRAE? Sin mirar a qué local dice pertenecer.
+ *
+ * Existe para el ALTA de un local nuevo, y solo para eso. Un equipo recién
+ * instalado todavía no sabe qué restaurante es —se puso un identificador
+ * provisional para poder arrancar—, así que no tiene contra qué comparar. Lo
+ * que sí puede comprobar es que el documento lo emitió MOTRAE, y de ahí toma la
+ * identidad: es el alta del restaurante, en un archivo que nadie más puede
+ * fabricar.
+ *
+ * NO sustituye a `verificarLicencia`. En un local que ya opera se sigue
+ * exigiendo que la licencia sea suya; si bastara la firma, la licencia de un
+ * restaurante que paga valdría en todos los demás.
+ */
+export async function firmaDeMotrae(
+  licencia: Licencia,
+  llaveDeVerificacion: string,
+): Promise<boolean> {
   const { firma, ...sinFirma } = licencia;
   return verificar(llaveDeVerificacion, contenidoFirmable(sinFirma), firma);
 }

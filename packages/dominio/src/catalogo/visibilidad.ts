@@ -76,6 +76,13 @@ export interface ProductoVisible {
   orden: number;
   /** true = el producto es configurable (mitad-y-mitad, combos). */
   configurable: boolean;
+  /**
+   * Nombre del archivo de foto, si el restaurante le puso una.
+   *
+   * Viaja para todos los perfiles: una foto de la carta es lo que ya está en el
+   * menú de la pared. No es un dato reservado como el costo.
+   */
+  foto?: string;
 
   /** Presentes solo si el usuario puede ver costos. */
   costo?: Centavos;
@@ -141,6 +148,10 @@ export function vistaProducto(
     configurable: producto.esquema_porciones !== undefined,
     tiene_receta: receta !== undefined,
   };
+
+  // Solo se pone la clave si hay foto: un `foto: undefined` explícito obligaría
+  // a cada pantalla a distinguir "sin foto" de "campo presente pero vacío".
+  if (producto.foto !== undefined) visible.foto = producto.foto;
 
   if (permisos.verCostos) {
     visible.costo = producto.costo;

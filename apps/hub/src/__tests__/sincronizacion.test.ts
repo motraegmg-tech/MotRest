@@ -389,6 +389,95 @@ describe("el Hub no confía en el cliente", () => {
     expect(await log.contar()).toBe(0);
   });
 
+  /*
+   * EL LOCAL QUE NO PODÍA ABRIR NUNCA.
+   *
+   * Un Hub recién instalado no sabe a qué sucursal pertenece —el registro está
+   * en blanco— así que se inventa un identificador y lo fija en disco. Con ese
+   * identificador rechazaba a TODAS las terminales, incluida la caja del propio
+   * equipo, que mostraba «Modo isla» contra su propio Hub. Y no se corregía
+   * solo: sin terminales no entra un evento, y sin eventos la identidad
+   * inventada no cambia jamás. Le pasó a la caja de Rodizio.
+   */
+  describe("identidad del local recién instalado", () => {
+    it("adopta la sucursal de su primera terminal cuando el registro está en blanco", () => {
+      const recien = new Hub({ hub_id: "hub-nuevo", log, adoptarSucursal: () => true });
+      // Lo que hace `arrancar()`: fija la identidad inventada antes de escuchar.
+      recien.cargarIdentidad("suc-d6c70a6d", []);
+
+      const caja = new ConexionPrueba("cx-caja");
+      recien.conectar(caja);
+      recien.recibir(caja.id, {
+        tipo: "hola", v: VERSION_PROTOCOLO, device_id: "dev-caja", sucursal_id: SUC, desde_seq: 0,
+      });
+
+      expect(caja.ultimo("error")).toBeUndefined();
+      expect(caja.ultimo("bienvenida")).toBeDefined();
+      expect(caja.cerrada).toBe(false);
+    });
+
+    it("avisa a quien tiene que persistirla, con el identificador que adoptó", () => {
+      const adoptadas: string[] = [];
+      const recien = new Hub({
+        hub_id: "hub-nuevo",
+        log,
+        adoptarSucursal: (id) => {
+          adoptadas.push(id);
+          return true;
+        },
+      });
+      recien.cargarIdentidad("suc-d6c70a6d", []);
+
+      const caja = new ConexionPrueba("cx-caja");
+      recien.conectar(caja);
+      recien.recibir(caja.id, {
+        tipo: "hola", v: VERSION_PROTOCOLO, device_id: "dev-caja", sucursal_id: SUC, desde_seq: 0,
+      });
+
+      expect(adoptadas).toEqual([SUC]);
+    });
+
+    it("NO la adopta si quien instaló ya decidió cuál es", () => {
+      const asignado = new Hub({ hub_id: "hub-asignado", log, adoptarSucursal: () => false });
+      asignado.cargarIdentidad("suc-la-que-dijo-motrae", []);
+
+      const ajena = new ConexionPrueba("cx-ajena");
+      asignado.conectar(ajena);
+      asignado.recibir(ajena.id, {
+        tipo: "hola", v: VERSION_PROTOCOLO, device_id: "dev-ajena", sucursal_id: SUC, desde_seq: 0,
+      });
+
+      expect(ajena.ultimo("error")!.codigo).toBe("sucursal_distinta");
+      expect(ajena.cerrada).toBe(true);
+    });
+
+    it("y en un local que YA operó no adopta nada: sus eventos dicen de quién es", async () => {
+      const enMarcha = new Hub({ hub_id: "hub-en-marcha", log, adoptarSucursal: () => true });
+      enMarcha.cargarIdentidad(SUC, []);
+
+      // El local abre y registra su primera venta.
+      const caja = terminal("dev-caja", "emp-lucia");
+      const cx = new ConexionPrueba("cx-caja");
+      enMarcha.conectar(cx);
+      enMarcha.recibir(cx.id, {
+        tipo: "hola", v: VERSION_PROTOCOLO, device_id: caja.deviceId, sucursal_id: SUC, desde_seq: 0,
+      });
+      enMarcha.recibir(cx.id, { tipo: "push", eventos: await venta(caja, "mesa-1") });
+      expect(log.seqActual).toBeGreaterThan(0);
+
+      // Ahora llega una terminal de otro restaurante. Con historia de por medio,
+      // adoptar su sucursal repartiría las ventas de este local a otro.
+      const forastera = new ConexionPrueba("cx-forastera");
+      enMarcha.conectar(forastera);
+      enMarcha.recibir(forastera.id, {
+        tipo: "hola", v: VERSION_PROTOCOLO, device_id: "dev-forastera", sucursal_id: "suc-otro-local", desde_seq: 0,
+      });
+
+      expect(forastera.ultimo("error")!.codigo).toBe("sucursal_distinta");
+      expect(forastera.cerrada).toBe(true);
+    });
+  });
+
   it("la PRIMERA terminal del local se autoriza sola, o nadie podría autorizar a nadie", () => {
     const cerrado = new Hub({ hub_id: "hub-cerrado", log, exigirAprobacion: true });
     const primera = new ConexionPrueba("cx-primera");
@@ -902,6 +991,61 @@ describe("el Hub revalida permisos", () => {
     conAutoridad.recibir(cx.id, { tipo: "push", eventos: [autoelevacion] });
     expect(cx.ultimo("error")!.codigo).toBe("permiso_denegado");
     expect(conAutoridad.seqActual).toBe(0);
+  });
+
+  /*
+   * BORRAR PERSONAL NO SE DESHACE, así que es donde menos puede valer la palabra
+   * del cliente. La pantalla ya esconde el botón a quien no es la dirección,
+   * pero esconder un botón no protege de nada: una terminal manipulada manda el
+   * evento igual, y la proyección lo aplicaría con un `filter` sin vuelta atrás.
+   */
+  it("un gerente no puede eliminar a nadie aunque su terminal mande el evento", () => {
+    const conAutoridad = new Hub({ hub_id: "hub-1", log, exigirAprobacion: false });
+    conAutoridad.cargarIdentidad(SUC, semillaDeIdentidad(propietario, gerente, mesero));
+    const cx = new ConexionPrueba("cx-1");
+    conAutoridad.conectar(cx);
+    conAutoridad.recibir(cx.id, {
+      tipo: "hola", v: VERSION_PROTOCOLO, device_id: "dev-gerencia", sucursal_id: SUC, desde_seq: 0,
+    });
+
+    const fabrica = new FabricaEventos<EventoIdentidad>({
+      device_id: "dev-gerencia", empleado_id: gerente.id, sucursal_id: SUC,
+    });
+    const baja = fabrica.crear("usuario_eliminado", streamIdentidad(SUC), {
+      usuario_id: mesero.id,
+      eliminado_por: gerente.id,
+      nombre: mesero.nombre,
+    });
+
+    conAutoridad.recibir(cx.id, { tipo: "push", eventos: [baja] });
+    expect(cx.ultimo("error")!.codigo).toBe("permiso_denegado");
+    expect(conAutoridad.seqActual).toBe(0);
+  });
+
+  it("el propietario sí, y el evento entra al registro del local", () => {
+    const conAutoridad = new Hub({ hub_id: "hub-1", log, exigirAprobacion: false });
+    conAutoridad.cargarIdentidad(SUC, semillaDeIdentidad(propietario, mesero));
+    const cx = new ConexionPrueba("cx-1");
+    conAutoridad.conectar(cx);
+    conAutoridad.recibir(cx.id, {
+      tipo: "hola", v: VERSION_PROTOCOLO, device_id: "dev-caja", sucursal_id: SUC, desde_seq: 0,
+    });
+
+    const fabrica = new FabricaEventos<EventoIdentidad>({
+      device_id: "dev-caja", empleado_id: propietario.id, sucursal_id: SUC,
+    });
+    const baja = fabrica.crear("usuario_eliminado", streamIdentidad(SUC), {
+      usuario_id: mesero.id,
+      eliminado_por: propietario.id,
+      nombre: mesero.nombre,
+    });
+
+    conAutoridad.recibir(cx.id, { tipo: "push", eventos: [baja] });
+    expect(cx.ultimo("acks")!.acks).toHaveLength(1);
+
+    // Y a partir de aquí el eliminado ya no firma nada: dejó de existir.
+    conAutoridad.recibir(cx.id, { tipo: "push", eventos: [cancelacionDe(mesero.id)] });
+    expect(cx.ultimo("error")!.codigo).toBe("permiso_denegado");
   });
 
   it("falla cerrado cuando no se cargó ninguna autoridad de identidad", () => {

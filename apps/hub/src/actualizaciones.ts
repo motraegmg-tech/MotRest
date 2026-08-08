@@ -11,9 +11,10 @@ import { createHash } from "node:crypto";
 import { createReadStream } from "node:fs";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { dirname, join, resolve } from "node:path";
+import { basename, dirname, join, resolve } from "node:path";
 import {
   aceptarManifiesto,
+  leTocaElAnillo,
   verificarVersion,
   type MemoriaDeCanal,
   type VersionDisponible,
@@ -114,6 +115,14 @@ export class Actualizaciones {
     private readonly llamar: typeof fetch = fetch,
     private readonly memoria: MemoriaDeCanal = {},
     private readonly guardarMemoria: GuardarMemoria = () => undefined,
+    /**
+     * A qué local pertenece este Hub, para saber si le toca el anillo.
+     *
+     * Sin sucursal no se aplica el reparto y llegan todas las versiones. Es
+     * deliberado: el anillo reparte un despliegue, no protege nada, y un Hub que
+     * todavía no sabe quién es no puede quedarse sin recibir un parche.
+     */
+    private readonly sucursalId?: string,
   ) {}
 
   private cabeceras(url: URL): Record<string, string> {
@@ -244,6 +253,19 @@ export class Actualizaciones {
       return null;
     }
 
+    /*
+     * El anillo se comprueba DESPUÉS de la firma y ANTES de recordar nada.
+     *
+     * Después de la firma porque un campo sin firmar no manda sobre a quién se
+     * despliega. Y antes de recordar porque «todavía no me toca» no es un
+     * rechazo: cuando MOTRAE amplíe el anillo, este Hub verá el mismo manifiesto
+     * con el mismo `publicado_ts`, y si lo hubiera anotado como visto se quedaría
+     * fuera del despliegue para siempre.
+     */
+    if (this.sucursalId && !leTocaElAnillo(this.sucursalId, manifiesto.anillo)) {
+      return null;
+    }
+
     if (!(await this.recordar(manifiesto, ahora))) return null;
 
     if (veredicto.instalada_por_debajo_del_minimo) {
@@ -304,8 +326,16 @@ export class Actualizaciones {
    * La segunda lectura es deliberada: verificar el buffer recibido y ejecutar
    * una ruta después deja una ventana TOCTOU. Solo se ejecutan rutas que esta
    * instancia descargó a un directorio temporal único.
+   *
+   * `appParaRelanzar` es lo que convierte esto en una actualización de verdad:
+   * sin ella el restaurante se actualiza de madrugada y llega por la mañana a
+   * una caja apagada, sin saber por qué ni qué tocar.
    */
-  async instalar(rutaInstalador: string, version: Pick<VersionDisponible, "sha256" | "version">): Promise<void> {
+  async instalar(
+    rutaInstalador: string,
+    version: Pick<VersionDisponible, "sha256" | "version">,
+    appParaRelanzar?: string,
+  ): Promise<void> {
     const ruta = resolve(rutaInstalador);
     const esperada = version.sha256.trim().toLowerCase();
     if (this.instaladores.get(ruta) !== esperada) {
@@ -319,8 +349,92 @@ export class Actualizaciones {
       throw new Error("El instalador cambió después de verificarse. No se ejecuta.");
     }
 
-    this.registrar("aviso", "Instalando la actualización de MotRest. El sistema se reiniciará.");
-    const proceso = spawn(ruta, ["/S"], { detached: true, stdio: "ignore" });
+    const relevo = appParaRelanzar ? await this.prepararRelevo(ruta, appParaRelanzar) : null;
+
+    this.registrar(
+      "aviso",
+      relevo
+        ? "Instalando la actualización de MotRest. La caja se reiniciará y volverá a abrirse sola."
+        : "Instalando la actualización de MotRest. El sistema se reiniciará.",
+    );
+
+    if (!relevo) {
+      const proceso = spawn(ruta, ["/S"], { detached: true, stdio: "ignore" });
+      proceso.unref();
+      return;
+    }
+
+    /*
+     * El relevo se lanza por `cmd.exe`, no como hijo directo del instalador,
+     * porque quien tiene que sobrevivir a que MotRest y este mismo Hub mueran es
+     * precisamente él. Por eso también el guion cierra la aplicación SIN `/t`:
+     * `taskkill /t` mataría el árbol entero, y este proceso cuelga de ese árbol.
+     */
+    const proceso = spawn(process.env.COMSPEC ?? "cmd.exe", ["/c", relevo], {
+      detached: true,
+      stdio: "ignore",
+    });
     proceso.unref();
+  }
+
+  /**
+   * Escribe el guion que cierra la caja, instala y la vuelve a abrir.
+   *
+   * Vive en la MISMA carpeta temporal única que creó `descargar`, que es la
+   * única que este Hub controla de principio a fin. No se borra al terminar:
+   * un `.cmd` que se borra a sí mismo mientras `cmd.exe` lo va leyendo línea a
+   * línea es una carrera que a veces se pierde, y el temporal del usuario se
+   * limpia solo.
+   *
+   * Se usa `ping` y no `timeout` para esperar: `timeout` aborta con «input
+   * redirection is not supported» cuando el proceso no tiene consola, que es
+   * exactamente el caso de un guion lanzado desacoplado.
+   */
+  private async prepararRelevo(instalador: string, app: string): Promise<string | null> {
+    const rutaApp = resolve(app);
+
+    /*
+     * Ninguna de estas rutas viene de la red —una la creó `mkdtemp` y la otra
+     * sale de la propia instalación—, pero acaban dentro de un guion de shell y
+     * eso obliga a comprobarlo: unas comillas o un `%` convertirían una ruta en
+     * un comando. Ante la duda se instala sin relevo, que es peor experiencia
+     * pero no ejecuta nada inesperado.
+     */
+    const peligrosa = (ruta: string) => /["%\r\n&|<>^]/.test(ruta);
+    if (peligrosa(instalador) || peligrosa(rutaApp)) {
+      this.registrar(
+        "aviso",
+        "La ruta de la instalación lleva caracteres que no se pueden usar en el relevo; se instalará sin reabrir la caja.",
+      );
+      return null;
+    }
+
+    const nombreApp = basename(rutaApp);
+    const nombreHub = basename(process.execPath);
+    const guion = join(dirname(instalador), "relevo.cmd");
+
+    const contenido = [
+      "@echo off",
+      "rem Relevo de actualizacion de MotRest. Lo genera el Hub del local.",
+      "rem Cierra la caja con delicadeza, instala en silencio y la vuelve a abrir.",
+      `taskkill /im "${nombreApp}" >nul 2>&1`,
+      `taskkill /im "${nombreHub}" >nul 2>&1`,
+      "for /l %%i in (1,1,60) do (",
+      `  tasklist /fi "imagename eq ${nombreApp}" 2>nul | find /i "${nombreApp}" >nul || goto instalar`,
+      "  ping -n 2 127.0.0.1 >nul",
+      ")",
+      "rem Sigue viva tras dos minutos: se cierra a la fuerza antes que dejarla a medias.",
+      `taskkill /f /im "${nombreApp}" >nul 2>&1`,
+      `taskkill /f /im "${nombreHub}" >nul 2>&1`,
+      "ping -n 3 127.0.0.1 >nul",
+      ":instalar",
+      `"${instalador}" /S`,
+      "ping -n 3 127.0.0.1 >nul",
+      `start "MotRest" "${rutaApp}"`,
+      "",
+    ].join("\r\n");
+
+    await writeFile(guion, contenido, { encoding: "utf8", flag: "wx", mode: 0o600 });
+    return guion;
   }
 }

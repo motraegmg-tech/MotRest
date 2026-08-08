@@ -2,7 +2,71 @@
 import { uuidv7 } from "@motrest/dominio";
 import type { ID } from "@motrest/dominio";
 
-export const SUCURSAL_ID: ID = "suc-rodizio-centro";
+/**
+ * Identificador del local al que pertenece esta terminal.
+ *
+ * ## Por qué ya no es un literal
+ *
+ * Estaba escrito aquí, igual en toda instalación. Con un solo restaurante no se
+ * notaba; con dos es un choque: los dos locales se llaman igual ante el relay y
+ * ante MOTRAE Central, y la licencia de uno vale en el otro.
+ *
+ * Ahora lo dice **el Hub del local**, que a su vez lo toma de la licencia que
+ * MOTRAE emite. Así el restaurante queda identificado por el documento firmado
+ * que se pega al instalar, y no por una constante del código.
+ *
+ * ## Se resuelve al importar, y no más tarde
+ *
+ * Media docena de módulos calculan su stream al cargarse
+ * (`const STREAM = streamFiscal(SUCURSAL_ID)`). Si esto se resolviera de forma
+ * asíncrona, esos streams quedarían apuntando al identificador equivocado y los
+ * eventos irían a un sitio del que nadie los lee. Las tres fuentes son
+ * síncronas a propósito.
+ */
+const LLAVE_SUCURSAL = "motrest.sucursal_id";
+
+/**
+ * El identificador con el que nació el producto.
+ *
+ * Se conserva como último recurso porque los locales instalados antes de que
+ * esto existiera —Rodizio, hoy— tienen toda su operación sellada con él.
+ * Cambiárselo dejaría su historia atribuida a una sucursal que no existe.
+ */
+const SUCURSAL_HEREDADA: ID = "suc-rodizio-centro";
+
+function resolverSucursal(): ID {
+  // 1. La caja: su propio Hub se lo inyecta en la página que le sirve.
+  const inyectado = (globalThis as { __MOTREST_HUB__?: { sucursal_id?: string } })
+    .__MOTREST_HUB__?.sucursal_id;
+  if (inyectado) return recordarSucursal(inyectado);
+
+  // 2. Una terminal que acaba de escanear el QR de emparejamiento.
+  if (typeof location !== "undefined") {
+    const enLaUrl = new URLSearchParams(location.search).get("s")?.trim();
+    if (enLaUrl) return recordarSucursal(enLaUrl);
+  }
+
+  // 3. Lo que esta terminal ya aprendió. Sobrevive a abrir sin el Hub delante.
+  try {
+    const guardado = localStorage.getItem(LLAVE_SUCURSAL);
+    if (guardado) return guardado;
+  } catch {
+    // Navegador sin almacenamiento: se sigue con el heredado.
+  }
+
+  return SUCURSAL_HEREDADA;
+}
+
+function recordarSucursal(id: ID): ID {
+  try {
+    localStorage.setItem(LLAVE_SUCURSAL, id);
+  } catch {
+    // Sin dónde guardarlo se opera igual: el Hub lo vuelve a decir al abrir.
+  }
+  return id;
+}
+
+export const SUCURSAL_ID: ID = resolverSucursal();
 
 /**
  * ¿Es una instalación de demostración?

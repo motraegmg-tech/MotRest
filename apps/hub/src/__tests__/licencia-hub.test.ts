@@ -48,10 +48,37 @@ afterEach(async () => {
   await rm(carpeta, { recursive: true, force: true });
 });
 
-function gestor(llave = MOTRAE.publica, sucursal = SUC, registro: string[] = []) {
+/**
+ * Un gestor de licencia sobre una carpeta desechable.
+ *
+ * `fijarIdentidad` se omite por defecto: la mayoría de las pruebas son de un
+ * local que YA sabe cuál es, y ahí una licencia ajena tiene que rechazarse. El
+ * alta por licencia se prueba aparte, pasándolo.
+ */
+function gestor(
+  llave = MOTRAE.publica,
+  sucursal = SUC,
+  registro: string[] = [],
+  fijarIdentidad?: (id: string) => boolean,
+) {
+  let actual = sucursal;
   return {
-    g: new GestorLicencia(ruta, sucursal, llave, (n, t) => registro.push(`${n}: ${t}`)),
+    g: new GestorLicencia(
+      ruta,
+      () => actual,
+      llave,
+      (n, t) => registro.push(`${n}: ${t}`),
+      fijarIdentidad === undefined
+        ? undefined
+        : (id) => {
+            const acepta = fijarIdentidad(id);
+            if (acepta) actual = id;
+            return acepta;
+          },
+    ),
     registro,
+    /** Con qué identidad quedó el equipo después de todo. */
+    sucursalAhora: () => actual,
   };
 }
 
@@ -194,5 +221,66 @@ describe("lo que se le manda a cada terminal", () => {
     await g.cargar();
 
     expect(g.credencialSoporte).toBeNull();
+  });
+});
+
+/*
+ * EL ALTA DE UN RESTAURANTE, que es la razón de ser de todo esto.
+ *
+ * Gonzalo da de alta el local en MOTRAE Central, Central emite el archivo
+ * firmado, y ese archivo se pega en la caja. El equipo pasa de «no sé qué
+ * restaurante soy» a saberlo, sin que nadie teclee un identificador y sin que
+ * venga escrito en el código —donde era el mismo para todas las instalaciones—.
+ */
+describe("dar de alta el restaurante con su licencia", () => {
+  const PROVISIONAL = "suc-d6c70a6d";
+
+  it("un equipo recién instalado toma la identidad que trae la licencia", async () => {
+    const g = gestor(MOTRAE.publica, PROVISIONAL, [], () => true);
+    const r = await g.g.instalar(await licencia(30));
+
+    expect(r.ok).toBe(true);
+    expect(g.sucursalAhora()).toBe(SUC);
+    expect(g.g.veredicto().situacion.opera).toBe(true);
+  });
+
+  it("también si el archivo se copia a mano a la carpeta del Hub", async () => {
+    await writeFile(ruta, JSON.stringify(await licencia(30)));
+    const g = gestor(MOTRAE.publica, PROVISIONAL, [], () => true);
+    await g.g.cargar();
+
+    expect(g.sucursalAhora()).toBe(SUC);
+    expect(g.g.veredicto().verificada).toBe(true);
+  });
+
+  /*
+   * Lo que impide que la licencia de un restaurante que paga sirva en todos los
+   * demás. Un local con identidad firme la rechaza aunque la firma sea buena.
+   */
+  it("pero un local que ya es alguien NO adopta la licencia de otro", async () => {
+    const g = gestor(MOTRAE.publica, "suc-otro-restaurante", [], () => false);
+    const r = await g.g.instalar(await licencia(30));
+
+    expect(r.ok).toBe(false);
+    expect(r.error).toContain("no es de este local");
+    expect(g.sucursalAhora()).toBe("suc-otro-restaurante");
+  });
+
+  /* Una licencia falsificada no da identidad a nadie, por nueva que sea la caja. */
+  it("y una licencia sin la firma de MOTRAE no da identidad ni a un equipo virgen", async () => {
+    const otro = await generarPar();
+    const falsificada = await emitirLicencia(
+      {
+        sucursal_id: SUC, nombre: "Rodizio", plan: "mensual",
+        vence_ts: Date.now() + 30 * 86_400_000, gracia_dias: 3, emitida_ts: Date.now(),
+      },
+      otro.privada,
+    );
+
+    const g = gestor(MOTRAE.publica, PROVISIONAL, [], () => true);
+    const r = await g.g.instalar(falsificada);
+
+    expect(r.ok).toBe(false);
+    expect(g.sucursalAhora()).toBe(PROVISIONAL);
   });
 });

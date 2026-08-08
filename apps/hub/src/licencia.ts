@@ -19,6 +19,7 @@
 import { readFile, writeFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import {
+  firmaDeMotrae,
   situacionDe,
   verificarLicencia,
   type Licencia,
@@ -38,10 +39,42 @@ export class GestorLicencia {
 
   constructor(
     private readonly ruta: string,
-    private readonly sucursal_id: string,
+    /**
+     * Qué local es este, PREGUNTADO cada vez y no copiado al construir.
+     *
+     * Puede cambiar debajo: un equipo recién instalado arranca con un
+     * identificador provisional y lo sustituye por el de la licencia en cuanto
+     * se activa. Con una copia, el gestor seguiría comparando contra el viejo.
+     */
+    private readonly sucursalActual: () => string,
     private readonly llaveDeVerificacion: string,
     private readonly registrar: (nivel: "info" | "aviso" | "error", texto: string) => void,
+    /**
+     * Fija la identidad del local con la que trae la licencia.
+     *
+     * Devuelve `false` si no procede —el local ya tiene identidad propia— y
+     * entonces la licencia se trata como lo que es: de otro restaurante.
+     */
+    private readonly fijarIdentidad: (sucursalId: string) => boolean = () => false,
   ) {}
+
+  /**
+   * ¿Es una licencia auténtica que además puede dar identidad a este equipo?
+   *
+   * Es el alta de un restaurante nuevo: el equipo todavía no sabe cuál es, y el
+   * documento firmado por MOTRAE se lo dice. Solo se llega aquí cuando la
+   * comprobación normal ya falló por el identificador.
+   */
+  private async adoptarIdentidadDe(licencia: Licencia): Promise<boolean> {
+    if (!(await firmaDeMotrae(licencia, this.llaveDeVerificacion))) return false;
+    if (!this.fijarIdentidad(licencia.sucursal_id)) return false;
+
+    this.registrar(
+      "info",
+      `Restaurante identificado por su licencia: ${licencia.nombre} (${licencia.sucursal_id}).`,
+    );
+    return true;
+  }
 
   /** Lee y comprueba el archivo. Se llama al arrancar y al pegar una nueva. */
   async cargar(): Promise<VeredictoLicencia> {
@@ -80,14 +113,23 @@ export class GestorLicencia {
 
     this.verificada = await verificarLicencia(
       this.licencia,
-      this.sucursal_id,
+      this.sucursalActual(),
       this.llaveDeVerificacion,
     );
+
+    /*
+     * Copiar el archivo a mano es una forma legítima de dar de alta un local:
+     * es lo que hace quien monta la caja con la licencia en una USB. Si el
+     * equipo todavía no sabe qué restaurante es, el documento se lo dice.
+     */
+    if (!this.verificada) {
+      this.verificada = await this.adoptarIdentidadDe(this.licencia);
+    }
 
     if (!this.verificada) {
       this.registrar(
         "error",
-        `La licencia no corresponde a este local (${this.sucursal_id}) o fue alterada.`,
+        `La licencia no corresponde a este local (${this.sucursalActual()}) o fue alterada.`,
       );
     } else {
       const s = this.veredicto().situacion;
@@ -108,7 +150,16 @@ export class GestorLicencia {
       return { ok: false, error: "Falta la llave pública de verificación en el Hub" };
     }
 
-    if (!(await verificarLicencia(licencia, this.sucursal_id, this.llaveDeVerificacion))) {
+    const esDeEsteLocal = await verificarLicencia(
+      licencia,
+      this.sucursalActual(),
+      this.llaveDeVerificacion,
+    );
+
+    // El alta de un restaurante nuevo: el equipo aún no sabe cuál es y la
+    // licencia se lo dice. En un local que ya tiene identidad esto devuelve
+    // `false` y la licencia ajena se rechaza como siempre.
+    if (!esDeEsteLocal && !(await this.adoptarIdentidadDe(licencia))) {
       /*
        * No se escribe una licencia inválida NI SIQUIERA para "intentarlo
        * después". Sustituiría a la buena que ya estaba y dejaría al local peor
@@ -116,7 +167,7 @@ export class GestorLicencia {
        */
       return {
         ok: false,
-        error: `Esa licencia no es de este local. Este equipo es ${this.sucursal_id}.`,
+        error: `Esa licencia no es de este local. Este equipo es ${this.sucursalActual()}.`,
       };
     }
 

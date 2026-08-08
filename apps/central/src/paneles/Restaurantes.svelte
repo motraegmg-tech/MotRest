@@ -18,6 +18,19 @@
   let aviso = $state("");
   let licenciaGenerada = $state("");
   let accesoResponsable = $state<{ nombre: string; pin: string } | null>(null);
+  let cargandoPulsos = $state(false);
+
+  async function traerPulsos() {
+    cargandoPulsos = true;
+    aviso = "";
+    const resultado = await central.traerPulsos();
+    cargandoPulsos = false;
+    if (!resultado.ok) {
+      aviso = resultado.error;
+    } else {
+      aviso = `Se actualizó el estado de ${resultado.total} locales.`;
+    }
+  }
 
   const cliente = $derived(central.clientes.find((c) => c.id === seleccionado) ?? null);
   const situacion = $derived(cliente ? central.situacionDe(cliente) : null);
@@ -73,7 +86,19 @@
   <aside class="lista">
     <div class="cabeza">
       <h1>Restaurantes</h1>
-      <button class="nuevo" onclick={() => (dandoAlta = true)}>+ Alta</button>
+      <div class="acciones-cabeza">
+        {#if central.puedeConsultarRelay}
+          <button
+            class="secundario"
+            disabled={cargandoPulsos}
+            onclick={traerPulsos}
+            title="Traer estado de los locales"
+          >
+            {cargandoPulsos ? "⏳" : "🔄"}
+          </button>
+        {/if}
+        <button class="nuevo" onclick={() => (dandoAlta = true)}>+ Alta</button>
+      </div>
     </div>
 
     {#if central.clientes.length === 0}
@@ -272,6 +297,25 @@
     background: var(--acento);
     color: var(--blanco);
     cursor: pointer;
+  }
+  .acciones-cabeza {
+    display: flex;
+    gap: 0.5rem;
+    align-items: center;
+  }
+  .secundario {
+    font: inherit;
+    font-size: 0.76rem;
+    padding: 0.2rem 0.5rem;
+    border-radius: var(--r-sm);
+    border: 1px solid var(--borde);
+    background: var(--blanco);
+    color: var(--pizarra);
+    cursor: pointer;
+  }
+  .secundario:disabled {
+    opacity: 0.6;
+    cursor: wait;
   }
   .ninguno {
     font-size: 0.82rem;

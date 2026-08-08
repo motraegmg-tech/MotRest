@@ -32,6 +32,29 @@
   let mostrarPrevia = $state(false);
 
   /**
+   * A cuánta flota se le ofrece esta versión.
+   *
+   * Vacío = a todos, que es lo que se hacía antes de que existiera el anillo y
+   * es exactamente el riesgo que documenta este panel: si sale rota, salen rotos
+   * todos a la vez. Con un porcentaje se publica al 10 %, se ve un fin de semana
+   * completo y después se sube.
+   */
+  let anillo = $state("");
+
+  const anilloNumero = $derived(anillo.trim() ? Number(anillo.trim()) : undefined);
+
+  /*
+   * Quién entra con este porcentaje, por nombre.
+   *
+   * El manifiesto NO lleva la lista de sucursales —es un archivo público de
+   * GitHub y la cartera de MOTRAE no puede estar ahí—, así que el porcentaje
+   * solo es utilizable si desde aquí se ve a quién corresponde. Cada local ocupa
+   * siempre la misma posición, de modo que el canario es el mismo cada vez.
+   */
+  const alcanzados = $derived(central.localesEnElAnillo(anilloNumero));
+  const orden = $derived(central.ordenDeDespliegue);
+
+  /**
    * La lista de comprobación. Cada renglón corresponde a algo que ya ha salido
    * mal en algún despliegue de alguien — no son buenas intenciones.
    */
@@ -67,6 +90,7 @@
           sha256: sha256.trim().toLowerCase(),
           ...(obligatoria ? { obligatoria: true } : {}),
           ...(versionMinima.trim() ? { version_minima_soportada: versionMinima.trim() } : {}),
+          ...(anilloNumero !== undefined ? { anillo: anilloNumero } : {}),
         },
       );
       if (!resultado.ok) {
@@ -113,6 +137,59 @@
         Versión mínima soportada <small>(opcional, para retirar una versión vulnerable)</small>
         <input bind:value={versionMinima} placeholder="1.4.2" />
       </label>
+
+      <label>
+        Anillo <small>(opcional: a qué % de la flota se le ofrece. Vacío = a todos)</small>
+        <input bind:value={anillo} placeholder="10" inputmode="numeric" />
+      </label>
+
+      <!--
+        Sin esto el porcentaje sería a ciegas. El manifiesto no puede llevar la
+        lista de sucursales —es un archivo público de GitHub— así que lleva un
+        número; verlo traducido a nombres AQUÍ es lo que lo hace utilizable.
+      -->
+      <div class="anillo">
+        {#if anilloNumero === undefined}
+          <p class="anillo-todos">
+            Se ofrecerá a <b>los {central.activos.length} locales</b> de la cartera
+            a la vez. Para una versión mayor, conviene un anillo.
+          </p>
+        {:else if alcanzados.length === 0}
+          <p class="anillo-vacio">
+            Con {anilloNumero} % no entra ningún local de la cartera. Súbalo hasta
+            que aparezca el que quiera usar de prueba.
+          </p>
+        {:else}
+          <p class="anillo-titulo">
+            Entran <b>{alcanzados.length} de {central.activos.length}</b>:
+          </p>
+          <ul class="anillo-lista">
+            {#each alcanzados as cliente (cliente.id)}
+              <li>{cliente.nombre}</li>
+            {/each}
+          </ul>
+        {/if}
+
+        {#if orden.length > 0}
+          <details>
+            <summary>Orden de despliegue de la cartera</summary>
+            <p class="anillo-nota">
+              Cada local ocupa siempre el mismo lugar, en todas las versiones: el
+              primero de esta lista es el que sirve de prueba una y otra vez, y de
+              ese modo se aprende de él. Subir el porcentaje solo añade locales,
+              nunca quita.
+            </p>
+            <ol class="anillo-orden">
+              {#each orden as fila (fila.cliente.id)}
+                <li>
+                  <span>{fila.cliente.nombre}</span>
+                  <em>entra desde {fila.posicion + 1} %</em>
+                </li>
+              {/each}
+            </ol>
+          </details>
+        {/if}
+      </div>
 
       {#if obligatoria}
         <!--

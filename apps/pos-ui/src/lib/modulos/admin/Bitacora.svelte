@@ -44,6 +44,17 @@
         return { ...base, texto: `Creó al usuario ${ev.nombre} (${ev.permisos.length} actividades)`, tono: "acento" };
       case "usuario_actualizado":
         return { ...base, texto: `Modificó al usuario ${sesion.nombreDe(ev.usuario_id)}`, tono: "acento" };
+      /*
+       * En alerta, y con el nombre que traía el evento.
+       *
+       * En alerta porque no se deshace y porque es lo que hay que poder revisar
+       * si mañana falta alguien de la plantilla. Y con el nombre del evento
+       * —no resuelto contra la lista— porque justamente ese usuario ya no está
+       * en ella: preguntar por él devolvería un identificador ilegible.
+       */
+      case "usuario_eliminado":
+        return { ...base, actor: sesion.nombreDe(ev.eliminado_por),
+          texto: `Eliminó en definitiva al usuario ${ev.nombre}`, tono: "alerta" };
       case "credencial_cambiada":
         return { ...base, texto: `Cambió su ${ev.tipo_credencial}`, tono: "acento" };
       // En alerta a propósito: es el único cambio de credencial que NO firma

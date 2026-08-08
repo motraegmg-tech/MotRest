@@ -102,6 +102,29 @@ const [LLAVE_PUBLICA_LICENCIAS, LLAVE_PUBLICA_ACTUALIZACIONES] = await Promise.a
   llavePublicaDeEntorno("MOTREST_ACTUALIZACIONES_PUBLICA"),
 ]);
 
+/**
+ * De dónde bajará las actualizaciones el Hub que se instale en el restaurante.
+ *
+ * VIAJA DENTRO DEL BINARIO, y esa es la corrección. Antes solo se leía de una
+ * variable de entorno en la máquina del local: el instalador NSIS no la escribe
+ * y Tauri lanza el Hub sin entorno propio, así que **ningún restaurante tenía el
+ * canal encendido** y ninguno llegaba a preguntar si había versión nueva. Se
+ * descubrió con el canal apagado en la caja de Rodizio.
+ *
+ * No es un secreto —dice de dónde se baja, no autoriza nada— y por eso, a
+ * diferencia de las llaves, tiene un valor por defecto en vez de abortar.
+ */
+const REPOSITORIO_ACTUALIZACIONES = (
+  process.env.MOTREST_ACTUALIZACIONES_REPO?.trim() || "motrae/motrest"
+);
+
+if (!/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(REPOSITORIO_ACTUALIZACIONES)) {
+  throw new Error(
+    `MOTREST_ACTUALIZACIONES_REPO="${REPOSITORIO_ACTUALIZACIONES}" no tiene la forma dueño/repositorio.\n` +
+      "El Hub lo rechazaría al arrancar y el local se quedaría sin actualizaciones en silencio.",
+  );
+}
+
 console.log("1/4  Juntando el Hub en un solo archivo…");
 rmSync(salida, { recursive: true, force: true });
 mkdirSync(salida, { recursive: true });
@@ -132,6 +155,7 @@ await build({
     "import.meta.url": "import_meta_url",
     __MOTREST_LICENCIA_PUBLICA__: JSON.stringify(LLAVE_PUBLICA_LICENCIAS),
     __MOTREST_ACTUALIZACIONES_PUBLICA__: JSON.stringify(LLAVE_PUBLICA_ACTUALIZACIONES),
+    __MOTREST_ACTUALIZACIONES_REPO__: JSON.stringify(REPOSITORIO_ACTUALIZACIONES),
     __MOTREST_VERSION__: JSON.stringify(version),
   },
 });

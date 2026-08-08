@@ -18,9 +18,10 @@
  *   MOTREST_META_APP_SECRET      firma de los webhooks — sin esto no arranca
  *   MOTREST_META_VERIFY_TOKEN    el que se teclea en el panel de Meta
  *   MOTREST_RELAY_LLAVE_PADRON   32 bytes en base64: cifra el padrón en reposo
- *   MOTREST_RELAY_CLAVE_ADMIN    para consultar /salud/detalle (opcional)
+ *   MOTREST_RELAY_CLAVE_ADMIN    para consultar /salud/detalle y /pulsos (opcional)
  *   MOTREST_RELAY_PUERTO         puerto de escucha (8080)
  *   MOTREST_RELAY_PADRON         dónde se guarda el padrón (./datos/…)
+ *   MOTREST_RELAY_PULSOS         dónde se guardan los pulsos (junto al padrón)
  *
  * `MOTREST_RELAY_CLAVE_HUB` YA NO EXISTE. Era una sola clave para todos los
  * Hubs; ahora cada restaurante tiene la suya, se la da MOTRAE al darlo de alta
@@ -29,9 +30,11 @@
 import { timingSafeEqual } from "node:crypto";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import type { AddressInfo } from "node:net";
+import { dirname, join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { WebSocketServer, type WebSocket } from "ws";
 import { Inquilinos, llaveDelPadron } from "./inquilinos.js";
+import { Pulsos } from "./pulsos.js";
 import {
   YaVistos,
   cuerpoDeEnvio,
@@ -100,6 +103,18 @@ function comprobarConfiguracion(): void {
 
 const inquilinos = new Inquilinos(PADRON, llaveDelPadron(process.env.MOTREST_RELAY_LLAVE_PADRON), (t) =>
   registrar("aviso", t),
+);
+
+/**
+ * El último parte de cada local. Va junto al padrón y con su misma llave.
+ *
+ * Es lo que hace que MOTRAE deje de publicar a ciegas: sin esto no hay forma de
+ * saber qué versión corre cada restaurante ni cuál lleva dos días caído.
+ */
+const pulsos = new Pulsos(
+  process.env.MOTREST_RELAY_PULSOS ?? join(dirname(PADRON), "pulsos.json"),
+  llaveDelPadron(process.env.MOTREST_RELAY_LLAVE_PADRON),
+  (t) => registrar("aviso", t),
 );
 const vistos = new YaVistos();
 
@@ -286,8 +301,29 @@ async function atender(peticion: IncomingMessage, respuesta: ServerResponse): Pr
       relay: "motrest",
       restaurantes: inquilinos.total,
       hubs_conectados: inquilinos.conectados,
+      pulsos: pulsos.total,
       ts: Date.now(),
     });
+    return;
+  }
+
+  /*
+   * Lo que MOTRAE Central viene a buscar: qué versión tiene cada restaurante y
+   * cuándo dio señales por última vez.
+   *
+   * Va contra la MISMA clave de administración que `/salud/detalle`, y no contra
+   * un token nuevo: esto es la cartera de MOTRAE —quién es cliente, cuánto
+   * facturó ayer cada local— y no puede quedar en abierto ni por descuido. Sin
+   * `MOTREST_RELAY_CLAVE_ADMIN` configurada, la puerta está cerrada del todo.
+   */
+  if (url.pathname === "/pulsos") {
+    const cabecera = peticion.headers.authorization ?? "";
+    if (!esClaveAdmin(cabecera.replace(/^Bearer /i, ""))) {
+      respuesta.writeHead(401);
+      respuesta.end();
+      return;
+    }
+    json(200, { pulsos: pulsos.lista(), ts: Date.now() });
     return;
   }
 
@@ -401,6 +437,21 @@ function alConectarHub(socket: WebSocket, peticion: IncomingMessage): void {
       }
       if (resultado === "actualizado") {
         registrar("info", `Credenciales de WhatsApp actualizadas: ${sucursalId}`);
+      }
+      return;
+    }
+
+    /*
+     * El parte de vida del local: qué versión tiene y cómo está.
+     *
+     * `sucursalId` sale de la credencial del saludo, NO del mensaje. Si viniera
+     * en el cuerpo, un local podría reportar en nombre de otro y el panel de
+     * MOTRAE enseñaría sano a un restaurante caído.
+     */
+    if (mensaje.tipo === "pulso") {
+      const anotado = pulsos.registrar(sucursalId, mensaje.pulso);
+      if (anotado) {
+        registrar("info", `Pulso de ${sucursalId}: MotRest ${anotado.version}`);
       }
       return;
     }

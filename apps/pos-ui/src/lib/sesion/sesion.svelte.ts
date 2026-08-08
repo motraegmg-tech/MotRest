@@ -17,6 +17,7 @@ import {
   politicaIntentos,
   proyectarIdentidad,
   puedeAutorizar,
+  puedeEliminarA,
   puedeGestionarA,
   puedeOtorgar,
   puedeVer,
@@ -83,6 +84,19 @@ const STREAM = streamIdentidad(SUCURSAL_ID);
 
 class Sesion {
   usuarios = $state<Usuario[]>(USUARIOS_SEMILLA.map((s) => ({ ...s.usuario })));
+  /*
+   * AQUÍ HUBO UN USUARIO FANTASMA, y hay que dejar dicho por qué se fue.
+   *
+   * Mientras faltaba dar de alta al responsable, esto devolvía un «Configuración
+   * Inicial» con TODOS los permisos de propietario. Resolvía un problema real
+   * —el alta se pintaba encima de la aplicación, que sin sesión mostraba «Sin
+   * acceso» detrás— pero al precio de que cualquiera que abriera la caja en ese
+   * momento tuviera el negocio entero: finanzas, inteligencia, usuarios.
+   *
+   * El problema era de dónde se pintaba el alta, no de quién estaba en sesión.
+   * Ahora el alta se muestra SOLA (ver `App.svelte`) y nadie opera sin
+   * identificarse, que es la regla de la que cuelga toda la bitácora.
+   */
   usuarioActual = $state<Usuario | null>(null);
 
   /**
@@ -1079,6 +1093,68 @@ class Sesion {
 
     this.usuarios = this.usuarios.map((u) => (u.id === usuarioId ? { ...u, activo } : u));
     this.emitir("usuario_actualizado", { usuario_id: usuarioId, cambios: { activo } });
+    return { ok: true };
+  }
+
+  /** ¿Puede quien está en sesión borrar a este de la plantilla? */
+  puedeEliminar(usuarioId: ID): boolean {
+    const actor = this.usuarioActual;
+    const objetivo = this.usuarioDe(usuarioId);
+    return !!actor && !!objetivo && puedeEliminarA(actor, objetivo);
+  }
+
+  /**
+   * Borra a alguien de la plantilla **en definitiva**.
+   *
+   * Solo el rango más alto del restaurante, y nunca a un igual ni a sí mismo:
+   * lo comprueba `puedeEliminarA`. Se destruye además su credencial, porque de
+   * nada sirve sacarlo de la lista si su PIN sigue abriendo la caja.
+   *
+   * LO QUE NO SE BORRA es su rastro. La bitácora solo agrega: las mesas que
+   * cobró siguen siendo suyas y este mismo borrado queda escrito con el nombre
+   * de quien lo firmó. Un sistema donde el dueño puede hacer desaparecer lo que
+   * hizo un empleado no sirve para aclarar un faltante de caja.
+   */
+  eliminarUsuario(usuarioId: ID): Resultado {
+    const actor = this.usuarioActual;
+    const objetivo = this.usuarioDe(usuarioId);
+    if (!actor || !objetivo) return { ok: false, error: "Usuario no encontrado" };
+
+    if (actor.id === usuarioId) {
+      return { ok: false, error: "No puedes eliminarte a ti mismo." };
+    }
+    if (!puedeAutorizar(actor, "admin.usuario.eliminar")) {
+      return {
+        ok: false,
+        error: "Eliminar a alguien en definitiva solo lo puede hacer la dirección del restaurante.",
+      };
+    }
+    if (!puedeGestionarA(actor, objetivo)) {
+      return {
+        ok: false,
+        error: `No puedes eliminar a ${objetivo.nombre}: su rol está a tu mismo nivel o por encima del tuyo.`,
+      };
+    }
+
+    this.usuarios = this.usuarios.filter((u) => u.id !== usuarioId);
+    /*
+     * Fuera de la lista Y sin credencial.
+     *
+     * Si el hash sobreviviera, el PIN de un empleado eliminado seguiría
+     * firmando cancelaciones y descuentos desde el diálogo de autorización, que
+     * no busca por la lista sino por credencial. Se reescriben los secretos en
+     * el acto para que tampoco quede en disco.
+     */
+    this.credenciales.delete(usuarioId);
+    const { [usuarioId]: _fuera, ...intentos } = this.intentos;
+    this.intentos = intentos;
+    void this.guardarSecretos();
+
+    this.emitir("usuario_eliminado", {
+      usuario_id: usuarioId,
+      eliminado_por: actor.id,
+      nombre: objetivo.nombre,
+    });
     return { ok: true };
   }
 

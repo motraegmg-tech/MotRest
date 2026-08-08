@@ -43,6 +43,8 @@
   let impuestoId = $state(existente?.impuesto_id ?? menu.impuestos[0]?.id ?? "");
   let estacionId = $state(existente?.estacion_id ?? "");
   let disponible = $state(existente?.disponible ?? true);
+  let foto = $state(existente?.foto ?? "");
+  let subiendoFoto = $state(false);
   let problemas = $state<ProblemaMenu[]>([]);
 
   const precio = $derived(pesos(Number(precioPesos) || 0));
@@ -65,6 +67,7 @@
     impuesto_id: impuestoId,
     disponible,
     ...(estacionId ? { estacion_id: estacionId } : {}),
+    ...(foto ? { foto } : {}),
   });
 
   // Revisión en vivo, pero solo cuando ya hay algo escrito: no tiene sentido
@@ -91,6 +94,65 @@
     problemas = r.problemas;
     if (r.ok) onCerrar();
   }
+
+  async function onFotoSeleccionada(event: Event) {
+    const input = event.target as HTMLInputElement;
+    const file = input.files?.[0];
+    if (!file) return;
+
+    try {
+      subiendoFoto = true;
+      const blob = await comprimirFoto(file);
+      const res = await fetch("/api/fotos/producto", {
+        method: "POST",
+        headers: { "Content-Type": "image/webp" },
+        body: blob,
+      });
+      if (!res.ok) {
+        const d = await res.json();
+        throw new Error(d.error || "Error al subir foto");
+      }
+      const data = await res.json();
+      foto = data.nombre;
+    } catch (e) {
+      alert(String(e));
+    } finally {
+      subiendoFoto = false;
+      input.value = "";
+    }
+  }
+
+  function comprimirFoto(file: File): Promise<Blob> {
+    return new Promise((resolve, reject) => {
+      const img = new Image();
+      img.onload = () => {
+        let { width, height } = img;
+        const max = 640;
+        if (width > max || height > max) {
+          if (width > height) {
+            height = Math.round(height * (max / width));
+            width = max;
+          } else {
+            width = Math.round(width * (max / height));
+            height = max;
+          }
+        }
+        const canvas = document.createElement("canvas");
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext("2d");
+        if (!ctx) return reject(new Error("No se pudo crear canvas"));
+        ctx.drawImage(img, 0, 0, width, height);
+        canvas.toBlob(
+          (b) => (b ? resolve(b) : reject(new Error("No se pudo comprimir"))),
+          "image/webp",
+          0.8
+        );
+      };
+      img.onerror = reject;
+      img.src = URL.createObjectURL(file);
+    });
+  }
 </script>
 
 <div class="editor">
@@ -100,10 +162,30 @@
   </header>
 
   <div class="campos">
-    <label class="ancho">
-      <span>Nombre</span>
-      <input bind:value={nombre} placeholder="Pasta al pesto, Limonada…" />
-    </label>
+    <div class="fila-nombre-foto">
+      <label class="ancho">
+        <span>Nombre</span>
+        <input bind:value={nombre} placeholder="Pasta al pesto, Limonada…" />
+      </label>
+      
+      <div class="foto-caja">
+        <span>Foto</span>
+        <label class="foto-btn">
+          {#if subiendoFoto}
+            <span class="cargando">Subiendo...</span>
+          {:else if foto}
+            <img src={`/foto/${foto}`} alt="Foto de producto" />
+            <div class="foto-hover">Cambiar</div>
+          {:else}
+            <div class="foto-vacia">+</div>
+          {/if}
+          <input type="file" accept="image/jpeg, image/png, image/webp" onchange={onFotoSeleccionada} hidden />
+        </label>
+        {#if foto}
+          <button class="quitar-foto" onclick={() => (foto = "")}>Quitar foto</button>
+        {/if}
+      </div>
+    </div>
 
     <label>
       <span>Categoría</span>
@@ -414,5 +496,80 @@
     padding: 0.65rem 1.2rem;
     font-weight: 600;
     color: var(--pizarra);
+  }
+  .fila-nombre-foto {
+    display: flex;
+    gap: 1rem;
+    width: 100%;
+    align-items: flex-start;
+  }
+  .foto-caja {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+    align-items: center;
+  }
+  .foto-caja > span {
+    font-size: 0.76rem;
+    font-weight: 600;
+    color: var(--gris);
+    align-self: flex-start;
+  }
+  .foto-btn {
+    width: 4rem;
+    height: 4rem;
+    border-radius: var(--r-sm);
+    border: 1.5px dashed var(--borde);
+    background: var(--fondo);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    position: relative;
+    overflow: hidden;
+    flex-shrink: 0;
+  }
+  .foto-btn:hover {
+    border-color: var(--acento);
+  }
+  .foto-btn img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+  }
+  .foto-hover {
+    position: absolute;
+    inset: 0;
+    background: rgba(0,0,0,0.5);
+    color: white;
+    font-size: 0.7rem;
+    font-weight: 600;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    opacity: 0;
+    transition: opacity 0.15s;
+  }
+  .foto-btn:hover .foto-hover {
+    opacity: 1;
+  }
+  .foto-vacia {
+    font-size: 1.5rem;
+    color: var(--gris);
+  }
+  .cargando {
+    font-size: 0.7rem;
+    color: var(--gris);
+  }
+  .quitar-foto {
+    font-size: 0.7rem;
+    color: var(--peligro);
+    background: none;
+    border: none;
+    cursor: pointer;
+    padding: 0;
+  }
+  .quitar-foto:hover {
+    text-decoration: underline;
   }
 </style>

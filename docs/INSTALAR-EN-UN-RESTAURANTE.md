@@ -59,14 +59,13 @@ registra para arrancar con Windows.
 
 ### A.3 · Configurar el canal, sin secretos de MOTRAE
 
-La **llave pública** de licencias y la de publicaciones ya van incrustadas en el
-Hub que llega en el instalador. En este equipo no se instala ninguna llave
-privada ni el antiguo secreto HMAC: extraer una pública no permite emitir ni
-firmar nada.
+La **llave pública** de licencias, la de publicaciones y el **repositorio** ya van
+incrustados en el Hub que llega en el instalador. En este equipo no se instala
+ninguna llave privada ni el antiguo secreto HMAC: extraer una pública no permite
+emitir ni firmar nada.
 
 | Variable | Para qué |
 |---|---|
-| `MOTREST_ACTUALIZACIONES_REPO` | `motrae/motrest` |
 | `MOTREST_ACTUALIZACIONES_TOKEN` | Solo si el repositorio es privado; el Hub lo manda únicamente a HTTPS de GitHub. |
 | `MOTREST_RESPALDOS` | Carpeta de copias, mejor fuera del disco |
 

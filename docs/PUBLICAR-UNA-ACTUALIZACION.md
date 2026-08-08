@@ -12,7 +12,9 @@ Cómo llega una versión nueva a todos los restaurantes.
 
 MOTRAE sube el instalador a un **release de GitHub** junto a un `motrest.json`
 firmado. Cada Hub pregunta cada 12 horas, **comprueba la firma antes de descargar
-nada**, y le avisa al restaurante. El restaurante decide cuándo se instala.
+nada**, y le avisa al restaurante. El restaurante decide cuándo se instala. Al
+llegar la hora, el Hub prepara un guion de relevo, cierra la caja, instala en
+silencio y la vuelve a abrir.
 
 **Por qué GitHub Releases:** es gratis, sirve por HTTPS con la disponibilidad de
 GitHub detrás, y no hay servidor de descargas que montar ni pagar.
@@ -30,18 +32,20 @@ cuela nada. Las públicas que verifican van en los Hubs y no permiten firmar.
 2. En **MOTRAE Central → Llaves**, generar los dos pares Ed25519 y anotar el
    repositorio. La pública de publicación debe ser distinta de la pública de
    licencias.
-3. Antes de crear el instalador, incrustar las públicas en el Hub:
+3. Antes de crear el instalador, incrustar las públicas y el repositorio en el Hub:
    ```
    $env:MOTREST_LICENCIA_PUBLICA=<Central → pública de licencias>
    $env:MOTREST_ACTUALIZACIONES_PUBLICA=<Central → pública de publicación>
+   $env:MOTREST_ACTUALIZACIONES_REPO="motrae/motrest"
    corepack pnpm@9.15.0 --filter @motrest/hub empaquetar
    ```
-4. En cada Hub solo se configura `MOTREST_ACTUALIZACIONES_REPO` y, si el
-   repositorio es privado, `MOTREST_ACTUALIZACIONES_TOKEN`. El token se envía
-   únicamente a HTTPS de GitHub, nunca a la URL que traiga un manifiesto.
+4. En cada Hub, si el repositorio es privado, se configura
+   `MOTREST_ACTUALIZACIONES_TOKEN`. El token se envía únicamente a HTTPS de
+   GitHub, nunca a la URL que traiga un manifiesto. El repositorio ya va incrustado
+   en el binario.
 
-Un local sin estas variables **no se actualiza solo**, y no es un error: se
-actualiza a mano pasándole el `.exe`.
+Un local con el canal incrustado se actualizará solo. El primer salto desde una
+instalación que no lo tiene requiere llevarle el instalador a mano una vez.
 
 ---
 
@@ -110,13 +114,16 @@ El nombre del manifiesto tiene que ser exactamente ese.
 **Los borradores y las preliminares no llegan a nadie.** Sirven para probar el
 circuito completo sin tocar a ningún restaurante.
 
-### 5 · Desplegar por partes
+### 5 · Desplegar por anillos
 
 No se publica a todos a la vez cuando es una versión mayor:
 
-1. Se publica.
-2. Se instala en **un** local y se ve el fin de semana completo.
-3. Si aguantó el viernes, ya está en la calle para los demás.
+1. Se publica especificando un porcentaje en el campo **Anillo** de Central.
+2. El Hub solo recuerda el manifiesto si su local cae dentro de ese porcentaje
+   (calculado de forma determinista para que siempre entren los mismos primero).
+3. Se ve el fin de semana completo en esa fracción de la flota.
+4. Si aguantó el viernes, se publica un nuevo manifiesto subiendo el anillo a
+   vacío (todos) para llegar a los demás.
 
 ---
 

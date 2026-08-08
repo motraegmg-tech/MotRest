@@ -1,0 +1,12 @@
+Este archivo no es el certificado. Es un recordatorio para obtenerlo de la caja
+una vez que MotRest se haya instalado y abierto por primera vez.
+
+1. En la computadora donde corre el Hub, localiza `datos/tls/hub.crt`.
+2. Copia únicamente `hub.crt` a esta carpeta o a la tablet. No copies `hub.key`
+   ni ningún otro archivo TLS.
+3. En la tablet abre Ajustes → Seguridad → Cifrado y credenciales → Instalar un
+   certificado y selecciona `hub.crt` si Android lo requiere.
+4. Comprueba la conexión contra el Hub real del restaurante antes de operar.
+
+El certificado de la caja no es la firma del APK ni tiene relación con las
+llaves Ed25519 de MOTRAE Central.

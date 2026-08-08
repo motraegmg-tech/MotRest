@@ -21,6 +21,7 @@ export * from "./catalogo/productos.js";
 export * from "./catalogo/porciones.js";
 export * from "./catalogo/modificadores.js";
 export * from "./catalogo/recetas.js";
+export * from "./catalogo/fotos.js";
 export * from "./catalogo/menu.js";
 export * from "./catalogo/importar.js";
 export * from "./catalogo/promociones.js";

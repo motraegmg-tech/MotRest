@@ -21,6 +21,7 @@ import { uuidv7 } from "../comun/ids.js";
 import type { PerfilImpuesto } from "../comun/impuestos.js";
 import type { EstacionKds } from "../cocina/estaciones.js";
 import type { Insumo, Unidad } from "../inventario/insumos.js";
+import { nombreDeFotoValido } from "./fotos.js";
 import type { GrupoModificadores } from "./modificadores.js";
 import type { Categoria, Producto } from "./productos.js";
 import type { Receta } from "./recetas.js";
@@ -61,6 +62,11 @@ export interface BorradorProducto {
   estacion_id?: ID;
   disponible: boolean;
   clave_prod_serv?: string;
+  /**
+   * Nombre del archivo que devolvió el Hub al subir la imagen. Vacío o ausente
+   * = el platillo no tiene foto, que es el caso normal y no un error.
+   */
+  foto?: string;
 }
 
 export type Gravedad = "error" | "advertencia";
@@ -153,6 +159,19 @@ export function validarProducto(
     });
   }
 
+  /*
+   * La foto no la teclea nadie: es lo que devolvió el Hub al recibir el archivo.
+   * Se comprueba igual porque este catálogo se replica entre terminales, y una
+   * referencia inventada terminaría concatenada a una ruta de disco del Hub.
+   */
+  if (borrador.foto !== undefined && borrador.foto !== "" && !nombreDeFotoValido(borrador.foto)) {
+    problemas.push({
+      campo: "foto",
+      mensaje: "La referencia de la foto no es válida",
+      gravedad: "error",
+    });
+  }
+
   if (borrador.costo > borrador.precio && borrador.precio > 0) {
     problemas.push({
       campo: "costo",
@@ -200,6 +219,7 @@ export function agregarProducto(menu: MenuLocal, borrador: BorradorProducto): Me
     orden: siguienteOrden(menu, borrador.categoria_id),
     ...(borrador.estacion_id ? { estacion_id: borrador.estacion_id } : {}),
     ...(borrador.clave_prod_serv ? { clave_prod_serv: borrador.clave_prod_serv } : {}),
+    ...(nombreDeFotoValido(borrador.foto) ? { foto: borrador.foto } : {}),
   };
   return conVersion(menu, { productos: [...menu.productos, nuevo] });
 }
@@ -230,6 +250,12 @@ export function editarProducto(
             ...(borrador.clave_prod_serv
               ? { clave_prod_serv: borrador.clave_prod_serv }
               : { clave_prod_serv: undefined }),
+            // Quitar la foto tiene que BORRAR la referencia, no conservar la
+            // anterior: si no, «quitar imagen» dejaría la vieja en pantalla y
+            // el usuario no tendría manera de deshacerse de ella.
+            ...(nombreDeFotoValido(borrador.foto)
+              ? { foto: borrador.foto }
+              : { foto: undefined }),
           },
     ),
   });

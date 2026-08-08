@@ -85,6 +85,26 @@ export type EventoIdentidad =
       usuario_id: ID;
     })
   | (EventoBase & {
+      /**
+       * Baja definitiva de la plantilla. **No se deshace.**
+       *
+       * Es distinto de `usuario_actualizado { activo: false }`: aquel es «ya no
+       * trabaja aquí, de momento» y se revierte el día que vuelve. Esto lo saca
+       * de todas las listas del sistema para siempre.
+       *
+       * El evento SÍ se queda en la bitácora, y ahí está lo importante: el log
+       * es el registro del negocio y solo agrega. Quien cobró una mesa el mes
+       * pasado la sigue habiendo cobrado aunque hoy ya no exista como usuario, y
+       * queda escrito quién lo eliminó y cuándo.
+       */
+      tipo: "usuario_eliminado";
+      usuario_id: ID;
+      /** Quién lo firmó. Es una decisión del rango más alto del restaurante. */
+      eliminado_por: ID;
+      /** Se conserva para poder leer la bitácora sin resolver identificadores. */
+      nombre: string;
+    })
+  | (EventoBase & {
       tipo: "usuario_bloqueado";
       usuario_id: ID;
       /** Intentos fallidos que dispararon el bloqueo. */
@@ -119,6 +139,7 @@ const TIPOS_EVENTO_IDENTIDAD = new Set<string>([
   "autorizacion_denegada",
   "usuario_creado",
   "usuario_actualizado",
+  "usuario_eliminado",
   "credencial_cambiada",
   "acceso_recuperado",
   "usuario_bloqueado",
@@ -242,6 +263,16 @@ export function esEventoIdentidad(evento: unknown): evento is EventoIdentidad {
         (cambios.activo === undefined || typeof cambios.activo === "boolean")
       );
     }
+
+    case "usuario_eliminado":
+      return (
+        esTexto(evento.usuario_id) &&
+        esTexto(evento.eliminado_por) &&
+        esTexto(evento.nombre) &&
+        // Nadie se borra a sí mismo: dejaría el local sin quien administre y es
+        // el camino más corto para que una cuenta comprometida tape su rastro.
+        evento.usuario_id !== evento.eliminado_por
+      );
 
     case "credencial_cambiada":
       return (

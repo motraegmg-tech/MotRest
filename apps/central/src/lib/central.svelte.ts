@@ -15,7 +15,9 @@ import {
   firmarVersion,
   generarPar,
   idDeSucursal,
+  leTocaElAnillo,
   pendientesDeHoy,
+  posicionEnLaFlota,
   resumenDeCartera,
   saludDeCliente,
   siguienteVencimiento,
@@ -51,6 +53,8 @@ export interface Secretos {
   publicacion?: LlavePublica;
   repositorio: string;
   soporte?: CredencialSoporte;
+  /** Dónde está el relay. La clave con la que se consulta NO sale de DPAPI. */
+  relay_url?: string;
 }
 
 interface SecretosProtegidos {
@@ -59,6 +63,9 @@ interface SecretosProtegidos {
   publicacion?: ParDeLlaves;
   repositorio: string;
   soporte?: CredencialSoporte;
+  /** El relay de MOTRAE y su clave de administración, para traer los pulsos. */
+  relay_url?: string;
+  relay_clave_admin?: string;
   /** PINes de responsables, cifrados con DPAPI y nunca en la cartera. */
   responsables?: Record<string, ResponsableProtegido>;
   /** Impide que un reloj atrasado repita un `publicado_ts`. */
@@ -121,6 +128,7 @@ function vistaDe(secretos: SecretosProtegidos): Secretos {
     ...(secretos.licencias ? { licencias: { publica: secretos.licencias.publica } } : {}),
     ...(secretos.publicacion ? { publicacion: { publica: secretos.publicacion.publica } } : {}),
     ...(secretos.soporte ? { soporte: secretos.soporte } : {}),
+    ...(secretos.relay_url ? { relay_url: secretos.relay_url } : {}),
   };
 }
 
@@ -208,6 +216,8 @@ function decodificarSecretos(texto: string): SecretosProtegidos | null {
     if (!valor || valor.formato !== 2 || typeof valor.repositorio !== "string") return null;
     if ((valor.licencias !== undefined && !esPar(valor.licencias)) ||
       (valor.publicacion !== undefined && !esPar(valor.publicacion)) ||
+      (valor.relay_url !== undefined && typeof valor.relay_url !== "string") ||
+      (valor.relay_clave_admin !== undefined && typeof valor.relay_clave_admin !== "string") ||
       (valor.responsables !== undefined && !esResponsablesProtegidos(valor.responsables))) {
       return null;
     }
@@ -572,6 +582,17 @@ export class StoreCentral {
     ) {
       return { ok: false, error: "La versión mínima no puede ser posterior a la versión publicada" };
     }
+    /*
+     * Un anillo mal escrito no se puede corregir después: el manifiesto va
+     * firmado y los Hubs que ya lo vieron lo tienen. Un `0` dejaría la versión
+     * publicada y sin llegar a nadie, en silencio.
+     */
+    if (
+      datos.anillo !== undefined &&
+      (!Number.isInteger(datos.anillo) || datos.anillo < 1 || datos.anillo > 100)
+    ) {
+      return { ok: false, error: "El anillo es un porcentaje entero de 1 a 100" };
+    }
 
     if (this.firmandoActualizacion) {
       return { ok: false, error: "Ya hay un manifiesto en proceso de firma; espere a que termine" };
@@ -626,11 +647,79 @@ export class StoreCentral {
     return resultado;
   }
 
-  async guardarConfiguracion(cambios: { repositorio: string }): Promise<Resultado> {
+  async guardarConfiguracion(cambios: {
+    repositorio: string;
+    relay_url?: string;
+    relay_clave_admin?: string;
+  }): Promise<Resultado> {
+    const url = cambios.relay_url?.trim() ?? this.protegidos.relay_url ?? "";
+    /*
+     * Solo `https://`. Por aquí viaja la clave de administración del relay —la
+     * que abre el estado de toda la cartera— y en claro se la lleva cualquier
+     * salto del camino. Un `http://` en la configuración es siempre una prueba
+     * que se quedó puesta.
+     */
+    if (url && !/^https:\/\//i.test(url)) {
+      return { ok: false, error: "La dirección del relay tiene que ser https://" };
+    }
+
     return this.reemplazarProtegidos({
       ...this.protegidos,
       repositorio: cambios.repositorio.trim(),
+      ...(cambios.relay_url !== undefined ? { relay_url: url } : {}),
+      ...(cambios.relay_clave_admin !== undefined
+        ? { relay_clave_admin: cambios.relay_clave_admin.trim() }
+        : {}),
     });
+  }
+
+  /** ¿Se puede preguntar al relay cómo están los locales? */
+  get puedeConsultarRelay(): boolean {
+    return Boolean(this.protegidos.relay_url && this.protegidos.relay_clave_admin);
+  }
+
+  /**
+   * Trae de una vez el último parte de todos los restaurantes.
+   *
+   * Es lo que quita la ceguera antes de publicar: qué versión corre cada local y
+   * cuándo dio señales. Sustituye por completo lo que hubiera de cada sucursal —
+   * el pulso es un estado actual, no un historial.
+   *
+   * Lo que no llegue se queda como estaba. Un relay caído no puede convertir a
+   * toda la cartera en «nunca reportó», que se leería como una avería masiva.
+   */
+  async traerPulsos(): Promise<{ ok: true; total: number } | { ok: false; error: string }> {
+    const url = this.protegidos.relay_url;
+    const clave = this.protegidos.relay_clave_admin;
+    if (!url || !clave) {
+      return { ok: false, error: "Falta la dirección del relay o su clave de administración" };
+    }
+
+    try {
+      const respuesta = await fetch(new URL("/pulsos", url), {
+        headers: { authorization: `Bearer ${clave}` },
+        signal: AbortSignal.timeout(10_000),
+      });
+
+      if (respuesta.status === 401) {
+        return { ok: false, error: "El relay rechazó la clave de administración" };
+      }
+      if (!respuesta.ok) {
+        return { ok: false, error: `El relay respondió ${respuesta.status}` };
+      }
+
+      const datos = (await respuesta.json()) as { pulsos?: PulsoCliente[] };
+      if (!Array.isArray(datos.pulsos)) {
+        return { ok: false, error: "El relay contestó algo que no son pulsos" };
+      }
+
+      for (const pulso of datos.pulsos) {
+        if (pulso?.sucursal_id && typeof pulso.version === "string") this.recibirPulso(pulso);
+      }
+      return { ok: true, total: datos.pulsos.length };
+    } catch (causa) {
+      return { ok: false, error: `No se pudo hablar con el relay: ${String(causa)}` };
+    }
   }
 
   async fijarContrasenaSoporte(contrasena: string): Promise<Resultado> {
@@ -700,6 +789,31 @@ export class StoreCentral {
     } catch (causa) {
       return { ok: false, error: `No se pudieron restaurar las llaves: ${String(causa)}` };
     }
+  }
+
+  // --- Anillos de despliegue -------------------------------------------------------------
+
+  /**
+   * La cartera ordenada por su turno en los despliegues.
+   *
+   * Es la misma cuenta que hace cada Hub sobre sí mismo (`posicionEnLaFlota`),
+   * hecha aquí sobre toda la cartera. Sirve para lo que el manifiesto no puede:
+   * **ver quién entra antes de firmar**. El manifiesto es público en GitHub y no
+   * puede llevar la lista de clientes de MOTRAE, así que lleva un porcentaje; el
+   * porcentaje solo es utilizable si desde aquí se ve a quién corresponde.
+   *
+   * El primero de esta lista es el canario natural: le toca en cuanto el anillo
+   * llega a su posición, y le tocará siempre el primero mientras exista.
+   */
+  get ordenDeDespliegue(): { cliente: ClienteMotRest; posicion: number }[] {
+    return this.activos
+      .map((cliente) => ({ cliente, posicion: posicionEnLaFlota(cliente.id) }))
+      .sort((a, b) => a.posicion - b.posicion || a.cliente.nombre.localeCompare(b.cliente.nombre));
+  }
+
+  /** A qué locales de la cartera les llegaría una versión con este anillo. */
+  localesEnElAnillo(anillo?: number): ClienteMotRest[] {
+    return this.activos.filter((cliente) => leTocaElAnillo(cliente.id, anillo));
   }
 
   // --- Lo que se ve ---------------------------------------------------------------------

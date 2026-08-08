@@ -5,7 +5,7 @@
  * se juntan las dos cosas que sostienen todo el modelo: que la licencia solo
  * valga en SU local, y que el acceso de soporte viaje dentro de la firma.
  */
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, afterEach, describe, expect, it, vi } from "vitest";
 import {
   pesos,
   verificarLicencia,
@@ -15,6 +15,12 @@ import {
 import { crearCentralParaPruebas, StoreCentral } from "../central.svelte";
 
 let central: StoreCentral;
+const originalFetch = global.fetch;
+
+afterEach(() => {
+  global.fetch = originalFetch;
+});
+
 
 beforeEach(async () => {
   central = crearCentralParaPruebas();
@@ -259,5 +265,68 @@ describe("los pulsos de los Hubs", () => {
 
     expect(central.pulsos).toHaveLength(1);
     expect(central.pulsoDe(id)!.version).toBe("1.4.0");
+  });
+});
+
+describe("anillos de despliegue", () => {
+  it("asigna un orden de despliegue estable", async () => {
+    const id1 = (await alta("Local 1")).cliente!.id;
+    const id2 = (await alta("Local 2")).cliente!.id;
+    const orden = central.ordenDeDespliegue;
+
+    expect(orden).toHaveLength(2);
+    // El orden depende de los IDs pero es determinista
+    const orden2 = central.ordenDeDespliegue;
+    expect(orden.map(o => o.cliente.id)).toEqual(orden2.map(o => o.cliente.id));
+  });
+
+  it("calcula correctamente quién entra en cada anillo", async () => {
+    await alta("Local 1");
+    await alta("Local 2");
+    
+    // Con 100% todos entran
+    const alcanzados = central.localesEnElAnillo(100);
+    expect(alcanzados).toHaveLength(2);
+
+    // Con anillo no definido, es como 100% pero la UI avisa
+    const sinAnillo = central.localesEnElAnillo(undefined);
+    expect(sinAnillo).toHaveLength(2);
+  });
+});
+
+describe("traerPulsos", () => {
+  it("falla si no hay configuración del relay", async () => {
+    const r = await central.traerPulsos();
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.error).toContain("Falta la dirección");
+  });
+
+  it("llama al fetch con autorización y actualiza los pulsos", async () => {
+    await central.guardarConfiguracion({
+      repositorio: "r",
+      relay_url: "https://relay.test",
+      relay_clave_admin: "secreto123"
+    });
+
+    const id = (await alta()).cliente!.id;
+
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        pulsos: [{ sucursal_id: id, ts: 9999, version: "2.0.0" }]
+      })
+    });
+
+    const r = await central.traerPulsos();
+    expect(r.ok).toBe(true);
+    expect(global.fetch).toHaveBeenCalledWith(
+      new URL("https://relay.test/pulsos"),
+      expect.objectContaining({
+        headers: { authorization: "Bearer secreto123" }
+      })
+    );
+
+    expect(central.pulsoDe(id)!.version).toBe("2.0.0");
   });
 });
