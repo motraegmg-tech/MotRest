@@ -29,7 +29,7 @@ De ahí salen las dos únicas reglas que importan:
 
 ### 1 · Instalar MotRest en la computadora del local
 
-`MotRest_1.0.3_x64-setup.exe`, doble clic. No pide administrador.
+`MotRest_1.0.4_x64-setup.exe`, doble clic. No pide administrador.
 
 Al primer arranque sin licencia aparece la pantalla **Servicio suspendido**. No
 borra ni altera la información: muestra el código de instalación y permite pegar

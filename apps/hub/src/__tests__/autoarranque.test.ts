@@ -8,9 +8,28 @@
  * apunta a un node suelto o a una carpeta temporal ya borrada.
  */
 import { describe, expect, it } from "vitest";
-import { asegurarAlArrancar, estado, soportado } from "../autoarranque.js";
+import {
+  asegurarAlArrancar,
+  comandoDeArranqueSilencioso,
+  contenidoLanzadorSilencioso,
+  estado,
+  soportado,
+} from "../autoarranque.js";
 
 describe("cuándo se puede registrar el arranque", () => {
+  it("lanza el Hub instalado sin abrir una consola", () => {
+    const rutaHub = "C:\\Users\\caja\\AppData\\Local\\MotRest\\motrest-hub.exe";
+    const comando = comandoDeArranqueSilencioso(rutaHub);
+    const lanzador = contenidoLanzadorSilencioso();
+
+    expect(comando).toBe(
+      'wscript.exe //B "C:\\Users\\caja\\AppData\\Local\\MotRest\\motrest-hub-arranque.vbs" "C:\\Users\\caja\\AppData\\Local\\MotRest\\motrest-hub.exe"',
+    );
+    expect(comando).not.toMatch(/powershell|cmd\.exe/i);
+    expect(lanzador).toContain('CreateObject("WScript.Shell")');
+    expect(lanzador).toContain("shell.Run Chr(34) & WScript.Arguments(0) & Chr(34), 0, False");
+  });
+
   /*
    * Las pruebas corren con vitest, así que `process.execPath` es node.exe.
    * Ese es exactamente el caso que la guarda tiene que rechazar.

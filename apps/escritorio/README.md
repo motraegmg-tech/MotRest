@@ -63,6 +63,14 @@ El Hub va como *sidecar*: la app lo levanta al abrir y lo cierra al salir.
 Dejarlo vivo tras cerrar la caja mantendría el puerto ocupado y el siguiente
 arranque fallaría sin explicación.
 
+### Arranque silencioso
+
+La ventana de MotRest es una aplicación gráfica y el sidecar se crea sin
+consola. Para el arranque automático de Windows, el Hub se registra mediante
+`wscript.exe`, el host gráfico nativo: inicia el Hub en segundo plano y no abre
+PowerShell, CMD ni una ventana negra con los registros. El ajuste se aplica al
+instalar o actualizar MotRest y no modifica los datos del restaurante.
+
 ## Firma del instalador
 
 **Pendiente del trámite comercial.** Sin firma, Windows SmartScreen muestra

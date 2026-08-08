@@ -22,7 +22,8 @@
  * dice es exactamente lo que uno no quiere en la computadora de su negocio.
  */
 import { execFile } from "node:child_process";
-import { basename } from "node:path";
+import { writeFile } from "node:fs/promises";
+import { basename, dirname, join } from "node:path";
 import { promisify } from "node:util";
 
 const ejecutar = promisify(execFile);
@@ -32,6 +33,27 @@ const ENTRADA = "MotRestHub";
 
 /** El nombre del ejecutable que produce el empaquetado. */
 const EJECUTABLE = "motrest-hub";
+const LANZADOR_SILENCIOSO = "motrest-hub-arranque.vbs";
+
+/*
+ * Node SEA produce un ejecutable de consola. Registrarlo directo en Run abre
+ * una ventana negra al iniciar sesión. WScript es el host gráfico de Windows:
+ * no tiene consola, y Run(..., 0, False) oculta también al Hub que inicia. No
+ * intervienen PowerShell ni CMD en esta ruta de arranque.
+ *
+ * El script recibe la ruta del Hub como argumento, sin incrustarla. Así una
+ * ruta con espacios no termina como código y el mismo lanzador sirve después
+ * de una actualización.
+ */
+const CONTENIDO_LANZADOR_SILENCIOSO = [
+  "' Lanzador silencioso de MotRest Hub. Generado por MotRest; no editar.",
+  "Option Explicit",
+  "If WScript.Arguments.Count <> 1 Then WScript.Quit 87",
+  "Dim shell",
+  "Set shell = CreateObject(\"WScript.Shell\")",
+  "shell.Run Chr(34) & WScript.Arguments(0) & Chr(34), 0, False",
+  "",
+].join("\r\n");
 
 export interface EstadoAutoarranque {
   /** Se puede configurar en este equipo y con este ejecutable. */
@@ -39,6 +61,29 @@ export interface EstadoAutoarranque {
   activo: boolean;
   /** Por qué no se puede, cuando no se puede. */
   motivo?: string;
+}
+
+/** Ruta del lanzador pequeño que queda junto al ejecutable instalado. */
+export function rutaLanzadorSilencioso(rutaHub: string): string {
+  return join(dirname(rutaHub), LANZADOR_SILENCIOSO);
+}
+
+/** Exact command stored under HKCU\\...\\Run. */
+export function comandoDeArranqueSilencioso(rutaHub: string): string {
+  return `wscript.exe //B "${rutaLanzadorSilencioso(rutaHub)}" "${rutaHub}"`;
+}
+
+/** Contenido estable, expuesto para probarlo sin tocar Windows. */
+export function contenidoLanzadorSilencioso(): string {
+  return CONTENIDO_LANZADOR_SILENCIOSO;
+}
+
+async function prepararLanzadorSilencioso(): Promise<void> {
+  await writeFile(
+    rutaLanzadorSilencioso(process.execPath),
+    CONTENIDO_LANZADOR_SILENCIOSO,
+    "utf8",
+  );
 }
 
 /**
@@ -79,7 +124,10 @@ export async function estado(): Promise<EstadoAutoarranque> {
       motivo: "El Hub no corre como su ejecutable instalado",
     };
   }
-  return { soportado: true, activo: (await leerEntrada()) !== null };
+  return {
+    soportado: true,
+    activo: (await leerEntrada()) === comandoDeArranqueSilencioso(process.execPath),
+  };
 }
 
 /**
@@ -92,7 +140,11 @@ export async function estado(): Promise<EstadoAutoarranque> {
 export async function activar(): Promise<EstadoAutoarranque> {
   if (!soportado()) return estado();
 
-  const ruta = `"${process.execPath}"`;
+  // Se escribe antes del registro: nunca se deja una entrada que apunte a un
+  // lanzador inexistente. Reescribirlo repara una instalación que tenga el
+  // valor correcto pero haya perdido el .vbs.
+  await prepararLanzadorSilencioso();
+  const ruta = comandoDeArranqueSilencioso(process.execPath);
   if ((await leerEntrada()) === ruta) return { soportado: true, activo: true };
 
   await ejecutar("reg", ["add", RAMA, "/v", ENTRADA, "/t", "REG_SZ", "/d", ruta, "/f"]);
