@@ -773,24 +773,47 @@ class TiendaPOS {
     return true;
   }
 
-  registrarPropina(monto: Centavos): void {
+  /**
+   * Registra un AJUSTE de propina. El evento es un incremento, no un total: el
+   * reducer suma lo que llegue, así que corregir a la baja exige un negativo.
+   *
+   * Por eso solo se rechaza el ajuste que dejaría la propina en negativo, y no
+   * cualquier negativo. Cuando se filtraba `monto <= 0`, «Quitar» y bajar de
+   * 20 % a 10 % emitían un ajuste negativo que se descartaba en silencio: la
+   * pantalla seguía mostrando la propina vieja y esa cifra se cobraba.
+   */
+  registrarPropina(ajuste: Centavos): void {
     const orden_id = this.ordenActiva(this.mesaActiva);
-    if (!orden_id || monto <= 0) return;
+    if (!orden_id || ajuste === 0) return;
+
+    const actual = this.totales?.propina ?? CERO;
+    if (actual + ajuste < 0) return;
+
     this.sincronizarActor();
     this.emitir(
       this.mesaActiva,
-      fabrica.crear("propina_registrada", orden_id, { orden_id, monto }),
+      fabrica.crear("propina_registrada", orden_id, { orden_id, monto: ajuste }),
     );
+  }
+
+  /**
+   * Deja la propina de la cuenta EXACTAMENTE en este monto.
+   *
+   * Es lo que necesita quien cobra: en la mesa se dice «déjale 100», no «súmale
+   * 40 a los 60 que ya tenía». Se traduce a un ajuste porque el evento es un
+   * incremento, y así corregir una cifra mal tecleada no acumula.
+   */
+  fijarPropina(monto: Centavos): void {
+    const t = this.totales;
+    if (!t || monto < 0) return;
+    this.registrarPropina(restar(monto, t.propina));
   }
 
   /** Propina como porcentaje del total de la cuenta. */
   propinaPorcentaje(fraccion: number): void {
     const t = this.totales;
     if (!t) return;
-    const yaRegistrada = t.propina;
-    const objetivo = Math.round(t.total * fraccion) as Centavos;
-    const diferencia = restar(objetivo, yaRegistrada);
-    if (diferencia !== 0) this.registrarPropina(diferencia);
+    this.fijarPropina(Math.round(t.total * fraccion) as Centavos);
   }
 
   // --- Dividir y traspasar ---------------------------------------------------------------

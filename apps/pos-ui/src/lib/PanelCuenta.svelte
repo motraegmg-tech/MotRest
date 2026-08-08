@@ -32,6 +32,18 @@
   let formaPago = $state<FormaPago>("efectivo");
   let recibido = $state("");
   let partes = $state(2);
+  /** Propina tecleada a mano, en pesos. Vacío = se usan los porcentajes. */
+  let propinaLibre = $state("");
+
+  /*
+   * Fija la propina al monto tecleado, no lo acumula: quien corrige un 150 mal
+   * escrito por 100 espera 100, no 250.
+   */
+  function fijarPropinaLibre() {
+    const monto = Number(propinaLibre);
+    if (propinaLibre.trim() === "" || !Number.isFinite(monto) || monto < 0) return;
+    pos.fijarPropina(pesos(monto));
+  }
   let renglonATraspasar = $state<string | null>(null);
 
   /*
@@ -372,6 +384,50 @@
               {forma.etiqueta}
             </button>
           {/each}
+        </div>
+
+        <!--
+          La propina se decide AQUÍ, al cobrar, porque es cuando el comensal
+          dice cuánto deja. Los porcentajes cubren el caso rápido; el campo
+          libre existe porque la propina real casi nunca es un porcentaje
+          redondo: se redondea la cuenta, se deja lo que sobra del efectivo o
+          se da una cifra cerrada.
+        -->
+        <div class="propinas">
+          <span class="etiqueta-propina">Propina</span>
+          <div class="opciones-propina">
+            {#each [0.1, 0.15, 0.2] as pct (pct)}
+              <button
+                class="mini"
+                class:on={t.propina > 0 && t.propina === Math.round(t.total * pct)}
+                onclick={() => { pos.propinaPorcentaje(pct); propinaLibre = ""; }}
+              >
+                {Math.round(pct * 100)}%
+              </button>
+            {/each}
+            <input
+              class="monto-propina"
+              type="number"
+              inputmode="decimal"
+              bind:value={propinaLibre}
+              oninput={fijarPropinaLibre}
+              placeholder="Otra"
+              aria-label="Propina en pesos"
+            />
+            {#if t.propina > 0}
+              <button
+                class="mini quitar"
+                onclick={() => { pos.propinaPorcentaje(0); propinaLibre = ""; }}
+              >
+                Quitar
+              </button>
+            {/if}
+          </div>
+          {#if t.propina > 0}
+            <p class="resumen-propina">
+              Propina <b>{mxn(t.propina)}</b> · total a cobrar <b>{mxn(sumar(t.total, t.propina))}</b>
+            </p>
+          {/if}
         </div>
 
         {#if formaPago === "efectivo"}
@@ -833,6 +889,50 @@
   .b2.cobrar:hover {
     background: var(--acento);
     color: #fff;
+  }
+  .propinas {
+    display: flex;
+    flex-direction: column;
+    gap: 0.4rem;
+    padding: 0.6rem 0.7rem;
+    border: 1px solid var(--borde);
+    border-radius: var(--r-md);
+    background: var(--fondo);
+  }
+  .etiqueta-propina {
+    font-size: 0.72rem;
+    font-weight: 600;
+    color: var(--gris);
+  }
+  .opciones-propina {
+    display: flex;
+    align-items: center;
+    gap: 0.35rem;
+    flex-wrap: wrap;
+  }
+  /* Estrecho: cabe una cifra de propina, no un importe de cuenta. */
+  .monto-propina {
+    width: 5.5rem;
+    padding: 0.35rem 0.5rem;
+    border: 1.5px solid var(--borde);
+    border-radius: var(--r-sm);
+    font-size: 0.86rem;
+    font-family: var(--font-cuerpo);
+  }
+  .opciones-propina .mini.on {
+    background: var(--acento);
+    border-color: var(--acento);
+    color: #fff;
+  }
+  .opciones-propina .mini.quitar {
+    color: var(--peligro);
+  }
+  .resumen-propina {
+    font-size: 0.8rem;
+    color: var(--pizarra);
+  }
+  .resumen-propina b {
+    color: var(--acento);
   }
   .panel-cobro {
     display: flex;

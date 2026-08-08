@@ -224,6 +224,52 @@ describe("el viernes de Rodizio, de la apertura al corte", () => {
   });
 
   /*
+   * LA PROPINA. Se decide al cobrar y se corrige en voz alta: «déjale 100»,
+   * «no, mejor 80», «quítasela». El evento de propina es un INCREMENTO, así que
+   * cada una de esas frases tiene que traducirse a un ajuste — y el ajuste a la
+   * baja es negativo. Cuando se descartaban los negativos, la pantalla seguía
+   * enseñando la propina vieja y esa era la que se cobraba.
+   */
+  it("la propina se fija, se corrige a la baja y se quita", async () => {
+    const mesaId = mesas[6]!;
+    pos.seleccionarMesa(mesaId);
+    const ordenId = pos.abrirMesa(mesaId);
+
+    await pos.agregarSimple(productoDe("cat-pastas"));
+    await pos.enviarACocina();
+    await cocinarTodo(ordenId);
+
+    const total = totalesComanda(pos.comanda!).total;
+
+    // Una cantidad cerrada, como la dice el comensal.
+    pos.fijarPropina(pesos(100));
+    expect(totalesComanda(pos.comanda!).propina).toBe(pesos(100));
+    expect(totalesComanda(pos.comanda!).saldo).toBe(sumar(total, pesos(100)));
+
+    // Se corrige a la baja: FIJA 80, no suma 80 encima de los 100.
+    pos.fijarPropina(pesos(80));
+    expect(totalesComanda(pos.comanda!).propina).toBe(pesos(80));
+
+    // Un porcentaje después de un monto libre también reemplaza.
+    pos.propinaPorcentaje(0.1);
+    expect(totalesComanda(pos.comanda!).propina).toBe(Math.round(total * 0.1));
+
+    // Y quitarla la deja en cero de verdad.
+    pos.propinaPorcentaje(0);
+    expect(totalesComanda(pos.comanda!).propina).toBe(0);
+    expect(totalesComanda(pos.comanda!).saldo).toBe(total);
+
+    // Nunca puede quedar negativa: un ajuste que se pasaría se descarta.
+    pos.registrarPropina(pesos(-50) as Centavos);
+    expect(totalesComanda(pos.comanda!).propina).toBe(0);
+
+    // La mesa se cierra: el servicio no puede terminar con cuentas abiertas.
+    await pos.cobrarTodo("efectivo");
+    efectivoRecibido = sumar(efectivoRecibido, total);
+    ventaEfectivo = sumar(ventaEfectivo, total);
+  });
+
+  /*
    * EL TRASPASO. Se cambiaron de mesa a media cena. El renglón viaja; lo que
    * importa es que no se cobre dos veces ni se pierda.
    */
