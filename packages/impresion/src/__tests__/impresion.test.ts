@@ -409,6 +409,40 @@ describe("cola de impresión", () => {
     expect(esperaReintento(10)).toBe(60_000);
   });
 
+  /*
+   * El transporte simulado no imprime nada: es el de la demostración y el de
+   * las terminales que no son la caja. Que un trabajo suyo se marcara como
+   * «impreso» a secas es el fallo más caro de este módulo —la comanda no sale,
+   * la cocina no la prepara y la pantalla dice que todo fue bien—, así que el
+   * resultado viaja etiquetado hasta la interfaz.
+   */
+  it("un trabajo simulado queda marcado como tal, no como papel impreso", async () => {
+    const cola = new ColaImpresion([new TransporteSimulado()]);
+    cola.encolar(trabajo("t1"));
+    await cola.procesar([impresora("imp-caja", ["caja"])]);
+
+    const t = cola.todos[0]!;
+    expect(t.estado).toBe("impreso");
+    expect(t.simulado).toBe(true);
+  });
+
+  it("lo que sí llegó a una impresora NO se marca como simulado", async () => {
+    const real: Transporte = {
+      puede: () => true,
+      async enviar(): Promise<ResultadoEnvio> {
+        return { ok: true };
+      },
+    };
+
+    const cola = new ColaImpresion([real]);
+    cola.encolar(trabajo("t1"));
+    await cola.procesar([impresora("imp-caja", ["caja"])]);
+
+    const t = cola.todos[0]!;
+    expect(t.estado).toBe("impreso");
+    expect(t.simulado).toBe(false);
+  });
+
   it("limpiar conserva lo pendiente y lo fallido", async () => {
     const cola = new ColaImpresion([new TransporteSimulado()]);
     cola.encolar(trabajo("t1"));

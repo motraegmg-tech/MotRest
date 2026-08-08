@@ -26,6 +26,12 @@ export interface Impresora {
   host?: string;
   /** Puerto 9100 es el estándar de impresión directa. */
   puerto?: number;
+  /**
+   * Nombre con el que la impresora está dada de alta en el sistema, para
+   * conexión USB. Es el que aparece en «Impresoras y escáneres» de Windows, y
+   * tiene que coincidir letra por letra: el spooler no adivina.
+   */
+  dispositivo?: string;
   ancho: AnchoPapel;
   /** Áreas que imprime: "caja", "est-horno", "est-barra"… */
   areas: ID[];
@@ -54,6 +60,14 @@ export interface TrabajoImpresion {
   ultimo_error?: string;
   /** Referencia al origen: la orden, el corte. */
   referencia?: ID;
+  /**
+   * Se «imprimió» sin papel: lo atendió el transporte simulado.
+   *
+   * Existe para que la pantalla no pueda decir «impreso» de algo que nunca
+   * salió. Un trabajo simulado que se mostrara como impreso es la peor versión
+   * de este módulo: la cocina no recibe la comanda y nadie se entera.
+   */
+  simulado?: boolean;
 }
 
 /**
@@ -99,6 +113,8 @@ export function impresorasPara(
 export interface ResultadoEnvio {
   ok: boolean;
   error?: string;
+  /** El envío no llegó a ninguna impresora de verdad. Lo pone el simulado. */
+  simulado?: boolean;
 }
 
 /** Quien sabe hablar con una impresora concreta. */
@@ -182,13 +198,15 @@ export class ColaImpresion {
 
         const impresora = impresoras.find((i) => i.id === trabajo.impresora_id);
         if (!impresora) {
-          this.marcar(trabajo.id, "fallido", "La impresora ya no está configurada");
+          this.marcar(trabajo.id, "fallido", { ultimo_error: "La impresora ya no está configurada" });
           continue;
         }
 
         const transporte = this.transportes.find((t) => t.puede(impresora));
         if (!transporte) {
-          this.marcar(trabajo.id, "fallido", `Sin soporte para conexión ${impresora.conexion}`);
+          this.marcar(trabajo.id, "fallido", {
+            ultimo_error: `Sin soporte para conexión ${impresora.conexion}`,
+          });
           continue;
         }
 
@@ -196,7 +214,10 @@ export class ColaImpresion {
         const resultado = await transporte.enviar(impresora, trabajo.datos);
 
         if (resultado.ok) {
-          this.marcar(trabajo.id, "impreso");
+          // `simulado` viaja hasta la pantalla: es la diferencia entre «salió en
+          // papel» y «solo se pudo previsualizar», y quien está en la caja
+          // necesita saber cuál de las dos ocurrió.
+          this.marcar(trabajo.id, "impreso", { simulado: resultado.simulado === true });
           continue;
         }
 
@@ -222,9 +243,13 @@ export class ColaImpresion {
     return this.trabajos.find((t) => t.id === trabajoId);
   }
 
-  private marcar(trabajoId: ID, estado: EstadoTrabajo, error?: string): void {
+  private marcar(
+    trabajoId: ID,
+    estado: EstadoTrabajo,
+    extra?: Partial<Pick<TrabajoImpresion, "ultimo_error" | "simulado">>,
+  ): void {
     this.trabajos = this.trabajos.map((t) =>
-      t.id === trabajoId ? { ...t, estado, ...(error ? { ultimo_error: error } : {}) } : t,
+      t.id === trabajoId ? { ...t, estado, ...extra } : t,
     );
     this.avisar();
   }
@@ -252,6 +277,7 @@ export class TransporteSimulado implements Transporte {
 
   async enviar(impresora: Impresora, datos: Uint8Array): Promise<ResultadoEnvio> {
     this.impresos.push({ impresora: impresora.id, datos });
-    return { ok: true };
+    // Se declara simulado para que nadie aguas abajo lo confunda con papel.
+    return { ok: true, simulado: true };
   }
 }

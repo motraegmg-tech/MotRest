@@ -6,12 +6,19 @@
    * rinde, queda a la vista para reimprimirlo a mano. Lo que jamás se pierde es
    * el evento de venta, que ya está en el registro.
    */
-  import { impresion } from "../../impresion.svelte";
+  import { impresion, enLaCaja } from "../../impresion.svelte";
   import { menu } from "../../menu.svelte";
   import { hora } from "../../formato";
   import { sesion } from "../../sesion/sesion.svelte";
 
   let nueva = $state("");
+
+  // La lista de impresoras del sistema solo existe en la caja, y solo hace
+  // falta aquí: se pide al abrir la pantalla, no en el arranque del POS.
+  const esCaja = enLaCaja();
+  $effect(() => {
+    void impresion.cargarImpresorasSistema();
+  });
 
   const puedeEditar = $derived(sesion.puedeOperar("admin.dispositivo.aprobar"));
   const areas = $derived([
@@ -53,12 +60,19 @@
     {/if}
   </div>
 
-  <p class="nota">
-    En el navegador no se puede hablar con una impresora de red, así que aquí los
-    trabajos se generan y se previsualizan pero no salen en papel. La impresión
-    real llega con la aplicación instalada (etapa 12); las plantillas y la cola
-    ya están listas para ella.
-  </p>
+  {#if esCaja}
+    <p class="nota">
+      Esta es la caja: desde aquí sí sale papel. Una impresora <b>de red</b>
+      necesita su dirección IP; una <b>USB</b> necesita estar instalada en
+      Windows y elegirse en la lista. Las demás terminales solo previsualizan.
+    </p>
+  {:else}
+    <p class="nota aviso">
+      Esta terminal <b>no puede imprimir en papel</b>: solo la caja —el equipo
+      donde corre MotRest— habla con las impresoras. Aquí los trabajos se
+      generan y se previsualizan, y quedan marcados como «sin papel».
+    </p>
+  {/if}
 
   {#each impresion.impresoras as imp (imp.id)}
     <section class="tarjeta" class:inactiva={!imp.activa}>
@@ -113,6 +127,40 @@
                 oninput={(e) => impresion.actualizar(imp.id, { puerto: Number(e.currentTarget.value) })}
               />
             </label>
+          {:else if imp.conexion === "usb"}
+            <!--
+              El nombre tiene que coincidir letra por letra con el de Windows,
+              así que se elige de una lista en vez de teclearse. Si el Hub no
+              pudo dar la lista, queda el campo libre como salida.
+            -->
+            <label class="ancho">
+              <span>Impresora de Windows</span>
+              {#if impresion.impresorasSistema.length > 0}
+                <select
+                  value={imp.dispositivo ?? ""}
+                  onchange={(e) =>
+                    impresion.actualizar(imp.id, { dispositivo: e.currentTarget.value })}
+                >
+                  <option value="">— Elige una —</option>
+                  {#each impresion.impresorasSistema as sis (sis.nombre)}
+                    <option value={sis.nombre}>
+                      {sis.nombre}{sis.puerto ? ` · ${sis.puerto}` : ""}
+                    </option>
+                  {/each}
+                </select>
+              {:else}
+                <input
+                  value={imp.dispositivo ?? ""}
+                  oninput={(e) => impresion.actualizar(imp.id, { dispositivo: e.currentTarget.value })}
+                  placeholder="BIXOLON SRP-350plus"
+                />
+              {/if}
+            </label>
+          {:else}
+            <p class="pendiente">
+              La conexión Bluetooth todavía no está implementada: los trabajos se
+              previsualizan pero no salen en papel. Usa red o USB.
+            </p>
           {/if}
           <label class="angosto">
             <span>Ancho</span>
@@ -152,13 +200,21 @@
     {:else}
       <div class="cola">
         {#each impresion.trabajos.slice(-15).reverse() as t (t.id)}
-          <div class="trabajo {t.estado}">
+          <div class="trabajo {t.estado}" class:simulado={t.simulado}>
             <span class="h">{hora(t.creado_ts)}</span>
             <span class="doc">{t.documento}</span>
             <span class="imp">
               {impresion.impresoras.find((i) => i.id === t.impresora_id)?.nombre ?? t.impresora_id}
             </span>
-            <span class="est">{t.estado}</span>
+            <!--
+              Un trabajo simulado NO se anuncia como impreso. Decir «impreso» de
+              algo que nunca salió es el peor fallo posible aquí: la cocina no
+              recibe la comanda y nadie se entera hasta que reclama la mesa.
+            -->
+            <span class="est">{t.simulado && t.estado === "impreso" ? "sin papel" : t.estado}</span>
+            {#if t.simulado && t.estado === "impreso"}
+              <span class="err">Solo vista previa: esta terminal no imprime</span>
+            {/if}
             {#if t.ultimo_error}<span class="err">{t.ultimo_error}</span>{/if}
             <span class="sp"></span>
             <button onclick={() => (impresion.vistaPrevia = { titulo: t.documento, texto: t.vista })}>
@@ -232,6 +288,12 @@
     color: var(--gris);
     line-height: 1.55;
   }
+  /* Que esta terminal no imprima es una limitación real, no una nota al pie. */
+  .nota.aviso {
+    background: #fdf0e6;
+    border-color: var(--acento);
+    color: #7a4a1e;
+  }
   .tarjeta {
     background: #fff;
     border: 1px solid var(--borde);
@@ -301,6 +363,16 @@
   }
   .campos label.angosto {
     flex: 0 0 8rem;
+  }
+  /* El nombre de una impresora de Windows es largo y no debe recortarse. */
+  .campos label.ancho {
+    flex: 1 0 18rem;
+  }
+  .pendiente {
+    flex: 1 0 100%;
+    font-size: 0.8rem;
+    color: var(--peligro);
+    line-height: 1.5;
   }
   .campos span {
     font-size: 0.72rem;
@@ -383,6 +455,17 @@
   }
   .trabajo.impreso .est {
     color: #3f5c31;
+  }
+  /*
+   * Simulado gana al verde de «impreso»: si el papel no salió, la fila no puede
+   * leerse como un éxito de un vistazo.
+   */
+  .trabajo.simulado .est {
+    background: #fdf0e6;
+    color: var(--acento);
+  }
+  .trabajo.simulado .err {
+    color: var(--acento);
   }
   .trabajo.fallido .est {
     background: #fdeae8;

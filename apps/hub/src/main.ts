@@ -95,6 +95,7 @@ import { Facturador } from "./fiscal/facturador.js";
 import { Cancelador } from "./fiscal/cancelador.js";
 import { MAPEO_REST_COMUN, PacHttp, consultaPorFolio } from "./fiscal/pac-http.js";
 import { enviarARed } from "./impresion/transporte-red.js";
+import { enviarAUsb, impresorasDelSistema } from "./impresion/transporte-usb.js";
 import { enMegas, evaluarCrecimiento } from "./crecimiento.js";
 import {
   INTERVALO_RESPALDO_MS,
@@ -1094,6 +1095,29 @@ function atenderInterno(peticion: IncomingMessage, respuesta: ServerResponse): v
   }
 
   /*
+   * Las impresoras que Windows tiene dadas de alta, para que la configuración
+   * las ofrezca en una lista. Se protege igual que `/imprimir`: es la caja
+   * preguntando por su propio equipo, y el inventario de impresoras del local
+   * no es algo que deba poder leer cualquiera desde la wifi.
+   */
+  if (url.pathname === "/impresoras-sistema") {
+    if (!esLocal) {
+      json(403, { error: "Solo desde la caja" });
+      return;
+    }
+    if (!esOrigenDelHub(peticion.headers.origin, seguro, autoridad)) {
+      json(403, { error: "Origen no autorizado" });
+      return;
+    }
+    if (peticion.method !== "GET") {
+      json(405, { error: "Usa GET" });
+      return;
+    }
+    void impresorasDelSistema().then((impresoras) => json(200, { impresoras }));
+    return;
+  }
+
+  /*
    * El kiosco de autoservicio (F4).
    *
    * Va sin autenticación y es correcto: quien está delante del kiosco está
@@ -1426,6 +1450,14 @@ async function atenderKiosco(
   json(404, { error: "No existe" });
 }
 
+/**
+ * Imprime, por red o por USB.
+ *
+ * El POS dice por dónde: `modo: "usb"` con el nombre de la impresora del
+ * sistema, o red con host y puerto. Sin `modo` se asume red, que es como
+ * hablaban las versiones anteriores — una terminal a medio actualizar sigue
+ * imprimiendo en vez de quedarse muda.
+ */
 async function atenderImpresion(
   peticion: IncomingMessage,
   json: (codigo: number, cuerpo: unknown) => void,
@@ -1433,17 +1465,36 @@ async function atenderImpresion(
   try {
     const cuerpo = await leerCuerpo(peticion);
     const datos = JSON.parse(cuerpo.toString("utf8")) as {
+      modo?: unknown;
       host?: unknown;
       puerto?: unknown;
+      dispositivo?: unknown;
+      titulo?: unknown;
       datos_base64?: unknown;
     };
 
-    if (typeof datos.host !== "string" || typeof datos.puerto !== "number" || typeof datos.datos_base64 !== "string") {
-      json(400, { error: "Faltan host, puerto o datos_base64" });
+    if (typeof datos.datos_base64 !== "string") {
+      json(400, { error: "Falta datos_base64" });
+      return;
+    }
+    const bytes = Buffer.from(datos.datos_base64, "base64");
+    const titulo = typeof datos.titulo === "string" ? datos.titulo.slice(0, 80) : "MotRest";
+
+    if (datos.modo === "usb") {
+      if (typeof datos.dispositivo !== "string") {
+        json(400, { error: "Falta el dispositivo de la impresora USB" });
+        return;
+      }
+      const resultado = await enviarAUsb(datos.dispositivo, bytes, titulo);
+      json(resultado.ok ? 200 : 502, resultado);
       return;
     }
 
-    const bytes = Buffer.from(datos.datos_base64, "base64");
+    if (typeof datos.host !== "string" || typeof datos.puerto !== "number") {
+      json(400, { error: "Faltan host o puerto" });
+      return;
+    }
+
     const resultado = await enviarARed(datos.host, datos.puerto, bytes);
     json(resultado.ok ? 200 : 502, resultado);
   } catch (causa) {

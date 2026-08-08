@@ -5,12 +5,20 @@
  * Encolar es instantáneo y, si no hay impresora configurada, el POS opera igual
  * — un local puede trabajar solo con el KDS, sin papel (métrica F1 del PRD §9).
  *
- * En el navegador no se puede abrir un socket al puerto 9100, así que el
- * transporte es simulado y la vista previa hace las veces de papel. El
- * transporte real llega con el empaquetado Tauri (etapa 12), donde sí hay
- * acceso a la red y al USB; la cola y las plantillas ya están listas para él.
+ * El papel de verdad sale en la CAJA, que es donde corre el Hub: él abre el
+ * socket al puerto 9100 o entrega el trabajo al spooler de Windows por USB. En
+ * cualquier otra terminal no hay forma de hablar con una impresora desde una
+ * página, así que el trabajo se simula y la vista previa hace de papel — pero
+ * queda marcado como simulado, para que la pantalla nunca diga «impreso» de
+ * algo que no salió.
  */
-import { uuidv7, type Centavos, type ID, type RepresentacionImpresa } from "@motrest/dominio";
+import {
+  idCorto,
+  uuidv7,
+  type Centavos,
+  type ID,
+  type RepresentacionImpresa,
+} from "@motrest/dominio";
 import {
   ColaImpresion,
   TransporteSimulado,
@@ -42,13 +50,14 @@ import type { Almacen } from "@motrest/protocolo-sync";
  * el endpoint del Hub solo acepta impresión desde su propio equipo.
  */
 class TransporteHub implements Transporte {
-  private get enLaCaja(): boolean {
-    return typeof globalThis !== "undefined" &&
-      !!(globalThis as { __MOTREST_HUB__?: unknown }).__MOTREST_HUB__;
-  }
-
   puede(impresora: Impresora): boolean {
-    return this.enLaCaja && impresora.conexion === "red" && !!impresora.host;
+    if (!enLaCaja()) return false;
+    if (impresora.conexion === "red") return !!impresora.host;
+    // USB: el Hub la entrega al spooler de Windows, que es quien tiene abierto
+    // el canal con el cable. Necesita el nombre exacto con el que está dada de
+    // alta en el sistema.
+    if (impresora.conexion === "usb") return !!impresora.dispositivo;
+    return false;
   }
 
   async enviar(impresora: Impresora, datos: Uint8Array): Promise<ResultadoEnvio> {
@@ -59,8 +68,11 @@ class TransporteHub implements Transporte {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
+          modo: impresora.conexion,
           host: impresora.host,
           puerto: impresora.puerto ?? 9100,
+          dispositivo: impresora.dispositivo,
+          titulo: `MotRest · ${impresora.nombre}`,
           datos_base64: aBase64(datos),
         }),
       });
@@ -83,6 +95,18 @@ function aBase64(datos: Uint8Array): string {
     binario += String.fromCharCode(...datos.subarray(i, i + trozo));
   }
   return btoa(binario);
+}
+
+export interface ImpresoraDelSistema {
+  nombre: string;
+  puerto: string;
+  estado: string;
+}
+
+/** ¿Esta terminal es la caja —la única que puede imprimir de verdad—? */
+export function enLaCaja(): boolean {
+  return typeof globalThis !== "undefined" &&
+    !!(globalThis as { __MOTREST_HUB__?: unknown }).__MOTREST_HUB__;
 }
 
 export const CLAVE_IMPRESORAS = "impresoras";
@@ -112,6 +136,8 @@ class StoreImpresion {
   trabajos = $state.raw<readonly TrabajoImpresion[]>([]);
   /** Última vista previa generada, para verla sin gastar papel. */
   vistaPrevia = $state<{ titulo: string; texto: string } | null>(null);
+  /** Impresoras que Windows tiene dadas de alta. Solo se puebla en la caja. */
+  impresorasSistema = $state.raw<ImpresoraDelSistema[]>([]);
 
   private almacen: Almacen | null = null;
   private transporte = new TransporteSimulado();
@@ -132,6 +158,24 @@ class StoreImpresion {
 
   private async guardar(): Promise<void> {
     await this.almacen?.estado.guardar(CLAVE_IMPRESORAS, this.impresoras);
+  }
+
+  /**
+   * Pregunta al Hub qué impresoras tiene Windows instaladas.
+   *
+   * Solo aplica en la caja. Un fallo aquí no es un problema: la pantalla deja
+   * escribir el nombre a mano, que es lo que se hacía antes de tener lista.
+   */
+  async cargarImpresorasSistema(): Promise<void> {
+    if (!enLaCaja()) return;
+    try {
+      const respuesta = await fetch("/impresoras-sistema");
+      if (!respuesta.ok) return;
+      const cuerpo = (await respuesta.json()) as { impresoras?: ImpresoraDelSistema[] };
+      this.impresorasSistema = cuerpo.impresoras ?? [];
+    } catch {
+      // Sin lista, la configuración sigue funcionando a mano.
+    }
   }
 
   get activas(): Impresora[] {
@@ -159,7 +203,7 @@ class StoreImpresion {
     this.impresoras = [
       ...this.impresoras,
       {
-        id: `imp-${uuidv7().slice(0, 8)}`,
+        id: idCorto("imp"),
         nombre: nombre.trim() || "Impresora",
         conexion: "red",
         puerto: 9100,

@@ -190,6 +190,8 @@ export interface PoliticaDeRitmoHttp {
 export function politicaDeRitmoHttp(ruta: string, metodo: string | undefined): PoliticaDeRitmoHttp {
   if (ruta === "/arranque-automatico") return { clave: "arranque", limite: 10 };
   if (ruta === "/imprimir") return { clave: "impresion", limite: 120 };
+  // Consultar el listado arranca un PowerShell; se pide al configurar, no al vender.
+  if (ruta === "/impresoras-sistema") return { clave: "impresoras-sistema", limite: 20 };
   if (ruta === "/licencia") return { clave: "licencia", limite: 20 };
   if (ruta === "/salud") return { clave: "salud", limite: 60 };
 
