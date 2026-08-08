@@ -1,13 +1,13 @@
 {
   "name": "@motrest/motrest-android",
-  "version": "1.0.0",
+  "version": "1.0.4",
   "private": true,
   "description": "MotRest para Android: el POS completo del restaurante con acceso según el rol de cada usuario.",
   "type": "module",
   "scripts": {
     "preparar": "node preparar.mjs",
-    "sincronizar": "node preparar.mjs && cap sync android",
-    "apk": "node preparar.mjs && cap sync android && cd android && .\\gradlew.bat assembleDebug",
+    "sincronizar": "node preparar.mjs && cap sync android && node ajustar-android.mjs",
+    "apk": "node preparar.mjs && cap sync android && node ajustar-android.mjs && cd android && .\\gradlew.bat assembleDebug",
     "abrir": "cap open android"
   },
   "dependencies": {
