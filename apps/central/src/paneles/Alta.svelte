@@ -3,7 +3,7 @@
    * Dar de alta un restaurante nuevo.
    *
    * EL IDENTIFICADOR SE PROPONE, NO SE IMPONE. Se genera a partir del nombre
-   * (`suc-rodizio-centro`) porque así se puede dictar por teléfono en un
+   * (`suc-nombre-del-restaurante-centro`) porque así se puede dictar por teléfono en un
    * soporte, pero se deja editar: si el Hub del local ya generó el suyo al
    * instalarse, hay que poner ESE o la licencia no verificará ahí.
    *
@@ -58,25 +58,32 @@
 
     <label>
       Nombre del restaurante
-      <input bind:value={nombre} placeholder="Rodizio" required />
+      <input bind:value={nombre} placeholder="Nombre de tu restaurante" required />
     </label>
 
     <label>
       Sucursal <em>(opcional)</em>
-      <input bind:value={sufijo} placeholder="Centro" />
+      <input bind:value={sufijo} placeholder="Sucursal o ubicación" />
     </label>
 
     <label>
       Identificador del local
-      <input bind:value={idManual} placeholder={idPropuesto} />
+      <input
+        bind:value={idManual}
+        placeholder={idPropuesto === "suc-" ? "Ej. suc-nombre-del-restaurante" : idPropuesto}
+      />
       <!--
         Se avisa aquí y no en un manual: es el dato que hace que la licencia
         funcione o no, y se decide en este momento.
       -->
       <small>
-        Quedará <code>{idPropuesto}</code>. Si el Hub ya se instaló, copie el que
-        muestra en <b>Administración → Hub</b> — si no coincide, la licencia no
-        servirá en ese equipo.
+        {#if idPropuesto === "suc-"}
+          Se genera con el nombre y la sucursal. Si el Hub ya se instaló, copie el
+          código que muestra en <b>Servicio suspendido</b> o <b>Administración → Hub</b>.
+        {:else}
+          Quedará <code>{idPropuesto}</code>. Si el Hub ya se instaló, use su código
+          exactamente igual; si no coincide, la licencia no servirá en ese equipo.
+        {/if}
       </small>
     </label>
 
@@ -97,17 +104,17 @@
 
     <label>
       Contacto
-      <input bind:value={contacto} placeholder="Nombre de quien manda ahí" />
+      <input bind:value={contacto} placeholder="Nombre de la persona de contacto" />
     </label>
 
     <div class="dos">
       <label>
         Teléfono
-        <input bind:value={telefono} placeholder="33 1234 5678" />
+        <input bind:value={telefono} placeholder="Ej. 55 1234 5678" />
       </label>
       <label>
         Correo
-        <input bind:value={correo} type="email" placeholder="rodizio@gmail.com" />
+        <input bind:value={correo} type="email" placeholder="correo@ejemplo.com" />
       </label>
     </div>
 
