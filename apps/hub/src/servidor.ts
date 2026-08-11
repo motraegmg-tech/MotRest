@@ -38,6 +38,7 @@ import {
   VERSION_PROTOCOLO,
   catalogoMasNuevo,
   eventoValido,
+  type Ack,
   type Catalogo,
   type MensajeCliente,
   type MensajeHub,
@@ -622,6 +623,8 @@ export class Hub {
    */
   private ingerir(sesion: Sesion, eventos: readonly unknown[]): void {
     const aceptados: EventoBase[] = [];
+    /** Los que el log ya tenía. Se confirman, pero no se vuelven a difundir. */
+    const repetidos: Ack[] = [];
     // El lote puede contener la semilla completa: cada evento siguiente debe
     // ver lo que los anteriores ya validaron, pero el estado real solo cambia
     // cuando SQLite confirma todo el lote.
@@ -648,6 +651,29 @@ export class Hub {
         continue;
       }
 
+      /*
+       * LO QUE EL LOG YA TIENE NO SE VUELVE A JUZGAR.
+       *
+       * Un evento registrado se validó cuando entró, y el log es inmutable:
+       * revalidarlo hoy solo puede producir un rechazo falso. No es teórico —lo
+       * destapó el ensayo del viernes—. Cuando el Hub pierde historia (cambio de
+       * disco, respaldo restaurado, Hub nuevo), la terminal reenvía su outbox
+       * ENTERO confiando en que el Hub deduplica por id, y ahí dentro viaja el
+       * alta del propietario: el arranque de confianza que solo vale mientras el
+       * local no tiene usuarios. En un local ya estrenado nadie puede firmarla,
+       * ni siquiera él mismo, así que el Hub la rechazaba, la terminal caía a
+       * isla y la recuperación no terminaba nunca. Justo la pérdida de ventas
+       * que ese reenvío existe para evitar.
+       *
+       * Aceptar aquí no relaja nada: para llegar a esta rama el evento tiene que
+       * estar YA en el log, es decir, haber pasado la validación alguna vez.
+       */
+      const registrado = this.log.seqDe(crudo.id);
+      if (registrado !== null) {
+        repetidos.push({ id: crudo.id, seq: registrado });
+        continue;
+      }
+
       const veto = this.revalidarPermiso(crudo, identidadProvisional);
       if (veto) {
         this.anotar("aviso", `Permiso denegado en el Hub: ${crudo.tipo} de ${crudo.empleado_id}`);
@@ -664,17 +690,22 @@ export class Hub {
       identidadProvisional = this.actualizarIdentidad(identidadProvisional, crudo);
     }
 
-    if (aceptados.length === 0) return;
+    if (aceptados.length === 0 && repetidos.length === 0) return;
 
     const acks = this.log.ingerir(aceptados);
     if (acks.length > 0) this.identidad = identidadProvisional;
     if (acks.length > 0) this.opciones.alIngerir?.(aceptados);
-    sesion.conexion.enviar({ tipo: "acks", acks });
 
-    const mayor = acks.reduce((n, a) => Math.max(n, a.seq), 0);
+    // Los repetidos van en el mismo acuse: sin él, la terminal los daría por no
+    // entregados y los reenviaría en cada reconexión, para siempre.
+    sesion.conexion.enviar({ tipo: "acks", acks: [...acks, ...repetidos] });
+
+    const mayor = [...acks, ...repetidos].reduce((n, a) => Math.max(n, a.seq), 0);
     this.log.anotarAvance(sesion.device_id, mayor);
 
-    this.difundir(sesion, acks);
+    // Solo lo nuevo. Difundir lo repetido despertaría a todas las terminales
+    // para contarles algo que ya tienen.
+    if (acks.length > 0) this.difundir(sesion, acks);
 
     /*
      * Facturar es reaccionar a un hecho ya guardado, no un paso del cobro.

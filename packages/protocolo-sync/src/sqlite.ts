@@ -182,6 +182,20 @@ export class LogHub implements RepositorioEventos {
 
   // --- Lectura --------------------------------------------------------------------------
 
+  /**
+   * La secuencia que ya tiene este evento, o `null` si el log no lo conoce.
+   *
+   * Permite responder «esto ya está» sin volver a juzgarlo. Un evento del log es
+   * un hecho ocurrido y aceptado en su momento; que hoy no pasara la validación
+   * no lo deshace, solo haría imposible reenviarlo.
+   */
+  seqDe(id: ID): number | null {
+    const fila = this.db.prepare("SELECT seq FROM eventos WHERE id = ?").get(id) as
+      | { seq: number }
+      | undefined;
+    return fila ? fila.seq : null;
+  }
+
   /** Eventos posteriores a una secuencia. Es la base del resync. */
   desde(seq: number, limite = 500): EventoConSeq[] {
     const filas = comoFilas<FilaEvento>(

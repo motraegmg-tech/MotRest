@@ -18,10 +18,17 @@
  */
 import { spawn, type ChildProcess } from "node:child_process";
 import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { networkInterfaces, tmpdir } from "node:os";
 import { join } from "node:path";
 import { WebSocket } from "ws";
-import { FabricaEventos, pesos, type EventoComanda } from "@motrest/dominio";
+import {
+  FabricaEventos,
+  permisosDePlantilla,
+  pesos,
+  streamIdentidad,
+  type EventoComanda,
+  type EventoIdentidad,
+} from "@motrest/dominio";
 import { ClienteSync, almacenEnMemoria, type Almacen, type SocketLike } from "@motrest/protocolo-sync";
 
 /**
@@ -37,6 +44,37 @@ const BINARIO =
 const PUERTO = 8797;
 const HUB_HTTP = `http://localhost:${PUERTO + 1}`;
 const SUCURSAL = "suc-rodizio";
+
+/**
+ * El propietario que se declara a sí mismo, y el cajero que él da de alta.
+ *
+ * El móvil es CAJERO y no mesero porque en este ensayo cobra, y `pos.cobro.registrar`
+ * no está en la plantilla del mesero — con razón: quien sirve la mesa no es quien
+ * toca el dinero. Con un mesero, el Hub rechazaba cada cobro y el ensayo lo leía
+ * como una caída del enlace.
+ */
+const PROPIETARIO = "usr-gonzalo";
+const CAJERO = "usr-cajero";
+
+/**
+ * Una IPv4 privada de este equipo, para que el «móvil» entre como entra de
+ * verdad: por la red.
+ *
+ * Hace falta porque el Hub decide si una terminal es la caja mirando la
+ * DIRECCIÓN DE ORIGEN, no el puerto (`esPeticionLocal`). Conectando por
+ * `localhost` —aunque sea al puerto con TLS— la tablet simulada llegaría como
+ * loopback, el Hub la tomaría por la propia caja y la autorizaría sola: el
+ * ensayo dejaría de comprobar justo lo que quiere comprobar.
+ */
+function ipDeLan(): string | null {
+  for (const interfaces of Object.values(networkInterfaces())) {
+    for (const red of interfaces ?? []) {
+      if (red.family !== "IPv4" || red.internal) continue;
+      if (/^(10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.)/.test(red.address)) return red.address;
+    }
+  }
+  return null;
+}
 
 let fallos = 0;
 
@@ -59,6 +97,9 @@ async function levantarHub(carpeta: string): Promise<ChildProcess> {
       MOTREST_RESPALDOS: join(carpeta, "respaldos"),
       MOTREST_HUB_PUERTO: String(PUERTO),
       MOTREST_HUB_ID: "hub-ensayo",
+      // Sin esto, un local vacío se inventa un `suc-XXXXXXXX` al azar y rechaza
+      // los eventos de identidad del ensayo por pertenecer a otro stream.
+      MOTREST_SUCURSAL_ID: SUCURSAL,
     },
     stdio: "ignore",
   });
@@ -89,17 +130,27 @@ async function salud(): Promise<Record<string, unknown>> {
 }
 
 /** Una terminal del local: su almacén, su fábrica de eventos y su enlace. */
-function terminal(deviceId: string, empleadoId: string, datos: { url: string; clave: string }) {
+function terminal(
+  deviceId: string,
+  empleadoId: string,
+  datos: { url: string; clave: string },
+  /** Por dónde entra. La de red usa TLS con el certificado propio del Hub. */
+  porLan: string | null = null,
+) {
   const almacen: Almacen = almacenEnMemoria();
   const recibidos: string[] = [];
 
   const cliente = new ClienteSync({
-    url: datos.url,
+    url: porLan ? `wss://${porLan}:${PUERTO}/sync` : datos.url,
     clave: datos.clave,
     device_id: deviceId,
     sucursal_id: SUCURSAL,
     almacen,
-    crearSocket: (url) => new WebSocket(url) as unknown as SocketLike,
+    // El Hub firma su propio certificado —no hay autoridad que lo avale en la
+    // LAN de un restaurante—, así que aquí se acepta igual que lo acepta la
+    // tablet tras el emparejamiento por QR.
+    crearSocket: (url) =>
+      new WebSocket(url, porLan ? { rejectUnauthorized: false } : undefined) as unknown as SocketLike,
     alRecibir: (eventos) => recibidos.push(...eventos.map((e) => e.id)),
     // Sin esto, un rechazo del Hub se ve igual que "no hay red": el ensayo diría
     // "isla" sin decir por qué, que es justo lo que no sirve al depurar.
@@ -113,6 +164,39 @@ function terminal(deviceId: string, empleadoId: string, datos: { url: string; cl
     empleado_id: empleadoId,
     sucursal_id: SUCURSAL,
   });
+
+  const fabricaIdentidad = new FabricaEventos<EventoIdentidad>({
+    device_id: deviceId,
+    empleado_id: empleadoId,
+    sucursal_id: SUCURSAL,
+  });
+
+  /**
+   * Da de alta a un usuario del local.
+   *
+   * El ensayo tiene que hacerlo porque ya NO hay propietario de fábrica: desde
+   * que el restaurante crea su propia cuenta al instalar, un local recién
+   * nacido no tiene ni un usuario, y el Hub rechaza con «Empleado desconocido»
+   * cada evento que le llegue firmado por alguien que no existe. Antes esto
+   * colaba porque las versiones viejas sembraban `usr-gonzalo` solas —el id
+   * sigue ahí, en `USUARIO_RESPONSABLE_ID`, para migrar las cajas de entonces—.
+   */
+  async function crearUsuario(
+    usuarioId: string,
+    nombre: string,
+    puesto: string,
+    rolId: "propietario" | "cajero",
+  ): Promise<void> {
+    await almacen.eventos.anexar([
+      fabricaIdentidad.crear("usuario_creado", streamIdentidad(SUCURSAL), {
+        usuario_id: usuarioId,
+        nombre,
+        puesto,
+        rol_id: rolId,
+        permisos: permisosDePlantilla(rolId),
+      }),
+    ]);
+  }
 
   /** Sirve y cobra una mesa: es lo que hace la terminal toda la noche. */
   async function vender(mesa: string, importe: number): Promise<string[]> {
@@ -128,7 +212,7 @@ function terminal(deviceId: string, empleadoId: string, datos: { url: string; cl
     return eventos.map((e) => e.id);
   }
 
-  return { deviceId, almacen, cliente, recibidos, vender };
+  return { deviceId, almacen, cliente, recibidos, vender, crearUsuario };
 }
 
 async function main(): Promise<void> {
@@ -144,8 +228,11 @@ async function main(): Promise<void> {
   const datos = await datosDelHub();
   console.log(`Enlace local: ${datos.url}\n`);
 
-  const caja = terminal("dev-caja-ensayo", "usr-gonzalo", datos);
-  const movil = terminal("dev-movil-ensayo", "usr-mesero", datos);
+  const lan = ipDeLan();
+  console.log(lan ? `Móvil por la red: ${lan}\n` : "Sin IPv4 privada: el móvil entrará por loopback\n");
+
+  const caja = terminal("dev-caja-ensayo", PROPIETARIO, datos);
+  const movil = terminal("dev-movil-ensayo", CAJERO, datos, lan);
 
   // --- El día de la instalación: dar de alta las terminales ----------------------------
   await caja.cliente.conectar();
@@ -156,15 +243,35 @@ async function main(): Promise<void> {
     caja.cliente.estado,
   );
 
-  // La segunda NO: tiene que firmarla una terminal ya autorizada. Es la
-  // diferencia entre un local cerrado y uno donde cualquier teléfono entra.
-  await movil.cliente.conectar();
+  // --- Y dar de alta a las personas ----------------------------------------------------
+  // Un local recién instalado no tiene usuarios: el primero se declara a sí
+  // mismo como propietario —es el único arranque de confianza que el Hub
+  // permite— y a partir de ahí él firma las altas de los demás.
+  await caja.crearUsuario(PROPIETARIO, "Gonzalo DJA", "Responsable del restaurante", "propietario");
+  await caja.crearUsuario(CAJERO, "Cajero del ensayo", "Cajero", "cajero");
+  await caja.cliente.empujar();
   await esperar(700);
   comprobar(
-    movil.cliente.estado === "isla",
-    "la SEGUNDA terminal queda fuera hasta que alguien la apruebe",
-    movil.cliente.estado,
+    (await caja.almacen.eventos.pendientes(50)).length === 0,
+    "el local se estrena: el propietario se declara y da de alta al mesero",
+    `${Number((await salud()).seq)} eventos en el Hub`,
   );
+
+  // La segunda terminal NO entra sola: tiene que firmarla una ya autorizada. Es
+  // la diferencia entre un local cerrado y uno donde cualquier teléfono entra.
+  // Solo se puede comprobar si el móvil llega por la red: por loopback el Hub lo
+  // toma por la propia caja y lo autoriza, que es lo correcto y no un fallo.
+  await movil.cliente.conectar();
+  await esperar(700);
+  if (lan) {
+    comprobar(
+      movil.cliente.estado === "isla",
+      "la SEGUNDA terminal queda fuera hasta que alguien la apruebe",
+      movil.cliente.estado,
+    );
+  } else {
+    console.log("  n/a   la SEGUNDA terminal queda fuera — sin red que simular");
+  }
 
   caja.cliente.autorizarTerminal(movil.deviceId);
   await esperar(500);
@@ -173,6 +280,16 @@ async function main(): Promise<void> {
   await movil.cliente.conectar();
   await esperar(800);
   comprobar(movil.cliente.estado === "sincronizado", "aprobada, entra", movil.cliente.estado);
+
+  /*
+   * Desde AQUÍ se cuenta la secuencia del viernes.
+   *
+   * El alta del local —el propietario y el mesero— también consume secuencia, y
+   * medir desde el arranque haría fallar el recuento final por dos eventos que
+   * sí tenían que existir. Lo que este ensayo vigila es que ninguna VENTA se
+   * duplique, así que la referencia se toma con el local ya montado.
+   */
+  const alEmpezarElServicio = Number((await salud()).seq);
 
   const idsCaja: string[] = [];
   for (let i = 1; i <= 5; i++) idsCaja.push(...(await caja.vender(`mesa-${i}`, 250 + i)));
@@ -247,7 +364,7 @@ async function main(): Promise<void> {
   await esperar(800);
 
   const despues = await salud();
-  const crecimiento = Number(despues.seq) - Number(antes.seq);
+  const crecimiento = Number(despues.seq) - alEmpezarElServicio;
   comprobar(
     crecimiento === todos.length,
     "el Hub asignó una secuencia por evento, ni una de más",

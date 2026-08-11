@@ -182,6 +182,36 @@ describe("deduplicación por UUID", () => {
     expect(await log.contar()).toBe(1);
   });
 
+  /*
+   * La recuperación de una terminal no puede morir en la validación.
+   *
+   * Cuando el Hub pierde historia —disco nuevo, respaldo restaurado— el cliente
+   * reenvía su outbox ENTERO. Ahí viaja el alta del propietario, que solo era
+   * válida mientras el local no tenía usuarios: revalidarla en un local ya
+   * estrenado la rechaza, la terminal cae a isla y sus ventas no vuelven jamás.
+   * Lo destapó el ensayo del viernes contra el binario instalado.
+   */
+  it("reenviar el alta del propietario tras recuperar el Hub NO se rechaza", async () => {
+    const propietario = usuarioDePrueba("usr-gonzalo", "propietario");
+    const alta = semillaDeIdentidad(propietario);
+    hub.cargarIdentidad(SUC, []);
+
+    const cx = new ConexionPrueba("cx-1");
+    saludar(cx, "dev-caja");
+
+    // El local se estrena: el propietario se declara a sí mismo.
+    hub.recibir(cx.id, { tipo: "push", eventos: alta });
+    const primera = cx.ultimo("acks")!.acks[0]!.seq;
+    expect(primera).toBe(1);
+
+    // Ahora el local YA tiene usuarios y la terminal reenvía lo mismo.
+    hub.recibir(cx.id, { tipo: "push", eventos: alta });
+
+    expect(cx.todos("error")).toHaveLength(0);
+    expect(cx.ultimo("acks")!.acks[0]!.seq).toBe(primera);
+    expect(await log.contar()).toBe(1);
+  });
+
   it("un evento repetido no reescribe el original: el log es la bitácora", async () => {
     const caja = terminal("dev-caja", "emp-lucia");
     const cx = new ConexionPrueba("cx-1");
