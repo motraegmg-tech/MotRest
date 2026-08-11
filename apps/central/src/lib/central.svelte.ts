@@ -117,6 +117,15 @@ interface SecretosProtegidos {
   relay_clave_admin?: string;
   /** PINes de responsables, cifrados con DPAPI y nunca en la cartera. */
   responsables?: Record<string, ResponsableProtegido>;
+  /**
+   * La clave con la que cada local se identifica ante el relay.
+   *
+   * UNA POR RESTAURANTE, la que emite `padron alta`. Va aquí y no en la cartera
+   * por lo mismo que los PINes: la cartera se lee sin desproteger nada, y esta
+   * clave permite hablar por el restaurante. Se copia dentro de la licencia
+   * firmada al emitirla, que es como llega a su caja.
+   */
+  claves_relay?: Record<string, string>;
   /** Impide que un reloj atrasado repita un `publicado_ts`. */
   ultimo_publicado_ts?: number;
   /** Cuándo se sacó por última vez un respaldo que abre fuera de esta máquina. */
@@ -849,6 +858,23 @@ export class StoreCentral {
         emitida_ts: Date.now(),
         ...(this.protegidos.soporte ? { soporte: this.protegidos.soporte } : {}),
         responsable: { ...responsable, credencial: protegido.credencial },
+        /*
+         * El enlace con MOTRAE viaja DENTRO de la licencia.
+         *
+         * Sin esto el Hub no monta el enlace con el relay, no reporta su pulso y
+         * el local sale en «Hoy» como si estuviera sin señal aunque esté
+         * vendiendo. Hacen falta las dos mitades: el relay es de MOTRAE y su
+         * dirección es la misma para todos, pero la clave es de este
+         * restaurante y de ninguno más.
+         */
+        ...(this.protegidos.relay_url && this.protegidos.claves_relay?.[cliente.id]
+          ? {
+              relay: {
+                url: this.protegidos.relay_url,
+                clave: this.protegidos.claves_relay[cliente.id]!,
+              },
+            }
+          : {}),
         ...(opciones.bloqueo_inmediato ? { bloqueo_inmediato: true } : {}),
       },
       privada,
@@ -1043,6 +1069,36 @@ export class StoreCentral {
   /** ¿Se puede preguntar al relay cómo están los locales? */
   get puedeConsultarRelay(): boolean {
     return Boolean(this.protegidos.relay_url && this.protegidos.relay_clave_admin);
+  }
+
+  /**
+   * Guarda la clave con la que UN local se identifica ante el relay.
+   *
+   * Vacía = se borra, y ese local dejará de llevar el enlace en sus próximas
+   * licencias. No se devuelve nunca: la interfaz solo puede saber si está puesta
+   * o no, igual que con los PINes de los responsables.
+   */
+  async fijarClaveRelay(sucursalId: string, clave: string): Promise<Resultado> {
+    if (!this.clientes.some((c) => c.id === sucursalId)) {
+      return { ok: false, error: "No existe ese local" };
+    }
+    const claves = { ...(this.protegidos.claves_relay ?? {}) };
+    const limpia = clave.trim();
+    if (limpia) claves[sucursalId] = limpia;
+    else delete claves[sucursalId];
+
+    return this.reemplazarProtegidos({ ...this.protegidos, claves_relay: claves });
+  }
+
+  /**
+   * ¿Este local ya lleva el enlace con MOTRAE en sus licencias?
+   *
+   * Las DOS mitades: la dirección del relay, que es de MOTRAE y vale para todos,
+   * y la clave de este restaurante. Sin las dos, su Hub no reporta y aparecerá
+   * en «Hoy» como que no lo vemos.
+   */
+  tieneEnlaceRelay(sucursalId: string): boolean {
+    return Boolean(this.protegidos.relay_url && this.protegidos.claves_relay?.[sucursalId]);
   }
 
   /**

@@ -46,7 +46,16 @@
   let notas = $state(inicial.notas ?? "");
   let error = $state("");
 
-  function guardar(evento: Event) {
+  /*
+   * La clave del relay no se rellena con la guardada: no se puede leer.
+   * Vacío significa «dejar la que haya», y escribir algo la sustituye. Es la
+   * misma regla que con cualquier contraseña, y evita el accidente de que abrir
+   * la ficha para corregir el teléfono borre el enlace del local.
+   */
+  let claveRelay = $state("");
+  const tieneEnlace = $derived(central.tieneEnlaceRelay(cliente.id));
+
+  async function guardar(evento: Event) {
     evento.preventDefault();
     error = "";
 
@@ -63,6 +72,14 @@
     if (!r.ok) {
       error = r.error;
       return;
+    }
+
+    if (claveRelay.trim()) {
+      const enlace = await central.fijarClaveRelay(cliente.id, claveRelay);
+      if (!enlace.ok) {
+        error = enlace.error;
+        return;
+      }
     }
     onGuardado(r.avisos);
   }
@@ -122,6 +139,24 @@
         plan nuevos se aplican <b>al renovar</b>.
       </p>
     {/if}
+
+    <label>
+      Clave del relay de este local
+      <input
+        bind:value={claveRelay}
+        spellcheck="false"
+        autocomplete="off"
+        placeholder={tieneEnlace ? "Ya está puesta — escriba solo para sustituirla" : "La que emitió «padron alta» para este restaurante"}
+      />
+      <small>
+        {#if tieneEnlace}
+          Este local reporta su estado a MOTRAE. Se le entrega <b>al emitir su próxima licencia</b>.
+        {:else}
+          Sin esto su Hub no reporta, y el local aparece en «Hoy» como que no lo vemos aunque
+          esté vendiendo. Es de este restaurante y de ningún otro.
+        {/if}
+      </small>
+    </label>
 
     <label>
       Notas de MOTRAE <em>(nunca las ve el restaurante)</em>
