@@ -135,6 +135,8 @@ class Sesion {
   private intentos = $state<Record<ID, EstadoIntentos>>({});
   /** Vacío mientras los secretos se guarden bien. Lo lee la pantalla. */
   errorAlGuardar = $state("");
+  /** Qué provisión trae la licencia vigente, por usuario. No se persiste. */
+  private provisionVigente: Record<ID, string> = {};
   /** Intentos fallidos del diálogo de autorización (no se sabe de quién es el PIN). */
   private intentosAutorizacion = $state<EstadoIntentos>({ fallos: 0, ultimo_fallo_ts: 0 });
 
@@ -583,11 +585,19 @@ class Sesion {
 
     // La provisión de MOTRAE queda como ya aplicada: reemitir la misma licencia
     // por cobro no puede volver a pisar el PIN que el responsable acaba de elegir.
+    /*
+     * Se anota la provisión de la LICENCIA, no una marca inventada.
+     *
+     * `local:${id}` era el último recurso y acabó siendo el caso normal: el alta
+     * ocurre antes de que la licencia llegue del Hub, así que casi siempre no
+     * había provisión que anotar. Esa marca no coincide nunca con la real, y en
+     * el siguiente arranque la provisión parecía nueva y pisaba este PIN.
+     */
     const provision = this.provisionesResponsable[id];
     this.provisionesResponsable = {
       ...this.provisionesResponsable,
       [id]: {
-        provision_id: provision?.provision_id ?? `local:${id}`,
+        provision_id: this.provisionVigente[id] ?? provision?.provision_id ?? `local:${id}`,
         debe_cambiar_credencial: false,
       },
     };
@@ -649,6 +659,45 @@ class Sesion {
     const estadoPrevio = perfilPrevio
       ? this.provisionesResponsable[perfilPrevio.id]
       : undefined;
+    /*
+     * La provisión que trae la licencia AHORA, aplicada o no.
+     *
+     * Se recuerda aparte del marcador de «ya aplicada» porque el alta que hace
+     * el propio restaurante ocurre antes de que la licencia llegue del Hub, y
+     * necesita saber qué provisión está consumiendo.
+     */
+    if (perfilPrevio) this.provisionVigente[perfilPrevio.id] = perfilPrevio.provision_id;
+
+    /*
+     * UNA MARCA `local:` SIGNIFICA QUE EL RESTAURANTE YA ELIGIÓ SU PIN.
+     *
+     * Ese marcador lo escribe el alta inicial cuando todavía no sabía qué
+     * provisión traía la licencia. Comparado contra el `provision_id` real nunca
+     * coincide, así que la provisión parecía nueva EN CADA ARRANQUE: se volvía a
+     * aplicar y pisaba el PIN elegido con el que emitió Central. Medido en la
+     * caja de Rodizio, con los dos registros alternándose en el disco.
+     *
+     * Si este equipo ya tiene credencial para esa cuenta, la provisión pendiente
+     * está consumida: se adopta su identificador sin tocar el PIN. Una provisión
+     * POSTERIOR y distinta —reponer el acceso desde Central— sigue aplicándose,
+     * porque a partir de aquí se comparan identificadores de verdad.
+     */
+    if (
+      perfilPrevio &&
+      estadoPrevio?.provision_id?.startsWith("local:") &&
+      this.tieneCredencial(perfilPrevio.id)
+    ) {
+      this.provisionesResponsable = {
+        ...this.provisionesResponsable,
+        [perfilPrevio.id]: {
+          provision_id: perfilPrevio.provision_id,
+          debe_cambiar_credencial: false,
+        },
+      };
+      void this.guardarSecretos();
+      return;
+    }
+
     const provisionNueva = estadoPrevio?.provision_id !== perfilPrevio?.provision_id;
     const cuenta = cuentaResponsableDeLicencia(
       licencia,

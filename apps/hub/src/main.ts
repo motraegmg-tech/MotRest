@@ -58,6 +58,8 @@ import {
   puedeInstalarse,
   registrarDisponible,
   streamIdentidad,
+  usuarioSoporte,
+  USUARIO_SOPORTE_ID,
   streamMensajeria,
   uuidv7,
 } from "@motrest/dominio";
@@ -692,6 +694,16 @@ const hub = new Hub({
   enlaces: enlacesEmparejamiento,
   adoptarSucursal,
   registrar,
+  /*
+   * El acceso de MOTRAE, que no está en el event log y por tanto tampoco en la
+   * proyección de identidad. Se reconoce SOLO si la licencia está verificada y
+   * trae credencial de soporte: sin eso, cualquiera podría firmar eventos con
+   * ese id y el Hub se los aceptaría por el nombre.
+   */
+  usuarioDe: (empleadoId) =>
+    empleadoId === USUARIO_SOPORTE_ID && licencia?.credencialSoporte
+      ? usuarioSoporte(sucursalDelLocal())
+      : undefined,
   alIngerir: (eventos) => avisarPorLoQuePaso(eventos),
   fiscal: { sellador, cola: colaTimbrado, facturador, cancelador, nombrePac: pac?.nombre },
   guardarCatalogo: (catalogo, origen) => {

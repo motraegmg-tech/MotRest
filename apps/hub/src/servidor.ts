@@ -193,10 +193,24 @@ export class Hub {
     );
   }
 
-  /** Usuario de la proyección actual, o del adaptador heredado si no se cargó una. */
+  /**
+   * Usuario de la proyección actual, y si no está ahí, el que sepa el Hub.
+   *
+   * EL SEGUNDO CAMINO NO ES UN RESTO: es como entra el soporte de MOTRAE. Esa
+   * cuenta se arma en memoria desde la licencia firmada y NUNCA se registra como
+   * alta de usuario —a propósito: así el acceso dura exactamente lo que dure la
+   * licencia y no aparece en el personal del restaurante—. Como no está en el
+   * event log, tampoco está en la proyección.
+   *
+   * Antes se consultaba solo cuando no había proyección cargada, es decir casi
+   * nunca, y el resultado era que **todo lo que MOTRAE hiciera entrando a dar
+   * soporte lo rechazaba el Hub** con «Empleado desconocido: usr-motrae-soporte»
+   * y tiraba la terminal a isla. Se vio en la caja de Rodizio, repetido, mientras
+   * se intentaba arreglar otra cosa desde ahí.
+   */
   private usuarioDe(empleadoId: ID, identidad = this.identidad): Usuario | undefined {
-    if (identidad) return identidad.usuarios.find((usuario) => usuario.id === empleadoId);
-    return this.opciones.usuarioDe?.(empleadoId);
+    const proyectado = identidad?.usuarios.find((usuario) => usuario.id === empleadoId);
+    return proyectado ?? this.opciones.usuarioDe?.(empleadoId);
   }
 
   /** Aplica solo eventos de identidad válidos al estado provisional del lote. */
