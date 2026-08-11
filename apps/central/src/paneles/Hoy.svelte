@@ -38,6 +38,10 @@
     bloqueado: "Bloqueado",
     vence_hoy: "Vence",
     por_cobrar: "Por cobrar",
+    // No dice «Caído» porque no lo está: dice que no lo vemos. La acción que
+    // toca es reemitirle la licencia con el enlace, no llamar al restaurante
+    // para preguntarle por qué no vende.
+    sin_telemetria: "Sin señal",
     revisar: "Revisar",
   };
 </script>

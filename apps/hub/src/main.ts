@@ -2306,11 +2306,23 @@ async function prepararCorreo(): Promise<void> {
 }
 
 /**
- * Enlaza con el relay, si este restaurante tiene WhatsApp configurado.
+ * Enlaza con el relay de MOTRAE.
  *
- * Un local SIN WhatsApp es un caso normal y no un error: opera con el portal,
- * que es gratis y no depende de nadie. Por eso no se avisa como problema —
- * simplemente no hay nada que enlazar.
+ * EL ENLACE NO DEPENDE DE WHATSAPP, y antes sí. La dirección y la clave del
+ * relay vivían únicamente en la configuración de la mensajería, así que un local
+ * sin WhatsApp no montaba el enlace — y de ese enlace cuelga el **pulso**, el
+ * latido con el que MotRest Central sabe que un restaurante está vivo. El
+ * resultado se vio en Rodizio: operando con normalidad y pintado de rojo en
+ * Central como CAÍDO, que es la alarma más urgente del panel. Una alarma que
+ * suena siempre deja de significar nada.
+ *
+ * Ahora la dirección sale de la LICENCIA firmada —que ya se pega en cada caja al
+ * darla de alta— y la mensajería es lo opcional: si hay credenciales de Meta se
+ * añaden, y si no, el enlace sirve igual para reportar el pulso.
+ *
+ * Un local sin relay sigue siendo un caso normal: opera con el portal, que es
+ * gratis y no depende de nadie. Solo que entonces Central no puede verlo, y eso
+ * se dice en la bitácora en vez de dejarlo a que se note en el panel.
  */
 async function conectarAlRelay(): Promise<void> {
   const config = await almacen.estado.cargar<{
@@ -2321,10 +2333,19 @@ async function conectarAlRelay(): Promise<void> {
     nombre?: string;
   }>(CLAVE_WHATSAPP);
 
-  const url = process.env.MOTREST_RELAY_URL ?? config?.url;
-  const clave = process.env.MOTREST_RELAY_CLAVE ?? config?.clave;
+  // Orden deliberado: lo que diga quien instala manda —para apuntar un equipo a
+  // un relay de pruebas—, después el documento firmado por MOTRAE, y de último
+  // lo que hubiera en la configuración de WhatsApp, que es de donde salía antes
+  // y sigue valiendo para los locales ya montados.
+  const delaLicencia = licencia?.enlaceRelay ?? null;
+  const url = process.env.MOTREST_RELAY_URL ?? delaLicencia?.url ?? config?.url;
+  const clave = process.env.MOTREST_RELAY_CLAVE ?? delaLicencia?.clave ?? config?.clave;
   if (!url || !clave) {
-    registrar("info", "Sin WhatsApp configurado: el local opera con el portal.");
+    registrar(
+      "aviso",
+      "Sin enlace con MOTRAE: este local no reportará su pulso y aparecerá sin señal en Central. " +
+        "Se corrige reemitiendo la licencia con los datos del relay.",
+    );
     return;
   }
 

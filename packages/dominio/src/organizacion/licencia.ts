@@ -66,6 +66,20 @@ export interface ResponsableLicenciado extends PerfilResponsable {
 }
 
 /**
+ * Cómo alcanza este local al relay de MOTRAE.
+ *
+ * Es lo mínimo para que el Hub pueda reportar su pulso: a dónde y con qué se
+ * identifica. La mensajería del comensal —WhatsApp— se configura aparte y no
+ * condiciona esto.
+ */
+export interface RelayLicenciado {
+  /** `wss://…` del relay de MOTRAE. */
+  url: string;
+  /** La de ESTE restaurante, emitida en el alta del padrón. */
+  clave: string;
+}
+
+/**
  * El documento firmado que MOTRAE emite. Viaja como texto y se guarda tal cual.
  *
  * No lleva nada del negocio del restaurante —ni ventas, ni clientes— porque no
@@ -87,6 +101,22 @@ export interface Licencia {
   soporte?: CredencialSoporte;
   /** Responsable creado por MotRest Central al dar de alta el restaurante. */
   responsable?: ResponsableLicenciado;
+  /**
+   * Por dónde le habla este local a MOTRAE.
+   *
+   * VIAJA AQUÍ, y no en la configuración de WhatsApp, porque son dos cosas
+   * distintas que estaban en el mismo sitio. El enlace con el relay se montaba
+   * solo si había mensajería configurada, y de ese enlace cuelga el **pulso**:
+   * el latido con el que Central sabe que un restaurante vive. El resultado era
+   * que todo local sin WhatsApp —un caso normal, dice el propio código— salía en
+   * Central marcado como CAÍDO mientras vendía con normalidad.
+   *
+   * La clave es de este restaurante y de ningún otro: la emite MOTRAE en el alta
+   * del padrón. Por eso no puede ir incrustada en el instalador como el
+   * repositorio de actualizaciones, y viaja en el documento firmado que ya se
+   * pega en cada caja.
+   */
+  relay?: RelayLicenciado;
   /**
    * true = el bloqueo cae en cuanto vence la gracia, aunque haya turno abierto.
    *

@@ -535,7 +535,24 @@ export function mensajeDeCobro(
  * local caído importa más que uno que debe: el que debe sigue vendiendo y va a
  * pagar; el caído está perdiendo dinero ahora mismo y va a llamar enojado.
  */
-export type Urgencia = "caido" | "bloqueado" | "vence_hoy" | "por_cobrar" | "revisar";
+/**
+ * `caido` y `sin_telemetria` son cosas DISTINTAS, y colapsarlas costaba caro.
+ *
+ * Un local que reportaba y dejó de hacerlo está perdiendo dinero ahora mismo:
+ * hay que llamar. Uno que no ha reportado nunca casi siempre es un local al que
+ * le falta el enlace con MOTRAE —durante mucho tiempo eso le pasaba a TODO local
+ * sin WhatsApp, porque el pulso colgaba de la mensajería—, y opera sin enterarse
+ * de nada. Pintar los dos como la emergencia número uno del panel convierte la
+ * lista en ruido: si Rodizio lleva meses en rojo estando sano, el día que caiga
+ * de verdad nadie va a mirar.
+ */
+export type Urgencia =
+  | "caido"
+  | "bloqueado"
+  | "vence_hoy"
+  | "por_cobrar"
+  | "sin_telemetria"
+  | "revisar";
 
 export interface Pendiente {
   sucursal_id: ID;
@@ -549,7 +566,11 @@ const ORDEN: Record<Urgencia, number> = {
   bloqueado: 1,
   vence_hoy: 2,
   por_cobrar: 3,
-  revisar: 4,
+  // Debajo del cobro: no es una urgencia de hoy, es una instalación a medio
+  // terminar. Importa —sin pulso no hay forma de saber si ese local está bien—
+  // pero no puede desplazar a quien está sin vender.
+  sin_telemetria: 4,
+  revisar: 5,
 };
 
 export function pendientesDeHoy(
@@ -570,8 +591,17 @@ export function pendientesDeHoy(
     const { cobro, dias } = situacionDeCliente(cliente, ahora);
     const base = { sucursal_id: cliente.id, nombre: cliente.nombre };
 
-    if (salud.estado === "sin_senal" || salud.estado === "nunca_reporto") {
+    if (salud.estado === "sin_senal") {
       lista.push({ ...base, urgencia: "caido", detalle: salud.motivos[0] ?? "Sin señal" });
+      continue;
+    }
+
+    if (salud.estado === "nunca_reporto") {
+      lista.push({
+        ...base,
+        urgencia: "sin_telemetria",
+        detalle: "Nunca ha reportado: falta el enlace con MOTRAE en su licencia",
+      });
       continue;
     }
 

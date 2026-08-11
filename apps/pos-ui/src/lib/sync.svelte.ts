@@ -33,6 +33,7 @@ import { CLAVE_ASIGNACIONES, asignaciones } from "./asignaciones.svelte";
 import { CLAVE_ACTUALIZACION, actualizaciones } from "./actualizaciones.svelte";
 import { CLAVE_LICENCIA, licencia, type VeredictoLicencia } from "./licencia.svelte";
 import { CLAVE_MODO_ABIERTO, modoAbierto } from "./modo-abierto.svelte";
+import { failover } from "./failover.svelte";
 import { SUCURSAL_ID, obtenerDeviceId } from "./presentacion";
 
 export const CLAVE_HUB = "hub_url";
@@ -340,8 +341,26 @@ class StoreSync {
       alCambiarEstado: (estado, detalle) => {
         this.estado = estado;
         this.detalle = detalle ?? "";
+        /*
+         * EL LATIDO DEL TITULAR SALE DE AQUÍ, y antes no salía de ninguna parte.
+         *
+         * `failover.svelte.ts` existía completo pero nadie lo alimentaba nunca,
+         * así que la decisión se tomaba sin un solo dato: censo vacío y titular
+         * jamás visto. `decidirFailover` lo leía como «la caja lleva infinito
+         * sin responder» y toda terminal enseñaba, de forma permanente, «La caja
+         * no responde y esta tablet no puede sustituirla. Avise al gerente» —
+         * con el local sincronizado y vendiendo con normalidad.
+         *
+         * Estar sincronizado con el Hub ES la prueba de que el titular está: el
+         * Hub del local corre en la caja. No hace falta otra señal.
+         */
+        if (estado === "sincronizado") failover.latidoDelTitular();
       },
     });
+
+    // El reloj del aviso: sin él, el estado se congela en el que hubiera al
+    // cargar y el cartel no aparecería aunque la caja se cayera de verdad.
+    failover.iniciar();
 
     // Un cambio en la carta o en el plano se publica al instante: un mesero no
     // puede seguir vendiendo un platillo que se acaba de agotar en otra caja.

@@ -179,6 +179,41 @@ describe("la lista con la que se abre la mañana", () => {
     expect(pendientesDeHoy(sano, [pulso("a")], AHORA)).toEqual([]);
   });
 
+  /*
+   * Pasó en Rodizio: vendiendo con normalidad y pintado como la emergencia
+   * número uno del panel. El pulso colgaba del enlace de WhatsApp, así que un
+   * local sin mensajería no reportaba nunca y Central lo daba por caído. Un
+   * local que jamás reportó es casi siempre una instalación a la que le falta el
+   * enlace, no un restaurante parado.
+   */
+  it("el que NUNCA reportó no se cuenta como caído: le falta el enlace", () => {
+    const nuevo = [cliente("a", "Rodizio", 25)];
+    const pendientes = pendientesDeHoy(nuevo, [], AHORA);
+
+    expect(pendientes).toHaveLength(1);
+    expect(pendientes[0]!.urgencia).toBe("sin_telemetria");
+    expect(pendientes[0]!.detalle).toContain("enlace");
+  });
+
+  it("el que reportaba y se calló SÍ está caído, y va primero", () => {
+    const clientes = [
+      cliente("a", "Rodizio", 25),
+      cliente("b", "Vence hoy", 0),
+      cliente("c", "Recién montado", 25),
+    ];
+    // `a` reportaba y dejó de hacerlo hace dos días; `b` está sano y al día en
+    // señal, solo le vence el cobro; `c` no ha reportado nunca.
+    const pulsos = [pulso("a", 48), pulso("b")];
+
+    const pendientes = pendientesDeHoy(clientes, pulsos, AHORA);
+
+    // El caído abre la lista, y el que nunca reportó queda POR DEBAJO del cobro:
+    // el primero no está vendiendo, el último solo no se deja ver.
+    expect(pendientes.map((p) => p.urgencia)).toEqual(["caido", "vence_hoy", "sin_telemetria"]);
+    expect(pendientes[0]!.sucursal_id).toBe("a");
+    expect(pendientes[2]!.sucursal_id).toBe("c");
+  });
+
   it("el que vence hoy se distingue del que vence en tres días", () => {
     const lista = pendientesDeHoy([cliente("a", "Hoy", 0)], [pulso("a")], AHORA);
     expect(lista[0]!.urgencia).toBe("vence_hoy");

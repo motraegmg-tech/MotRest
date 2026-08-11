@@ -205,11 +205,29 @@ export class GestorLicencia {
     if (!this.licencia) return { licencia: null, verificada: this.verificada };
     if (esLocal) return { licencia: this.licencia, verificada: this.verificada };
 
-    const { soporte: _soporte, responsable: _responsable, ...resto } = this.licencia;
+    // `relay` sale junto a los otros dos: es la clave con la que ESTE
+    // restaurante se identifica ante MOTRAE, y una tablet del salón no tiene
+    // ningún motivo para conocerla. Solo la caja habla con el relay.
+    const {
+      soporte: _soporte,
+      responsable: _responsable,
+      relay: _relay,
+      ...resto
+    } = this.licencia;
     return { licencia: resto as Licencia, verificada: this.verificada };
   }
 
   get credencialSoporte() {
     return this.verificada ? (this.licencia?.soporte ?? null) : null;
+  }
+
+  /**
+   * Por dónde reportar el pulso, si la licencia lo trae.
+   *
+   * Solo de una licencia VERIFICADA: sin eso, cualquiera que dejara un archivo
+   * en la carpeta podría apuntar el latido del restaurante a un servidor suyo.
+   */
+  get enlaceRelay() {
+    return this.verificada ? (this.licencia?.relay ?? null) : null;
   }
 }

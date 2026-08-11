@@ -45,8 +45,21 @@ class StoreFailover {
     );
   }
 
-  /** Lo que se le enseña al personal. Vacío = todo normal. */
+  /**
+   * Lo que se le enseña al personal. Vacío = todo normal.
+   *
+   * NO SE HABLA SIN DATOS. Mientras esta terminal no haya sabido del titular ni
+   * una vez, no hay nada que afirmar: «no me consta» y «la caja se cayó» son
+   * cosas distintas, y esta pantalla solo puede decir la segunda. Sin esta
+   * guarda, una terminal recién abierta —o abierta sin Hub configurado— saluda
+   * con «La caja no responde, avise al gerente» delante de los comensales.
+   *
+   * En cuanto llega el primer latido esto deja de aplicar para siempre en esta
+   * sesión, y una caída posterior sí se anuncia: es la diferencia entre callar
+   * por ignorancia y callar por conveniencia.
+   */
   get aviso(): string {
+    if (this.titularVisto === null) return "";
     return avisoParaElPersonal(this.decision);
   }
 
