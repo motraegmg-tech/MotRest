@@ -15,7 +15,11 @@
  */
 import { CERO, restar, sumar, type Centavos } from "../comun/dinero.js";
 import type { ID } from "../comun/ids.js";
-import { calcularImpuesto, type DesgloseImpuesto } from "../comun/impuestos.js";
+import {
+  calcularImpuesto,
+  perfilDelProducto,
+  type DesgloseImpuesto,
+} from "../comun/impuestos.js";
 import type { CatalogoIndex, Categoria, Producto } from "./productos.js";
 import { costoReceta, type Ingrediente, type Receta } from "./recetas.js";
 
@@ -71,6 +75,14 @@ export interface ProductoVisible {
   /** Desglose del precio: es el recuadro de IVA en vivo que pidió Gonzalo. */
   impuesto: DesgloseImpuesto;
   impuesto_id: ID;
+  /**
+   * true = `precio` ya trae el impuesto dentro.
+   *
+   * Viaja para que el formulario sepa cómo leer lo que hay guardado: un producto
+   * capturado antes de este cambio almacena su base, y hay que sumarle el
+   * impuesto para poder enseñarlo como precio de carta.
+   */
+  precio_incluye_impuesto?: boolean;
   estacion_id?: ID;
   disponible: boolean;
   orden: number;
@@ -128,7 +140,12 @@ export function vistaProducto(
   cat: CatalogoIndex,
   permisos: PermisosMenu,
 ): ProductoVisible {
-  const perfil = cat.impuestos.get(producto.impuesto_id);
+  // El producto puede declarar que su precio ya trae el impuesto dentro; si lo
+  // hace, manda sobre el perfil compartido de la carta.
+  const perfilBase = cat.impuestos.get(producto.impuesto_id);
+  const perfil = perfilBase
+    ? perfilDelProducto(perfilBase, producto.precio_incluye_impuesto)
+    : undefined;
   const categoria = cat.categorias.get(producto.categoria_id);
   const receta = producto.receta_id ? cat.recetas.get(producto.receta_id) : undefined;
 
@@ -152,11 +169,23 @@ export function vistaProducto(
   // Solo se pone la clave si hay foto: un `foto: undefined` explícito obligaría
   // a cada pantalla a distinguir "sin foto" de "campo presente pero vacío".
   if (producto.foto !== undefined) visible.foto = producto.foto;
+  if (producto.precio_incluye_impuesto !== undefined) {
+    visible.precio_incluye_impuesto = producto.precio_incluye_impuesto;
+  }
 
   if (permisos.verCostos) {
+    /*
+     * Margen y food cost se miden contra la BASE, no contra el precio guardado.
+     *
+     * Con un precio que incluye impuesto, comparar el costo contra él haría que
+     * cada platillo pareciera un 16 % más rentable de lo que es: el IVA se
+     * recauda para el SAT y no es ingreso del restaurante. `impuesto.base` dice
+     * lo mismo en los dos casos, así que no hay que preguntar cuál es cuál.
+     */
+    const base = visible.impuesto.base;
     visible.costo = producto.costo;
-    visible.margen = restar(producto.precio, producto.costo);
-    visible.food_cost = producto.precio > 0 ? producto.costo / producto.precio : 0;
+    visible.margen = restar(base, producto.costo);
+    visible.food_cost = base > 0 ? producto.costo / base : 0;
   }
 
   if (permisos.verRecetas && receta) {

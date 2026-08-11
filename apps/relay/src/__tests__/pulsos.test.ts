@@ -118,6 +118,98 @@ describe("lo que se acepta", () => {
   });
 });
 
+describe("el inventario de terminales", () => {
+  it("guarda el equipo del local con su nombre y si está autorizado", () => {
+    const saneado = sanearPulso("suc-rodizio", {
+      version: "1.2.0",
+      dispositivos: [
+        { device_id: "dev-caja", nombre: "Caja", aprobado: true, visto_ts: 1_700 },
+        { device_id: "dev-tableta", aprobado: false, visto_ts: 900 },
+      ],
+    });
+
+    expect(saneado?.dispositivos).toEqual([
+      { device_id: "dev-caja", nombre: "Caja", aprobado: true, visto_ts: 1_700 },
+      { device_id: "dev-tableta", aprobado: false, visto_ts: 900 },
+    ]);
+  });
+
+  /*
+   * EL `token` ES LA CREDENCIAL CON LA QUE ESA TERMINAL SINCRONIZA CONTRA SU HUB.
+   * Persistirlo aquí sacaría del restaurante la llave de su propio canal, y sería
+   * exactamente el descuido que un `...dispositivo` comete sin que nadie lo vea.
+   */
+  it("nunca deja entrar el token de emparejamiento de una terminal", () => {
+    const saneado = sanearPulso("suc-rodizio", {
+      version: "1.2.0",
+      dispositivos: [
+        { device_id: "dev-caja", token: "token-secretisimo", aprobado: true, visto_ts: 1 },
+      ],
+    });
+
+    expect(JSON.stringify(saneado)).not.toContain("token-secretisimo");
+  });
+
+  it("recorta un inventario desmedido y tira las entradas sin identificador", () => {
+    const saneado = sanearPulso("suc-rodizio", {
+      version: "1.2.0",
+      dispositivos: [
+        ...Array.from({ length: 200 }, (_, i) => ({
+          device_id: `dev-${i}`,
+          nombre: "n".repeat(500),
+          aprobado: true,
+          visto_ts: 1,
+        })),
+        { nombre: "sin id" },
+      ],
+    });
+
+    expect(saneado?.dispositivos?.length).toBe(40);
+    expect(saneado?.dispositivos?.[0]?.nombre?.length).toBe(48);
+  });
+
+  /* «Aprobado» solo si lo dice de verdad: un `"si"` no autoriza a nadie. */
+  it("no toma por autorizada una terminal que no lo declaró con un booleano", () => {
+    const saneado = sanearPulso("suc-rodizio", {
+      version: "1.2.0",
+      dispositivos: [{ device_id: "dev-x", aprobado: "si", visto_ts: "ayer" }],
+    });
+
+    expect(saneado?.dispositivos?.[0]).toEqual({
+      device_id: "dev-x",
+      aprobado: false,
+      visto_ts: 0,
+    });
+  });
+
+  it("acepta la identidad del Hub y si arranca solo", () => {
+    const saneado = sanearPulso("suc-rodizio", {
+      version: "1.2.0",
+      hub_id: "hub-rodizio",
+      plataforma: "win32 x64",
+      arranque_automatico: false,
+    });
+
+    expect(saneado?.hub_id).toBe("hub-rodizio");
+    expect(saneado?.plataforma).toBe("win32 x64");
+    expect(saneado?.arranque_automatico).toBe(false);
+  });
+
+  /*
+   * Un Hub viejo no manda nada de esto y tiene que seguir contando que vive: si
+   * el relay lo rechazara, ampliar el parte convertiría en «caídos» a todos los
+   * locales que aún no se han actualizado.
+   */
+  it("un pulso de una versión anterior sigue siendo un pulso válido", () => {
+    const saneado = sanearPulso("suc-rodizio", { version: "1.1.0", terminales: 2 });
+
+    expect(saneado?.version).toBe("1.1.0");
+    expect(saneado?.dispositivos).toBeUndefined();
+    expect(saneado?.hub_id).toBeUndefined();
+    expect(saneado?.arranque_automatico).toBeUndefined();
+  });
+});
+
 describe("qué queda en disco", () => {
   it("no se puede leer sin la llave", () => {
     almacen().registrar("suc-rodizio", PULSO);

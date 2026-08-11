@@ -9,8 +9,10 @@
    */
   import {
     calcularImpuesto,
+    perfilDelProducto,
     pesos,
     type BorradorProducto,
+    type PerfilImpuesto,
     type ProblemaMenu,
   } from "@motrest/dominio";
   import { untrack } from "svelte";
@@ -36,7 +38,22 @@
   // centavos exactos al guardar (ADR-12).
   let nombre = $state(existente?.nombre ?? "");
   let categoriaId = $state(existente?.categoria_id ?? menu.categorias[0]?.id ?? "");
-  let precioPesos = $state(existente ? (existente.precio / 100).toFixed(2) : "");
+
+  /*
+   * «PRECIO DE CARTA» ES LO QUE PAGA EL COMENSAL, IMPUESTO INCLUIDO.
+   *
+   * Antes este campo era la BASE gravable, así que poner una pizza a 100 pesos
+   * obligaba a teclear 86.21 y comprobar a mano que el recuadro de abajo diera
+   * 100 — un cálculo que ningún restaurantero tiene por qué hacer, y que en la
+   * práctica acababa en precios como 116.00 en la carta. Ahora se teclea la
+   * cifra cerrada y el software despeja la base al guardar (`baseParaTotal`).
+   *
+   * Lo GUARDADO no cambia: el producto sigue almacenando su base, que es lo que
+   * el ticket, el corte y el CFDI necesitan. Lo que cambia es por dónde entra.
+   */
+  let precioPesos = $state(
+    existente ? (untrack(() => totalDelExistente()) / 100).toFixed(2) : "",
+  );
   let costoPesos = $state(
     existente?.costo === undefined ? "" : (existente.costo / 100).toFixed(2),
   );
@@ -47,17 +64,50 @@
   let subiendoFoto = $state(false);
   let problemas = $state<ProblemaMenu[]>([]);
 
+  /**
+   * Lo que hoy paga el comensal por el producto que se está editando.
+   *
+   * Un producto capturado antes de este cambio guarda su BASE gravable, así que
+   * hay que sumarle el impuesto para poder enseñarlo como precio de carta. Al
+   * guardarlo, pasará a almacenar el total —y el total al comensal no cambia—.
+   */
+  function totalDelExistente(): number {
+    if (!existente) return 0;
+    const perfilPrevio = menu.impuestos.find(
+      (i: PerfilImpuesto) => i.id === existente.impuesto_id,
+    );
+    if (!perfilPrevio) return existente.precio;
+    return calcularImpuesto(
+      existente.precio,
+      perfilDelProducto(perfilPrevio, existente.precio_incluye_impuesto),
+    ).total;
+  }
+
+  /**
+   * Lo tecleado ES lo que se guarda: la cifra cerrada de la carta.
+   *
+   * El producto se marca como «precio con impuesto incluido» y el desglose lo
+   * hace el sistema al leerlo. Se probó lo contrario —guardar la base despejando
+   * hacia atrás— y no sirve: no existe base entera en centavos cuyo IVA del 16 %
+   * sume exactamente 99.00, 128.00 ni 7.00, y esos son precios de carta
+   * normales. Ver `Producto.precio_incluye_impuesto`.
+   */
   const precio = $derived(pesos(Number(precioPesos) || 0));
   const costo = $derived(pesos(Number(costoPesos) || 0));
-  const perfil = $derived(menu.impuestos.find((i) => i.id === impuestoId));
+  const perfilCarta = $derived(menu.impuestos.find((i) => i.id === impuestoId));
+  const perfil = $derived(perfilCarta ? perfilDelProducto(perfilCarta, true) : undefined);
 
-  /** El recuadro de IVA en vivo: precio 100 → IVA 16 → total 116. */
-  const desglose = $derived(
-    perfil ? calcularImpuesto(precio, perfil) : null,
-  );
+  /** El recuadro en vivo: de dónde salen los 100 pesos que se tecleó arriba. */
+  const desglose = $derived(perfil ? calcularImpuesto(precio, perfil) : null);
 
-  const margen = $derived(precio - costo);
-  const foodCost = $derived(precio > 0 ? costo / precio : 0);
+  /*
+   * Margen y food cost se miden contra la BASE, no contra el precio de carta:
+   * el IVA se recauda para el SAT, no es ingreso del restaurante. Compararlos
+   * contra el total haría que cada platillo pareciera un 16 % más rentable.
+   */
+  const baseGravable = $derived(desglose?.base ?? precio);
+  const margen = $derived(baseGravable - costo);
+  const foodCost = $derived(baseGravable > 0 ? costo / baseGravable : 0);
 
   const borrador = $derived<BorradorProducto>({
     nombre,
@@ -65,6 +115,7 @@
     costo,
     precio,
     impuesto_id: impuestoId,
+    precio_incluye_impuesto: true,
     disponible,
     ...(estacionId ? { estacion_id: estacionId } : {}),
     ...(foto ? { foto } : {}),
@@ -219,6 +270,7 @@
           disabled={productoId !== undefined && !permisos.editarPrecios}
         />
       </div>
+      <small class="ayuda">Lo que paga el comensal, con impuesto incluido.</small>
     </label>
 
     <label>
@@ -231,10 +283,15 @@
     </label>
   </div>
 
-  <!-- El recuadro de IVA en vivo que pidió Gonzalo -->
+  <!--
+    El recuadro en vivo. Ahora se lee al revés que antes y esa es la gracia: el
+    «Total al comensal» coincide siempre con el precio de carta que se tecleó, y
+    lo que el recuadro enseña es de dónde sale — cuánto de esos 100 pesos es del
+    restaurante y cuánto es del SAT.
+  -->
   {#if desglose}
     <div class="iva">
-      <div><span>Precio</span><b>{mxn(desglose.base)}</b></div>
+      <div><span>Precio sin impuesto</span><b>{mxn(desglose.base)}</b></div>
       <div class="mas">+</div>
       <div>
         <span>IVA ({Math.round((perfil?.tasa_iva ?? 0) * 100)} %)</span>
@@ -268,7 +325,9 @@
     </div>
     <p class="pista">
       Es el costo <b>final</b> del platillo, no ingrediente por ingrediente. El
-      desglose por insumo es opcional y se captura en la receta.
+      desglose por insumo es opcional y se captura en la receta. El margen y el
+      food cost se miden contra el precio <b>sin impuesto</b>: el IVA se recauda
+      para el SAT y no es ingreso del restaurante.
     </p>
   {:else}
     <p class="pista oculto">
@@ -447,6 +506,12 @@
     font-size: 0.8rem;
     color: var(--gris);
     line-height: 1.5;
+  }
+  .ayuda {
+    display: block;
+    margin-top: 0.2rem;
+    font-size: 0.72rem;
+    color: var(--gris);
   }
   .pista.oculto {
     background: var(--fondo);

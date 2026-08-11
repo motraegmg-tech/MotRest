@@ -12,6 +12,8 @@ export interface Pago {
   forma: FormaPago;
   recibido?: Centavos;
   referencia?: string;
+  /** A qué socio se le carga el consumo, cuando la forma es `socio`. */
+  socio_id?: ID;
 }
 
 export interface Descuento {
@@ -50,6 +52,14 @@ export interface EstadoComanda {
    * revisar el corte, y esconderlo sería justo lo contrario de una bitácora.
    */
   reabierta?: boolean;
+  /**
+   * true = la sentada se cerró SIN consumo, para liberar la mesa.
+   *
+   * No es una venta y los reportes la excluyen. Se conserva en la proyección
+   * —y en el log— porque saber cuántas mesas se abren por error, y quién las
+   * abre, es información de operación que hoy nadie tiene.
+   */
+  anulada?: boolean;
   /** Cuántas veces se volvió a imprimir el ticket. Ausente = ninguna. */
   reimpresiones?: number;
   /**
@@ -247,6 +257,19 @@ export function aplicarEvento(
         ],
       };
 
+    /*
+     * Se RETIRA la cortesía que apunta al mismo alcance.
+     *
+     * Se filtra por `renglon_id` y no se vacía la lista entera: una cuenta
+     * puede tener regalado un postre y, aparte, un descuento de la casa sobre
+     * otro renglón. Quitar el postre no puede llevarse por delante lo demás.
+     */
+    case "cortesia_retirada":
+      return {
+        ...estado,
+        cortesias: estado.cortesias.filter((c) => c.renglon_id !== ev.renglon_id),
+      };
+
     case "propina_registrada":
       return { ...estado, propina: sumar(estado.propina, ev.monto) };
 
@@ -260,6 +283,7 @@ export function aplicarEvento(
             forma: ev.forma,
             recibido: ev.recibido,
             referencia: ev.referencia,
+            socio_id: ev.socio_id,
           },
         ],
       };
@@ -276,6 +300,14 @@ export function aplicarEvento(
       // El sello de cierre es lo que ancla la venta a una hora del día: es la
       // base de la curva horaria y del corte por turno.
       return { ...estado, cerrada: true, cerrada_ts: ev.ts };
+
+    /*
+     * La mesa se libera sin haber consumido nada. Se marca `anulada` para que
+     * los reportes la dejen fuera: cerrarla a secas la habría contado como una
+     * venta de cero pesos y hundido el ticket promedio de la jornada.
+     */
+    case "orden_anulada":
+      return { ...estado, cerrada: true, cerrada_ts: ev.ts, anulada: true };
 
     case "ticket_reimpreso":
       // Se cuenta en la comanda para poder numerar el papel y para que el

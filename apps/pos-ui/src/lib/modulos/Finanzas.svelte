@@ -23,6 +23,7 @@
   import Caja from "./finanzas/Caja.svelte";
   import Csd from "./finanzas/Csd.svelte";
   import Resultado from "./finanzas/Resultado.svelte";
+  import VentasPorDia from "./finanzas/VentasPorDia.svelte";
 
   const puedeEditar = $derived(sesion.puedeOperar("fin.factura.emitir"));
 
@@ -145,6 +146,13 @@
     los comprobantes se consultan de vez en cuando; "¿ganamos hoy?", todos los días.
   -->
   <Resultado />
+
+  <!--
+    Y justo debajo, la misma pregunta pero hacia atrás: qué se hizo cada día y
+    por dónde entró. Va antes del corte porque se consulta más —cada mañana— y
+    porque es donde se ve si el efectivo del cajón de ayer tenía sentido.
+  -->
+  <VentasPorDia />
 
   <!--
     El corte de caja va junto al resultado: ambos se hacen al cerrar el día. El

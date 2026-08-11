@@ -27,10 +27,10 @@
   import Impresoras from "./lib/modulos/admin/Impresoras.svelte";
   import MensajesAlCliente from "./lib/modulos/admin/MensajesAlCliente.svelte";
   import Salones from "./lib/modulos/admin/Salones.svelte";
+  import Socios from "./lib/modulos/admin/Socios.svelte";
   import Usuarios from "./lib/modulos/admin/Usuarios.svelte";
   import Acceso from "./lib/sesion/Acceso.svelte";
   import AltaResponsable from "./lib/sesion/AltaResponsable.svelte";
-  import CambioCredencial from "./lib/sesion/CambioCredencial.svelte";
   import DialogoAutorizacion from "./lib/sesion/DialogoAutorizacion.svelte";
   import AvisoActualizacion from "./lib/licencia/AvisoActualizacion.svelte";
   import PantallaBloqueada from "./lib/licencia/PantallaBloqueada.svelte";
@@ -160,6 +160,8 @@
         <Catalogo />
       {:else if seccion === "impresoras"}
         <Impresoras />
+      {:else if seccion === "socios"}
+        <Socios />
       {:else if seccion === "mensajes"}
         <MensajesAlCliente />
       {:else if seccion === "hub"}
@@ -209,15 +211,21 @@
 {/if}
 
 <!--
-  El alta del responsable ya se pintó sola, arriba: aquí solo queda decidir entre
-  pedir acceso y forzar el cambio de credencial.
+  El alta del responsable ya se pintó sola, arriba: aquí solo queda pedir acceso.
+
+  YA NO SE FUERZA EL CAMBIO DE CREDENCIAL AL ENTRAR.
+
+  Aparecía en cada inicio de sesión de quien tuviera la marca puesta —o sea, todo
+  el personal recién dado de alta—, y como solo se quita al completar el cambio,
+  se lo encontraba una y otra vez. Un cartel que se cierra sin leer no protege
+  nada: lo único que conseguía era retrasar al mesero que llega a comandar. El
+  cambio de PIN vive donde se busca, en el menú del usuario (ver `Header.svelte`),
+  y ahí se ofrece señalado a quien todavía tiene la clave que le dieron.
 -->
 {#if altaInicial}
   <!-- Ya está en pantalla; no se apila nada encima. -->
 {:else if mostrarAcceso || !sesion.autenticado}
   <Acceso onCerrar={() => (mostrarAcceso = false)} />
-{:else if sesion.debeCambiarCredencial}
-  <CambioCredencial />
 {/if}
 
 {#if pendiente}

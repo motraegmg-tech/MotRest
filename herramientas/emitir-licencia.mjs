@@ -1,5 +1,5 @@
 /**
- * Emite una licencia firmada como lo haría MOTRAE Central, para poder probar el
+ * Emite una licencia firmada como lo haría MotRest Central, para poder probar el
  * alta de un restaurante de punta a punta contra el Hub empaquetado.
  *
  * Uso: node emitir-licencia.mjs <privada-base64> <sucursal_id> <nombre>

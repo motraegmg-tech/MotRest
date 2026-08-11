@@ -10,6 +10,7 @@
  * digital y el menu engineering con IA se alimentan de estas mismas series.
  */
 import { CERO, restar, sumar, type Centavos } from "../comun/dinero.js";
+import { desglosarConTasas } from "../comun/impuestos.js";
 import type { ID } from "../comun/ids.js";
 import { renglonesActivos, type EstadoComanda } from "../comanda/reducers.js";
 import { costoRenglon, importeRenglon } from "../comanda/renglon.js";
@@ -189,6 +190,9 @@ export function cuentasCerradasEn(
 ): EstadoComanda[] {
   return comandas.filter((c) => {
     if (!c.cerrada) return false;
+    // Una mesa que se abrió por error y se liberó sin consumo NO es una cuenta.
+    // Contarla metía ventas de cero pesos que hunden el ticket promedio.
+    if (c.anulada) return false;
     if (!rango) return true;
     const ts = c.cerrada_ts ?? c.abierta_ts;
     return ts >= rango.desde && ts < rango.hasta;
@@ -268,10 +272,20 @@ export interface VentaProducto {
   producto_id: ID;
   descripcion: string;
   unidades: number;
+  /**
+   * Lo que pagó el comensal por ese producto: **con su impuesto dentro.**
+   *
+   * Es la cifra que el restaurantero compara con lo que ve en la caja y en el
+   * corte, y hasta ahora era la única del módulo que salía sin IVA —el resumen y
+   * el ranking de meseros ya lo incluían—, así que dos columnas de la misma
+   * pantalla no cuadraban entre sí.
+   */
   importe: Centavos;
+  /** El mismo importe sin impuesto: es la base sobre la que se mide el margen. */
+  base: Centavos;
   costo: Centavos;
   margen: Centavos;
-  /** Margen sobre importe, como fracción. */
+  /** Margen sobre la BASE, como fracción. El IVA no es ingreso del restaurante. */
   margenPct: number;
 }
 
@@ -292,13 +306,17 @@ export function ventasPorProducto(comandas: readonly EstadoComanda[]): VentaProd
         descripcion: renglon.descripcion,
         unidades: 0,
         importe: CERO,
+        base: CERO,
         costo: CERO,
         margen: CERO,
         margenPct: 0,
       };
 
+      const base = importeRenglon(renglon);
       previo.unidades += renglon.cantidad;
-      previo.importe = sumar(previo.importe, importeRenglon(renglon));
+      previo.base = sumar(previo.base, base);
+      // Con el impuesto dentro: es lo que el comensal pagó por ese platillo.
+      previo.importe = sumar(previo.importe, desglosarConTasas(base, renglon.impuesto).total);
       previo.costo = sumar(previo.costo, costoRenglon(renglon));
       acumulado.set(renglon.producto_id, previo);
     }
@@ -307,8 +325,10 @@ export function ventasPorProducto(comandas: readonly EstadoComanda[]): VentaProd
   return [...acumulado.values()]
     .map((v) => ({
       ...v,
-      margen: restar(v.importe, v.costo),
-      margenPct: v.importe > 0 ? (v.importe - v.costo) / v.importe : 0,
+      // El margen se mide contra la BASE: el IVA se recauda para el SAT y
+      // meterlo aquí inflaría el margen de todos los platillos un 16 %.
+      margen: restar(v.base, v.costo),
+      margenPct: v.base > 0 ? (v.base - v.costo) / v.base : 0,
     }))
     .sort((a, b) => b.importe - a.importe);
 }

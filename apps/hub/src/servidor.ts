@@ -60,6 +60,7 @@ interface Sesion {
   device_id: ID;
   sucursal_id: ID;
   saludado: boolean;
+  esLocal: boolean;
 }
 
 export interface OpcionesHub {
@@ -227,12 +228,13 @@ export class Hub {
     return this.log.seqActual;
   }
 
-  conectar(conexion: Conexion): void {
+  conectar(conexion: Conexion, esLocal = false): void {
     this.sesiones.set(conexion.id, {
       conexion,
       device_id: "",
       sucursal_id: "",
       saludado: false,
+      esLocal,
     });
   }
 
@@ -570,12 +572,12 @@ export class Hub {
     let dispositivo = this.log.dispositivo(mensaje.device_id);
     if (!dispositivo) {
       dispositivo = this.log.registrarDispositivo(mensaje.device_id, "");
-      if (this.log.dispositivos().length === 1) {
+      if (this.log.dispositivos().length === 1 || sesion.esLocal) {
         this.log.aprobarDispositivo(mensaje.device_id);
         dispositivo = this.log.dispositivo(mensaje.device_id)!;
         this.anotar(
           "aviso",
-          `Primera terminal del local: ${mensaje.device_id} queda autorizada. Las siguientes requieren su aprobación.`,
+          `Terminal local o primera terminal del local autorizada: ${mensaje.device_id}. Las siguientes por red requieren su aprobación.`,
         );
       }
     }

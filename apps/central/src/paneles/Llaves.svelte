@@ -4,6 +4,7 @@
    * muestran; el backend Tauri las cifra con DPAPI antes de guardarlas.
    */
   import { central } from "../lib/central.svelte";
+  import { fecha } from "../lib/formato";
 
   let repositorio = $state(central.secretos.repositorio);
   let relayUrl = $state(central.secretos.relay_url ?? "");
@@ -18,6 +19,15 @@
   let avisoSoporte = $state("");
   let errorSoporte = $state("");
   let entradaRespaldo = $state<HTMLInputElement>();
+
+  /* El respaldo que sí sobrevive a que muera esta computadora. */
+  let contrasenaCofre = $state("");
+  let cofreRepetida = $state("");
+  let errorCofre = $state("");
+  let trabajandoCofre = $state(false);
+  let entradaCofre = $state<HTMLInputElement>();
+
+  const soportePendiente = $derived(central.localesConSoportePendiente);
 
   const tieneLicencias = $derived(central.secretos.licencias !== undefined);
   const tienePublicacion = $derived(central.secretos.publicacion !== undefined);
@@ -141,6 +151,66 @@
     a.download = `motrae-llaves-dpapi-${new Date().toISOString().slice(0, 10)}.json`;
     a.click();
     URL.revokeObjectURL(url);
+  }
+
+  /**
+   * El respaldo que abre en otra máquina.
+   *
+   * Se pide dos veces la contraseña porque si se teclea mal no hay forma de
+   * enterarse: el archivo se genera igual, parece correcto, y el error solo
+   * aparece el día que hace falta abrirlo — que es exactamente el día en que ya
+   * no hay una segunda oportunidad.
+   */
+  async function descargarPortatil() {
+    errorCofre = "";
+    if (contrasenaCofre !== cofreRepetida) {
+      errorCofre = "Las dos contraseñas no coinciden";
+      return;
+    }
+
+    trabajandoCofre = true;
+    const resultado = await central.respaldoPortatil(contrasenaCofre);
+    trabajandoCofre = false;
+    if (!resultado.ok) {
+      errorCofre = resultado.error;
+      return;
+    }
+
+    const url = URL.createObjectURL(new Blob([resultado.respaldo], { type: "application/json" }));
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `motrest-llaves-portatil-${new Date().toISOString().slice(0, 10)}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+
+    contrasenaCofre = "";
+    cofreRepetida = "";
+    guardado = "Respaldo portátil descargado. Guárdelo fuera de esta computadora.";
+  }
+
+  async function restaurarPortatil(evento: Event) {
+    errorCofre = "";
+    const entrada = evento.currentTarget as HTMLInputElement;
+    const archivo = entrada.files?.[0];
+    if (!archivo) return;
+
+    if (!contrasenaCofre) {
+      errorCofre = "Escriba arriba la contraseña del respaldo antes de elegir el archivo";
+      entrada.value = "";
+      return;
+    }
+
+    trabajandoCofre = true;
+    const resultado = await central.restaurarPortatil(await archivo.text(), contrasenaCofre);
+    trabajandoCofre = false;
+    entrada.value = "";
+
+    if (!resultado.ok) errorCofre = resultado.error;
+    else {
+      contrasenaCofre = "";
+      cofreRepetida = "";
+      guardado = "Llaves restauradas desde el respaldo portátil y protegidas con DPAPI.";
+    }
   }
 
   async function restaurar(evento: Event) {
@@ -272,7 +342,7 @@
     <h2>Canal de actualizaciones y estado</h2>
     <label>
       Repositorio de GitHub
-      <input bind:value={repositorio} spellcheck="false" placeholder="motrae/motrest" />
+      <input bind:value={repositorio} spellcheck="false" placeholder="motraegmg-tech/MotRest" />
       <small>Los Hubs bajan solo desde HTTPS de GitHub; el token opcional nunca sale a otro host.</small>
     </label>
     <div class="dos">
@@ -310,6 +380,26 @@
     <p class="estado-falta">Las licencias que emita ahora saldrán sin acceso de MOTRAE.</p>
   {/if}
 
+  <!--
+    ROTAR NO ES CAMBIAR AQUÍ. La contraseña viaja firmada dentro de la licencia,
+    así que un local no la cambia hasta que se le emite una nueva. Sin esta
+    lista, rotar de urgencia era reemitir a ciegas y confiar en no dejarse a
+    nadie — justo el día en que eso importa.
+  -->
+  {#if soportePendiente.length > 0}
+    <div class="pendientes-soporte">
+      <b>
+        {soportePendiente.length === 1
+          ? "Un local sigue con la contraseña anterior:"
+          : `${soportePendiente.length} locales siguen con la contraseña anterior:`}
+      </b>
+      <span>{soportePendiente.map((c) => c.nombre).join(", ")}</span>
+      <em>Reemítales la licencia desde Restaurantes para que el cambio les llegue.</em>
+    </div>
+  {:else if tieneSoporte && central.activos.length > 0}
+    <p class="estado-ok">Todos los locales activos ya tienen la contraseña vigente.</p>
+  {/if}
+
   <div class="dos">
     <label>
       Contraseña
@@ -326,7 +416,55 @@
     {tieneSoporte ? "Cambiar contraseña" : "Fijar contraseña"}
   </button>
 
-  <h2>Respaldos</h2>
+  <h2>Respaldo portátil de las llaves</h2>
+  <!--
+    LA MEJORA QUE MÁS RIESGO QUITA. El respaldo DPAPI de más abajo solo abre en
+    este mismo perfil de Windows: si el equipo se pierde, se quema o Windows se
+    reinstala, ese archivo no sirve en ninguna parte y con él se van las llaves
+    que firman licencias y actualizaciones de TODOS los restaurantes. No se
+    pueden regenerar — habría que reinstalar cada local a mano con un Hub nuevo.
+  -->
+  {#if !central.respaldoAlDia}
+    <div class="alerta">
+      <b>No hay un respaldo que abra fuera de esta computadora.</b>
+      Si este equipo desaparece, se van con él las licencias y las actualizaciones
+      de todos los restaurantes, y no hay forma de regenerarlas.
+    </div>
+  {:else}
+    <p class="estado-ok">
+      Último respaldo portátil: {fecha(central.secretos.ultimo_respaldo_ts!)}.
+    </p>
+  {/if}
+
+  <p class="explica">
+    Se cifra con una contraseña que solo usted sabe, así que se puede guardar
+    fuera —otra máquina, una caja fuerte, un gestor de contraseñas— y abrir en
+    otro equipo. <b>El archivo y la contraseña se guardan por separado</b>: quien
+    tenga los dos puede firmar en nombre de MOTRAE.
+  </p>
+
+  <div class="dos">
+    <label>
+      Contraseña del respaldo
+      <input type="password" bind:value={contrasenaCofre} placeholder="Mínimo 16 caracteres" />
+    </label>
+    <label>
+      Repetirla
+      <input type="password" bind:value={cofreRepetida} />
+    </label>
+  </div>
+  {#if errorCofre}<p class="error">{errorCofre}</p>{/if}
+  <div class="acciones">
+    <button class="primario" disabled={trabajandoCofre || !puedeEditarSecretos} onclick={descargarPortatil}>
+      {trabajandoCofre ? "Cifrando…" : "Descargar respaldo portátil"}
+    </button>
+    <button disabled={trabajandoCofre || !puedeRestaurarSecretos} onclick={() => entradaCofre?.click()}>
+      Restaurar desde un respaldo portátil…
+    </button>
+    <input bind:this={entradaCofre} class="oculto" type="file" accept="application/json" onchange={restaurarPortatil} />
+  </div>
+
+  <h2>Respaldos de esta máquina</h2>
   <p class="explica">
     La cartera se puede compartir sin secretos. Las llaves tienen un respaldo DPAPI separado:
     sigue cifrado y solo se restaura en este mismo perfil de Windows.
@@ -377,6 +515,9 @@
   .advertencia { background: #fff3d8; }
   .estado-ok { background: #eaf6f0; color: #1e6b4a; }
   .error { font-size: 0.82rem; color: var(--peligro); margin: 0.7rem 0; }
+  .pendientes-soporte { background: #fff3d8; border-radius: var(--r-sm); padding: 0.6rem 0.75rem; margin: 0.7rem 0; font-size: 0.83rem; line-height: 1.6; color: var(--pizarra); }
+  .pendientes-soporte b { display: block; }
+  .pendientes-soporte em { display: block; margin-top: 0.25rem; font-style: normal; font-size: 0.78rem; color: var(--gris); }
   .ok { font-size: 0.8rem; color: #1e6b4a; margin: 0.7rem 0; }
   .bloque { line-height: 1.5; }
   .llaves { display: flex; flex-direction: column; gap: 0.1rem; }

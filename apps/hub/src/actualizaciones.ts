@@ -21,7 +21,7 @@ import {
 } from "@motrest/dominio";
 
 export interface OrigenActualizaciones {
-  /** "motrae/motrest". De ahí sale la URL de la API. */
+  /** "motraegmg-tech/MotRest". De ahí sale la URL de la API. */
   repositorio: string;
   /** Llave pública con la que se verifica el manifiesto. */
   llaveDeFirma: string;

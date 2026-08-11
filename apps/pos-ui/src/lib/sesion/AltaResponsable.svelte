@@ -26,10 +26,24 @@
    *    enseña y solo se pide el PIN. Escribirlo otra vez aquí sería mentirle al
    *    usuario: el perfil firmado lo sobrescribiría en el siguiente arranque.
    */
+  import { licencia } from "../licencia.svelte";
   import { sesion } from "./sesion.svelte";
 
-  /** El responsable que la licencia de MOTRAE ya trajo, si lo trajo. */
-  const licenciado = $derived(sesion.responsablePendiente);
+  /**
+   * El responsable que la licencia de MOTRAE ya trajo, si lo trajo.
+   *
+   * DOS FUENTES, Y LA SEGUNDA NO SOBRA. La primera es la cuenta que el store de
+   * sesión montó al arrancar, que exige que `/licencia` haya contestado a tiempo
+   * —2,5 segundos— en el mismo instante del arranque. Cuando esa llamada se
+   * pierde, la pantalla se quedaba pidiendo el nombre a mano y el restaurante
+   * acababa con una cuenta llamada de otra forma que la que se registró en
+   * Central. La segunda fuente es la licencia guardada en el disco, que es el
+   * mismo documento firmado y sigue ahí aunque el Hub tarde en responder.
+   */
+  const perfilDeLaLicencia = $derived(licencia.licencia?.responsable);
+  const licenciado = $derived(sesion.responsablePendiente ?? perfilDeLaLicencia);
+  /** El nombre del restaurante, tal como lo registró MOTRAE. */
+  const nombreDelLocal = $derived(licencia.licencia?.nombre ?? "");
 
   let nombre = $state("");
   let pin = $state("");
@@ -72,11 +86,15 @@
     <div class="cinta"></div>
 
     <div class="marca">MotRest<span>.</span></div>
-    <h1 id="ar-titulo">Bienvenido. Vamos a crear su usuario</h1>
+    <h1 id="ar-titulo">
+      Bienvenido{nombreDelLocal ? ` a ${nombreDelLocal}` : ""}. Vamos a crear su usuario
+    </h1>
     <p class="sub">
       Este restaurante todavía no tiene ninguna cuenta. La primera es la del
       <b>responsable</b>: tendrá acceso a todo el sistema y podrá dar de alta a su
       personal desde <b>Administración → Usuarios</b>.
+      <b>Esta pantalla solo aparece una vez</b>: a partir de la próxima apertura,
+      MotRest abrirá pidiendo quién entra y su PIN.
     </p>
 
     {#if licenciado}

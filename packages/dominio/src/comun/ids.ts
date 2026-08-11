@@ -38,3 +38,28 @@ export function uuidv7(): string {
 
   return aHex(b);
 }
+
+/**
+ * Identificador corto para el catálogo: `prod-019fe3848c1f4a2b9c3d`.
+ *
+ * Conserva los 48 bits de tiempo del UUIDv7 —el id sigue ordenando por captura—
+ * y le suma 32 bits de azar.
+ *
+ * NO se recorta el UUID a sus primeros 8 caracteres, como se hacía antes: esos
+ * 8 son solo los 32 bits ALTOS del milisegundo, así que el id no cambiaba hasta
+ * pasados 2^16 ms ≈ 65 s. Dar de alta dos platillos en el mismo minuto —lo
+ * normal al capturar una carta— producía dos ids idénticos, y como el catálogo
+ * se indexa en un Map por id, el segundo pisaba al primero: quedaba guardado en
+ * el archivo pero desaparecía de la pantalla.
+ */
+export function idCorto(prefijo: string): ID {
+  const hex = uuidv7().replaceAll("-", "");
+  return `${prefijo}-${hex.slice(0, 12)}${hex.slice(-8)}`;
+}
+
+/** Como `idCorto`, pero garantizando que no choque con los ya emitidos. */
+export function idCortoLibre(prefijo: string, usados: ReadonlySet<ID>): ID {
+  let id = idCorto(prefijo);
+  while (usados.has(id)) id = idCorto(prefijo);
+  return id;
+}

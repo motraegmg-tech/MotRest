@@ -4,10 +4,10 @@
 import { describe, expect, it } from "vitest";
 import { CERO, pesos, repartir, restar, sumar } from "../comun/dinero.js";
 import { uuidv7, type ID } from "../comun/ids.js";
-import { IVA_16, snapshotTasas } from "../comun/impuestos.js";
+import { IVA_16, desglosarConTasas, snapshotTasas } from "../comun/impuestos.js";
 import type { EventoComanda } from "../comanda/eventos.js";
 import { proyectarComanda, renglonesActivos } from "../comanda/reducers.js";
-import type { RenglonComanda } from "../comanda/renglon.js";
+import { importeRenglon, type RenglonComanda } from "../comanda/renglon.js";
 import { totalesComanda } from "../comanda/totales.js";
 import type { EventoCaja } from "../caja/eventos.js";
 import { calcularCorte, diferenciaArqueo, proyectarCaja } from "../caja/reducers.js";
@@ -127,6 +127,68 @@ describe("cortesías", () => {
     expect(t.total).toBe(CERO);
     expect(t.cortesias).toBe(pesos(300));
     expect(t.costo).toBe(pesos(90));
+  });
+
+  /*
+   * El botón de cortesía se pulsa por error, y hasta ahora la única salida era
+   * cancelar la cuenta entera. Retirarla devuelve el importe COMPLETO, IVA
+   * incluido: la cuenta tiene que quedar exactamente como estaba.
+   */
+  it("retirar la cortesía de la cuenta la devuelve a su total", () => {
+    const { f, orden_id, eventos } = cuentaBase();
+    const t = totalesComanda(
+      proyectarComanda([
+        ...eventos,
+        f.crear("cortesia_otorgada", orden_id, { orden_id, motivo: "Invitación" }),
+        f.crear("cortesia_retirada", orden_id, { orden_id }),
+      ]),
+    );
+    expect(t.cortesias).toBe(CERO);
+    expect(t.total).toBe(pesos(348));
+  });
+
+  it("retirar la cortesía de un renglón no se lleva la de otro", () => {
+    const { f, orden_id, eventos, a, b } = cuentaBase();
+    const t = totalesComanda(
+      proyectarComanda([
+        ...eventos,
+        f.crear("cortesia_otorgada", orden_id, { orden_id, renglon_id: a.id, motivo: "Se cayó" }),
+        f.crear("cortesia_otorgada", orden_id, { orden_id, renglon_id: b.id, motivo: "Tardó" }),
+        f.crear("cortesia_retirada", orden_id, { orden_id, renglon_id: a.id }),
+      ]),
+    );
+    // Se queda regalado el de 200 y vuelve a cobrarse el de 100.
+    expect(t.cortesias).toBe(pesos(200));
+    expect(t.subtotal).toBe(pesos(100));
+  });
+
+  it("retirar una cortesía que no existe no toca la cuenta", () => {
+    const { f, orden_id, eventos } = cuentaBase();
+    const t = totalesComanda(
+      proyectarComanda([...eventos, f.crear("cortesia_retirada", orden_id, { orden_id })]),
+    );
+    expect(t.total).toBe(pesos(348));
+  });
+});
+
+/*
+ * Liberar una mesa que se abrió por error.
+ *
+ * Antes había que cobrarla en cero, y esas cuentas fantasma hundían el ticket
+ * promedio de la jornada. `orden_anulada` la cierra sin convertirla en venta.
+ */
+describe("mesa liberada sin consumo", () => {
+  it("cierra la sentada y la marca anulada", () => {
+    const f = new FabricaEventos<EventoComanda>(CTX);
+    const orden_id = uuidv7();
+    const c = proyectarComanda([
+      f.crear("orden_creada", orden_id, { orden_id, mesa_id: "mesa-3", abierta_ts: Date.now() }),
+      f.crear("orden_anulada", orden_id, { orden_id, motivo: "Se liberó sin consumo" }),
+    ]);
+
+    expect(c.cerrada).toBe(true);
+    expect(c.anulada).toBe(true);
+    expect(c.cerrada_ts).toBeGreaterThan(0);
   });
 });
 
@@ -315,5 +377,62 @@ describe("sesión de caja y corte", () => {
       sello: "0000-0000",
     });
     expect(() => proyectarCaja([suelto])).toThrow();
+  });
+});
+
+/*
+ * Aritmética de la pre-cuenta.
+ *
+ * El papel que se lleva a la mesa imprime cada renglón CON su impuesto dentro,
+ * porque quien lo recibe suma los renglones y espera llegar al total. Con el
+ * perfil de Rodizio (IVA_16, `incluido_en_precio: false`) el precio de carta no
+ * trae el IVA, así que esa suma solo cuadra si se desglosa renglón por renglón
+ * igual que lo hacen los totales. Estas pruebas fijan esa correspondencia: si
+ * alguien cambia cómo se reparte el impuesto, el papel del comensal deja de
+ * cuadrar y hay que enterarse aquí, no en la mesa.
+ */
+describe("pre-cuenta: los renglones con IVA suman el total", () => {
+  /** Lo mismo que calcula el POS para cada renglón del papel. */
+  function importeConImpuesto(r: RenglonComanda) {
+    return desglosarConTasas(importeRenglon(r), r.impuesto).total;
+  }
+
+  it("sin rebajas, la suma de renglones es exactamente el total", () => {
+    const estado = proyectarComanda(cuentaBase().eventos);
+    const t = totalesComanda(estado);
+
+    const suma = renglonesActivos(estado).reduce((a, r) => a + importeConImpuesto(r), 0);
+
+    expect(suma).toBe(t.total);
+  });
+
+  it("con descuento, suma − rebaja da el total sin perder centavos", () => {
+    const { f, orden_id, eventos } = cuentaBase();
+    const estado = proyectarComanda([
+      ...eventos,
+      f.crear("descuento_aplicado", orden_id, {
+        orden_id, alcance: "cuenta", modo: "monto", valor: pesos(50), motivo: "Cortesía de la casa",
+      }),
+    ]);
+    const t = totalesComanda(estado);
+
+    const suma = renglonesActivos(estado).reduce((a, r) => a + importeConImpuesto(r), 0);
+    // Es como el POS deriva la rebaja del papel: por diferencia, nunca aparte.
+    const rebaja = suma - t.total;
+
+    expect(rebaja).toBeGreaterThan(0);
+    expect(suma - rebaja).toBe(t.total);
+  });
+
+  it("un renglón cuyo precio YA incluye impuesto no lo suma dos veces", () => {
+    const conIvaDentro: RenglonComanda = {
+      id: uuidv7(), producto_id: "p9", descripcion: "Refresco", cantidad: 1,
+      precio_unitario: pesos(58), costo_unitario: pesos(20),
+      impuesto: snapshotTasas({ ...IVA_16, incluido_en_precio: true }),
+      estado: "capturado",
+    };
+
+    // El comensal paga los $58 de la carta, ni un centavo más.
+    expect(importeConImpuesto(conIvaDentro)).toBe(pesos(58));
   });
 });

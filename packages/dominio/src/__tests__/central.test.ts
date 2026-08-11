@@ -6,18 +6,29 @@
  * al revés: el ingreso del mes que viene depende de que Rodizio funcione hoy.
  */
 import { describe, expect, it } from "vitest";
-import { pesos } from "../comun/dinero.js";
+import { pesos, type Centavos } from "../comun/dinero.js";
 import {
   DIAS_PARA_COBRAR,
   EVENTOS_AVISO,
   HORAS_SIN_SENAL,
+  adopcionDeVersion,
+  anotarEnHistorial,
+  cobradoEnPeriodo,
+  comisionDeResultado,
+  comisionesPendientes,
+  historiaDelLocal,
   idDeSucursal,
+  localesConSoporteViejo,
+  mensajeDeCobro,
   pendientesDeHoy,
   resumenDeCartera,
   saludDeCliente,
   situacionDeCliente,
+  totalPagadoPor,
   type ClienteMotRest,
+  type PagoCliente,
   type PulsoCliente,
+  type ResultadoVerificado,
 } from "../organizacion/central.js";
 import type { Licencia } from "../organizacion/licencia.js";
 
@@ -257,5 +268,255 @@ describe("el identificador de un local nuevo", () => {
     expect(idDeSucursal("Rodizio", "Centro")).toBe("suc-rodizio-centro");
     expect(idDeSucursal("Café Málaga")).toBe("suc-cafe-malaga");
     expect(idDeSucursal("  La  Fonda  ")).toBe("suc-la-fonda");
+  });
+});
+
+// --- El dinero que entró de verdad -----------------------------------------------------------
+
+function pago(ts: number, montoEnPesos: number, extra: Partial<PagoCliente> = {}): PagoCliente {
+  return { id: `pago-${ts}`, ts, monto: pesos(montoEnPesos), metodo: "transferencia", ...extra };
+}
+
+function resultado(extra: Partial<ResultadoVerificado> = {}): ResultadoVerificado {
+  return {
+    id: "res-1",
+    ts: AHORA - 5 * DIA,
+    concepto: "Merma de masa: de 12 % a 4 %",
+    ahorro: pesos(20_000),
+    comision_pct: 15,
+    verificado: true,
+    cobrado: false,
+    ...extra,
+  };
+}
+
+describe("lo cobrado frente a lo prometido", () => {
+  /*
+   * `ingreso_mensual` es lo que entraría si todos pagaran; `cobrado_mes` es
+   * dinero. La distancia entre los dos es el único número honesto del panel.
+   */
+  it("separa la promesa del dinero que ya entró", () => {
+    const rodizio = cliente("a", "Rodizio", 20, {
+      pagos: [pago(AHORA - 3 * DIA, 1_500), pago(AHORA - 200 * DIA, 1_500)],
+    });
+
+    const r = resumenDeCartera([rodizio], [], AHORA);
+
+    expect(r.ingreso_mensual).toBe(pesos(1_500));
+    /* El de hace 200 días queda fuera de la ventana de 30. */
+    expect(r.cobrado_mes).toBe(pesos(1_500));
+  });
+
+  /*
+   * El dinero de un cliente que se fue entró igual. Descontarlo haría que un mes
+   * ya cerrado cambiara de cifra el día que alguien se da de baja.
+   */
+  it("cuenta lo que pagó un local que después se dio de baja", () => {
+    const ido = cliente("b", "La Fonda", 10, {
+      activo: false,
+      pagos: [pago(AHORA - 2 * DIA, 900)],
+    });
+
+    expect(cobradoEnPeriodo([ido], AHORA - 30 * DIA, AHORA)).toBe(pesos(900));
+    expect(resumenDeCartera([ido], [], AHORA).locales).toBe(0);
+  });
+
+  it("suma lo pagado por un local a lo largo de su vida", () => {
+    const c = cliente("a", "Rodizio", 20, {
+      pagos: [pago(AHORA - 400 * DIA, 1_500), pago(AHORA - 2 * DIA, 1_500)],
+    });
+
+    expect(totalPagadoPor(c)).toBe(pesos(3_000));
+    expect(totalPagadoPor(cliente("z", "Sin pagos", 5))).toBe(0);
+  });
+});
+
+describe("el cobro por resultado", () => {
+  it("la comisión es el porcentaje del ahorro medido", () => {
+    expect(comisionDeResultado(resultado())).toBe(pesos(3_000));
+  });
+
+  /*
+   * Un ahorro que el restaurantero todavía no reconoce no es dinero por cobrar,
+   * es una conversación pendiente. Contarlo infla el negocio con trabajo que
+   * quizá no se pague nunca.
+   */
+  it("solo cuenta lo verificado y lo no cobrado", () => {
+    const c = cliente("a", "Rodizio", 20, {
+      resultados: [
+        resultado({ id: "r1" }),
+        resultado({ id: "r2", verificado: false }),
+        resultado({ id: "r3", cobrado: true }),
+      ],
+    });
+
+    expect(comisionesPendientes([c])).toBe(pesos(3_000));
+    expect(resumenDeCartera([c], [], AHORA).por_cobrar_resultados).toBe(pesos(3_000));
+  });
+});
+
+describe("el mensaje de cobro", () => {
+  const dinero = (c: Centavos) => `$${(c / 100).toLocaleString("es-MX")}`;
+
+  /* Un recordatorio que no dice la consecuencia se lee como opcional. */
+  it("a un bloqueado le dice que está suspendido y cómo se reactiva", () => {
+    const c = cliente("a", "Rodizio", -10);
+    const texto = mensajeDeCobro(c, situacionDeCliente(c, AHORA), dinero);
+
+    expect(texto).toContain("suspendido");
+    expect(texto).toContain("Rodizio");
+    expect(texto).toContain("$1,500");
+  });
+
+  it("a uno en gracia le dice cuántos días le quedan antes de la suspensión", () => {
+    const c = cliente("a", "Rodizio", -1);
+    const texto = mensajeDeCobro(c, situacionDeCliente(c, AHORA), dinero);
+
+    expect(texto).toContain("gracia");
+    expect(texto).toMatch(/quedan? \d+ día/);
+  });
+
+  it("a uno por cobrar le dice el plazo y saluda al responsable por su nombre", () => {
+    const c = cliente("a", "Rodizio", 3, { contacto: "Ana" });
+    const texto = mensajeDeCobro(c, situacionDeCliente(c, AHORA), dinero);
+
+    expect(texto).toContain("Hola, Ana.");
+    expect(texto).toContain("en 3 días");
+  });
+
+  it("a uno sin licencia le ofrece activarlo, no le reclama", () => {
+    const c = cliente("a", "Rodizio", null);
+    const texto = mensajeDeCobro(c, situacionDeCliente(c, AHORA), dinero);
+
+    expect(texto).toContain("activarlo");
+    expect(texto).not.toContain("venció");
+  });
+});
+
+// --- La historia de cada local ---------------------------------------------------------------
+
+describe("la historia de un local", () => {
+  /*
+   * Central pregunta al relay cada diez minutos y el Hub reporta una vez al día:
+   * casi todas las consultas devuelven EL MISMO parte. Sin deduplicar, una tarde
+   * llenaría el historial de copias y no guardaría ni un día de historia real.
+   */
+  it("no guarda dos veces el mismo parte", () => {
+    const p = pulso("a", 2);
+    let historial = anotarEnHistorial([], p);
+    historial = anotarEnHistorial(historial, { ...p });
+    historial = anotarEnHistorial(historial, { ...p, ts: p.ts + 1 });
+
+    expect(historial).toHaveLength(2);
+  });
+
+  it("se queda con los más recientes cuando se llena", () => {
+    let historial: PulsoCliente[] = [];
+    for (let i = 0; i < 10; i++) {
+      historial = anotarEnHistorial(historial, pulso("a", 100 - i), 4);
+    }
+
+    expect(historial).toHaveLength(4);
+    /* Ordenado y con el más nuevo al final. */
+    expect(historial[3]!.ts).toBeGreaterThan(historial[0]!.ts);
+  });
+
+  it("contesta desde cuándo un local dejó de dar señales", () => {
+    const callado = historiaDelLocal([pulso("a", 24 * 5), pulso("a", 24 * 4)], AHORA);
+    expect(callado.callado_desde_ts).toBe(AHORA - 24 * 4 * HORA);
+
+    const vivo = historiaDelLocal([pulso("a", 2)], AHORA);
+    expect(vivo.callado_desde_ts).toBeNull();
+  });
+
+  it("recuerda por qué versiones ha pasado, la más reciente primero", () => {
+    const historia = historiaDelLocal(
+      [
+        pulso("a", 24 * 30, { version: "1.1.0" }),
+        pulso("a", 24 * 20, { version: "1.1.0" }),
+        pulso("a", 24 * 10, { version: "1.2.0" }),
+        pulso("a", 2, { version: "1.3.0" }),
+      ],
+      AHORA,
+    );
+
+    expect(historia.versiones.map((v) => v.version)).toEqual(["1.3.0", "1.2.0", "1.1.0"]);
+    expect(historia.partes).toBe(4);
+  });
+
+  it("un local sin historial no revienta", () => {
+    expect(historiaDelLocal([], AHORA)).toMatchObject({ partes: 0, callado_desde_ts: null });
+  });
+});
+
+// --- Cómo va un despliegue -------------------------------------------------------------------
+
+describe("la adopción de una versión publicada", () => {
+  /*
+   * Un despliegue por anillos sin nadie mirando el resultado es el mismo
+   * «publicar y rezar» de siempre, solo que más despacio.
+   */
+  it("separa a los que ya subieron de los que se quedaron atrás", () => {
+    const clientes = [cliente("a", "Rodizio", 20), cliente("b", "La Fonda", 20)];
+    const pulsos = [pulso("a", 1, { version: "1.5.0" }), pulso("b", 1, { version: "1.4.0" })];
+
+    const adopcion = adopcionDeVersion(clientes, pulsos, "1.5.0");
+
+    expect(adopcion.actualizados.map((c) => c.id)).toEqual(["a"]);
+    expect(adopcion.rezagados[0]).toMatchObject({ version: "1.4.0" });
+    expect(adopcion.avance_pct).toBe(50);
+  });
+
+  it("solo mira a quien le tocaba por el anillo", () => {
+    const clientes = [cliente("a", "Rodizio", 20), cliente("b", "La Fonda", 20)];
+    const adopcion = adopcionDeVersion(clientes, [], "1.5.0", 10, (id) => id === "a");
+
+    expect(adopcion.esperados).toHaveLength(1);
+    expect(adopcion.avance_pct).toBe(0);
+  });
+
+  it("un local que nunca reportó cuenta como rezagado, no como desconocido", () => {
+    const adopcion = adopcionDeVersion([cliente("a", "Rodizio", 20)], [], "1.5.0");
+    expect(adopcion.rezagados[0]!.version).toBeNull();
+  });
+
+  it("sin locales esperados no divide entre cero", () => {
+    expect(adopcionDeVersion([], [], "1.5.0").avance_pct).toBe(0);
+  });
+});
+
+// --- El acceso de soporte ---------------------------------------------------------------------
+
+describe("rotar la contraseña de soporte", () => {
+  /*
+   * La contraseña va firmada DENTRO de la licencia: cambiarla en Central no
+   * cambia nada en ningún restaurante hasta reemitir. El día que haya que
+   * rotarla de urgencia, ésta es la única pregunta que importa.
+   */
+  it("señala los locales cuya última licencia es anterior al cambio", () => {
+    const viejo = cliente("a", "Rodizio", 20);
+    const nuevo = cliente("b", "La Fonda", 20, {
+      licencia: {
+        sucursal_id: "b",
+        nombre: "La Fonda",
+        plan: "mensual",
+        vence_ts: AHORA + 20 * DIA,
+        gracia_dias: 3,
+        emitida_ts: AHORA - 1 * DIA,
+        firma: "x",
+      },
+    });
+
+    const pendientes = localesConSoporteViejo([viejo, nuevo], AHORA - 2 * DIA);
+
+    expect(pendientes.map((c) => c.id)).toEqual(["a"]);
+  });
+
+  it("un local sin licencia todavía cuenta como pendiente", () => {
+    expect(localesConSoporteViejo([cliente("a", "Rodizio", null)], AHORA)).toHaveLength(1);
+  });
+
+  it("sin contraseña de soporte configurada no señala a nadie", () => {
+    expect(localesConSoporteViejo([cliente("a", "Rodizio", 20)], undefined)).toHaveLength(0);
   });
 });

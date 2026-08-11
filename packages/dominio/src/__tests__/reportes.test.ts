@@ -183,8 +183,11 @@ describe("ventas por producto", () => {
   it("agrupa el mismo producto aunque venga de cuentas distintas", () => {
     const pizza = ventas.find((v) => v.producto_id === "prod-pizza")!;
     expect(pizza.unidades).toBe(3);
-    expect(pizza.importe).toBe(pesos(747));
+    // `base` es lo de la carta; `importe`, lo que pagó el comensal —con IVA—.
+    expect(pizza.base).toBe(pesos(747));
+    expect(pizza.importe).toBe(pesos(866.52));
     expect(pizza.costo).toBe(pesos(186));
+    // El margen se mide contra la base: el IVA se recauda para el SAT.
     expect(pizza.margen).toBe(pesos(561));
   });
 
@@ -277,7 +280,7 @@ describe("menu engineering", () => {
     const clasificados = menuEngineering([
       {
         producto_id: "p1", descripcion: "Fantasma", unidades: 0,
-        importe: 0 as never, costo: 0 as never, margen: 0 as never, margenPct: 0,
+        importe: 0 as never, base: 0 as never, costo: 0 as never, margen: 0 as never, margenPct: 0,
       },
     ]);
     expect(clasificados).toEqual([]);

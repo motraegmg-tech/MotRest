@@ -180,7 +180,7 @@ describe("un restaurante que se instala hoy", () => {
 const PIN_ELEGIDO = "581204";
 
 /**
- * Cuando Gonzalo da de alta el restaurante en MOTRAE Central, la licencia firmada
+ * Cuando Gonzalo da de alta el restaurante en MotRest Central, la licencia firmada
  * llega con el nombre del responsable y un PIN de ocho dígitos. Ese PIN hay que
  * dictarlo por teléfono, y es la fricción que se quiso quitar: el nombre se
  * respeta —lo firmó MOTRAE— pero el PIN lo elige el restaurante en la caja.
@@ -255,6 +255,63 @@ describe("un restaurante cuya licencia ya trae al responsable", () => {
     expect(despues.debeCambiarCredencial).toBe(false);
     expect((await despues.iniciarSesion(USUARIO_RESPONSABLE_ID, "28164937")).ok).toBe(false);
     expect((await despues.iniciarSesion(USUARIO_RESPONSABLE_ID, PIN_ELEGIDO)).ok).toBe(true);
+  });
+
+  /*
+   * LA REGRESIÓN QUE REPORTÓ GONZALO: «cada que entro me vuelve a salir la
+   * pantalla de bienvenida».
+   *
+   * Pasa cuando Central repone el acceso del responsable —al cobrar, o porque le
+   * dictaron un PIN nuevo—: la licencia llega con otra provisión, la caja la
+   * aplica con «debe cambiar credencial» y de pronto NINGUNA cuenta cuenta como
+   * usable. El alta inicial es la respuesta equivocada a eso: lo que hay que
+   * pedir es el PIN nuevo, no crear un segundo dueño encima del que ya existe.
+   *
+   * El local se da por estrenado en cuanto hay un `credencial_cambiada` en su
+   * log, y a partir de ahí esa pantalla no vuelve nunca.
+   */
+  it("una provisión NUEVA de Central no resucita la pantalla de bienvenida", async () => {
+    const credencial = await crearCredencial(USUARIO_RESPONSABLE_ID, "77665544", "pin");
+    const { privada } = await generarPar();
+    const reemitida = await emitirLicencia(
+      {
+        sucursal_id: "suc-rodizio-centro",
+        nombre: "Rodizio",
+        plan: "mensual",
+        vence_ts: Date.now() + 30 * 86_400_000,
+        gracia_dias: 3,
+        emitida_ts: Date.now(),
+        responsable: {
+          id: USUARIO_RESPONSABLE_ID,
+          nombre: "Responsable Rodizio",
+          puesto: PUESTO_RESPONSABLE,
+          // Provisión distinta: es exactamente lo que cambia al reponer el acceso.
+          provision_id: "018f8fe4-6740-7d0d-98b5-a4a3e0000002",
+          credencial,
+        },
+      },
+      privada,
+    );
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string) =>
+        String(url).includes("/licencia")
+          ? new Response(JSON.stringify({ licencia: reemitida, verificada: true }), { status: 200 })
+          : new Response("{}", { status: 404 }),
+      ),
+    );
+
+    const reprovisionada = await volverAAbrir();
+
+    // Lo que NO puede pasar: volver a pedir que se cree el usuario del local.
+    expect(reprovisionada.requiereAltaInicial).toBe(false);
+    expect(reprovisionada.yaEstrenado).toBe(true);
+    // Y sigue habiendo un solo dueño, con su nombre.
+    expect(reprovisionada.usuariosDelLocal).toHaveLength(1);
+    expect(reprovisionada.usuariosDelLocal[0]).toMatchObject({ nombre: "Responsable Rodizio" });
+    // Lo que SÍ pasa: el acceso repuesto vale y hay que cambiarlo al entrar.
+    expect((await reprovisionada.iniciarSesion(USUARIO_RESPONSABLE_ID, "77665544")).ok).toBe(true);
+    expect(reprovisionada.debeCambiarCredencial).toBe(true);
   });
 });
 

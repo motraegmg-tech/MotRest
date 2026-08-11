@@ -16,6 +16,7 @@
   import { hora, mxn } from "../../formato";
   import { pos } from "../../pos.svelte";
   import { sesion } from "../../sesion/sesion.svelte";
+  import { socios } from "../../socios.svelte";
 
   type Tono = "normal" | "alerta" | "acento";
   type Entrada = { id: string; ts: number; actor: string; texto: string; tono: Tono };
@@ -127,6 +128,10 @@
         return { ...base,
           texto: `Otorgó una cortesía (${ev.motivo})${ev.autorizador_id ? ` · autorizó ${sesion.nombreDe(ev.autorizador_id)}` : ""}`,
           tono: "alerta" };
+      // Retirar una cortesía SUBE la cuenta: no es una alerta, es la corrección
+      // de un botón pulsado por error. Queda registrada igual.
+      case "cortesia_retirada":
+        return { ...base, texto: "Retiró una cortesía", tono: "acento" };
       case "propina_registrada":
         return { ...base, texto: `Registró propina de ${mxn(ev.monto)}`, tono: "normal" };
       case "items_enviados":
@@ -139,10 +144,21 @@
         return { ...base, texto: "Platillo entregado", tono: "normal" };
       case "pago_registrado":
         return { ...base,
-          texto: `Cobró ${mxn(ev.monto)} en ${etiquetaFormaPago(ev.forma)}`,
-          tono: "acento" };
+          texto:
+            ev.forma === "socio"
+              ? `Cargó ${mxn(ev.monto)} a la bolsa de ${socios.nombreDe(ev.socio_id ?? "")}${ev.autorizador_id ? ` · autorizó ${sesion.nombreDe(ev.autorizador_id)}` : ""}`
+              : `Cobró ${mxn(ev.monto)} en ${etiquetaFormaPago(ev.forma)}`,
+          // El consumo de socio se marca: el socio se entera a fin de mes, y
+          // para entonces la única forma de comprobarlo es esta línea.
+          tono: ev.forma === "socio" ? "alerta" : "acento" };
       case "cuenta_cerrada":
         return { ...base, texto: "Cerró la cuenta", tono: "acento" };
+      // Una mesa que se abrió y se soltó sin consumo. No es una venta y no sale
+      // en ningún reporte, así que este renglón es el único sitio donde consta.
+      case "orden_anulada":
+        return { ...base,
+          texto: `Liberó la mesa sin consumo${ev.motivo ? ` · ${ev.motivo}` : ""}`,
+          tono: "normal" };
     }
   }
 

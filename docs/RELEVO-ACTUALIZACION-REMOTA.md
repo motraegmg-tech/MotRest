@@ -49,7 +49,7 @@ Todo lo de abajo compila y sus pruebas pasan.
   minuto, `turnoDeCajaAbierto()`, `appDeEscritorio()`, y el pulso
   (`pulsoDelLocal`, `reportarPulso`, cada 24 h y al conectar).
 - `apps/hub/src/llaves-motrae.ts` + `empaquetar.mjs`: el repositorio se incrusta
-  en el binario (`__MOTREST_ACTUALIZACIONES_REPO__`, por defecto `motrae/motrest`).
+  en el binario (`__MOTREST_ACTUALIZACIONES_REPO__`, por defecto `motraegmg-tech/MotRest`).
 - Typecheck en verde.
 
 **POS**
@@ -114,7 +114,7 @@ En orden. Lo de arriba es lo que impide que la funcionalidad se pueda usar.
   reconstruye lo que empaqueta, y `pos-ui/dist` puede quedarse viejo en silencio.
   Antes de publicar hay que instalar el `.exe` **sobre una instalación anterior**
   y comprobar que el Hub arranca con el canal encendido (su bitácora debe decir
-  «Actualizaciones desde motrae/motrest»).
+  «Actualizaciones desde motraegmg-tech/MotRest»).
 - **El relevo de instalación no se ha probado en Windows real.** Es un `.cmd` que
   hace `taskkill` sin `/t` —a propósito: `/t` mataría el propio guion, que cuelga
   de ese árbol—, espera a que la caja cierre, instala y reabre. Hay que verlo

@@ -19,9 +19,22 @@
   import { inventario } from "../../inventario.svelte";
   import { local } from "../../local.svelte";
   import { menu } from "../../menu.svelte";
+  import { rutas } from "../../nav/rutas.svelte";
 
   type Vista = "insumos" | "estaciones" | "carta";
-  let vista = $state<Vista>("insumos");
+  const VISTAS: Vista[] = ["insumos", "estaciones", "carta"];
+
+  /*
+   * La pestaña se puede pedir desde la URL (`…/catalogo?ver=estaciones`).
+   *
+   * Existe para poder enlazar aquí desde Cocina → Menú: las estaciones se
+   * configuran en esta pantalla, y quien las busca las busca junto al menú. Un
+   * enlace que deja al usuario en la pestaña equivocada no resuelve nada.
+   */
+  const pedida = rutas.actual.params.ver;
+  let vista = $state<Vista>(
+    VISTAS.includes(pedida as Vista) ? (pedida as Vista) : "insumos",
+  );
   let problemas = $state<ProblemaMenu[]>([]);
 
   // --- Insumo en edición ---

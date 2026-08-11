@@ -7,6 +7,15 @@
   import { contextoSeguro, explicacionContextoInseguro } from "../entorno";
   import { sesion } from "./sesion.svelte";
   import TecladoPin from "./TecladoPin.svelte";
+  /*
+   * El logotipo de la marca, con las letras en BLANCO.
+   *
+   * El original de `Documentos_de_Primer_Orden` las trae en negro, y esta
+   * pantalla es negra: sobre ella desaparecían. La variante clara se genera con
+   * `herramientas/logos.mjs` y solo cambia el color de las letras — la M naranja
+   * es la de la marca, intacta. El original no se toca.
+   */
+  import logoMotRest from "../../assets/motrest-logo-claro.png";
 
   interface Props {
     onCerrar: () => void;
@@ -175,9 +184,21 @@
 </script>
 
 <div class="velo"></div>
-<div class="panel" role="dialog" aria-modal="true" aria-label="Iniciar sesión">
-  <div class="marca">MotRest<span>.</span></div>
+<!--
+  DOS COLUMNAS: la marca a la izquierda, quién entra a la derecha.
 
+  Esta pantalla es lo que se ve desde el salón cuando la caja está en reposo —el
+  rato más largo del día en el que alguien mira ese monitor—, así que el
+  logotipo va grande y a la vista. La operación se recorre a la derecha; en una
+  tablet en vertical no caben las dos columnas y el logo pasa arriba, más
+  pequeño, sin robarle sitio al teclado del PIN.
+-->
+<div class="panel" role="dialog" aria-modal="true" aria-label="Iniciar sesión">
+  <div class="lado-marca">
+    <img class="logo" src={logoMotRest} alt="MotRest · Software para restaurantes" />
+  </div>
+
+  <div class="lado-acceso">
   {#if !elegido}
     <h2>¿Quién eres?</h2>
     {#if sesion.usuariosDelLocal.length === 0}
@@ -302,6 +323,7 @@
 
     <button class="volver" onclick={() => (elegido = null)}>← Elegir otro usuario</button>
   {/if}
+  </div>
 </div>
 
 <!-- Restablecer credencial, con la firma de un superior -->
@@ -425,22 +447,51 @@
     z-index: 51;
     inset: 0;
     display: flex;
-    flex-direction: column;
     align-items: center;
     justify-content: center;
-    gap: 0.85rem;
-    padding: 2rem 1rem;
+    gap: clamp(2rem, 8vw, 7rem);
+    padding: 2rem clamp(1rem, 6vw, 5rem);
     overflow-y: auto;
     color: #fff;
   }
-  .marca {
-    font-family: var(--font-titulo);
-    font-size: 2rem;
-    font-weight: 700;
-    margin-bottom: 0.5rem;
+  .lado-marca {
+    flex: 0 1 26rem;
+    display: flex;
+    justify-content: center;
   }
-  .marca span {
-    color: var(--acento);
+  .logo {
+    width: 100%;
+    max-width: 24rem;
+    height: auto;
+    /* Sin `user-select` ni arrastre: es decoración, no un archivo que descargar. */
+    user-select: none;
+    -webkit-user-drag: none;
+  }
+  .lado-acceso {
+    flex: 0 1 24rem;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.85rem;
+    min-width: 0;
+  }
+
+  /*
+   * En vertical no caben dos columnas: la marca pasa arriba y se encoge. Se
+   * encoge de verdad —no solo se apila— porque en una tablet en vertical el
+   * teclado del PIN necesita el alto entero.
+   */
+  @media (max-width: 899px), (max-height: 620px) {
+    .panel {
+      flex-direction: column;
+      gap: 1.25rem;
+    }
+    .lado-marca {
+      flex: none;
+    }
+    .logo {
+      max-width: min(11rem, 40vw);
+    }
   }
   h2 {
     font-size: 1.3rem;

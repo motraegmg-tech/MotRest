@@ -144,7 +144,7 @@ corepack pnpm@9.15.0 --filter @motrest/hub empaquetar
 ```
 
 Y la misma huella en `windows.certificateThumbprint` de los dos
-`tauri.conf.json` (MotRest y MOTRAE Central). Sin la variable, el empaquetado
+`tauri.conf.json` (MotRest y MotRest Central). Sin la variable, el empaquetado
 avisa en pantalla de que el Hub sale sin firmar y sigue: es lo que permite
 probar sin certificado, y lo que no debe salir a un restaurante.
 

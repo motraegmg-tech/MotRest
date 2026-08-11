@@ -7,7 +7,7 @@
  */
 import { sumar, type Centavos } from "../comun/dinero.js";
 import { uuidv7, type ID } from "../comun/ids.js";
-import { snapshotTasas, type PerfilImpuesto } from "../comun/impuestos.js";
+import { perfilDelProducto, snapshotTasas, type PerfilImpuesto } from "../comun/impuestos.js";
 import {
   costoModificadores,
   describirSeleccion,
@@ -113,7 +113,15 @@ export function construirRenglon(
   impuestoPorDefecto: PerfilImpuesto,
 ): RenglonComanda {
   const producto = productoDe(cat, config.producto_id);
-  const perfil = cat.impuestos.get(producto.impuesto_id) ?? impuestoPorDefecto;
+  /*
+   * El snapshot respeta lo que declare EL PRODUCTO sobre si su precio ya trae el
+   * impuesto. A partir de aquí toda la cuenta —totales, ticket, precuenta y
+   * CFDI— trabaja contra este snapshot, así que basta con acertar una vez.
+   */
+  const perfil = perfilDelProducto(
+    cat.impuestos.get(producto.impuesto_id) ?? impuestoPorDefecto,
+    producto.precio_incluye_impuesto,
+  );
 
   return {
     id: uuidv7(),

@@ -20,7 +20,7 @@
  * ## Ed25519, y por qué
  *
  * - **Firmar y verificar dejan de ser la misma capacidad.** La privada no sale
- *   nunca de MOTRAE Central; en los Hubs va solo la pública, y da igual que se
+ *   nunca de MotRest Central; en los Hubs va solo la pública, y da igual que se
  *   filtre porque no permite firmar nada.
  * - **La pública son 44 bytes** en formato SPKI (ECDSA P-256 son 91). Cabe en un
  *   renglón, se pega sin errores y se puede incrustar en el binario.
@@ -33,7 +33,7 @@
 export interface ParDeLlaves {
   /** Va en los Hubs. No es secreta. */
   publica: string;
-  /** No sale nunca de MOTRAE Central. */
+  /** No sale nunca de MotRest Central. */
   privada: string;
 }
 
@@ -67,7 +67,7 @@ export async function hayFirmaAsimetrica(): Promise<boolean> {
   }
 }
 
-/** Genera un par nuevo. Solo MOTRAE Central hace esto. */
+/** Genera un par nuevo. Solo MotRest Central hace esto. */
 export async function generarPar(): Promise<ParDeLlaves> {
   const par = (await crypto.subtle.generateKey(ALGORITMO, true, [
     "sign",

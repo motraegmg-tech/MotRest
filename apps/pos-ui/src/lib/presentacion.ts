@@ -9,7 +9,7 @@ import type { ID } from "@motrest/dominio";
  *
  * Estaba escrito aquí, igual en toda instalación. Con un solo restaurante no se
  * notaba; con dos es un choque: los dos locales se llaman igual ante el relay y
- * ante MOTRAE Central, y la licencia de uno vale en el otro.
+ * ante MotRest Central, y la licencia de uno vale en el otro.
  *
  * Ahora lo dice **el Hub del local**, que a su vez lo toma de la licencia que
  * MOTRAE emite. Así el restaurante queda identificado por el documento firmado

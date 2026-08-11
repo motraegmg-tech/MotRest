@@ -10,7 +10,8 @@
     "//corepack": "Se invoca por corepack y no por `pnpm` a secas: en las máquinas del equipo pnpm no está en el PATH, solo se alcanza por corepack, y un `pnpm` suelto aquí rompe el build con «no se reconoce como un comando».",
     "build": "corepack pnpm@9.15.0 --filter pos-ui build && corepack pnpm@9.15.0 --filter @motrest/hub empaquetar && tauri build",
     "build:solo-caja": "tauri build",
-    "icono": "tauri icon"
+    "//icono": "La fuente es `icono-fuente.png`: la «M» de la marca, reconstruida a dos tintas desde `Documentos_de_Primer_Orden/Logo M MotRest.png` con `node herramientas/logos.mjs`. Se nombra explícitamente porque `tauri icon` a secas busca `app-icon.png` y fallaría en silencio.",
+    "icono": "tauri icon icono-fuente.png"
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2.11.4"

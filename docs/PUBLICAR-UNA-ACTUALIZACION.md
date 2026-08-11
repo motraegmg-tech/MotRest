@@ -29,14 +29,14 @@ cuela nada. Las públicas que verifican van en los Hubs y no permiten firmar.
 ## Preparativos, una sola vez
 
 1. Crear el repositorio (puede ser **privado**; entonces hace falta un token).
-2. En **MOTRAE Central → Llaves**, generar los dos pares Ed25519 y anotar el
+2. En **MotRest Central → Llaves**, generar los dos pares Ed25519 y anotar el
    repositorio. La pública de publicación debe ser distinta de la pública de
    licencias.
 3. Antes de crear el instalador, incrustar las públicas y el repositorio en el Hub:
    ```
    $env:MOTREST_LICENCIA_PUBLICA=<Central → pública de licencias>
    $env:MOTREST_ACTUALIZACIONES_PUBLICA=<Central → pública de publicación>
-   $env:MOTREST_ACTUALIZACIONES_REPO="motrae/motrest"
+   $env:MOTREST_ACTUALIZACIONES_REPO="motraegmg-tech/MotRest"
    corepack pnpm@9.15.0 --filter @motrest/hub empaquetar
    ```
 4. En cada Hub, si el repositorio es privado, se configura
@@ -89,7 +89,7 @@ Central genera el `motrest.json`:
 {
   "version": "1.5.0",
   "notas": "Los cortes salen más rápido y se arregló el ticket de cocina.",
-  "url": "https://github.com/motrae/motrest/releases/download/v1.5.0/MotRest_setup.exe",
+  "url": "https://github.com/motraegmg-tech/MotRest/releases/download/v1.5.0/MotRest_setup.exe",
   "sha256": "…",
   "publicado_ts": 1786048000000,
   "version_minima_soportada": "1.4.2",

@@ -83,7 +83,7 @@ export class GestorLicencia {
       this.verificada = false;
       this.registrar(
         "aviso",
-        "Sin licencia todavía. El sistema opera con normalidad; actívala desde MOTRAE Central.",
+        "Sin licencia todavía. El sistema opera con normalidad; actívala desde MotRest Central.",
       );
       return this.veredicto();
     }

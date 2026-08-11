@@ -108,8 +108,12 @@ export const ROLES: Record<RolId, Rol> = {
       p("pos.item.cancelar_previo_envio", "operar"),
       p("pos.item.cancelar_enviado", "autorizar"),
       p("pos.item.enviar_cocina", "operar"),
+      p("pos.item.entregar", "operar"),
       p("pos.descuento.aplicar", "autorizar", 0.2),
       p("pos.cortesia.otorgar", "autorizar"),
+      // El gerente firma el consumo de un socio; el mesero lo pide y él lo
+      // autoriza con su PIN, que es como ocurre en la mesa.
+      p("pos.socio.consumir", "autorizar"),
       p("pos.precio.editar_en_linea", "autorizar"),
       p("pos.cuenta.dividir", "operar"),
       p("pos.cuenta.transferir", "operar"),
@@ -201,6 +205,7 @@ export const ROLES: Record<RolId, Rol> = {
     permisos: [
       p("cocina.comanda.ver", "ver"),
       p("cocina.item.marcar_listo", "operar"),
+      p("pos.item.entregar", "operar"),
       p("cocina.receta.ver", "ver"),
       p("cocina.receta.editar", "operar"),
       p("inv.existencias.ver", "ver"),
@@ -221,8 +226,12 @@ export const ROLES: Record<RolId, Rol> = {
       p("pos.item.agregar", "operar"),
       p("pos.item.cancelar_previo_envio", "operar"),
       p("pos.item.enviar_cocina", "operar"),
+      p("pos.item.entregar", "operar"),
       p("pos.cuenta.dividir", "operar"),
       p("pos.cobro.registrar", "operar"),
+      // Quien cobra es quien registra el consumo del socio: es un cobro más,
+      // solo que contra su bolsa en vez de contra el cajón.
+      p("pos.socio.consumir", "operar"),
       p("caja.sesion.abrir", "operar"),
       p("caja.arqueo.ver", "ver"),
       p("fin.factura.emitir", "operar"),
@@ -242,6 +251,7 @@ export const ROLES: Record<RolId, Rol> = {
       p("pos.item.agregar", "operar"),
       p("pos.item.cancelar_previo_envio", "operar"),
       p("pos.item.enviar_cocina", "operar"),
+      p("pos.item.entregar", "operar"),
       p("pos.cuenta.transferir", "operar"),
       // Quien atiende la mesa tiene que poder decir de qué está hecho un
       // platillo: una pregunta por alergias no puede depender de la cocina.

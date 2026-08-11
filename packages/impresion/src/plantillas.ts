@@ -216,6 +216,96 @@ export function ticketVenta(datos: DatosTicket, columnas: AnchoPapel = 42): Tick
   return t.cortar();
 }
 
+// --- Pre-cuenta ----------------------------------------------------------------------
+
+export interface RenglonPrecuenta {
+  cantidad: number;
+  descripcion: string;
+  detalle?: string;
+  /**
+   * Importe de línea **con impuesto**: lo que el comensal paga por ese renglón.
+   *
+   * A diferencia del ticket, aquí NO se imprime la base sin IVA. Este papel lo
+   * lee alguien en la mesa que quiere sumar con el dedo y llegar al total; con
+   * los renglones sin impuesto y el IVA aparte al final, esa suma nunca cuadra
+   * y la conversación acaba en la caja.
+   */
+  importe: Centavos;
+}
+
+export interface DatosPrecuenta {
+  folio: string;
+  ts: number;
+  /** Sin RFC a propósito: esto no es un comprobante y no debe parecerlo. */
+  local: {
+    nombre: string;
+    direccion?: string;
+    telefono?: string;
+  };
+  mesa: string;
+  mesero: string;
+  renglones: RenglonPrecuenta[];
+  /** Suma de los renglones, con impuesto. */
+  suma: Centavos;
+  /** Rebajas ya expresadas con su parte de impuesto, para que el papel cuadre. */
+  descuentos: Centavos;
+  cortesias: Centavos;
+  total: Centavos;
+}
+
+/**
+ * La cuenta que se lleva a la mesa antes de cobrar.
+ *
+ * No es el ticket: no lleva forma de pago, ni cambio, ni QR de autofactura,
+ * porque nada de eso existe todavía. Va marcada como lo que es para que nadie
+ * la confunda con un comprobante —ni el comensal que la recibe, ni quien la
+ * encuentre después en un corte—.
+ */
+export function precuenta(datos: DatosPrecuenta, columnas: AnchoPapel = 42): Ticket {
+  const t = new Ticket(columnas);
+  const centrado: { alineacion: Alineacion } = { alineacion: "centro" };
+
+  t.linea(datos.local.nombre, { ...centrado, negrita: true, doble_alto: true });
+  if (datos.local.direccion) t.linea(datos.local.direccion, centrado);
+  if (datos.local.telefono) t.linea(`Tel: ${datos.local.telefono}`, centrado);
+  t.separador("=");
+
+  t.columnasDobles(`Cuenta: ${datos.folio}`, fechaHora(datos.ts));
+  t.columnasDobles(`Mesa: ${datos.mesa}`, datos.mesero);
+  t.separador();
+
+  for (const renglon of datos.renglones) {
+    t.columnasDobles(`${renglon.cantidad}x ${renglon.descripcion}`, mxn(renglon.importe));
+    if (renglon.detalle) t.linea(`   ${renglon.detalle}`);
+  }
+
+  t.separador();
+
+  /*
+   * La línea de suma solo aparece cuando hay algo que restar. Sin rebajas sería
+   * el mismo número que el total, dos veces seguidas, y eso hace dudar de cuál
+   * de los dos hay que pagar.
+   */
+  const hayRebajas = datos.descuentos > 0 || datos.cortesias > 0;
+  if (hayRebajas) {
+    t.columnasDobles("Suma", mxn(datos.suma));
+    if (datos.descuentos > 0) t.columnasDobles("Descuentos", `-${mxn(datos.descuentos)}`);
+    if (datos.cortesias > 0) t.columnasDobles("Cortesias", `-${mxn(datos.cortesias)}`);
+  }
+
+  t.columnasDobles("TOTAL A PAGAR", mxn(datos.total), { negrita: true, doble_alto: true });
+  t.salto();
+  t.linea("Precios con IVA incluido", centrado);
+
+  t.separador();
+  t.linea("*** CUENTA ***", { ...centrado, negrita: true });
+  t.linea("NO ES COMPROBANTE DE PAGO", centrado);
+  t.linea("Solicite su ticket al pagar", centrado);
+  t.salto();
+  t.linea(`MotRest v${VERSION_PLANTILLAS}`, centrado);
+  return t.cortar();
+}
+
 // --- Corte de caja -------------------------------------------------------------------
 
 export interface DatosCorte {

@@ -1,10 +1,10 @@
 <script lang="ts">
   /**
-   * MOTRAE Central — el panel de Gonzalo.
+   * MotRest Central — el panel de Gonzalo.
    *
-   * NO es MotRest. Esta aplicación no vive en ningún restaurante: corre en la
-   * máquina de MOTRAE y mira los locales desde fuera. Comparte el paquete de
-   * dominio y los tokens de marca, y nada más.
+   * NO se instala en ningún restaurante: corre en la máquina de MOTRAE y mira
+   * los locales desde fuera. Comparte con MotRest el paquete de dominio y los
+   * tokens de marca, y nada más.
    *
    * Cuatro pantallas y ni una más, en el orden en que se usan:
    *   Hoy          — qué está mal y a quién hay que cobrarle
@@ -33,9 +33,14 @@
     { clave: "llaves", titulo: "Llaves" },
   ];
 
-  /* DPAPI se consulta solo cuando existe la ventana Tauri, nunca al importar el módulo. */
+  /*
+   * DPAPI se consulta solo cuando existe la ventana Tauri, nunca al importar el
+   * módulo. El sondeo del relay arranca DESPUÉS: la dirección y la clave viven
+   * en el almacén protegido, así que antes de abrirlo no hay a quién preguntar.
+   */
   onMount(() => {
-    void central.inicializarSecretos();
+    void central.inicializarSecretos().then(() => central.arrancarSondeoDePulsos());
+    return () => central.detenerSondeoDePulsos();
   });
 
   /** Lo urgente, para el punto del menú. */
@@ -52,7 +57,7 @@
 <div class="app">
   <aside class="menu">
     <div class="logo">
-      MOTRAE<span>Central</span>
+      MotRest<span>Central</span>
     </div>
 
     <nav>
@@ -70,7 +75,7 @@
     </nav>
 
     <div class="pie">
-      {central.resumen.locales} locales · MotRest
+      {central.resumen.locales} locales · MOTRAE
     </div>
   </aside>
 

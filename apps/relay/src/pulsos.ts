@@ -25,7 +25,7 @@
  */
 import { chmodSync, existsSync, mkdirSync, readFileSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
-import type { PulsoCliente } from "@motrest/dominio";
+import type { PulsoCliente, TerminalReportada } from "@motrest/dominio";
 import { cifrar, descifrar, type SobreCifrado } from "./sobre.js";
 
 /**
@@ -39,6 +39,19 @@ import { cifrar, descifrar, type SobreCifrado } from "./sobre.js";
 const MAX_PROBLEMAS = 10;
 const MAX_TEXTO = 200;
 const MAX_VERSION = 32;
+/**
+ * Topes del inventario de terminales.
+ *
+ * Un restaurante grande tiene diez o quince aparatos; cuarenta es ya un local
+ * que arrastra tabletas viejas que nunca se revocaron, y verlo recortado dice
+ * exactamente lo mismo que verlo entero. El `device_id` se recorta a lo que
+ * sirve para reconocerla en un soporte y nada más.
+ */
+const MAX_DISPOSITIVOS = 40;
+const MAX_NOMBRE = 48;
+const MAX_DEVICE_ID = 24;
+const MAX_HUB_ID = 64;
+const MAX_PLATAFORMA = 32;
 
 function numeroSano(valor: unknown): number | undefined {
   return typeof valor === "number" && Number.isFinite(valor) && valor >= 0 ? valor : undefined;
@@ -46,6 +59,36 @@ function numeroSano(valor: unknown): number | undefined {
 
 function recortar(texto: unknown, max: number): string {
   return typeof texto === "string" ? texto.slice(0, max) : "";
+}
+
+/**
+ * El inventario de terminales, campo a campo.
+ *
+ * Un `token` de emparejamiento entre estos datos sería la credencial con la que
+ * cualquiera sincroniza contra el Hub de ese local. Por eso no se copia el
+ * objeto entrante: se construye lo que el panel sabe leer y se tira el resto,
+ * aunque el Hub un día mande de más por un descuido.
+ */
+function sanearDispositivos(crudo: unknown): TerminalReportada[] {
+  if (!Array.isArray(crudo)) return [];
+
+  const lista: TerminalReportada[] = [];
+  for (const entrada of crudo.slice(0, MAX_DISPOSITIVOS)) {
+    if (!entrada || typeof entrada !== "object") continue;
+    const dato = entrada as Record<string, unknown>;
+
+    const device_id = recortar(dato.device_id, MAX_DEVICE_ID);
+    if (!device_id) continue;
+
+    const nombre = recortar(dato.nombre, MAX_NOMBRE);
+    lista.push({
+      device_id,
+      aprobado: dato.aprobado === true,
+      visto_ts: numeroSano(dato.visto_ts) ?? 0,
+      ...(nombre ? { nombre } : {}),
+    });
+  }
+  return lista;
 }
 
 /**
@@ -74,6 +117,9 @@ export function sanearPulso(sucursalId: string, crudo: unknown, ahora = Date.now
   const terminales = numeroSano(dato.terminales);
   const respaldo = numeroSano(dato.respaldo_ts);
   const eventos = numeroSano(dato.eventos);
+  const dispositivos = sanearDispositivos(dato.dispositivos);
+  const hub_id = recortar(dato.hub_id, MAX_HUB_ID);
+  const plataforma = recortar(dato.plataforma, MAX_PLATAFORMA);
 
   return {
     sucursal_id: sucursalId,
@@ -83,6 +129,12 @@ export function sanearPulso(sucursalId: string, crudo: unknown, ahora = Date.now
     ...(ventas !== undefined ? { ventas_dia: ventas as PulsoCliente["ventas_dia"] } : {}),
     ...(cuentas !== undefined ? { cuentas_dia: cuentas } : {}),
     ...(terminales !== undefined ? { terminales } : {}),
+    ...(dispositivos.length > 0 ? { dispositivos } : {}),
+    ...(hub_id ? { hub_id } : {}),
+    ...(plataforma ? { plataforma } : {}),
+    ...(typeof dato.arranque_automatico === "boolean"
+      ? { arranque_automatico: dato.arranque_automatico }
+      : {}),
     ...(respaldo !== undefined ? { respaldo_ts: respaldo } : {}),
     ...(eventos !== undefined ? { eventos } : {}),
     ...(problemas.length > 0 ? { problemas } : {}),
@@ -128,7 +180,7 @@ export class Pulsos {
     return pulso;
   }
 
-  /** Lo que ve MOTRAE Central. El más reciente primero. */
+  /** Lo que ve MotRest Central. El más reciente primero. */
   lista(): PulsoCliente[] {
     return [...this.ultimos.values()].sort((a, b) => b.ts - a.ts);
   }

@@ -1,0 +1,8 @@
+{
+    "version": "1.1.2",
+    "notas": "Actualización de sistema:\n- Nueva Calculadora de Rendimiento en el inventario: ahora puedes saber cuántos platillos reales puedes preparar con tu stock actual antes de que se acabe un ingrediente.\n- Soporte para subir fotos a los productos del menú (se visualizan en la vista de caja).\n- Correcciones menores de interfaz y sincronización más rápida.",
+    "url": "https://github.com/motraegmg-tech/MotRest/releases/download/v1.1.2/MotRest_1.1.2_x64-setup.exe",
+    "sha256": "ece8f954958df8f7d9ee7df9fc30eb06454497548d377cbbaa50284997319a1e",
+    "publicado_ts": 1786218279889,
+    "firma": "89c5b6518434ca9f9892a0be0e963076170e9579ff264d0fcc0600688e99362c5307013224bb0401829e47393649cd99e79e5bbfbfe8b35b68f63bce300b1509"
+}

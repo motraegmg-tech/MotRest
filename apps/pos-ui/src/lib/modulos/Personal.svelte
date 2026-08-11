@@ -6,18 +6,28 @@
    * la del dispositivo, y cada quien marca su hora con su PIN sin cambiarla.
    */
   import {
+    DIAS_DEL_ROL,
     MODOS_PROPINA,
+    MODOS_SUELDO,
     etiquetaChecada,
     formatearJornada,
+    nombreDia,
     pesos,
     semanaDe,
+    sueldoSemanal,
+    type Centavos,
+    type DiaSemana,
     type ModoPropina,
+    type ModoSueldo,
+    type SueldoSemanal,
     type TipoChecada,
   } from "@motrest/dominio";
   import { asistencia } from "../asistencia.svelte";
   import { hora, mxn } from "../formato";
   import { prenomina } from "../prenomina.svelte";
+  import { rutas } from "../nav/rutas.svelte";
   import { sesion } from "../sesion/sesion.svelte";
+  import RolDeMesas from "./personal/RolDeMesas.svelte";
 
   let seleccionado = $state<string>("");
   let pin = $state("");
@@ -75,10 +85,71 @@
     if (pin.length < 8) pin += digito;
   }
 
+  /*
+   * EL PIN TAMBIÉN SE MARCA CON EL TECLADO.
+   *
+   * La caja del local tiene teclado y quien checa lo hace de pie y con prisa:
+   * teclear cuatro dígitos a ciegas es mucho más rápido que apuntar a la
+   * pantalla. Hasta ahora solo funcionaba si el foco estaba dentro del campo, y
+   * como el campo no se enfocaba solo, escribir no hacía nada y parecía que el
+   * checador estaba colgado.
+   *
+   * El manejador se salta lo que se teclea dentro de un campo de texto: ahí el
+   * `bind:value` ya hace su trabajo y duplicaríamos cada dígito.
+   */
+  $effect(() => {
+    if (!seleccionado || vista !== "checador") return;
+
+    function alTeclear(e: KeyboardEvent) {
+      const destino = e.target as HTMLElement | null;
+      const etiqueta = destino?.tagName;
+      if (etiqueta === "INPUT" || etiqueta === "TEXTAREA" || destino?.isContentEditable) return;
+
+      if (/^[0-9]$/.test(e.key)) {
+        e.preventDefault();
+        teclear(e.key);
+      } else if (e.key === "Backspace") {
+        e.preventDefault();
+        pin = pin.slice(0, -1);
+      } else if (e.key === "Enter") {
+        e.preventDefault();
+        void checar();
+      } else if (e.key === "Escape") {
+        e.preventDefault();
+        elegir(seleccionado);
+      }
+    }
+
+    window.addEventListener("keydown", alTeclear);
+    return () => window.removeEventListener("keydown", alTeclear);
+  });
+
+  /**
+   * El campo se enfoca solo al elegir a alguien.
+   *
+   * Es lo que hace que empezar a teclear funcione sin tocar nada, que es como se
+   * usa un checador con teclado.
+   */
+  let campoPin = $state<HTMLInputElement | null>(null);
+  $effect(() => {
+    if (seleccionado && campoPin) campoPin.focus();
+  });
+
   // --- Prenómina --------------------------------------------------------------------
 
-  type Vista = "checador" | "prenomina";
-  let vista = $state<Vista>("checador");
+  type Vista = "checador" | "prenomina" | "mesas";
+
+  /*
+   * La pestaña también entra por la URL (`#/personal/mesas`).
+   *
+   * Lo necesita el enlace «Cambiar rol de mesas» que hay al pie de cada mesa en
+   * Venta: llevar al módulo pero no a la pestaña deja al usuario a medio camino.
+   */
+  const seccion = $derived(rutas.actual.seccion);
+  let elegida = $state<Vista | null>(null);
+  const vista = $derived<Vista>(
+    elegida ?? (seccion === "mesas" || seccion === "prenomina" ? (seccion as Vista) : "checador"),
+  );
 
   const puedeNomina = $derived(sesion.puedeOperar("rrhh.empleado.editar"));
 
@@ -86,6 +157,7 @@
   let semanasAtras = $state(0);
   const rango = $derived(semanaDe(ahora - semanasAtras * 7 * 86_400_000));
   const raya = $derived(prenomina.calcular(equipo, rango, ahora));
+  const porDia = $derived(prenomina.modoSueldo === "por_dia");
 
   let editandoTarifa = $state<string>("");
   let tarifaTexto = $state("");
@@ -110,6 +182,57 @@
     tarifaTexto = "";
   }
 
+  // --- Sueldo diario: la semana de cada quien -------------------------------------
+
+  /** A quién se le está editando la semana de sueldos. */
+  let editandoSueldo = $state<string>("");
+  /** Lo tecleado, en pesos y por día. Se convierte a centavos al guardar. */
+  let sueldoTexto = $state<Record<number, string>>({});
+  let errorSueldo = $state("");
+
+  function abrirSueldo(id: string) {
+    editandoSueldo = id;
+    errorSueldo = "";
+    const actual = prenomina.sueldoDe(id);
+    const texto: Record<number, string> = {};
+    for (const d of DIAS_DEL_ROL) {
+      const monto = actual[d.valor];
+      texto[d.valor] = monto ? (monto / 100).toFixed(2) : "";
+    }
+    sueldoTexto = texto;
+  }
+
+  /** Copia lo tecleado en un día al resto de la semana, para no repetirlo siete veces. */
+  function replicarSueldo(dia: DiaSemana) {
+    const valor = sueldoTexto[dia] ?? "";
+    const copia = { ...sueldoTexto };
+    for (const d of DIAS_DEL_ROL) copia[d.valor] = valor;
+    sueldoTexto = copia;
+  }
+
+  function guardarSueldo() {
+    errorSueldo = "";
+    const sueldo: SueldoSemanal = {};
+    for (const d of DIAS_DEL_ROL) {
+      const monto = Number(sueldoTexto[d.valor] ?? "");
+      if (!Number.isFinite(monto) || monto <= 0) continue;
+      sueldo[d.valor] = pesos(monto);
+    }
+
+    prenomina.actuarComo(sesion.usuarioActual?.id ?? "sistema");
+    const r = prenomina.asignarSueldoDiario(editandoSueldo, sueldo);
+    if (!r.ok) {
+      errorSueldo = r.error ?? "No se pudo guardar";
+      return;
+    }
+    editandoSueldo = "";
+  }
+
+  /** Lo que ese trabajador tiene pactado por semana completa. */
+  function totalSemanalDe(id: string): Centavos {
+    return sueldoSemanal(prenomina.sueldoDe(id));
+  }
+
   function rangoTexto(r: { desde: number; hasta: number }): string {
     const f = (ts: number) =>
       new Date(ts).toLocaleDateString("es-MX", { day: "2-digit", month: "short" });
@@ -126,25 +249,30 @@
         dejando rastro de quién la autorizó.
       </p>
     </div>
-    {#if puedeNomina}
-      <div class="pestanas">
-        <button class:on={vista === "checador"} onclick={() => (vista = "checador")}>
-          Checador
-        </button>
-        <button class:on={vista === "prenomina"} onclick={() => (vista = "prenomina")}>
+    <div class="pestanas">
+      <button class:on={vista === "checador"} onclick={() => (elegida = "checador")}>
+        Checador
+      </button>
+      <button class:on={vista === "mesas"} onclick={() => (elegida = "mesas")}>
+        Rol de mesas
+      </button>
+      {#if puedeNomina}
+        <button class:on={vista === "prenomina"} onclick={() => (elegida = "prenomina")}>
           Prenómina
         </button>
-      </div>
-    {/if}
+      {/if}
+    </div>
   </div>
 
   {#if mensaje}<p class="ok" role="status">{mensaje}</p>{/if}
 
-  {#if vista === "prenomina" && puedeNomina}
+  {#if vista === "mesas"}
+    <RolDeMesas />
+  {:else if vista === "prenomina" && puedeNomina}
     <!--
-      Prenómina: horas del checador por su tarifa, más las propinas del POS.
+      Prenómina: lo que se le paga a cada quien esta semana, más sus propinas.
       No es nómina fiscal —sin IMSS ni ISR, eso es F2—: es el número con el que
-      se paga la raya.
+      se paga la raya el sábado.
     -->
     <section class="tarjeta">
       <div class="cab-raya">
@@ -160,20 +288,53 @@
         </div>
       </div>
 
-      <label class="modo">
-        <span>Reparto de propinas</span>
-        <select
-          value={prenomina.modoPropina}
-          onchange={(e) => (prenomina.modoPropina = e.currentTarget.value as ModoPropina)}
-        >
-          {#each MODOS_PROPINA as m (m.valor)}
-            <option value={m.valor}>{m.etiqueta}</option>
-          {/each}
-        </select>
-      </label>
+      <div class="modos">
+        <label class="modo">
+          <span>Cómo se paga el sueldo</span>
+          <select
+            value={prenomina.modoSueldo}
+            onchange={(e) => (prenomina.modoSueldo = e.currentTarget.value as ModoSueldo)}
+          >
+            {#each MODOS_SUELDO as m (m.valor)}
+              <option value={m.valor}>{m.etiqueta}</option>
+            {/each}
+          </select>
+        </label>
+
+        <label class="modo">
+          <span>Reparto de propinas</span>
+          <select
+            value={prenomina.modoPropina}
+            onchange={(e) => (prenomina.modoPropina = e.currentTarget.value as ModoPropina)}
+          >
+            {#each MODOS_PROPINA as m (m.valor)}
+              <option value={m.valor}>{m.etiqueta}</option>
+            {/each}
+          </select>
+        </label>
+      </div>
+      <p class="pista">
+        {MODOS_SUELDO.find((m) => m.valor === prenomina.modoSueldo)?.descripcion}
+      </p>
       <p class="pista">
         {MODOS_PROPINA.find((m) => m.valor === prenomina.modoPropina)?.descripcion}
       </p>
+
+      {#if porDia && raya.faltas > 0}
+        <!--
+          El descuento por faltas va SEÑALADO y con su importe a la vista, no
+          escondido dentro del sueldo. Es la cifra que el empleado va a reclamar
+          el sábado, así que quien paga tiene que poder explicarla renglón por
+          renglón antes de entregar el sobre.
+        -->
+        <p class="aviso-raya" role="alert">
+          {raya.faltas}
+          {raya.faltas === 1 ? "falta descontada" : "faltas descontadas"} por
+          {mxn(raya.total_descuentos)} en total. Revisa que no sea una checada
+          olvidada antes de pagar: se descuenta el día programado en el que nadie
+          registró entrada.
+        </p>
+      {/if}
 
       {#if raya.turnos_abiertos > 0}
         <p class="aviso-raya" role="alert">
@@ -187,61 +348,141 @@
         <p class="aviso-raya" role="alert">
           {raya.sin_tarifa}
           {raya.sin_tarifa === 1 ? "persona trabajó" : "personas trabajaron"} sin
-          tarifa capturada: su sueldo sale en cero hasta que se les asigne.
+          {porDia ? "sueldo capturado" : "tarifa capturada"}: su sueldo sale en
+          cero hasta que se le asigne.
         </p>
       {/if}
 
       {#if raya.renglones.length === 0}
-        <p class="vacio">Nadie registró horas ni propinas en esta semana.</p>
-      {:else}
-        <table>
-          <thead>
-            <tr>
-              <th>Trabajador</th>
-              <th class="num">Horas</th>
-              <th class="num">Tarifa</th>
-              <th class="num">Sueldo</th>
-              <th class="num">Propinas</th>
-              <th class="num">Total</th>
-            </tr>
-          </thead>
-          <tbody>
-            {#each raya.renglones as r (r.trabajador_id)}
+        <p class="vacio">
+          {porDia
+            ? "Nadie tiene sueldo capturado ni registró horas en esta semana."
+            : "Nadie registró horas ni propinas en esta semana."}
+        </p>
+      {:else if porDia}
+        <!--
+          LA TABLA DEL SUELDO DIARIO.
+
+          Se lee de izquierda a derecha como se explica de viva voz: esto es lo
+          que tienes pactado, estos son los días que viniste, esto se te
+          descuenta, esto te llevas. El descuento va en su propia columna y en
+          rojo — dentro del sueldo neto sería justo la cifra que nadie sabría
+          explicar cuando la reclamen.
+        -->
+        <div class="marco-tabla">
+          <table>
+            <thead>
               <tr>
-                <td>
-                  <b>{r.nombre}</b>
-                  {#if r.turnoAbierto}<small class="ojo">turno sin cerrar</small>{/if}
-                </td>
-                <td class="num" class:alerta={r.turnoAbierto}>{r.horas.toFixed(2)}</td>
-                <td class="num">
-                  {#if editandoTarifa === r.trabajador_id}
-                    <input
-                      class="celda"
-                      inputmode="decimal"
-                      bind:value={tarifaTexto}
-                      placeholder="0.00"
-                    />
-                  {:else}
-                    <button class="tarifa" onclick={() => abrirTarifa(r.trabajador_id)}>
-                      {r.sinTarifa ? "Asignar" : mxn(r.tarifa_hora)}
-                    </button>
-                  {/if}
-                </td>
-                <td class="num">{mxn(r.sueldo)}</td>
-                <td class="num">{mxn(r.propinas)}</td>
-                <td class="num"><b>{mxn(r.total)}</b></td>
+                <th>Trabajador</th>
+                <th class="num">Programado</th>
+                <th class="num">Días</th>
+                <th class="num">Faltas</th>
+                <th class="num">Descuento</th>
+                <th class="num">Sueldo</th>
+                <th class="num">Propinas</th>
+                <th class="num">Total</th>
               </tr>
-            {/each}
-          </tbody>
-          <tfoot>
-            <tr>
-              <td colspan="3"><b>Total a pagar</b></td>
-              <td class="num">{mxn(raya.total_sueldos)}</td>
-              <td class="num">{mxn(raya.total_propinas)}</td>
-              <td class="num total-raya">{mxn(raya.total)}</td>
-            </tr>
-          </tfoot>
-        </table>
+            </thead>
+            <tbody>
+              {#each raya.renglones as r (r.trabajador_id)}
+                <tr class:con-falta={r.faltas.length > 0}>
+                  <td>
+                    <button class="tarifa" onclick={() => abrirSueldo(r.trabajador_id)}>
+                      <b>{r.nombre}</b>
+                    </button>
+                    {#if r.turnoAbierto}<small class="ojo">turno sin cerrar</small>{/if}
+                    {#if r.sinTarifa}<small class="ojo">sin sueldo capturado</small>{/if}
+                  </td>
+                  <td class="num">{mxn(r.sueldo_programado)}</td>
+                  <td class="num">
+                    {r.dias_programados.length - r.faltas.length}/{r.dias_programados.length}
+                  </td>
+                  <td class="num">
+                    {#if r.faltas.length === 0}
+                      <span class="tenue">—</span>
+                    {:else}
+                      <span class="faltas" title={r.faltas.map(nombreDia).join(", ")}>
+                        {r.faltas.map((d) => DIAS_DEL_ROL.find((x) => x.valor === d)?.corto).join(" ")}
+                      </span>
+                    {/if}
+                  </td>
+                  <td class="num descuento">
+                    {r.descuento_faltas > 0 ? `−${mxn(r.descuento_faltas)}` : "—"}
+                  </td>
+                  <td class="num">{mxn(r.sueldo)}</td>
+                  <td class="num">{mxn(r.propinas)}</td>
+                  <td class="num"><b>{mxn(r.total)}</b></td>
+                </tr>
+              {/each}
+            </tbody>
+            <tfoot>
+              <tr>
+                <td colspan="4"><b>Total a pagar</b></td>
+                <td class="num descuento">
+                  {raya.total_descuentos > 0 ? `−${mxn(raya.total_descuentos)}` : "—"}
+                </td>
+                <td class="num">{mxn(raya.total_sueldos)}</td>
+                <td class="num">{mxn(raya.total_propinas)}</td>
+                <td class="num total-raya">{mxn(raya.total)}</td>
+              </tr>
+            </tfoot>
+          </table>
+        </div>
+        <p class="pista">
+          Toca un nombre para capturar su sueldo de cada día. Un día en blanco es
+          su <b>descanso</b>: no se paga y tampoco se le puede descontar por no venir.
+        </p>
+      {:else}
+        <div class="marco-tabla">
+          <table>
+            <thead>
+              <tr>
+                <th>Trabajador</th>
+                <th class="num">Horas</th>
+                <th class="num">Tarifa</th>
+                <th class="num">Sueldo</th>
+                <th class="num">Propinas</th>
+                <th class="num">Total</th>
+              </tr>
+            </thead>
+            <tbody>
+              {#each raya.renglones as r (r.trabajador_id)}
+                <tr>
+                  <td>
+                    <b>{r.nombre}</b>
+                    {#if r.turnoAbierto}<small class="ojo">turno sin cerrar</small>{/if}
+                  </td>
+                  <td class="num" class:alerta={r.turnoAbierto}>{r.horas.toFixed(2)}</td>
+                  <td class="num">
+                    {#if editandoTarifa === r.trabajador_id}
+                      <input
+                        class="celda"
+                        inputmode="decimal"
+                        bind:value={tarifaTexto}
+                        placeholder="0.00"
+                      />
+                    {:else}
+                      <button class="tarifa" onclick={() => abrirTarifa(r.trabajador_id)}>
+                        {r.sinTarifa ? "Asignar" : mxn(r.tarifa_hora)}
+                      </button>
+                    {/if}
+                  </td>
+                  <td class="num">{mxn(r.sueldo)}</td>
+                  <td class="num">{mxn(r.propinas)}</td>
+                  <td class="num"><b>{mxn(r.total)}</b></td>
+                </tr>
+              {/each}
+            </tbody>
+            <tfoot>
+              <tr>
+                <td colspan="3"><b>Total a pagar</b></td>
+                <td class="num">{mxn(raya.total_sueldos)}</td>
+                <td class="num">{mxn(raya.total_propinas)}</td>
+                <td class="num total-raya">{mxn(raya.total)}</td>
+              </tr>
+            </tfoot>
+          </table>
+        </div>
 
         {#if editandoTarifa}
           <div class="guardar-tarifa">
@@ -254,6 +495,54 @@
             <button class="principal mini" onclick={guardarTarifa}>Guardar tarifa</button>
           </div>
         {/if}
+      {/if}
+
+      <!-- La semana de sueldos de una persona -->
+      {#if editandoSueldo}
+        <div class="editor-sueldo">
+          <div class="cab-sueldo">
+            <h3>Sueldo por día · {sesion.nombreDe(editandoSueldo)}</h3>
+            <span class="semana-total">
+              Semana completa: <b>{mxn(totalSemanalDe(editandoSueldo))}</b>
+            </span>
+            <button class="cerrar" onclick={() => (editandoSueldo = "")} aria-label="Cerrar">✕</button>
+          </div>
+
+          <div class="dias-sueldo">
+            {#each DIAS_DEL_ROL as d (d.valor)}
+              <label class="dia-sueldo">
+                <span>{d.corto}</span>
+                <div class="moneda">
+                  <i>$</i>
+                  <input
+                    inputmode="decimal"
+                    value={sueldoTexto[d.valor] ?? ""}
+                    oninput={(e) =>
+                      (sueldoTexto = { ...sueldoTexto, [d.valor]: e.currentTarget.value })}
+                    placeholder="descanso"
+                  />
+                </div>
+                <button
+                  class="replicar"
+                  title="Poner este mismo importe todos los días"
+                  onclick={() => replicarSueldo(d.valor)}
+                >
+                  ⇄ todos
+                </button>
+              </label>
+            {/each}
+          </div>
+
+          {#if errorSueldo}<p class="error" role="alert">{errorSueldo}</p>{/if}
+
+          <div class="acciones-sueldo">
+            <span class="pista">
+              Queda en la bitácora: cuándo cambió el sueldo y quién lo cambió.
+            </span>
+            <button class="mini" onclick={() => (editandoSueldo = "")}>Cancelar</button>
+            <button class="principal mini" onclick={guardarSueldo}>Guardar la semana</button>
+          </div>
+        </div>
       {/if}
     </section>
   {:else}
@@ -283,10 +572,14 @@
           class="pin"
           type="password"
           inputmode="numeric"
+          bind:this={campoPin}
           bind:value={pin}
           placeholder="PIN"
           onkeydown={(e) => e.key === "Enter" && checar()}
         />
+        <p class="pista-teclado">
+          Marca tu PIN con el teclado o con los botones · Enter para checar
+        </p>
 
         <div class="teclado">
           {#each ["1", "2", "3", "4", "5", "6", "7", "8", "9"] as d (d)}
@@ -428,6 +721,12 @@
     color: var(--gris);
     line-height: 1.5;
     margin-top: 0.6rem;
+  }
+  .pista-teclado {
+    margin-top: 0.4rem;
+    font-size: 0.74rem;
+    color: var(--gris);
+    text-align: center;
   }
   .personas {
     display: flex;
@@ -780,6 +1079,142 @@
     border-top: 1px dashed var(--borde);
   }
   .guardar-tarifa .pista {
+    flex: 1;
+    min-width: 12rem;
+    margin: 0;
+  }
+
+  /* --- Sueldo diario --- */
+
+  .modos {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 1rem;
+  }
+  /* La tabla del sueldo diario tiene ocho columnas: se desplaza ella sola en
+     una tablet, en vez de empujar la página entera. */
+  .marco-tabla {
+    overflow-x: auto;
+  }
+  .marco-tabla table {
+    min-width: 44rem;
+  }
+  .descuento {
+    color: var(--peligro);
+    font-weight: 600;
+  }
+  .faltas {
+    color: var(--peligro);
+    font-weight: 700;
+    font-size: 0.8rem;
+    letter-spacing: 0.02em;
+  }
+  .tenue {
+    color: var(--borde);
+  }
+  /* Un renglón con falta se marca de lado: es el que alguien va a reclamar. */
+  tr.con-falta td:first-child {
+    box-shadow: inset 3px 0 0 var(--peligro);
+  }
+  .editor-sueldo {
+    margin-top: 1rem;
+    border: 1.5px solid var(--acento);
+    border-radius: var(--r-md);
+    padding: 0.9rem 1rem;
+    background: var(--fondo);
+    display: flex;
+    flex-direction: column;
+    gap: 0.8rem;
+  }
+  .cab-sueldo {
+    display: flex;
+    align-items: baseline;
+    gap: 0.75rem;
+    flex-wrap: wrap;
+  }
+  .cab-sueldo h3 {
+    flex: 1;
+    font-size: 1rem;
+    font-weight: 700;
+    color: var(--pizarra);
+  }
+  .semana-total {
+    font-size: 0.82rem;
+    color: var(--gris);
+  }
+  .semana-total b {
+    color: var(--acento);
+    font-family: var(--font-titulo);
+    font-size: 1rem;
+  }
+  .cerrar {
+    font-size: 0.95rem;
+    color: var(--gris);
+    padding: 0.1rem 0.4rem;
+  }
+  .dias-sueldo {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(8.5rem, 1fr));
+    gap: 0.6rem;
+  }
+  .dia-sueldo {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+  }
+  .dia-sueldo > span {
+    font-size: 0.72rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--gris);
+  }
+  .moneda {
+    position: relative;
+    display: flex;
+    align-items: center;
+  }
+  .moneda i {
+    position: absolute;
+    left: 0.6rem;
+    font-style: normal;
+    font-weight: 600;
+    color: var(--gris);
+  }
+  .moneda input {
+    width: 100%;
+    padding: 0.5rem 0.6rem 0.5rem 1.4rem;
+    border: 1.5px solid var(--borde);
+    border-radius: var(--r-sm);
+    font: inherit;
+    font-size: 0.9rem;
+    background: #fff;
+  }
+  .moneda input:focus {
+    outline: none;
+    border-color: var(--acento);
+  }
+  .moneda input::placeholder {
+    font-size: 0.78rem;
+    color: var(--borde);
+  }
+  .replicar {
+    align-self: flex-start;
+    font-size: 0.68rem;
+    color: var(--gris);
+    text-decoration: underline;
+  }
+  .replicar:hover {
+    color: var(--acento);
+  }
+  .acciones-sueldo {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    justify-content: flex-end;
+    flex-wrap: wrap;
+  }
+  .acciones-sueldo .pista {
     flex: 1;
     min-width: 12rem;
     margin: 0;

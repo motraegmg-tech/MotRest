@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { pesos, type Centavos } from "@motrest/dominio";
 import { Ticket, aCP437 } from "../escpos.js";
-import { comandaCocina, corteCaja, ticketVenta } from "../plantillas.js";
+import { comandaCocina, corteCaja, precuenta, ticketVenta } from "../plantillas.js";
 import { sellarCorte, verificarSello, type CifrasCorte } from "../sello.js";
 import {
   ColaImpresion,
@@ -126,6 +126,78 @@ describe("comanda de cocina", () => {
 
   it("conserva los acentos del mesero", () => {
     expect(comandaCocina(datos).aTexto()).toContain("Lucía");
+  });
+});
+
+describe("pre-cuenta", () => {
+  /*
+   * Precios de carta a $498 y $45 SIN IVA incluido (perfil IVA_16 de Rodizio).
+   * Con el 16 % dentro, los renglones son 577.68 y 52.20, que suman 629.88.
+   */
+  const datos = {
+    folio: "A1B2C3D4",
+    ts: T0,
+    local: { nombre: "Rodizio", direccion: "Av. Central 100", telefono: "55 1234 5678" },
+    mesa: "12",
+    mesero: "Lucía",
+    renglones: [
+      { cantidad: 2, descripcion: "Pizza familiar", importe: pesos(577.68) },
+      { cantidad: 1, descripcion: "Limonada", importe: pesos(52.2) },
+    ],
+    suma: pesos(629.88),
+    descuentos: pesos(0) as Centavos,
+    cortesias: pesos(0) as Centavos,
+    total: pesos(629.88),
+  };
+
+  it("imprime cada renglón con el impuesto dentro", () => {
+    const texto = precuenta(datos).aTexto();
+    expect(texto).toContain("$577.68");
+    expect(texto).toContain("$52.20");
+  });
+
+  it("los renglones suman el total: es lo que el comensal hace con el dedo", () => {
+    const suma = datos.renglones.reduce((a, r) => a + r.importe, 0);
+    expect(suma).toBe(datos.total);
+  });
+
+  it("se declara como lo que es, y no como un comprobante", () => {
+    const texto = precuenta(datos).aTexto();
+    expect(texto).toContain("CUENTA");
+    expect(texto).toContain("NO ES COMPROBANTE DE PAGO");
+    expect(texto).toContain("Precios con IVA incluido");
+  });
+
+  it("no lleva RFC: un papel con RFC parece una factura", () => {
+    expect(precuenta(datos).aTexto()).not.toContain("RFC");
+  });
+
+  /*
+   * Nada de lo que solo existe después de pagar. Si algún día alguien reusa la
+   * plantilla del ticket para esto, estas tres líneas lo cazan.
+   */
+  it("no lleva forma de pago, ni cambio, ni QR de factura", () => {
+    const texto = precuenta(datos).aTexto();
+    expect(texto).not.toContain("Efectivo");
+    expect(texto).not.toContain("Cambio");
+    expect(texto).not.toContain("Factura tu consumo");
+  });
+
+  it("sin rebajas no repite el total dos veces bajo nombres distintos", () => {
+    expect(precuenta(datos).aTexto()).not.toContain("Suma");
+  });
+
+  it("con descuento enseña la suma, la rebaja y el total, y cuadran", () => {
+    const conRebaja = {
+      ...datos,
+      descuentos: pesos(29.88),
+      total: pesos(600),
+    };
+    const texto = precuenta(conRebaja).aTexto();
+    expect(texto).toContain("Suma");
+    expect(texto).toContain("-$29.88");
+    expect(texto).toContain("$600.00");
+    expect(conRebaja.suma - conRebaja.descuentos - conRebaja.cortesias).toBe(conRebaja.total);
   });
 });
 
@@ -310,13 +382,25 @@ describe("ruteo por área", () => {
     expect(impresoraPara(impresoras, "caja")?.id).toBe("imp-caja");
   });
 
-  it("un área sin impresora cae a caja: mejor mal ubicada que no impresa", () => {
-    expect(impresoraPara(impresoras, "est-postres")?.id).toBe("imp-caja");
+  /*
+   * REGRESIÓN DE RODIZIO (ago-2026): la caja escupía las comandas de cocina.
+   *
+   * Estas dos pruebas afirmaban lo contrario —que un área huérfana «cae a caja,
+   * mejor mal ubicada que no impresa»— y describían el defecto, no la regla. En
+   * el restaurante eso significaba que apagar la impresora de cocina no dejaba
+   * de imprimir comandas: las mandaba todas al rollo de la caja, y no había
+   * forma de detenerlo salvo desactivar también la impresora de la caja, con lo
+   * que se perdían los tickets. Una configuración que no se puede apagar no es
+   * una configuración.
+   */
+  it("un área sin impresora asignada no se imprime en ningún lado", () => {
+    expect(impresoraPara(impresoras, "est-postres")).toBeUndefined();
   });
 
-  it("ignora las impresoras desactivadas", () => {
-    // La de barra está apagada, así que su área cae a caja.
-    expect(impresoraPara(impresoras, "est-barra")?.id).toBe("imp-caja");
+  it("apagar la impresora de un área NO manda su papel a la caja", () => {
+    expect(impresoraPara(impresoras, "est-barra")).toBeUndefined();
+    // Y la caja sigue imprimiendo lo suyo, que es lo que no debía cambiar.
+    expect(impresoraPara(impresoras, "caja")?.id).toBe("imp-caja");
   });
 
   it("sin ninguna impresora no revienta: devuelve nada", () => {
@@ -407,6 +491,40 @@ describe("cola de impresión", () => {
     expect(esperaReintento(0)).toBe(2_000);
     expect(esperaReintento(1)).toBe(4_000);
     expect(esperaReintento(10)).toBe(60_000);
+  });
+
+  /*
+   * El transporte simulado no imprime nada: es el de la demostración y el de
+   * las terminales que no son la caja. Que un trabajo suyo se marcara como
+   * «impreso» a secas es el fallo más caro de este módulo —la comanda no sale,
+   * la cocina no la prepara y la pantalla dice que todo fue bien—, así que el
+   * resultado viaja etiquetado hasta la interfaz.
+   */
+  it("un trabajo simulado queda marcado como tal, no como papel impreso", async () => {
+    const cola = new ColaImpresion([new TransporteSimulado()]);
+    cola.encolar(trabajo("t1"));
+    await cola.procesar([impresora("imp-caja", ["caja"])]);
+
+    const t = cola.todos[0]!;
+    expect(t.estado).toBe("impreso");
+    expect(t.simulado).toBe(true);
+  });
+
+  it("lo que sí llegó a una impresora NO se marca como simulado", async () => {
+    const real: Transporte = {
+      puede: () => true,
+      async enviar(): Promise<ResultadoEnvio> {
+        return { ok: true };
+      },
+    };
+
+    const cola = new ColaImpresion([real]);
+    cola.encolar(trabajo("t1"));
+    await cola.procesar([impresora("imp-caja", ["caja"])]);
+
+    const t = cola.todos[0]!;
+    expect(t.estado).toBe("impreso");
+    expect(t.simulado).toBe(false);
   });
 
   it("limpiar conserva lo pendiente y lo fallido", async () => {

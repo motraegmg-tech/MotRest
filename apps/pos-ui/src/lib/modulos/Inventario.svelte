@@ -74,6 +74,19 @@
   const existencias = $derived(inventario.existencias);
   const cantidadDe = $derived((insumoId: string) => existencias.get(insumoId)?.cantidad ?? 0);
 
+  /** Insumo cuyo historial se está mirando desplegado. Vacío = ninguno. */
+  let detalle = $state("");
+
+  /** Los últimos movimientos de UN insumo, que es como se aclara una diferencia. */
+  function movimientosDe(insumoId: string) {
+    return inventario.movimientos
+      .filter((m) => m.tipo === "movimiento_inventario" && m.insumo_id === insumoId)
+      .slice(0, 15) as Extract<
+      (typeof inventario.movimientos)[number],
+      { tipo: "movimiento_inventario" }
+    >[];
+  }
+
   function registrar() {
     error = "";
     const r = inventario.registrar(
@@ -171,33 +184,86 @@
 
   {#if vista === "existencias"}
     <section class="tarjeta">
+      <!--
+        CÓMO SE FUE USANDO CADA INSUMO.
+
+        La tabla ya decía cuánto QUEDA; lo que faltaba era en qué se fue. Las
+        tres columnas nuevas separan lo que entró por compra, lo que salió
+        vendido —el descuento automático de las recetas— y lo que se tiró. Ese
+        contraste es el que enseña un problema: un insumo con mucha merma y poca
+        venta está costando dinero sin producirlo.
+      -->
       <table>
         <thead>
           <tr>
             <th>Insumo</th>
-            <th>Existencia</th>
-            <th>Mínimo</th>
-            <th>Valor</th>
-            <th>Movs.</th>
+            <th class="num">Existencia</th>
+            <th class="num">Mínimo</th>
+            <th class="num">Comprado</th>
+            <th class="num">Usado en platillos</th>
+            <th class="num">Merma</th>
+            <th class="num">Valor</th>
           </tr>
         </thead>
         <tbody>
           {#each inventario.insumos as insumo (insumo.id)}
             {@const cant = cantidadDe(insumo.id)}
             {@const bajo = cant < insumo.stock_minimo}
+            {@const uso = inventario.consumoDe(insumo.id)}
+            {@const abierto = detalle === insumo.id}
             <tr class:bajo class:negativo={cant < 0}>
               <td>
-                <b>{insumo.nombre}</b>
-                {#if insumo.categoria}<small>{insumo.categoria}</small>{/if}
+                <button class="abrir-insumo" onclick={() => (detalle = abierto ? "" : insumo.id)}>
+                  <b>{insumo.nombre}</b>
+                  {#if insumo.categoria}<small>{insumo.categoria}</small>{/if}
+                </button>
               </td>
               <td class="num">{formatearCantidad(cant, insumo.unidad_base)}</td>
               <td class="num tenue">{formatearCantidad(insumo.stock_minimo, insumo.unidad_base)}</td>
+              <td class="num tenue">
+                {uso.recepcion ? formatearCantidad(uso.recepcion, insumo.unidad_base) : "—"}
+              </td>
+              <td class="num">
+                {uso.consumo_receta
+                  ? formatearCantidad(uso.consumo_receta, insumo.unidad_base)
+                  : "—"}
+              </td>
+              <td class="num" class:alerta={(uso.merma ?? 0) > 0}>
+                {uso.merma ? formatearCantidad(uso.merma, insumo.unidad_base) : "—"}
+              </td>
               <td class="num">{mxn(valorDe(insumo, Math.max(0, cant)))}</td>
-              <td class="num tenue">{existencias.get(insumo.id)?.movimientos ?? 0}</td>
             </tr>
+            {#if abierto}
+              <tr class="detalle">
+                <td colspan="7">
+                  <div class="mov-insumo">
+                    <span class="titulo-detalle">
+                      Movimientos de {insumo.nombre}
+                      · {existencias.get(insumo.id)?.movimientos ?? 0} en total
+                    </span>
+                    {#each movimientosDe(insumo.id) as mov (mov.id)}
+                      <div class="mov {mov.motivo}">
+                        <span class="hora">{hora(mov.ts)}</span>
+                        <span class="motivo">{etiquetaMotivo(mov.motivo)}</span>
+                        <span class="delta" class:resta={mov.delta < 0}>
+                          {mov.delta > 0 ? "+" : ""}{formatearCantidad(mov.delta, mov.unidad)}
+                        </span>
+                      </div>
+                    {:else}
+                      <p class="vacio">Este insumo todavía no se ha movido.</p>
+                    {/each}
+                  </div>
+                </td>
+              </tr>
+            {/if}
           {/each}
         </tbody>
       </table>
+      <p class="pista-tabla">
+        Lo <b>usado en platillos</b> lo descuenta el sistema solo, al enviar a
+        cocina: sale de la receta de cada platillo y de su gramaje. Un insumo sin
+        receta que lo use nunca se moverá por esta vía.
+      </p>
     </section>
 
     <section class="tarjeta">

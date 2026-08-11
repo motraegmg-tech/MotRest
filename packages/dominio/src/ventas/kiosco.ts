@@ -92,6 +92,10 @@ export function segundosParaReiniciar(estado: EstadoKiosco, ahora = Date.now()):
 export const PROHIBIDO_EN_KIOSCO = [
   "pos.descuento.aplicar",
   "pos.cortesia.otorgar",
+  // Nadie puede firmar contra la bolsa de un socio desde una pantalla sin
+  // vigilancia: el socio se entera a fin de mes, y para entonces ya no hay
+  // forma de saber quién estuvo delante del kiosco.
+  "pos.socio.consumir",
   "pos.precio.editar_en_linea",
   "pos.item.cancelar_enviado",
   "pos.cuenta.reabrir",

@@ -1,4 +1,4 @@
-//! MOTRAE Central para Windows.
+//! MotRest Central para Windows.
 //!
 //! Central firma licencias y manifiestos para toda la cartera, así que sus
 //! privadas no pueden vivir en `localStorage` ni en el perfil sin cifrar de la
@@ -171,5 +171,5 @@ pub fn ejecutar() {
             restaurar_secretos,
         ])
         .run(tauri::generate_context!())
-        .expect("No se pudo arrancar MOTRAE Central");
+        .expect("No se pudo arrancar MotRest Central");
 }

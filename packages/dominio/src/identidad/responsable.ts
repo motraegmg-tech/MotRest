@@ -10,7 +10,7 @@
  *     el PIN que él elija, y a partir de ahí cada apertura pide identificarse.
  *     Nadie tiene que dictarle una clave por teléfono.
  *
- *  2. **La prepara MOTRAE Central dentro de la licencia firmada.** Sirve para
+ *  2. **La prepara MotRest Central dentro de la licencia firmada.** Sirve para
  *     entregar el local ya con nombre y PIN, y es la vía por la que MOTRAE puede
  *     reponer el acceso de un responsable en remoto. La licencia solo puede dar
  *     el perfil INICIAL; en cuanto el responsable elige su propio PIN, ese
@@ -78,13 +78,53 @@ function esCredencialDePin(
 export function requiereAltaDeResponsable(
   usuariosDelLocal: readonly Usuario[],
   tieneCredencial: (id: ID) => boolean,
+  yaEstrenado = false,
 ): boolean {
+  /*
+   * EL PORTAZO: un local que ya se estrenó NO vuelve a ver esta pantalla.
+   *
+   * Sin esta línea, «Bienvenido. Vamos a crear su usuario» reaparecía en
+   * aperturas posteriores, y el caso real es fácil de reproducir: MotRest Central
+   * reemite la licencia con una provisión nueva —al cobrar, al reponer un
+   * acceso—, la caja aplica ese perfil con `debe_cambiar_credencial`, y de golpe
+   * NINGUNA cuenta cuenta como «usable». La pantalla de alta es justo la
+   * respuesta equivocada a esa situación: lo que hay que pedir ahí es el PIN
+   * nuevo, no crear otro dueño encima del que ya existe.
+   *
+   * El hecho de haberse estrenado se deduce del event log —hay `usuario_creado`
+   * o `credencial_cambiada`—, así que sobrevive a reinstalar la aplicación, se
+   * replica a las demás terminales y no depende de ninguna bandera aparte que
+   * pudiera perderse.
+   */
+  if (yaEstrenado) return false;
+
   return !usuariosDelLocal.some(
     (usuario) =>
       usuario.activo &&
       usuario.debe_cambiar_credencial !== true &&
       tieneCredencial(usuario.id),
   );
+}
+
+/**
+ * ¿Este restaurante ya pasó alguna vez por su puesta en marcha?
+ *
+ * Se lee del event log y no de una bandera aparte: el log se replica a todas las
+ * terminales y sobrevive a reinstalar la aplicación, así que es lo único que de
+ * verdad recuerda.
+ *
+ * **El hecho es `credencial_cambiada`, y solo ese.** Se probó con
+ * `usuario_creado` y era la señal equivocada: una caja que se actualiza desde
+ * una versión anterior trae en su log el alta del propietario que aquellas
+ * versiones sembraban —«Gonzalo DJA», sin ninguna credencial que sirva—, y
+ * darla por estrenada dejaba al restaurante fuera de su propio sistema, mirando
+ * una lista de usuarios cuya clave nadie vio jamás. Fijar una credencial, en
+ * cambio, es algo que solo puede haber hecho alguien de la casa.
+ */
+export function localYaEstrenado(
+  eventos: readonly { tipo: string }[],
+): boolean {
+  return eventos.some((evento) => evento.tipo === "credencial_cambiada");
 }
 
 /**

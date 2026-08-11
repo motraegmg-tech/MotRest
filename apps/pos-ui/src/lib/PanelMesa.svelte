@@ -6,10 +6,18 @@
    * la pone en servicio; si ya hay comensales, abre el pedido. El catálogo solo
    * aparece cuando de verdad se va a ordenar.
    */
-  import { importeRenglon } from "@motrest/dominio";
+  import {
+    desglosarConTasas,
+    importeRenglon,
+    nombreDia,
+    type Centavos,
+    type RenglonComanda,
+  } from "@motrest/dominio";
+  import { asignaciones } from "./asignaciones.svelte";
   import { hora, mxn } from "./formato";
   import { plano } from "./plano.svelte";
   import { pos } from "./pos.svelte";
+  import { rutas } from "./nav/rutas.svelte";
   import { sesion } from "./sesion/sesion.svelte";
 
   interface Props {
@@ -21,6 +29,21 @@
   const area = $derived(plano.areaDeMesa(pos.mesaActiva));
   const duplicada = $derived(pos.mesasDuplicadas.includes(pos.mesaActiva));
   const t = $derived(pos.totales);
+
+  /** Lo que paga el comensal por el renglón: precio con su impuesto dentro. */
+  function conImpuesto(renglon: RenglonComanda): Centavos {
+    return desglosarConTasas(importeRenglon(renglon), renglon.impuesto).total;
+  }
+
+  // --- Quién atiende esta mesa hoy ---------------------------------------------
+
+  const hoy = $derived(asignaciones.hoy);
+  const asignados = $derived(asignaciones.meserosDe(pos.mesaActiva, hoy));
+  const soyDeEstaMesa = $derived(
+    !!sesion.usuarioActual && asignados.includes(sesion.usuarioActual.id),
+  );
+  /** Solo quien administra personal tiene por qué ver el camino a la tabla. */
+  const puedeEditarRol = $derived(sesion.puedeVer("rrhh.empleado.editar"));
 </script>
 
 <section class="panel">
@@ -72,7 +95,7 @@
             <li>
               <span class="q">{renglon.cantidad}×</span>
               <span class="n">{renglon.descripcion}</span>
-              <span class="p">{mxn(importeRenglon(renglon))}</span>
+              <span class="p">{mxn(conImpuesto(renglon))}</span>
             </li>
           {/each}
         </ul>
@@ -91,6 +114,21 @@
       <button class="principal" onclick={onPedido}>
         {pos.renglones.length === 0 ? "Tomar pedido" : "Agregar al pedido"}
       </button>
+      <!--
+        Se abrió la mesa y nadie pidió nada: los comensales se cambiaron de
+        lugar o se fueron. Solo aparece mientras la cuenta está vacía — con
+        consumo lo que corresponde es cancelar los renglones o cobrar, y esos
+        dos caminos sí dejan rastro de qué pasó con el producto.
+      -->
+      {#if pos.puedeLiberarMesa}
+        <button class="liberar" onclick={() => pos.liberarMesa()}>
+          Poner libre la mesa
+        </button>
+        <p class="recordatorio tenue">
+          Se cierra sin cobrar y no cuenta como venta. Deja de estar disponible
+          en cuanto se capture el primer platillo.
+        </p>
+      {/if}
       {#if pos.pendientes.length > 0}
         <p class="recordatorio">
           {pos.pendientes.length}
@@ -100,9 +138,97 @@
       {/if}
     </div>
   {/if}
+
+  <!--
+    QUIÉN ATIENDE ESTA MESA HOY.
+    Va al pie del panel y no arriba: durante el servicio lo que se mira primero
+    es el consumo. Esto se consulta cuando hay una duda —de quién es la mesa,
+    a quién se le avisa cuando cocina termina—, y para eso basta con que esté.
+  -->
+  <div class="rol">
+    <span class="rotulo-rol">Atiende · {nombreDia(hoy)}</span>
+    {#if asignados.length === 0}
+      <span class="sin-rol">Sin asignar · la atiende quien la abra</span>
+    {:else}
+      <span class="quienes">
+        {#each asignados as meseroId (meseroId)}
+          <span class="mesero" class:yo={meseroId === sesion.usuarioActual?.id}>
+            {sesion.nombreDe(meseroId)}
+          </span>
+        {/each}
+      </span>
+    {/if}
+    {#if soyDeEstaMesa}<span class="tuya">Es tuya</span>{/if}
+    {#if puedeEditarRol}
+      <button class="editar-rol" onclick={() => rutas.ir("personal", "mesas")}>
+        Cambiar rol de mesas
+      </button>
+    {/if}
+  </div>
 </section>
 
 <style>
+  /* --- Quién atiende la mesa --- */
+  /*
+   * Sin `margin-top: auto`: `.acciones` ya lo lleva, y dos márgenes automáticos
+   * hermanos se reparten el hueco libre, abriendo un vacío entre los dos.
+   */
+  .rol {
+    margin-top: 1.1rem;
+    padding-top: 0.85rem;
+    border-top: 1px solid var(--borde);
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 0.45rem;
+    font-size: 0.82rem;
+    color: var(--gris);
+  }
+  .rotulo-rol {
+    font-size: 0.7rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+  }
+  .quienes {
+    display: inline-flex;
+    flex-wrap: wrap;
+    gap: 0.3rem;
+  }
+  .mesero {
+    background: var(--fondo);
+    border: 1px solid var(--borde);
+    border-radius: var(--r-pill);
+    padding: 0.12rem 0.6rem;
+    font-weight: 600;
+    color: var(--pizarra);
+  }
+  .mesero.yo {
+    border-color: var(--acento);
+    color: var(--acento);
+  }
+  .sin-rol {
+    font-style: italic;
+  }
+  .tuya {
+    background: var(--acento);
+    color: #fff;
+    border-radius: var(--r-pill);
+    padding: 0.12rem 0.6rem;
+    font-size: 0.7rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+  }
+  .editar-rol {
+    margin-left: auto;
+    font-size: 0.78rem;
+    color: var(--gris);
+    text-decoration: underline;
+  }
+  .editar-rol:hover {
+    color: var(--acento);
+  }
   .duplicada {
     margin: 0.75rem 0 0;
     padding: 0.6rem 0.8rem;
@@ -265,5 +391,26 @@
   }
   .recordatorio b {
     color: var(--acento);
+  }
+  .recordatorio.tenue {
+    font-size: 0.76rem;
+  }
+  /*
+   * Discreto a propósito: liberar una mesa es la salida de un error, no una
+   * acción del servicio. Con el mismo peso visual que «Tomar pedido» invitaría
+   * a pulsarlo por costumbre.
+   */
+  .liberar {
+    border: 1.5px solid var(--borde);
+    border-radius: var(--r-lg);
+    padding: 0.7rem 1.25rem;
+    font-size: 0.9rem;
+    font-weight: 600;
+    color: var(--gris);
+    background: #fff;
+  }
+  .liberar:hover {
+    border-color: var(--peligro);
+    color: var(--peligro);
   }
 </style>

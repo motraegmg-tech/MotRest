@@ -118,9 +118,15 @@ export function simular(
   const renglones: RenglonEscenario[] = ventas.map((v) => {
     const afectado = !palancas.producto_id || palancas.producto_id === v.producto_id;
 
-    // Precio y costo unitarios PROMEDIO del periodo: un mismo producto pudo
-    // venderse con descuento en unas cuentas y sin él en otras.
-    const precioUnit = v.unidades > 0 ? v.importe / v.unidades : 0;
+    /*
+     * Precio y costo unitarios PROMEDIO del periodo: un mismo producto pudo
+     * venderse con descuento en unas cuentas y sin él en otras.
+     *
+     * Se toma `base` y no `importe`: el simulador compara márgenes, y el IVA no
+     * es ingreso del restaurante. Usar el importe con impuesto inflaría un 16 %
+     * el margen de cada escenario y todas las decisiones que salen de aquí.
+     */
+    const precioUnit = v.unidades > 0 ? v.base / v.unidades : 0;
     const costoUnit = v.unidades > 0 ? v.costo / v.unidades : 0;
 
     const precioSim = afectado ? precioUnit * fp : precioUnit;

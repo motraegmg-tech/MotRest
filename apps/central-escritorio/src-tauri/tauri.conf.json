@@ -1,7 +1,7 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "MOTRAE Central",
-  "version": "1.0.2",
+  "productName": "MotRest Central",
+  "version": "1.1.0",
   "identifier": "mx.motrae.central",
   "build": {
     "frontendDist": "../../central/dist"
@@ -10,7 +10,7 @@
     "windows": [
       {
         "label": "main",
-        "title": "MOTRAE Central",
+        "title": "MotRest Central",
         "width": 1360,
         "height": 880,
         "minWidth": 900,
@@ -39,7 +39,7 @@
     "copyright": "MOTRAE",
     "category": "Business",
     "shortDescription": "Panel de MOTRAE: restaurantes, licencias y versiones",
-    "longDescription": "MOTRAE Central: cartera de restaurantes con MotRest, estado de cobro y de salud de cada instalación, emisión de licencias y publicación de actualizaciones firmadas. Uso interno de MOTRAE.",
+    "longDescription": "MotRest Central: cartera de restaurantes con MotRest, estado de cobro y de salud de cada instalación, emisión de licencias y publicación de actualizaciones firmadas. Uso interno de MOTRAE.",
     "windows": {
       "nsis": {
         "languages": ["Spanish", "SpanishInternational"],

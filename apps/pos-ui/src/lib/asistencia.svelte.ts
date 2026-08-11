@@ -8,11 +8,14 @@ import {
   FabricaEventos,
   checadasDe,
   compararEventos,
+  diasConTurno,
+  estaDentro,
   resumenAsistencia,
   siguienteChecada,
   streamAsistencia,
   turnosDe,
   type Checada,
+  type DiaSemana,
   type EventoAsistencia,
   type ID,
   type ResumenAsistencia,
@@ -20,6 +23,7 @@ import {
   type Turno,
 } from "@motrest/dominio";
 import type { Almacen } from "@motrest/protocolo-sync";
+import { local } from "./local.svelte";
 import { SUCURSAL_ID, obtenerDeviceId } from "./presentacion";
 
 export interface ResultadoChecada {
@@ -93,6 +97,24 @@ class StoreAsistencia {
     return resumenAsistencia(dentro, trabajadorId, Math.min(ahora, rango.hasta));
   }
 
+  /**
+   * En qué días de la semana llegó a trabajar dentro del periodo.
+   *
+   * Lo pide la prenómina cuando el local paga por día: es lo que distingue una
+   * falta de un día que no estaba programado. Mismo filtro por `momento` que
+   * `resumenEn`, por la misma razón.
+   */
+  diasTrabajados(
+    trabajadorId: ID,
+    rango: { desde: number; hasta: number },
+    ahora = Date.now(),
+  ): DiaSemana[] {
+    const dentro = this.eventos.filter(
+      (e) => e.momento >= rango.desde && e.momento < rango.hasta,
+    );
+    return diasConTurno(dentro, trabajadorId, Math.min(ahora, rango.hasta)) as DiaSemana[];
+  }
+
   /** Qué le toca checar a alguien ahora mismo. */
   siguiente(trabajadorId: ID): TipoChecada {
     return siguienteChecada(this.checadas(trabajadorId));
@@ -133,6 +155,45 @@ class StoreAsistencia {
       }),
     );
     return { ok: true, tipo: checada };
+  }
+
+  /**
+   * La ENTRADA que se registra sola cuando alguien abre su sesión.
+   *
+   * ## Por qué existe
+   *
+   * El checador está pensado para una tablet en la puerta, pero en un local
+   * pequeño no hay tal tablet: la gente llega, abre su usuario en la caja y se
+   * pone a trabajar. Nadie va a marcar su hora en una pantalla aparte, así que
+   * la prenómina del sábado salía en ceros y había que reconstruirla de memoria.
+   * Iniciar sesión ES llegar a trabajar, y ahora queda registrado como tal.
+   *
+   * ## Las tres condiciones, y por qué cada una
+   *
+   *   1. **Solo la primera vez en la jornada.** Se cuenta contra la jornada del
+   *      local, no contra el día natural: quien entra a las 22:00 de un viernes
+   *      y sigue a la una de la mañana no fichó dos días.
+   *   2. **Nunca si ya está dentro**, aunque venga de un turno de ayer sin
+   *      cerrar: una segunda entrada abriría un turno nuevo y el anterior se
+   *      quedaría abierto para siempre, inflando sus horas.
+   *   3. **Nunca si ya checó hoy**, ni siquiera si ya se fue. Volver a entrar a
+   *      la caja después de checar salida —a consultar algo, a cobrar una mesa
+   *      pendiente— no es un turno nuevo, y darlo por tal le pagaría de más.
+   *
+   * Se captura a nombre del propio trabajador, no del dispositivo: es él quien
+   * acaba de demostrar quién es tecleando su credencial.
+   */
+  entradaPorAcceso(trabajadorId: ID, ahora = Date.now()): ResultadoChecada | null {
+    const suyas = this.checadas(trabajadorId);
+    if (estaDentro(suyas)) return null;
+
+    const jornada = local.jornada(ahora);
+    const yaChecoHoy = suyas.some(
+      (c) => c.momento >= jornada.desde && c.momento < jornada.hasta,
+    );
+    if (yaChecoHoy) return null;
+
+    return this.registrar(trabajadorId, trabajadorId, "entrada", ahora);
   }
 
   /**

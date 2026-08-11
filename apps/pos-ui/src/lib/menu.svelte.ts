@@ -34,6 +34,7 @@ import {
   productosEnEstacion,
   recetasConInsumo,
   resumenMenu,
+  sanearIdsDeProductos,
   validarCategoria,
   validarEstacion,
   validarInsumo,
@@ -81,8 +82,31 @@ class StoreMenu {
    */
   async hidratar(almacen: Almacen, siembra: MenuLocal): Promise<void> {
     const guardado = await almacen.estado.cargar<MenuLocal>(CLAVE_MENU);
-    this.datos =
-      guardado && guardado.productos.length > 0 ? guardado : siembra;
+    const base = guardado && guardado.productos.length > 0 ? guardado : siembra;
+    // El almacén va explícito: `conectarAlmacen` todavía no corrió en el
+    // arranque, y una reparación que no se guarda habría que rehacerla en cada
+    // apertura.
+    this.datos = this.sanear(base, almacen);
+  }
+
+  /**
+   * Repara los platillos que quedaron con el id de otro.
+   *
+   * Un menú capturado antes del arreglo de `idCorto` trae platillos que comparten
+   * id: siguen en el archivo pero desaparecen al indexar el catálogo. Se sanean
+   * al entrar y al recibir carta de otra terminal, y el resultado se persiste,
+   * de modo que la carta se completa sola sin que nadie recapture nada.
+   */
+  private sanear(menu: MenuLocal, almacen: Almacen | null = this.almacen): MenuLocal {
+    const { menu: sano, reparados } = sanearIdsDeProductos(menu);
+    if (reparados === 0) return menu;
+
+    console.warn(`Menú: ${reparados} platillo(s) compartían id; se les asignó uno propio`);
+    void almacen?.estado.guardar(CLAVE_MENU, sano).catch((causa) => {
+      console.error("No se pudo guardar el menú reparado", causa);
+    });
+    this.alCambiar?.(sano);
+    return sano;
   }
 
   /** Siembra sin almacén, para pruebas y para el arranque en memoria. */
@@ -120,10 +144,15 @@ class StoreMenu {
    */
   fusionar(entrante: MenuLocal): boolean {
     if (!catalogoMasNuevo(entrante, this.datos)) return false;
-    this.datos = entrante;
-    void this.almacen?.estado.guardar(CLAVE_MENU, entrante).catch((causa) => {
-      console.error("No se pudo guardar el menú recibido", causa);
-    });
+    // Una terminal que todavía no se actualizó puede mandar carta con ids
+    // repetidos; `sanear` la repara y persiste ella misma cuando hace falta.
+    const sano = this.sanear(entrante);
+    this.datos = sano;
+    if (sano === entrante) {
+      void this.almacen?.estado.guardar(CLAVE_MENU, entrante).catch((causa) => {
+        console.error("No se pudo guardar el menú recibido", causa);
+      });
+    }
     return true;
   }
 
@@ -354,6 +383,14 @@ class StoreMenu {
         costo: linea.costo,
         precio: linea.precio,
         impuesto_id: impuestoPorDefecto,
+        /*
+         * El precio pegado es el DE LA CARTA, con impuesto dentro.
+         *
+         * Quien pega su lista de precios está pegando lo que dice el menú de la
+         * pared, no una base gravable. Interpretarlo como base subía toda la
+         * carta un 16 % en silencio en cuanto se cobraba la primera mesa.
+         */
+        precio_incluye_impuesto: true,
         disponible: true,
       });
       if (r.ok) creados += 1;

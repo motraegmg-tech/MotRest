@@ -12,6 +12,8 @@
    */
   import {
     CATEGORIAS_EGRESO,
+    CERO,
+    FORMAS_PAGO,
     cuentasCerradasEn,
     detalleCsv,
     egresosEn,
@@ -19,7 +21,9 @@
     reporteContable,
     resumenCsv,
     resumenVentas,
+    sumar,
     type CategoriaEgreso,
+    type Centavos,
   } from "@motrest/dominio";
   import { egresos } from "../../egresos.svelte";
   import { fiscal } from "../../fiscal.svelte";
@@ -89,9 +93,48 @@
    */
   const rango = $derived(local.jornadaActual);
   // Solo las cuentas CERRADAS del día: una mesa abierta todavía no es venta.
-  const ventas = $derived(resumenVentas(cuentasCerradasEn(pos.todasLasComandas, rango)));
+  const cerradasHoy = $derived(cuentasCerradasEn(pos.todasLasComandas, rango));
+  const ventas = $derived(resumenVentas(cerradasHoy));
   const resultado = $derived(egresos.resultado(ventas, rango));
   const delDia = $derived(egresos.del(rango));
+
+  /*
+   * LA VENTA DEL DÍA, CON IVA Y POR DÓNDE ENTRÓ.
+   *
+   * Arriba va la cifra CON IVA porque es la que se cobró y la que el dueño
+   * compara con el cajón y con el banco; el IVA trasladado va debajo, que es
+   * donde le sirve al contador. Mezclar las dos lecturas en un solo número es
+   * lo que hacía que la pantalla nunca cuadrara con lo que había en la caja.
+   *
+   * El desglose por forma de pago suma los PAGOS, así que incluye la propina:
+   * es dinero que entró y hay que entregarlo, y esconderlo del corte sería la
+   * forma más rápida de que el cajón nunca cuadre. Se dice en su renglón.
+   */
+  const reporteHoy = $derived(reporteContable(cerradasHoy, fiscal.registros, [], rango));
+
+  const formasEfectivo = new Set(FORMAS_PAGO.filter((f) => f.efectivo).map((f) => f.valor));
+  const formasTarjeta = new Set<string>(["tarjeta_debito", "tarjeta_credito"]);
+  const formasSocio = new Set<string>(["socio"]);
+
+  const cobrado = $derived.by(() => {
+    let efectivo = CERO;
+    let tarjeta = CERO;
+    let digitales = CERO;
+    let socios = CERO;
+    for (const r of reporteHoy.por_forma_pago) {
+      if (formasEfectivo.has(r.forma)) efectivo = sumar(efectivo, r.importe);
+      else if (formasTarjeta.has(r.forma)) tarjeta = sumar(tarjeta, r.importe);
+      else if (formasSocio.has(r.forma)) socios = sumar(socios, r.importe);
+      else digitales = sumar(digitales, r.importe);
+    }
+    return {
+      efectivo,
+      tarjeta,
+      digitales,
+      socios,
+      total: sumar(efectivo, tarjeta, digitales, socios) as Centavos,
+    };
+  });
 
   // --- Captura ---
   let abierto = $state(false);
@@ -136,6 +179,69 @@
     egresos.anular(id, motivo, sesion.usuarioActual?.id);
   }
 </script>
+
+<!--
+  LA VENTA DEL DÍA. Va en su propia tarjeta y ANTES del resultado porque es la
+  cifra que se consulta a cada rato durante el servicio, y porque no está
+  reservada a quien puede ver costos: cualquiera que entre a Finanzas tiene que
+  poder saber cuánto se ha vendido y cómo se ha cobrado.
+-->
+<section class="tarjeta">
+  <div class="cabecera-tarjeta">
+    <h2>Venta de hoy</h2>
+    <span class="cuentas">
+      {reporteHoy.cuentas}
+      {reporteHoy.cuentas === 1 ? "cuenta cobrada" : "cuentas cobradas"}
+    </span>
+  </div>
+
+  <div class="venta-total">
+    <span>Venta con IVA</span>
+    <b>{mxn(reporteHoy.total)}</b>
+  </div>
+  <div class="desglose-fiscal">
+    <div>
+      <span>Del total, IVA trasladado</span>
+      <b>{mxn(reporteHoy.iva)}</b>
+    </div>
+    {#if reporteHoy.ieps > 0}
+      <div><span>IEPS</span><b>{mxn(reporteHoy.ieps)}</b></div>
+    {/if}
+    <div>
+      <span>Base sin impuestos</span>
+      <b>{mxn(reporteHoy.subtotal)}</b>
+    </div>
+  </div>
+
+  <div class="formas">
+    <div class="forma">
+      <span>Efectivo</span>
+      <b>{mxn(cobrado.efectivo)}</b>
+    </div>
+    <div class="forma">
+      <span>Tarjeta</span>
+      <b>{mxn(cobrado.tarjeta)}</b>
+    </div>
+    <div class="forma">
+      <span>Digitales</span>
+      <b>{mxn(cobrado.digitales)}</b>
+      <small>Transferencia, vales y apps</small>
+    </div>
+    {#if cobrado.socios > 0}
+      <div class="forma">
+        <span>Socios</span>
+        <b>{mxn(cobrado.socios)}</b>
+        <small>No entró dinero: salió de su bolsa</small>
+      </div>
+    {/if}
+  </div>
+
+  <p class="nota">
+    Lo cobrado suma <b>{mxn(cobrado.total)}</b>, que es la venta más
+    <b>{mxn(reporteHoy.propinas)}</b> de propinas: entraron al cajón y a la
+    terminal, pero no son ingreso del negocio, son del personal.
+  </p>
+</section>
 
 <section class="tarjeta">
   <div class="cabecera-tarjeta">
@@ -306,6 +412,82 @@
   h2 {
     font-size: 1.05rem;
     font-weight: 650;
+  }
+
+  /* --- Venta del día --- */
+  .cuentas {
+    font-size: 0.8rem;
+    color: var(--gris);
+  }
+  .venta-total {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 1rem;
+  }
+  .venta-total span {
+    font-size: 0.9rem;
+    color: var(--gris);
+  }
+  .venta-total b {
+    font-family: var(--font-titulo);
+    font-size: 1.9rem;
+    font-weight: 700;
+    color: var(--acento);
+    font-variant-numeric: tabular-nums;
+  }
+  /* El desglose fiscal va DEBAJO y en pequeño: el número que se mira es el de
+     arriba, este se consulta al cerrar el mes. */
+  .desglose-fiscal {
+    margin-top: 0.35rem;
+    padding-bottom: 0.75rem;
+    border-bottom: 1px solid var(--borde);
+    display: flex;
+    flex-direction: column;
+    gap: 0.2rem;
+  }
+  .desglose-fiscal div {
+    display: flex;
+    justify-content: space-between;
+    gap: 1rem;
+    font-size: 0.84rem;
+    color: var(--gris);
+  }
+  .desglose-fiscal b {
+    color: var(--pizarra);
+    font-variant-numeric: tabular-nums;
+  }
+  .formas {
+    margin-top: 0.85rem;
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr));
+    gap: 0.6rem;
+  }
+  .forma {
+    border: 1px solid var(--borde);
+    border-radius: var(--r-md, 10px);
+    padding: 0.6rem 0.7rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.1rem;
+  }
+  .forma span {
+    font-size: 0.74rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--gris);
+  }
+  .forma b {
+    font-family: var(--font-titulo);
+    font-size: 1.15rem;
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+  }
+  .forma small {
+    font-size: 0.7rem;
+    color: var(--gris);
+    line-height: 1.35;
   }
 
   .cifras {

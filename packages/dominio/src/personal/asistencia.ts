@@ -219,6 +219,31 @@ export function resumenAsistencia(
   };
 }
 
+/**
+ * Los días de la semana en los que esta persona llegó a trabajar.
+ *
+ * Es lo que convierte el checador en prenómina cuando el local paga por día: sin
+ * esto, un sueldo diario no se puede descontar porque no hay forma de distinguir
+ * una falta de un día que sencillamente no estaba programado.
+ *
+ * Se mira el día de la ENTRADA, no el de la salida: un turno que cruza la
+ * medianoche —el cierre de un viernes— pertenece al viernes, que es el día que
+ * esa persona vino a trabajar y el día que se le paga.
+ */
+export function diasConTurno(
+  eventos: readonly EventoAsistencia[],
+  trabajadorId: ID,
+  ahora: number,
+): number[] {
+  const turnos = turnosDe(checadasDe(eventos, trabajadorId), ahora);
+  const dias = new Set<number>();
+  for (const turno of turnos) {
+    // Un turno abierto cuenta: esa persona está aquí ahora mismo.
+    if (turno.minutos > 0 || turno.abierto) dias.add(new Date(turno.entrada).getDay());
+  }
+  return [...dias];
+}
+
 /** Formatea minutos como "7 h 35 min", que es como se lee una jornada. */
 export function formatearJornada(minutos: number): string {
   if (minutos < 60) return `${minutos} min`;

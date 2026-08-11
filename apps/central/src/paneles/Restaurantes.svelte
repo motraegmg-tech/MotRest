@@ -9,33 +9,47 @@
   import { central, type CredencialesResponsableIniciales } from "../lib/central.svelte";
   import { desde, dinero, fecha, plazo } from "../lib/formato";
   import Alta from "./Alta.svelte";
+  import EditarLocal from "./EditarLocal.svelte";
+  import Cobros from "./Cobros.svelte";
 
   // `let` y no `const`: es un prop enlazado y esta pantalla lo reasigna al
   // elegir un local o al terminar un alta.
   let { seleccionado = $bindable("") }: { seleccionado?: string } = $props();
 
   let dandoAlta = $state(false);
+  let editando = $state(false);
+  let confirmandoCorte = $state(false);
   let aviso = $state("");
   let licenciaGenerada = $state("");
   let accesoResponsable = $state<{ nombre: string; pin: string } | null>(null);
-  let cargandoPulsos = $state(false);
 
   async function traerPulsos() {
-    cargandoPulsos = true;
     aviso = "";
     const resultado = await central.traerPulsos();
-    cargandoPulsos = false;
-    if (!resultado.ok) {
-      aviso = resultado.error;
-    } else {
-      aviso = `Se actualizó el estado de ${resultado.total} locales.`;
-    }
+    aviso = resultado.ok
+      ? `Se actualizó el estado de ${resultado.total} locales.`
+      : resultado.error;
   }
 
   const cliente = $derived(central.clientes.find((c) => c.id === seleccionado) ?? null);
   const situacion = $derived(cliente ? central.situacionDe(cliente) : null);
   const salud = $derived(cliente ? central.saludDe(cliente) : null);
   const pulso = $derived(cliente ? central.pulsoDe(cliente.id) : null);
+
+  /**
+   * El equipo del local, con lo conectado primero.
+   *
+   * Se ordena por «visto» y no por nombre a propósito: lo que se busca en esta
+   * lista es la tableta que dejó de aparecer, y esa está siempre al final.
+   */
+  const dispositivos = $derived(
+    [...(pulso?.dispositivos ?? [])].sort((a, b) => b.visto_ts - a.visto_ts),
+  );
+  const sinAutorizar = $derived(dispositivos.filter((d) => !d.aprobado).length);
+
+  const historia = $derived(cliente ? central.historiaDe(cliente.id) : null);
+  /* La más reciente primero: lo que se discute es siempre la última o la anterior. */
+  const emisiones = $derived([...(cliente?.emisiones ?? [])].sort((a, b) => b.ts - a.ts));
 
   const ETIQUETA_COBRO: Record<string, string> = {
     al_corriente: "Al corriente",
@@ -73,6 +87,27 @@
     void navigator.clipboard?.writeText(accesoResponsable.pin);
   }
 
+  /**
+   * Cortar el servicio ahora, sin esperar a que la licencia venza sola.
+   *
+   * NO ES UN INTERRUPTOR REMOTO y no se puede presentar como tal: lo que se
+   * genera es una licencia con bloqueo inmediato que hay que pegar en el local,
+   * igual que cualquier otra. Lo que cambia es que antes esto no se podía ni
+   * pedir, así que cortarle a alguien significaba esperar semanas.
+   */
+  async function cortarServicio() {
+    if (!cliente) return;
+    confirmandoCorte = false;
+    aviso = "";
+    const r = await central.cortarServicio(cliente.id);
+    if (!r.ok) {
+      aviso = r.error ?? "No se pudo emitir el corte";
+      return;
+    }
+    licenciaGenerada = JSON.stringify(r.licencia, null, 2);
+    aviso = "Licencia de corte emitida. Al pegarla en el local, el servicio queda suspendido.";
+  }
+
   function mostrarAccesoResponsable(id: string, credenciales: CredencialesResponsableIniciales) {
     const nuevo = central.clientes.find((c) => c.id === id);
     accesoResponsable = {
@@ -90,16 +125,33 @@
         {#if central.puedeConsultarRelay}
           <button
             class="secundario"
-            disabled={cargandoPulsos}
+            disabled={central.consultandoPulsos}
             onclick={traerPulsos}
-            title="Traer estado de los locales"
+            title="Traer ahora el estado de los locales"
           >
-            {cargandoPulsos ? "⏳" : "🔄"}
+            {central.consultandoPulsos ? "⏳" : "🔄"}
           </button>
         {/if}
         <button class="nuevo" onclick={() => (dandoAlta = true)}>+ Alta</button>
       </div>
     </div>
+
+    <!--
+      Se dice CUÁNDO se supo, no solo qué se sabe. Una versión instalada sin
+      fecha al lado se lee como si fuera de ahora mismo, y podría ser de antes de
+      la última publicación — que es justo cuando se mira.
+    -->
+    {#if central.puedeConsultarRelay}
+      <p class="sondeo" class:mal={central.errorPulsos !== ""}>
+        {#if central.errorPulsos}
+          Sin contacto con el relay: {central.errorPulsos}
+        {:else if central.ultimaConsultaPulsos}
+          Estado al día · consultado {desde(central.ultimaConsultaPulsos, central.ahora)}
+        {:else}
+          Consultando el relay…
+        {/if}
+      </p>
+    {/if}
 
     {#if central.clientes.length === 0}
       <p class="ninguno">Todavía no hay ninguno.</p>
@@ -136,11 +188,14 @@
           <h2>{cliente.nombre}</h2>
           <code>{cliente.id}</code>
         </div>
-        {#if cliente.activo}
-          <button class="renovar" onclick={renovar}>
-            {cliente.licencia ? "Renovar licencia" : "Emitir licencia"}
-          </button>
-        {/if}
+        <div class="acciones-ficha">
+          <button class="editar" onclick={() => (editando = true)}>Editar datos</button>
+          {#if cliente.activo}
+            <button class="renovar" onclick={renovar}>
+              {cliente.licencia ? "Renovar licencia" : "Emitir licencia"}
+            </button>
+          {/if}
+        </div>
       </header>
 
       {#if !cliente.activo}
@@ -182,14 +237,34 @@
         <div>
           <span>Responsable</span>
           <b>{cliente.responsable?.nombre || cliente.contacto || "—"}</b>
-          <em>{cliente.telefono ?? cliente.correo ?? ""}</em>
+          <em>
+            {cliente.telefono || cliente.correo || "Sin teléfono ni correo"}
+            {#if cliente.telefono && cliente.correo}<br />{cliente.correo}{/if}
+          </em>
         </div>
         <div>
           <span>Versión instalada</span>
           <b>{pulso?.version ?? "—"}</b>
           <em>{pulso ? `Reportó ${desde(pulso.ts, central.ahora)}` : "Nunca ha reportado"}</em>
         </div>
+        <div>
+          <span>Equipo conectado</span>
+          <b>
+            {pulso?.terminales ?? "—"}{#if dispositivos.length > 0}<i>/{dispositivos.length}</i>{/if}
+          </b>
+          <em>
+            {#if dispositivos.length > 0}
+              conectadas ahora de {dispositivos.length} dadas de alta
+            {:else}
+              terminales conectadas
+            {/if}
+          </em>
+        </div>
       </div>
+
+      {#if cliente.notas}
+        <p class="notas">{cliente.notas}</p>
+      {/if}
 
       <h3>Estado de la instalación</h3>
       {#if salud?.estado === "bien"}
@@ -202,32 +277,151 @@
         </ul>
       {/if}
 
+      <!--
+        «¿Desde cuándo va mal?» es la pregunta que llega por teléfono, y con un
+        solo estado guardado la única respuesta posible era «no sé».
+      -->
+      {#if historia && historia.partes > 0}
+        <div class="historia">
+          <span>
+            {historia.partes}
+            {historia.partes === 1 ? "parte recibido" : "partes recibidos"} ·
+            reporta el <b>{historia.fiabilidad_pct} %</b> de los días
+          </span>
+          {#if historia.callado_desde_ts}
+            <span class="mal">Callado desde el {fecha(historia.callado_desde_ts)}</span>
+          {/if}
+          {#if historia.versiones.length > 1}
+            <span>
+              Subió a {historia.versiones[0]!.version} el
+              {fecha(historia.versiones[0]!.desde_ts)}
+            </span>
+          {/if}
+        </div>
+      {/if}
+
       {#if pulso}
         <div class="pulso">
           {#if pulso.ventas_dia !== undefined}
             <span>Último día: <b>{dinero(pulso.ventas_dia)}</b> · {pulso.cuentas_dia ?? 0} cuentas</span>
           {/if}
-          {#if pulso.terminales !== undefined}
-            <span>{pulso.terminales} terminales</span>
-          {/if}
           {#if pulso.respaldo_ts}
             <span>Respaldo {desde(pulso.respaldo_ts, central.ahora)}</span>
+          {/if}
+          {#if pulso.eventos !== undefined}
+            <span>{pulso.eventos.toLocaleString("es-MX")} eventos</span>
           {/if}
         </div>
       {/if}
 
-      {#if cliente.activo}
-        <button class="dar-baja" onclick={() => central.baja(cliente.id)}>
-          Dar de baja
-        </button>
-      {:else}
-        <button class="dar-baja" onclick={() => central.actualizar(cliente.id, { activo: true })}>
-          Reactivar
-        </button>
+      {#if dispositivos.length > 0}
+        <h3>Su equipo</h3>
+        <!--
+          Emparejadas, no conectadas. Una tableta que lleva semanas sin aparecer
+          sigue estando en esta lista, y ese es el punto: es la que hay que
+          preguntar por teléfono, no la que se ve funcionando.
+        -->
+        <ul class="equipo">
+          {#each dispositivos as d (d.device_id)}
+            <li>
+              <span class="nombre-equipo">{d.nombre || "Terminal sin nombre"}</span>
+              <code>{d.device_id}</code>
+              {#if !d.aprobado}
+                <span class="sin-aprobar">Sin autorizar</span>
+              {/if}
+              <span class="visto">{d.visto_ts ? desde(d.visto_ts, central.ahora) : "nunca"}</span>
+            </li>
+          {/each}
+        </ul>
+        {#if sinAutorizar > 0}
+          <p class="nota-equipo">
+            {sinAutorizar === 1
+              ? "Una terminal se presentó y el restaurante nunca la autorizó."
+              : `${sinAutorizar} terminales se presentaron y el restaurante nunca las autorizó.`}
+            Se autorizan desde el local, en <b>Administración → Terminales</b>.
+          </p>
+        {/if}
       {/if}
+
+      {#if pulso?.hub_id || pulso?.plataforma || pulso?.arranque_automatico !== undefined}
+        <h3>Su Hub</h3>
+        <div class="hub">
+          {#if pulso.hub_id}
+            <span>Hub <code>{pulso.hub_id}</code></span>
+          {/if}
+          {#if pulso.plataforma}
+            <span>{pulso.plataforma}</span>
+          {/if}
+          {#if pulso.arranque_automatico !== undefined}
+            <span class:mal={!pulso.arranque_automatico}>
+              {pulso.arranque_automatico
+                ? "Arranca solo al encender"
+                : "NO arranca solo: el local abre a mano"}
+            </span>
+          {/if}
+        </div>
+      {/if}
+
+      <Cobros {cliente} />
+
+      {#if emisiones.length > 0}
+        <h3>Licencias emitidas</h3>
+        <!--
+          `cliente.licencia` guarda solo la última, que es justo la que borra la
+          respuesta cuando alguien discute qué se le emitió y cuándo.
+        -->
+        <ul class="emisiones">
+          {#each emisiones as e (e.ts)}
+            <li>
+              <span class="cuando">{fecha(e.ts)}</span>
+              <span>{e.plan} · {dinero(e.cuota)}</span>
+              <span class="hasta">
+                {e.bloqueo_inmediato ? "Corte de servicio" : `Vigente hasta ${fecha(e.vence_ts)}`}
+              </span>
+            </li>
+          {/each}
+        </ul>
+      {/if}
+
+      <div class="pie-ficha">
+        {#if cliente.activo}
+          <button class="dar-baja" onclick={() => central.baja(cliente.id)}>
+            Dar de baja
+          </button>
+          {#if cliente.licencia}
+            <button class="cortar" onclick={() => (confirmandoCorte = true)}>
+              Cortar el servicio ahora
+            </button>
+          {/if}
+        {:else}
+          <button class="dar-baja" onclick={() => central.actualizar(cliente.id, { activo: true })}>
+            Reactivar
+          </button>
+        {/if}
+      </div>
     {/if}
   </div>
 </main>
+
+{#if confirmandoCorte && cliente}
+  <div class="modal-fondo" role="presentation">
+    <div class="modal-acceso" role="alertdialog" aria-modal="true" aria-labelledby="corte-titulo">
+      <h2 id="corte-titulo">Cortar el servicio de {cliente.nombre}</h2>
+      <p>
+        Se emitirá una licencia con <b>bloqueo inmediato</b>. En cuanto se pegue en
+        el local, MotRest deja de operar ahí: no podrán cobrar ni abrir cuentas.
+      </p>
+      <p class="aviso-pin">
+        No es un interruptor remoto. Mientras no se pegue el archivo en el
+        restaurante, el sistema sigue funcionando con la licencia que ya tiene.
+      </p>
+      <div class="botones-modal">
+        <button onclick={() => (confirmandoCorte = false)}>Cancelar</button>
+        <button class="cortar" onclick={cortarServicio}>Sí, emitir el corte</button>
+      </div>
+    </div>
+  </div>
+{/if}
 
 {#if dandoAlta}
   <Alta
@@ -236,6 +430,17 @@
       seleccionado = id;
       dandoAlta = false;
       mostrarAccesoResponsable(id, credenciales);
+    }}
+  />
+{/if}
+
+{#if editando && cliente}
+  <EditarLocal
+    {cliente}
+    onCerrar={() => (editando = false)}
+    onGuardado={(avisos) => {
+      editando = false;
+      aviso = ["Datos guardados.", ...avisos].join(" ");
     }}
   />
 {/if}
@@ -320,6 +525,15 @@
   .ninguno {
     font-size: 0.82rem;
     color: var(--gris);
+  }
+  .sondeo {
+    margin: -0.4rem 0 0.7rem;
+    font-size: 0.72rem;
+    line-height: 1.45;
+    color: var(--gris);
+  }
+  .sondeo.mal {
+    color: var(--peligro);
   }
   .fila {
     display: flex;
@@ -409,6 +623,12 @@
     font-size: 0.76rem;
     color: var(--gris);
   }
+  .acciones-ficha {
+    flex: none;
+    display: flex;
+    gap: 0.5rem;
+    align-items: center;
+  }
   .renovar {
     flex: none;
     font: inherit;
@@ -420,6 +640,22 @@
     background: var(--acento);
     color: var(--blanco);
     cursor: pointer;
+  }
+  .editar {
+    flex: none;
+    font: inherit;
+    font-size: 0.85rem;
+    font-weight: 600;
+    padding: 0.6rem 1rem;
+    border: 1px solid var(--borde);
+    border-radius: var(--r-sm);
+    background: var(--blanco);
+    color: var(--pizarra);
+    cursor: pointer;
+  }
+  .editar:hover {
+    border-color: var(--acento);
+    color: var(--acento);
   }
   .baja,
   .aviso {
@@ -491,7 +727,85 @@
   .datos em {
     font-style: normal;
     font-size: 0.75rem;
+    line-height: 1.5;
     color: var(--gris);
+  }
+  /* «3/7»: el total va más discreto para que se lea primero lo conectado. */
+  .datos b i {
+    font-style: normal;
+    font-size: 0.8rem;
+    color: var(--gris);
+  }
+  .notas {
+    margin: 0.7rem 0 0;
+    padding: 0.6rem 0.8rem;
+    border-left: 3px solid var(--borde);
+    font-size: 0.83rem;
+    line-height: 1.55;
+    white-space: pre-wrap;
+    color: var(--gris);
+  }
+  .equipo {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0.3rem;
+  }
+  .equipo li {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    padding: 0.5rem 0.7rem;
+    background: var(--blanco);
+    border: 1px solid var(--borde);
+    border-radius: var(--r-sm);
+    font-size: 0.83rem;
+  }
+  .nombre-equipo {
+    font-weight: 600;
+    color: var(--pizarra);
+  }
+  .equipo code {
+    font-size: 0.72rem;
+    color: var(--gris);
+  }
+  .sin-aprobar {
+    font-size: 0.68rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    padding: 0.15rem 0.45rem;
+    border-radius: var(--r-pill);
+    background: var(--acento-2);
+    color: var(--negro);
+  }
+  .visto {
+    margin-left: auto;
+    font-size: 0.76rem;
+    color: var(--gris);
+  }
+  .nota-equipo {
+    margin: 0.6rem 0 0;
+    font-size: 0.79rem;
+    line-height: 1.55;
+    color: var(--gris);
+  }
+  .hub {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 1.1rem;
+    font-size: 0.82rem;
+    color: var(--gris);
+  }
+  .hub code {
+    font-size: 0.8rem;
+    color: var(--pizarra);
+  }
+  .hub .mal {
+    color: var(--peligro);
+    font-weight: 600;
   }
   h3 {
     font-size: 0.78rem;
@@ -521,8 +835,56 @@
     font-size: 0.8rem;
     color: var(--gris);
   }
-  .dar-baja {
+  .historia {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 1.1rem;
+    margin-top: 0.7rem;
+    font-size: 0.8rem;
+    color: var(--gris);
+  }
+  .historia b {
+    color: var(--pizarra);
+  }
+  .historia .mal {
+    color: var(--peligro);
+    font-weight: 600;
+  }
+  .emisiones {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+  }
+  .emisiones li {
+    display: flex;
+    align-items: center;
+    gap: 0.8rem;
+    padding: 0.4rem 0.7rem;
+    background: var(--blanco);
+    border: 1px solid var(--borde);
+    border-radius: var(--r-sm);
+    font-size: 0.8rem;
+    color: var(--pizarra);
+  }
+  .emisiones .cuando {
+    font-weight: 600;
+    min-width: 6.5rem;
+  }
+  .emisiones .hasta {
+    margin-left: auto;
+    color: var(--gris);
+  }
+  .pie-ficha {
+    display: flex;
+    gap: 0.6rem;
+    flex-wrap: wrap;
     margin-top: 2rem;
+  }
+  .dar-baja,
+  .cortar {
     font: inherit;
     font-size: 0.8rem;
     border: 1px solid var(--borde);
@@ -532,9 +894,36 @@
     color: var(--gris);
     cursor: pointer;
   }
-  .dar-baja:hover {
+  .dar-baja:hover,
+  .cortar:hover {
     border-color: var(--peligro);
     color: var(--peligro);
+  }
+  .cortar {
+    border-color: var(--peligro);
+    color: var(--peligro);
+    font-weight: 600;
+  }
+  .cortar:hover {
+    background: var(--peligro);
+    color: var(--blanco);
+  }
+  .botones-modal {
+    display: flex;
+    justify-content: flex-end;
+    gap: 0.5rem;
+    margin-top: 1.1rem;
+  }
+  .botones-modal button {
+    font: inherit;
+    font-size: 0.84rem;
+    font-weight: 600;
+    padding: 0.5rem 1rem;
+    border: 1px solid var(--borde);
+    border-radius: var(--r-sm);
+    background: var(--blanco);
+    color: var(--pizarra);
+    cursor: pointer;
   }
   .modal-fondo {
     position: fixed;

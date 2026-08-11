@@ -17,7 +17,7 @@
  */
 import { CERO, type Centavos } from "../comun/dinero.js";
 import type { ID } from "../comun/ids.js";
-import { uuidv7 } from "../comun/ids.js";
+import { idCorto, idCortoLibre } from "../comun/ids.js";
 import type { PerfilImpuesto } from "../comun/impuestos.js";
 import type { EstacionKds } from "../cocina/estaciones.js";
 import type { Insumo, Unidad } from "../inventario/insumos.js";
@@ -59,6 +59,14 @@ export interface BorradorProducto {
   costo: Centavos;
   precio: Centavos;
   impuesto_id: ID;
+  /**
+   * true = `precio` es lo que paga el comensal, con el impuesto dentro.
+   *
+   * Es lo que captura hoy el formulario: el restaurantero teclea la cifra
+   * cerrada de su carta y el desglose lo hace el software. Ver
+   * `Producto.precio_incluye_impuesto` para por qué esto vive en el producto.
+   */
+  precio_incluye_impuesto?: boolean;
   estacion_id?: ID;
   disponible: boolean;
   clave_prod_serv?: string;
@@ -207,14 +215,51 @@ function siguienteOrden(menu: MenuLocal, categoriaId: ID): number {
   return ordenes.length > 0 ? Math.max(...ordenes) + 1 : 1;
 }
 
+/**
+ * Devuelve el menú con un id propio para cada platillo, y cuántos hubo que
+ * reparar.
+ *
+ * Los ids del catálogo se recortaban a 8 caracteres del UUIDv7, que son solo la
+ * parte alta del milisegundo: todas las altas de un mismo minuto salían con el
+ * MISMO id (ver `idCorto`). Como el catálogo se indexa en un Map por id, el
+ * segundo platillo pisaba al primero — seguía guardado en el archivo, y contado
+ * en el resumen, pero no aparecía en la carta ni se podía buscar ni editar.
+ *
+ * La PRIMERA aparición conserva su id: las cuentas levantadas y los tickets ya
+ * emitidos apuntan a él y no deben cambiar de significado. Las siguientes, que
+ * hoy son inalcanzables y por tanto no las referencia nadie, reciben uno nuevo.
+ */
+export function sanearIdsDeProductos(menu: MenuLocal): {
+  menu: MenuLocal;
+  reparados: number;
+} {
+  const usados = new Set<ID>();
+  let reparados = 0;
+
+  const productos = menu.productos.map((p) => {
+    if (!usados.has(p.id)) {
+      usados.add(p.id);
+      return p;
+    }
+    const id = idCortoLibre("prod", usados);
+    usados.add(id);
+    reparados += 1;
+    return { ...p, id };
+  });
+
+  if (reparados === 0) return { menu, reparados: 0 };
+  return { menu: conVersion(menu, { productos }), reparados };
+}
+
 export function agregarProducto(menu: MenuLocal, borrador: BorradorProducto): MenuLocal {
   const nuevo: Producto = {
-    id: `prod-${uuidv7().slice(0, 8)}`,
+    id: idCortoLibre("prod", new Set(menu.productos.map((p) => p.id))),
     nombre: borrador.nombre.trim(),
     categoria_id: borrador.categoria_id,
     costo: borrador.costo,
     precio: borrador.precio,
     impuesto_id: borrador.impuesto_id,
+    ...(borrador.precio_incluye_impuesto ? { precio_incluye_impuesto: true } : {}),
     disponible: borrador.disponible,
     orden: siguienteOrden(menu, borrador.categoria_id),
     ...(borrador.estacion_id ? { estacion_id: borrador.estacion_id } : {}),
@@ -240,6 +285,10 @@ export function editarProducto(
             costo: borrador.costo,
             precio: borrador.precio,
             impuesto_id: borrador.impuesto_id,
+            // Va explícito en los dos sentidos: si el formulario deja de marcar
+            // que el precio incluye impuesto, el producto tiene que volver a
+            // interpretarse como base, no quedarse con la bandera anterior.
+            precio_incluye_impuesto: borrador.precio_incluye_impuesto ? true : undefined,
             disponible: borrador.disponible,
             // Un campo que se vacía debe DESAPARECER, no quedarse con el valor
             // anterior: quitarle la estación a un platillo tiene que sacarlo del
@@ -305,7 +354,7 @@ export function validarCategoria(
 
 export function agregarCategoria(menu: MenuLocal, nombre: string): MenuLocal {
   const nueva: Categoria = {
-    id: `cat-${uuidv7().slice(0, 8)}`,
+    id: idCorto("cat"),
     nombre: nombre.trim(),
     orden: menu.categorias.length + 1,
   };
@@ -368,7 +417,7 @@ export function guardarReceta(menu: MenuLocal, productoId: ID, receta: Receta): 
 /** Receta vacía lista para llenarse, ya enlazada al nombre del producto. */
 export function recetaNueva(nombreProducto: string): Receta {
   return {
-    id: `rec-${uuidv7().slice(0, 8)}`,
+    id: idCorto("rec"),
     nombre: nombreProducto,
     ingredientes: [],
   };
@@ -376,7 +425,7 @@ export function recetaNueva(nombreProducto: string): Receta {
 
 /** Ingrediente en blanco, con costo cero hasta que se capture. */
 export function ingredienteNuevo(): Receta["ingredientes"][number] {
-  return { id: `ing-${uuidv7().slice(0, 8)}`, nombre: "", costo: CERO };
+  return { id: idCorto("ing"), nombre: "", costo: CERO };
 }
 
 // --- Insumos del almacén -------------------------------------------------------------
@@ -423,7 +472,7 @@ export function validarInsumo(
 
 export function agregarInsumo(menu: MenuLocal, borrador: BorradorInsumo): MenuLocal {
   const nuevo: Insumo = {
-    id: `ins-${uuidv7().slice(0, 8)}`,
+    id: idCorto("ins"),
     nombre: borrador.nombre.trim(),
     unidad_base: borrador.unidad_base,
     costo_unitario: borrador.costo_unitario,
@@ -514,7 +563,7 @@ export function validarEstacion(
 
 export function agregarEstacion(menu: MenuLocal, borrador: BorradorEstacion): MenuLocal {
   const nueva: EstacionKds = {
-    id: `est-${uuidv7().slice(0, 8)}`,
+    id: idCorto("est"),
     nombre: borrador.nombre.trim(),
     orden: menu.estaciones.length + 1,
     minutos_objetivo: Math.round(borrador.minutos_objetivo),

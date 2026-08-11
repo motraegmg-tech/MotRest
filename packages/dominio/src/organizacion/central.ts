@@ -1,7 +1,7 @@
 /**
  * La cartera de MOTRAE: todos los restaurantes que usan MotRest (F4).
  *
- * Esto NO vive en el software del restaurante. Vive en **MOTRAE Central**, la
+ * Esto NO vive en el software del restaurante. Vive en **MotRest Central**, la
  * aplicación de Gonzalo, y es la vista del negocio del proveedor: quién paga,
  * quién no, quién tiene un problema y quién está a punto de tenerlo.
  *
@@ -32,6 +32,72 @@ import {
   type Plan,
 } from "./licencia.js";
 
+export type MetodoDePago = "transferencia" | "efectivo" | "tarjeta" | "otro";
+
+/**
+ * Un cobro que YA entró.
+ *
+ * Emitir una licencia y cobrarla son dos cosas distintas, y confundirlas es el
+ * error más caro que puede cometer este panel. Antes, la única huella de un
+ * cobro era el vencimiento de la licencia: si Gonzalo renovaba de confianza
+ * mientras el restaurantero pagaba «la semana que entra», Central lo enseñaba
+ * como al corriente y ese dinero no lo reclamaba nadie nunca.
+ */
+export interface PagoCliente {
+  id: ID;
+  ts: number;
+  monto: Centavos;
+  metodo: MetodoDePago;
+  /** Hasta cuándo dejó cubierto al local, si el cobro fue de suscripción. */
+  cubre_hasta_ts?: number;
+  /** Si es la parte variable, de qué resultado salió. */
+  resultado_id?: ID;
+  nota?: string;
+}
+
+/**
+ * Un ahorro medido en el restaurante y la parte que MOTRAE cobra por él.
+ *
+ * ES EL MODELO COMERCIAL DE MOTRAE, no un extra: suscripción por local **más
+ * cobro por resultado**. Sin un sitio donde anotar el ahorro verificado, la
+ * parte variable no se factura, y lo que queda es cobrar por licencia a secas
+ * —justo lo que el principio de la empresa dice que no se hace—.
+ *
+ * `verificado` separa lo medido de lo estimado. Solo se cobra lo verificado: un
+ * ahorro que el restaurantero no reconoce no es un ahorro, es una discusión.
+ */
+export interface ResultadoVerificado {
+  id: ID;
+  ts: number;
+  /** Qué se midió. "Merma de masa: 12 % → 4 %". */
+  concepto: string;
+  /** Lo que el restaurante dejó de perder en el periodo medido. */
+  ahorro: Centavos;
+  /** Qué porcentaje de ese ahorro cobra MOTRAE. */
+  comision_pct: number;
+  /** false = todavía es una estimación y no se puede cobrar. */
+  verificado: boolean;
+  /** true = ya se emitió el cobro de su comisión. */
+  cobrado: boolean;
+}
+
+/**
+ * Una licencia que se firmó para este local, en su momento.
+ *
+ * `cliente.licencia` guarda solo la última. Cuando un restaurantero discute qué
+ * se le emitió y cuándo —o cuando hay que reconstruir por qué un local quedó
+ * bloqueado un viernes—, la última no contesta nada.
+ */
+export interface EmisionLicencia {
+  ts: number;
+  plan: Plan;
+  vence_ts: number;
+  /** La cuota vigente al emitir: lo que había que cobrar por esa renovación. */
+  cuota: Centavos;
+  /** true = se emitió para cortar el servicio de inmediato. */
+  bloqueo_inmediato?: boolean;
+}
+
 /** Un restaurante cliente de MotRest. */
 export interface ClienteMotRest {
   /** Es el `sucursal_id` del local. Uno por caja instalada. */
@@ -49,10 +115,40 @@ export interface ClienteMotRest {
   alta_ts: number;
   /** La última licencia emitida para este local. */
   licencia: Licencia | null;
+  /** Todas las que se le han emitido, la más reciente al final. */
+  emisiones?: EmisionLicencia[];
+  /** Lo que ha pagado de verdad. */
+  pagos?: PagoCliente[];
+  /** Ahorros medidos y su comisión. */
+  resultados?: ResultadoVerificado[];
   /** false = se dio de baja. Deja de contar para todo. */
   activo: boolean;
   /** Notas de MOTRAE. Nunca las ve el restaurante. */
   notas?: string;
+}
+
+/**
+ * Una terminal del local tal como la reportó su Hub.
+ *
+ * Es el inventario del **equipo** que corre MotRest, no de quién lo usa: no
+ * lleva empleados, ni turnos, ni nada de la operación. Contesta lo que hoy se
+ * pregunta por teléfono en cada soporte —«¿cuántas tabletas tienes?», «¿la caja
+ * de la barra está sincronizando?»— sin tener que ir al restaurante.
+ *
+ * No confundir con `TerminalDelLocal` (failover): aquélla es el censo que las
+ * terminales usan entre ellas para elegir quién hace de Hub, y vive dentro del
+ * restaurante. Ésta es lo que sale del restaurante hacia MOTRAE, y por eso trae
+ * menos: ni papel, ni prioridad, ni nada con lo que se pueda mandar en el local.
+ */
+export interface TerminalReportada {
+  /** Recortado. Sirve para reconocerla en un soporte, no para señalarla. */
+  device_id: string;
+  /** El nombre que le puso el restaurante. Vacío si nunca se lo pusieron. */
+  nombre?: string;
+  /** false = se presentó pero el restaurante nunca la autorizó. */
+  aprobado: boolean;
+  /** Última vez que sincronizó con el Hub. */
+  visto_ts: number;
 }
 
 /**
@@ -61,6 +157,11 @@ export interface ClienteMotRest {
  * Va por el relay, que es la única pieza de MOTRAE conectada a internet. Si el
  * relay se cae, los restaurantes siguen operando y Central deja de ver — que es
  * el reparto correcto del riesgo.
+ *
+ * TODO ES OPCIONAL MENOS LA VERSIÓN Y LA HORA. Un Hub viejo no manda los campos
+ * que se añadieron después, y tiene que seguir contando que está vivo: si
+ * Central exigiera el parte completo, la primera consecuencia de ampliarlo sería
+ * que los locales que aún no se actualizan aparecieran como caídos.
  */
 export interface PulsoCliente {
   sucursal_id: ID;
@@ -70,8 +171,21 @@ export interface PulsoCliente {
   /** Cifras gruesas del último día cerrado. Para detectar averías. */
   ventas_dia?: Centavos;
   cuentas_dia?: number;
-  /** Cuántas terminales están emparejadas. */
+  /** Cuántas terminales están conectadas EN ESTE MOMENTO. */
   terminales?: number;
+  /**
+   * El inventario de terminales del local, conectadas o no.
+   *
+   * No es lo mismo que `terminales`, y la diferencia es justo lo que se quiere
+   * ver: seis emparejadas y una conectada un viernes a las nueve de la noche es
+   * un local con cinco tabletas apagadas o rotas.
+   */
+  dispositivos?: TerminalReportada[];
+  /** Qué Hub manda el parte y sobre qué corre. Para el soporte. */
+  hub_id?: string;
+  plataforma?: string;
+  /** ¿El Hub arranca solo al encender el equipo? Si no, el local abre a mano. */
+  arranque_automatico?: boolean;
   /** Cuándo fue el último respaldo. Un respaldo viejo es una bomba de tiempo. */
   respaldo_ts?: number;
   /** Cuántos eventos lleva el log (ADR-21 avisa a los 400 000). */
@@ -213,6 +327,17 @@ export interface ResumenCartera {
   locales: number;
   /** Lo que entra al mes si todos pagan. */
   ingreso_mensual: Centavos;
+  /**
+   * Lo que se cobró de verdad en los últimos 30 días.
+   *
+   * Va al lado del anterior a propósito, y la distancia entre los dos es el
+   * único número honesto del panel: `ingreso_mensual` es una promesa, éste es
+   * dinero. Un panel que solo enseña la promesa hace sentir un negocio que no
+   * está pasando.
+   */
+  cobrado_mes: Centavos;
+  /** Comisiones por resultado verificadas y todavía sin cobrar. */
+  por_cobrar_resultados: Centavos;
   al_corriente: number;
   por_cobrar: number;
   vencidos: number;
@@ -222,6 +347,9 @@ export interface ResumenCartera {
   /** Versiones distintas instaladas. Muchas = despliegue disperso. */
   versiones: { version: string; locales: number }[];
 }
+
+/** Treinta días, no «el mes natural»: lo que se compara es siempre lo mismo. */
+export const DIAS_DE_COBRO_RECIENTE = 30;
 
 /**
  * El resumen de arriba del panel.
@@ -273,6 +401,21 @@ export function resumenDeCartera(
   return {
     locales: activos.length,
     ingreso_mensual: ingreso,
+    /*
+     * Sin tope por arriba, y no es descuido.
+     *
+     * `ahora` es el reloj que el panel refresca cada minuto, no el instante
+     * exacto. Cerrar la ventana ahí dejaba fuera el cobro que se acaba de anotar
+     * —el que uno está mirando— hasta el siguiente tic, y un panel que tarda un
+     * minuto en reconocer un pago parece roto. Un pago no puede ser del futuro:
+     * se registra cuando entra.
+     */
+    cobrado_mes: cobradoEnPeriodo(
+      clientes,
+      ahora - DIAS_DE_COBRO_RECIENTE * 86_400_000,
+      Number.POSITIVE_INFINITY,
+    ),
+    por_cobrar_resultados: comisionesPendientes(clientes),
     al_corriente,
     por_cobrar,
     vencidos,
@@ -282,6 +425,107 @@ export function resumenDeCartera(
       .map(([version, locales]) => ({ version, locales }))
       .sort((a, b) => b.locales - a.locales),
   };
+}
+
+// --- El dinero que entró de verdad -----------------------------------------------------------
+
+/**
+ * Lo cobrado entre dos fechas, en toda la cartera.
+ *
+ * Cuenta también los locales dados de baja: el dinero que pagó un cliente que
+ * después se fue entró igual, y borrarlo del histórico haría que un mes cerrado
+ * cambiara de cifra el día que alguien se da de baja.
+ */
+export function cobradoEnPeriodo(
+  clientes: readonly ClienteMotRest[],
+  desde: number,
+  hasta: number,
+): Centavos {
+  let total: Centavos = CERO;
+  for (const cliente of clientes) {
+    for (const pago of cliente.pagos ?? []) {
+      if (pago.ts >= desde && pago.ts <= hasta) total = sumar(total, pago.monto);
+    }
+  }
+  return total;
+}
+
+/** Lo que MOTRAE se lleva de un ahorro medido. */
+export function comisionDeResultado(resultado: ResultadoVerificado): Centavos {
+  return Math.round(resultado.ahorro * (resultado.comision_pct / 100)) as Centavos;
+}
+
+/**
+ * Comisiones ganadas y todavía sin cobrar.
+ *
+ * Solo cuenta lo `verificado`: una estimación que el restaurantero no ha
+ * reconocido no es dinero por cobrar, es una conversación pendiente. Meterla
+ * aquí sería inflar la cifra del negocio con trabajo que quizá no se pague.
+ */
+export function comisionesPendientes(clientes: readonly ClienteMotRest[]): Centavos {
+  let total: Centavos = CERO;
+  for (const cliente of clientes) {
+    for (const resultado of cliente.resultados ?? []) {
+      if (resultado.verificado && !resultado.cobrado) {
+        total = sumar(total, comisionDeResultado(resultado));
+      }
+    }
+  }
+  return total;
+}
+
+/** Lo que este local ha pagado desde que es cliente. */
+export function totalPagadoPor(cliente: ClienteMotRest): Centavos {
+  return (cliente.pagos ?? []).reduce<Centavos>((suma, pago) => sumar(suma, pago.monto), CERO);
+}
+
+/**
+ * El mensaje de cobro, escrito para mandarlo tal cual.
+ *
+ * Se genera aquí y no en la pantalla porque es lo que MOTRAE dice cuando pide
+ * dinero, y eso no puede depender de cómo se sienta uno el martes. Dice el
+ * plazo concreto y qué pasa si se vence: un recordatorio que no dice la
+ * consecuencia se lee como opcional, y se acaba llamando por teléfono igual.
+ */
+export function mensajeDeCobro(
+  cliente: ClienteMotRest,
+  situacion: SituacionCliente,
+  dinero: (centavos: Centavos) => string,
+): string {
+  const nombre = cliente.responsable?.nombre || cliente.contacto || "";
+  const saludo = nombre ? `Hola, ${nombre}.` : "Hola.";
+  const cuanto = dinero(cliente.cuota);
+  const periodo = cliente.plan === "anual" ? "anualidad" : "mensualidad";
+
+  if (situacion.cobro === "bloqueado") {
+    return (
+      `${saludo} El servicio de MotRest en ${cliente.nombre} está suspendido porque ` +
+      `venció la ${periodo} y pasaron los tres días de gracia. En cuanto recibamos ` +
+      `el pago de ${cuanto} lo reactivamos el mismo día. ¿Le ayudo con los datos?`
+    );
+  }
+
+  if (situacion.cobro === "vencido") {
+    const dias = Math.max(0, 3 + situacion.dias);
+    return (
+      `${saludo} La ${periodo} de MotRest en ${cliente.nombre} venció y estamos en el ` +
+      `periodo de gracia: quedan ${dias} ${dias === 1 ? "día" : "días"} antes de que el ` +
+      `sistema se suspenda. Son ${cuanto}. ¿Lo dejamos pagado hoy?`
+    );
+  }
+
+  if (situacion.cobro === "sin_licencia") {
+    return (
+      `${saludo} Ya está listo MotRest para ${cliente.nombre}. Para activarlo ` +
+      `necesitamos la ${periodo} de ${cuanto} y lo dejamos operando el mismo día.`
+    );
+  }
+
+  return (
+    `${saludo} Le recuerdo que la ${periodo} de MotRest en ${cliente.nombre} vence ` +
+    `${situacion.dias === 0 ? "hoy" : `en ${situacion.dias} ${situacion.dias === 1 ? "día" : "días"}`}. ` +
+    `Son ${cuanto}. Con el pago a tiempo el servicio no se interrumpe.`
+  );
 }
 
 /**
@@ -379,4 +623,170 @@ export function idDeSucursal(nombre: string, sufijo = ""): ID {
 
   const partes = [limpio(nombre), limpio(sufijo)].filter(Boolean);
   return `suc-${partes.join("-")}` || "suc-sin-nombre";
+}
+
+// --- La historia de cada local ---------------------------------------------------------------
+
+/**
+ * Cuántos partes se guardan por local.
+ *
+ * Con un pulso al día son unos cuatro meses, que es el horizonte en el que
+ * alguien pregunta «¿esto ya pasaba antes de la 1.2?». Guardarlo todo para
+ * siempre convertiría el panel en el archivo de la operación de la cartera, que
+ * es justo lo que el relay tiene prohibido ser (TRD R3) y no hay razón para que
+ * Central lo sea en su lugar.
+ */
+export const PULSOS_GUARDADOS = 120;
+
+export interface HistoriaDelLocal {
+  /** Cuántos partes distintos se conservan. */
+  partes: number;
+  /** Qué proporción de los días observados el local dio señales. */
+  fiabilidad_pct: number;
+  /** Desde cuándo lleva sin dar señales, si es que las perdió. */
+  callado_desde_ts: number | null;
+  /** Versiones por las que ha pasado, de la más reciente a la más vieja. */
+  versiones: { version: string; desde_ts: number }[];
+}
+
+/**
+ * Lee el historial de un local y contesta «¿desde cuándo va mal?».
+ *
+ * Un pulso suelto dice cómo está hoy. La pregunta que llega por teléfono es
+ * siempre la otra: si esto empezó ayer o lleva tres semanas. Con un solo estado
+ * guardado, la única respuesta posible era «no sé».
+ *
+ * La fiabilidad se mide contra los DÍAS que abarca el historial, no contra el
+ * número de partes: un local que reportó tres veces en dos meses no es un local
+ * con tres de tres.
+ */
+export function historiaDelLocal(
+  historial: readonly PulsoCliente[],
+  ahora = Date.now(),
+): HistoriaDelLocal {
+  const ordenados = [...historial].sort((a, b) => a.ts - b.ts);
+  const primero = ordenados[0];
+  const ultimo = ordenados[ordenados.length - 1];
+
+  if (!primero || !ultimo) {
+    return { partes: 0, fiabilidad_pct: 0, callado_desde_ts: null, versiones: [] };
+  }
+
+  const dias = Math.max(1, Math.round((ahora - primero.ts) / 86_400_000));
+  const fiabilidad = Math.min(100, Math.round((ordenados.length / dias) * 100));
+
+  /* Solo se llama «callado» pasado el umbral; si no, cada noche sería una caída. */
+  const horasCallado = (ahora - ultimo.ts) / 3_600_000;
+
+  const versiones: { version: string; desde_ts: number }[] = [];
+  for (const pulso of ordenados) {
+    if (versiones[0]?.version !== pulso.version) {
+      versiones.unshift({ version: pulso.version, desde_ts: pulso.ts });
+    }
+  }
+
+  return {
+    partes: ordenados.length,
+    fiabilidad_pct: fiabilidad,
+    callado_desde_ts: horasCallado > HORAS_SIN_SENAL ? ultimo.ts : null,
+    versiones,
+  };
+}
+
+/**
+ * Añade un parte al historial sin repetir el mismo dos veces.
+ *
+ * Central pregunta al relay cada diez minutos y el Hub reporta una vez al día,
+ * así que la inmensa mayoría de las consultas devuelven EL MISMO pulso. Sin esta
+ * comprobación, el historial se llenaría de copias del último parte en una tarde
+ * y no guardaría ni un día de historia real.
+ */
+export function anotarEnHistorial(
+  historial: readonly PulsoCliente[],
+  pulso: PulsoCliente,
+  tope = PULSOS_GUARDADOS,
+): PulsoCliente[] {
+  if (historial.some((p) => p.ts === pulso.ts)) return [...historial];
+  return [...historial, pulso].sort((a, b) => a.ts - b.ts).slice(-tope);
+}
+
+// --- Cómo va un despliegue -------------------------------------------------------------------
+
+export interface AdopcionDeVersion {
+  /** La versión que se publicó. */
+  version: string;
+  /** A quiénes les toca por el anillo. */
+  esperados: ClienteMotRest[];
+  /** Quiénes ya la reportan. */
+  actualizados: ClienteMotRest[];
+  /** Les tocaba y siguen en otra versión. */
+  rezagados: { cliente: ClienteMotRest; version: string | null }[];
+  /** De 0 a 100 sobre los esperados. */
+  avance_pct: number;
+}
+
+/**
+ * Cómo va la versión que se acaba de publicar.
+ *
+ * ESTE ERA EL AGUJERO DEL ANILLO. Antes de firmar se veía perfectamente a quién
+ * le iba a tocar; después de firmar, nada. Un despliegue por anillos sin nadie
+ * mirando el resultado es el mismo «publicar y rezar» de siempre, solo que más
+ * despacio: si el canario se rompe y no se mira, la avería llega igual al resto
+ * cuando se sube el porcentaje.
+ */
+export function adopcionDeVersion(
+  clientes: readonly ClienteMotRest[],
+  pulsos: readonly PulsoCliente[],
+  version: string,
+  anillo?: number,
+  enElAnillo: (id: ID, anillo?: number) => boolean = () => true,
+): AdopcionDeVersion {
+  const porSucursal = new Map<ID, PulsoCliente>();
+  for (const p of pulsos) {
+    const previo = porSucursal.get(p.sucursal_id);
+    if (!previo || p.ts > previo.ts) porSucursal.set(p.sucursal_id, p);
+  }
+
+  const esperados = clientes.filter((c) => c.activo && enElAnillo(c.id, anillo));
+  const actualizados: ClienteMotRest[] = [];
+  const rezagados: { cliente: ClienteMotRest; version: string | null }[] = [];
+
+  for (const cliente of esperados) {
+    const suya = porSucursal.get(cliente.id)?.version ?? null;
+    if (suya === version) actualizados.push(cliente);
+    else rezagados.push({ cliente, version: suya });
+  }
+
+  return {
+    version,
+    esperados,
+    actualizados,
+    rezagados,
+    avance_pct: esperados.length === 0
+      ? 0
+      : Math.round((actualizados.length / esperados.length) * 100),
+  };
+}
+
+// --- El acceso de soporte ---------------------------------------------------------------------
+
+/**
+ * Qué locales siguen aceptando la contraseña de soporte ANTERIOR.
+ *
+ * La contraseña de soporte no viaja sola: va firmada dentro de la licencia, así
+ * que cambiarla en Central no cambia nada en ningún restaurante hasta que se le
+ * emite una licencia nueva. El día que haya que rotarla —porque se filtró, o
+ * porque se va alguien que la sabía— la pregunta urgente es exactamente ésta, y
+ * hasta ahora no se podía contestar: había que reemitir a ciegas y confiar.
+ */
+export function localesConSoporteViejo(
+  clientes: readonly ClienteMotRest[],
+  soporte_fijado_ts: number | undefined,
+): ClienteMotRest[] {
+  if (!soporte_fijado_ts) return [];
+  return clientes.filter(
+    (cliente) =>
+      cliente.activo &&
+      (!cliente.licencia || cliente.licencia.emitida_ts < soporte_fijado_ts),
+  );
 }
