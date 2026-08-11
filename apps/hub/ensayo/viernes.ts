@@ -253,7 +253,7 @@ async function main(): Promise<void> {
   await esperar(700);
   comprobar(
     (await caja.almacen.eventos.pendientes(50)).length === 0,
-    "el local se estrena: el propietario se declara y da de alta al mesero",
+    "el local se estrena: el propietario se declara y da de alta al cajero",
     `${Number((await salud()).seq)} eventos en el Hub`,
   );
 
