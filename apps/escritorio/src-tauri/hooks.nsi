@@ -45,6 +45,12 @@
   Pop $0
   StrCmp $0 "0" fw_listo 0
 
+  ; EN SILENCIOSO NO SE PREGUNTA NADA, y no tenerlo costó caro: con `/S` este
+  ; diálogo se queda esperando a alguien que no está mirando, y la instalación
+  ; se cuelga a mitad. Pasó en una máquina real durante una actualización
+  ; desatendida. Un instalador silencioso que abre una ventana no es silencioso.
+  IfSilent fw_listo
+
   ; Sin privilegios: se pide una vez, explicando qué se va a hacer.
   MessageBox MB_OKCANCEL|MB_ICONINFORMATION \
     "Windows va a pedir permiso para abrir el puerto de MotRest.$\n$\nEs lo que permite que las tabletas del salón se conecten a la caja. Si lo cancela, la caja funcionará igual pero las tabletas no podrán emparejarse." \
