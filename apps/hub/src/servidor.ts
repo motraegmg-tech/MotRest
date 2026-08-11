@@ -820,6 +820,33 @@ export class Hub {
     const actor = this.usuarioDe(evento.empleado_id, identidad);
     if (!actor) return `Empleado desconocido: ${evento.empleado_id}`;
 
+    /*
+     * REDECLARARSE NO ES CREAR, y rechazarlo dejaba un local sin poder entrar.
+     *
+     * `usuario_creado` sobre un id que YA existe es inerte: el reducer lo ignora
+     * (`identidad/reducers.ts`), así que no puede crear un segundo propietario ni
+     * cambiar el rol de nadie. Aun así caía en la regla general de alta —nadie
+     * puede asignar su propio rango— y el Hub lo rechazaba.
+     *
+     * Lo que eso producía, visto en la caja de Rodizio: el POS pide crear el
+     * responsable porque en ESE equipo no hay credencial guardada; el alta se
+     * firma con el mismo usuario que ya está en el registro; el Hub responde
+     * «Gonzalo Sanchez no puede crear un usuario con el rol propietario»; la
+     * terminal cae a isla y el PIN recién tecleado no queda en ninguna parte. El
+     * restaurante se queda fuera de su propio sistema, en bucle, sin una sola
+     * pista de por qué.
+     *
+     * No relaja nada: para llegar aquí el usuario tiene que existir ya con ese
+     * rol, y el evento no altera la proyección. Lo que sí cambia es que deja de
+     * tirar la sesión por un evento que no hacía nada.
+     */
+    if (
+      evento.tipo === "usuario_creado" &&
+      identidad.usuarios.some((usuario) => usuario.id === evento.usuario_id)
+    ) {
+      return null;
+    }
+
     switch (evento.tipo) {
       case "usuario_creado": {
         if (!rolesAsignablesPor(actor).includes(evento.rol_id)) {

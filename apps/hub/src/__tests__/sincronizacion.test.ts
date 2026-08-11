@@ -212,6 +212,45 @@ describe("deduplicación por UUID", () => {
     expect(await log.contar()).toBe(1);
   });
 
+  /*
+   * El bucle que dejó a Rodizio fuera de su propio sistema.
+   *
+   * El POS pide crear el responsable cuando en ESE equipo no hay credencial
+   * guardada, aunque el usuario ya esté en el registro del local. El alta se
+   * firma con él mismo, y la regla de «nadie asigna su propio rango» la
+   * rechazaba: la terminal caía a isla y el PIN no se guardaba. El evento es
+   * inerte —el reducer ignora un id que ya existe—, así que rechazarlo solo
+   * servía para tirar la sesión.
+   */
+  it("volver a declararse propietario cuando ya lo es NO tumba la sesión", async () => {
+    const propietario = usuarioDePrueba("usr-gonzalo", "propietario");
+    hub.cargarIdentidad(SUC, semillaDeIdentidad(propietario));
+
+    const cx = new ConexionPrueba("cx-1");
+    saludar(cx, "dev-caja");
+
+    // El mismo usuario que ya existe, con un evento NUEVO (otro id).
+    const fabrica = new FabricaEventos<EventoIdentidad>({
+      device_id: "dev-caja",
+      empleado_id: propietario.id,
+      sucursal_id: SUC,
+    });
+    const otraVez = fabrica.crear("usuario_creado", streamIdentidad(SUC), {
+      usuario_id: propietario.id,
+      nombre: "Gonzalo Sanchez",
+      puesto: "Responsable del restaurante",
+      rol_id: "propietario" as RolId,
+      permisos: propietario.permisos,
+    });
+
+    hub.recibir(cx.id, { tipo: "push", eventos: [otraVez] });
+
+    expect(cx.todos("error")).toHaveLength(0);
+    expect(cx.ultimo("acks")!.acks).toHaveLength(1);
+    // Un solo evento en el log: el alta no duplicó al propietario.
+    expect(await log.contar()).toBe(1);
+  });
+
   it("un evento repetido no reescribe el original: el log es la bitácora", async () => {
     const caja = terminal("dev-caja", "emp-lucia");
     const cx = new ConexionPrueba("cx-1");
