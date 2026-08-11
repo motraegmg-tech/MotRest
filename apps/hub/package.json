@@ -1,6 +1,6 @@
 {
   "name": "@motrest/hub",
-  "version": "1.2.0",
+  "version": "1.2.1",
   "private": true,
   "description": "MotRest Hub — servicio de fondo del local: secuencia total del event log, sincronización LAN y soporte del modo isla.",
   "type": "module",

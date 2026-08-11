@@ -115,7 +115,7 @@ const [LLAVE_PUBLICA_LICENCIAS, LLAVE_PUBLICA_ACTUALIZACIONES] = await Promise.a
  * diferencia de las llaves, tiene un valor por defecto en vez de abortar.
  */
 const REPOSITORIO_ACTUALIZACIONES = (
-  process.env.MOTREST_ACTUALIZACIONES_REPO?.trim() || "motrae/motrest"
+  process.env.MOTREST_ACTUALIZACIONES_REPO?.trim() || "motraegmg-tech/MotRest"
 );
 
 if (!/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(REPOSITORIO_ACTUALIZACIONES)) {

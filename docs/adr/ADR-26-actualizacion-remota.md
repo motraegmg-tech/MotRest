@@ -70,7 +70,7 @@ haya verificado este mismo Hub.
 ### 4. El canal viaja dentro del binario
 
 El repositorio se incrusta al empaquetar, junto a las llaves públicas, con
-`MOTREST_ACTUALIZACIONES_REPO` como variable de compilación y `motrae/motrest`
+`MOTREST_ACTUALIZACIONES_REPO` como variable de compilación y `motraegmg-tech/MotRest`
 por defecto. La variable de entorno sigue teniendo prioridad en tiempo de
 ejecución, para poder apuntar un local a un repositorio de pruebas.
 

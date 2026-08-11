@@ -94,7 +94,7 @@
       central.puedePublicar,
   );
 
-  const repositorio = $derived(central.secretos.repositorio || "motrae/motrest");
+  const repositorio = $derived(central.secretos.repositorio || "motraegmg-tech/MotRest");
 
   async function firmar() {
     error = "";

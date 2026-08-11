@@ -342,7 +342,7 @@
     <h2>Canal de actualizaciones y estado</h2>
     <label>
       Repositorio de GitHub
-      <input bind:value={repositorio} spellcheck="false" placeholder="motrae/motrest" />
+      <input bind:value={repositorio} spellcheck="false" placeholder="motraegmg-tech/MotRest" />
       <small>Los Hubs bajan solo desde HTTPS de GitHub; el token opcional nunca sale a otro host.</small>
     </label>
     <div class="dos">

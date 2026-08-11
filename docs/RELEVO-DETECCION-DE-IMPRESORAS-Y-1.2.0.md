@@ -147,7 +147,7 @@ corepack pnpm@9.15.0 --filter portal build
 
 MOTREST_LICENCIA_PUBLICA="MCowBQYDK2VwAyEAC83o5lSMLQ7ciyKGFCXG1LDjqHqxdx2zFOqaU5/z82s=" \
 MOTREST_ACTUALIZACIONES_PUBLICA="MCowBQYDK2VwAyEAayVws8Rn6eC1JRLNJFkfk3qO70wdS2VzvADWRwT1jBU=" \
-MOTREST_ACTUALIZACIONES_REPO="motrae/motrest" \
+MOTREST_ACTUALIZACIONES_REPO="motraegmg-tech/MotRest" \
 corepack pnpm@9.15.0 --filter @motrest/hub empaquetar
 
 corepack pnpm@9.15.0 --filter @motrest/escritorio build:solo-caja
@@ -163,7 +163,7 @@ de la privada que firma en Central rechaza cada actualización.
 Comprobación de que quedaron dentro:
 
 ```bash
-grep -c "motrae/motrest" apps/hub/dist-sea/hub.cjs   # → 1
+grep -c "motraegmg-tech/MotRest" apps/hub/dist-sea/hub.cjs   # → 1
 ```
 
 ### Estado del canal de actualizaciones
