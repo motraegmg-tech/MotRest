@@ -58,6 +58,12 @@
       <div class="menu">
         <button onclick={() => { menuAbierto = false; cambiandoClave = true; }}>
           Cambiar mi {esPin ? "PIN" : "contraseña"}
+          <!--
+            Ya no se fuerza al entrar (ver App.svelte): se señala aquí, que es
+            donde se busca, y quien tenga todavía la clave que le dieron lo ve
+            marcado sin que le tape la pantalla cada mañana.
+          -->
+          {#if sesion.debeCambiarCredencial}<span class="pendiente">pendiente</span>{/if}
         </button>
         <button onclick={() => { menuAbierto = false; onAbrirAcceso(); }}>
           Cambiar de usuario
@@ -68,15 +74,29 @@
         {#if sesion.puedeVer("admin.bitacora.ver")}
           <button onclick={() => irA("administracion", "bitacora")}>Bitácora</button>
         {/if}
-        <button
-          class="salir"
-          onclick={() => { menuAbierto = false; sesion.cerrarSesion(); onAbrirAcceso(); }}
-        >
-          Cerrar sesión
-        </button>
       </div>
     {/if}
   </div>
+
+  <!--
+    CERRAR SESIÓN, SIEMPRE A LA VISTA.
+
+    En un turno la caja cambia de manos cada pocos minutos: termina un mesero,
+    entra el siguiente y comanda. Escondido dentro del menú del avatar, lo que
+    pasaba de verdad es que nadie lo pulsaba y todo el turno se registraba a
+    nombre de quien abrió por la mañana — con lo que la bitácora, las propinas
+    por mesero y el rol de mesas dejaban de significar nada.
+
+    No se pierde nada al salir: cada comanda, cada pago y cada checada ya están
+    guardados en el log del dispositivo en el momento en que ocurrieron. Las
+    mesas abiertas siguen abiertas para el que entre después.
+  -->
+  <button
+    class="salir"
+    onclick={() => { menuAbierto = false; sesion.cerrarSesion(); onAbrirAcceso(); }}
+  >
+    Cerrar sesión
+  </button>
 </header>
 
 {#if cambiandoClave}
@@ -222,10 +242,34 @@
   .menu button:hover {
     background: var(--fondo);
   }
-  .menu .salir {
+  .pendiente {
+    margin-left: 0.4rem;
+    background: var(--acento);
+    color: #fff;
+    border-radius: var(--r-pill);
+    padding: 0.05rem 0.4rem;
+    font-size: 0.66rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+  }
+  /*
+   * Visible pero no llamativo: se usa muchas veces por turno, así que tiene que
+   * estar donde la mano ya sabe, sin competir con el módulo que se está usando.
+   */
+  .salir {
+    flex: none;
+    border: 1.5px solid var(--borde);
+    border-radius: var(--r-md);
+    padding: 0.45rem 0.85rem;
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: var(--gris);
+    background: #fff;
+    white-space: nowrap;
+  }
+  .salir:hover {
+    border-color: var(--peligro);
     color: var(--peligro);
-    border-top: 1px solid var(--borde);
-    margin-top: 0.2rem;
-    padding-top: 0.6rem;
   }
 </style>

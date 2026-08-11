@@ -7,10 +7,13 @@
    * desglose. Ambos son válidos: el restaurante decide hasta dónde quiere llegar.
    */
   import {
+    costoDesdeInsumo,
     costoReceta,
+    formatearCantidad,
     ingredienteNuevo,
     pesos,
     recetaNueva,
+    type Centavos,
     type Ingrediente,
     type Receta,
     type Unidad,
@@ -46,13 +49,37 @@
   const producto = $derived(menu.producto(productoId));
   const vinculados = $derived(receta.ingredientes.filter((i) => i.insumo_id).length);
 
+  /**
+   * El costo de un ingrediente sale de lo que costó comprar su insumo.
+   *
+   * Es la mitad que le faltaba al vínculo con el almacén: un ingrediente ya
+   * declaraba «200 g de mozzarella» y los descontaba al enviar a cocina, pero su
+   * costo se tecleaba aparte. Con las dos cifras desconectadas, subir el precio
+   * del queso en el almacén no cambiaba el costo de ninguna pizza y el food cost
+   * seguía diciendo lo de hace seis meses.
+   *
+   * Cuando el cálculo no es posible —sin gramaje, o gramos contra mililitros, que
+   * exigiría una densidad— se conserva lo tecleado a mano. Nunca se pone en cero:
+   * un cero silencioso convierte un platillo caro en uno que parece regalado.
+   */
+  function costoDe(ing: Ingrediente): Centavos {
+    const automatico = ing.insumo_id
+      ? costoDesdeInsumo(ing, inventario.insumo(ing.insumo_id))
+      : null;
+    return automatico ?? pesos(Number(costos[ing.id] ?? "0") || 0);
+  }
+
+  /** ¿Este renglón toma su costo del almacén, en vez de lo tecleado? */
+  function vieneDelAlmacen(ing: Ingrediente): boolean {
+    return (
+      !!ing.insumo_id && costoDesdeInsumo(ing, inventario.insumo(ing.insumo_id)) !== null
+    );
+  }
+
   function reconstruir(): Receta {
     return {
       ...receta,
-      ingredientes: receta.ingredientes.map((i) => ({
-        ...i,
-        costo: pesos(Number(costos[i.id] ?? "0") || 0),
-      })),
+      ingredientes: receta.ingredientes.map((i) => ({ ...i, costo: costoDe(i) })),
     };
   }
 
@@ -160,18 +187,30 @@
               <option value={u}>{u}</option>
             {/each}
           </select>
-          <div class="moneda">
-            <i>$</i>
-            <input
-              class="num"
-              type="number"
-              inputmode="decimal"
-              step="0.01"
-              value={costos[ing.id] ?? ""}
-              oninput={(e) => (costos = { ...costos, [ing.id]: e.currentTarget.value })}
-              placeholder="0.00"
-            />
-          </div>
+          <!--
+            Si el ingrediente está vinculado al almacén y trae gramaje, el costo
+            lo pone el sistema y el campo deja de ser editable: dos cifras para
+            lo mismo acaban siempre en dos cifras distintas.
+          -->
+          {#if vieneDelAlmacen(ing)}
+            <div class="calculado" title="Sale del costo del insumo en el almacén">
+              {mxn(costoDe(ing))}
+              <small>del almacén</small>
+            </div>
+          {:else}
+            <div class="moneda">
+              <i>$</i>
+              <input
+                class="num"
+                type="number"
+                inputmode="decimal"
+                step="0.01"
+                value={costos[ing.id] ?? ""}
+                oninput={(e) => (costos = { ...costos, [ing.id]: e.currentTarget.value })}
+                placeholder="0.00"
+              />
+            </div>
+          {/if}
           <button class="quitar" onclick={() => quitar(ing.id)} aria-label="Quitar ingrediente">
             ✕
           </button>
@@ -181,6 +220,15 @@
 
     <div class="resumen">
       <span>{vinculados} de {receta.ingredientes.length} descuentan del almacén</span>
+      {#if vinculados > 0}
+        <span class="consumo">
+          Por platillo se van:
+          {receta.ingredientes
+            .filter((i) => i.insumo_id && i.cantidad && i.unidad)
+            .map((i) => `${formatearCantidad(i.cantidad!, i.unidad!)} de ${i.nombre || "—"}`)
+            .join(" · ")}
+        </span>
+      {/if}
       <div class="totales">
         <span>Costo de la receta</span>
         <b>{mxn(total)}</b>
@@ -315,6 +363,34 @@
   }
   .moneda input {
     padding-left: 1.25rem;
+  }
+  /* El costo que pone el almacén: se lee, no se teclea. */
+  .calculado {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    justify-content: center;
+    padding: 0.3rem 0.5rem;
+    border: 1.5px dashed var(--borde);
+    border-radius: var(--r-sm);
+    background: var(--fondo);
+    font-size: 0.9rem;
+    font-weight: 600;
+    color: var(--pizarra);
+    line-height: 1.15;
+  }
+  .calculado small {
+    font-size: 0.62rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--acento);
+  }
+  .consumo {
+    flex-basis: 100%;
+    font-size: 0.78rem;
+    color: var(--gris);
+    line-height: 1.45;
   }
   .quitar {
     color: var(--gris);

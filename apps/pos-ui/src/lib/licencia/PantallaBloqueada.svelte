@@ -62,7 +62,7 @@
     error = "";
     const licenciaJson = textoLicencia.trim();
     if (!licenciaJson) {
-      error = "Pegue la licencia emitida desde MOTRAE Central.";
+      error = "Pegue la licencia emitida desde MotRest Central.";
       return;
     }
 
@@ -132,10 +132,10 @@
         Código de instalación:
         <code>{identificador || "Cargando…"}</code>
       </p>
-      <small>Registre este código en MOTRAE Central; después pegue aquí la licencia emitida.</small>
+      <small>Registre este código en MotRest Central; después pegue aquí la licencia emitida.</small>
     {:else}
       <small>
-        Dé de alta el restaurante en MOTRAE Central, descargue su
+        Dé de alta el restaurante en MotRest Central, descargue su
         <code>licencia.json</code> y pegue aquí su contenido.
       </small>
     {/if}

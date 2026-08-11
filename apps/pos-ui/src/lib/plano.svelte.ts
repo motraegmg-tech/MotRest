@@ -10,11 +10,11 @@ import {
   areaDe,
   cabeEnArea,
   haySolape,
+  idCorto,
   mesaDe,
   mesasDeArea,
   planoPorDefecto,
   primerHuecoLibre,
-  uuidv7,
   validarPlano,
   type Area,
   type FormaMesa,
@@ -145,7 +145,7 @@ class StorePlano {
     }
 
     const nueva: Area = {
-      id: `area-${uuidv7().slice(0, 8)}`,
+      id: idCorto("area"),
       nombre: limpio,
       orden: this.datos.areas.length + 1,
       columnas: 10,
@@ -234,7 +234,7 @@ class StorePlano {
     if (!hueco) return { ok: false, error: "No queda espacio libre en esta área" };
 
     const nueva: Mesa = {
-      id: `mesa-${uuidv7().slice(0, 8)}`,
+      id: idCorto("mesa"),
       nombre: this.siguienteNombre(),
       area_id: areaId,
       columna: hueco.columna,

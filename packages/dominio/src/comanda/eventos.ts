@@ -23,16 +23,40 @@ export type FormaPago =
   | "transferencia"
   | "vale"
   /** Lo cobró un agregador. NO entra al cajón: se deposita días después. */
-  | "agregador";
+  | "agregador"
+  /**
+   * Lo cubrió el saldo mensual de un socio del restaurante.
+   *
+   * Es una FORMA DE PAGO y no una cortesía, y esa es toda la decisión: la venta
+   * vale lo que vale —el socio consumió ese producto— y por eso sigue contando
+   * completa en finanzas y en inteligencia. Lo que cambia es de dónde salió el
+   * dinero: del saldo pactado con el socio, no del cajón. Registrarlo como
+   * cortesía habría borrado la venta de los reportes y falseado el consumo real
+   * del local, que es justo lo que hay que poder medir.
+   */
+  | "socio";
 
-export const FORMAS_PAGO: { valor: FormaPago; etiqueta: string; efectivo: boolean }[] = [
+export const FORMAS_PAGO: {
+  valor: FormaPago;
+  etiqueta: string;
+  efectivo: boolean;
+  /** false = no se elige a mano al cobrar; la registra otro flujo. */
+  manual?: boolean;
+}[] = [
   { valor: "efectivo", etiqueta: "Efectivo", efectivo: true },
   { valor: "tarjeta_debito", etiqueta: "Débito", efectivo: false },
   { valor: "tarjeta_credito", etiqueta: "Crédito", efectivo: false },
   { valor: "transferencia", etiqueta: "Transferencia", efectivo: false },
   { valor: "vale", etiqueta: "Vale", efectivo: false },
   { valor: "agregador", etiqueta: "Cobrado por la app", efectivo: false },
+  // No se ofrece como botón de cobro: exige decir QUÉ socio, y eso vive en su
+  // propio panel. Un «Socio» suelto en la lista de formas de pago sería un
+  // agujero por el que se cobra sin cargarle el consumo a nadie.
+  { valor: "socio", etiqueta: "Consumo de socio", efectivo: false, manual: false },
 ];
+
+/** Las formas que se pueden elegir a mano en la pantalla de cobro. */
+export const FORMAS_PAGO_MANUALES = FORMAS_PAGO.filter((f) => f.manual !== false);
 
 export function etiquetaFormaPago(forma: FormaPago): string {
   return FORMAS_PAGO.find((f) => f.valor === forma)?.etiqueta ?? forma;
@@ -155,6 +179,24 @@ export type EventoComanda =
       autorizador_id?: ID;
     })
   | (EventoBase & {
+      /**
+       * Se retira una cortesía ya otorgada.
+       *
+       * Se otorga con un botón, así que se quita con el mismo botón: pulsar
+       * «Cortesía» dos veces por error dejaba la cuenta en cero sin ninguna
+       * forma de deshacerlo salvo cancelar renglón por renglón.
+       *
+       * NO borra el hecho anterior —el log solo agrega— sino que registra el
+       * retiro. En la bitácora quedan las dos cosas, que es lo que permite ver
+       * a quién se le regaló la cuenta y quién se lo quitó.
+       */
+      tipo: "cortesia_retirada";
+      orden_id: ID;
+      /** Ausente = la cortesía de la cuenta completa. */
+      renglon_id?: ID;
+      autorizador_id?: ID;
+    })
+  | (EventoBase & {
       tipo: "propina_registrada";
       orden_id: ID;
       monto: Centavos;
@@ -170,6 +212,14 @@ export type EventoComanda =
       recibido?: Centavos;
       referencia?: string;
       sesion_caja_id?: ID;
+      /**
+       * A qué socio se le carga, cuando la forma es `socio`.
+       *
+       * Sin esto el consumo no se le puede descontar a nadie de su saldo del
+       * mes, y «Consumo de socio» sería una forma de sacar producto sin dueño.
+       */
+      socio_id?: ID;
+      autorizador_id?: ID;
     })
   | (EventoBase & {
       /**
@@ -194,6 +244,25 @@ export type EventoComanda =
   | (EventoBase & {
       tipo: "cuenta_cerrada";
       orden_id: ID;
+    })
+  | (EventoBase & {
+      /**
+       * La sentada se cierra SIN consumo: la mesa vuelve a estar libre.
+       *
+       * Pasa todos los días: se pone una mesa en servicio, los comensales se
+       * mueven a otra o se van antes de pedir, y esa mesa se quedaba ocupada
+       * para siempre porque la única forma de liberarla era cobrarla. Solo se
+       * puede anular una cuenta sin renglones y sin pagos — con consumo, lo que
+       * corresponde es cancelar los renglones o cobrar.
+       *
+       * NO es una venta y no cuenta como cuenta en ningún reporte, que es
+       * exactamente por lo que no se reusa `cuenta_cerrada`: veinte mesas
+       * abiertas por error habrían aparecido como veinte cuentas de cero pesos
+       * y hundido el ticket promedio de la jornada.
+       */
+      tipo: "orden_anulada";
+      orden_id: ID;
+      motivo?: string;
     })
   | (EventoBase & {
       /**

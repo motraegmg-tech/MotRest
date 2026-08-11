@@ -18,6 +18,25 @@
    *      despliegue y una apuesta.
    */
   import { central } from "../lib/central.svelte";
+  import { desde } from "../lib/formato";
+
+  /** Lo último firmado y cómo lo va bajando la flota. `null` hasta la primera vez. */
+  const publicacion = $derived(central.ultimaPublicacion);
+  const adopcion = $derived(central.adopcion);
+
+  /**
+   * Dos días es el punto en que un rezagado deja de ser normal.
+   *
+   * Un Hub comprueba a diario y el restaurante puede aplazar la instalación una
+   * noche sin que pase nada. Pasadas 48 horas, quien no subió ya no es alguien
+   * que estaba cerrado: es alguien a quien mirar antes de ampliar el anillo.
+   */
+  const atascado = $derived(
+    adopcion !== null &&
+      publicacion !== null &&
+      adopcion.rezagados.length > 0 &&
+      central.ahora - publicacion.publicado_ts > 2 * 86_400_000,
+  );
 
   let version = $state("");
   let notas = $state("");
@@ -117,6 +136,57 @@
     <code>motrest.json</code> firmado. Los Hubs lo comprueban antes de bajar nada
     — sin la firma de MOTRAE no instalan aunque el archivo esté en su sitio.
   </p>
+
+  <!--
+    CÓMO VA LO ÚLTIMO QUE SE PUBLICÓ, arriba del formulario de publicar la
+    siguiente. Antes de firmar se veía perfectamente a quién le iba a tocar;
+    después de firmar, nada. Un despliegue por anillos que nadie mira es el mismo
+    «publicar y rezar», solo que más despacio: si el canario se rompe y no se
+    mira, la avería llega igual al resto en cuanto se sube el porcentaje.
+  -->
+  {#if adopcion && publicacion}
+    <div class="despliegue" class:atascado={atascado}>
+      <div class="cabeza-despliegue">
+        <h2>Cómo va la {publicacion.version}</h2>
+        <span class="cuando-publicada">
+          Publicada {desde(publicacion.publicado_ts, central.ahora)}
+          {#if publicacion.anillo !== undefined}· anillo {publicacion.anillo} %{/if}
+        </span>
+      </div>
+
+      <div class="barra" role="img" aria-label="{adopcion.avance_pct} % de avance">
+        <span style="width: {adopcion.avance_pct}%"></span>
+      </div>
+      <p class="cifra-despliegue">
+        <b>{adopcion.actualizados.length} de {adopcion.esperados.length}</b>
+        {adopcion.esperados.length === 1 ? "local al que le tocaba" : "locales a los que les tocaba"}
+        ya corren la {publicacion.version}.
+      </p>
+
+      {#if adopcion.rezagados.length > 0}
+        <ul class="rezagados">
+          {#each adopcion.rezagados as r (r.cliente.id)}
+            <li>
+              <b>{r.cliente.nombre}</b>
+              <span>{r.version ? `sigue en ${r.version}` : "nunca ha reportado"}</span>
+            </li>
+          {/each}
+        </ul>
+      {/if}
+
+      {#if atascado}
+        <p class="ojo-despliegue">
+          Lleva más de dos días publicada y todavía falta gente. Antes de subir el
+          anillo, mire si los rezagados están apagados o si la versión les falló.
+        </p>
+      {:else if adopcion.avance_pct === 100}
+        <p class="ok-despliegue">
+          Todo el anillo la tiene. Si aguantó un fin de semana completo, se puede
+          subir el porcentaje.
+        </p>
+      {/if}
+    </div>
+  {/if}
 
   <div class="columnas">
     <div class="formulario">
@@ -330,6 +400,84 @@
   code {
     font-size: 0.86em;
     color: var(--acento);
+  }
+  .despliegue {
+    background: var(--blanco);
+    border: 1px solid var(--borde);
+    border-left: 3px solid #2f9e6b;
+    border-radius: var(--r-md);
+    padding: 1rem 1.15rem;
+    margin: 0 0 1.6rem;
+    max-width: 46rem;
+  }
+  .despliegue.atascado {
+    border-left-color: var(--acento-2);
+  }
+  .cabeza-despliegue {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 1rem;
+    flex-wrap: wrap;
+  }
+  .cabeza-despliegue h2 {
+    font-family: var(--font-titulo);
+    font-size: 1.05rem;
+    margin: 0 0 0.5rem;
+    color: var(--pizarra);
+  }
+  .cuando-publicada {
+    font-size: 0.76rem;
+    color: var(--gris);
+  }
+  .barra {
+    height: 8px;
+    border-radius: var(--r-pill);
+    background: var(--fondo);
+    overflow: hidden;
+  }
+  .barra span {
+    display: block;
+    height: 100%;
+    background: var(--acento);
+  }
+  .cifra-despliegue {
+    font-size: 0.86rem;
+    color: var(--gris);
+    margin: 0.5rem 0 0;
+  }
+  .cifra-despliegue b {
+    color: var(--pizarra);
+  }
+  .rezagados {
+    list-style: none;
+    margin: 0.7rem 0 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+  }
+  .rezagados li {
+    display: flex;
+    gap: 0.6rem;
+    font-size: 0.82rem;
+    color: var(--gris);
+  }
+  .rezagados b {
+    color: var(--pizarra);
+  }
+  .ojo-despliegue,
+  .ok-despliegue {
+    font-size: 0.82rem;
+    line-height: 1.55;
+    margin: 0.8rem 0 0;
+    color: var(--gris);
+  }
+  .ojo-despliegue {
+    color: var(--pizarra);
+    background: var(--fondo);
+    border-radius: var(--r-sm);
+    padding: 0.55rem 0.7rem;
   }
   .columnas {
     display: grid;

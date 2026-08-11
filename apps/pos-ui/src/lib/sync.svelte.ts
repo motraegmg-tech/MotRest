@@ -25,9 +25,11 @@ import type {
   EventoBase,
   MenuLocal,
   PlanoLocal,
+  RolDeMesas,
 } from "@motrest/dominio";
 import { CLAVE_MENU, menu } from "./menu.svelte";
 import { CLAVE_PLANO, plano } from "./plano.svelte";
+import { CLAVE_ASIGNACIONES, asignaciones } from "./asignaciones.svelte";
 import { CLAVE_ACTUALIZACION, actualizaciones } from "./actualizaciones.svelte";
 import { CLAVE_LICENCIA, licencia, type VeredictoLicencia } from "./licencia.svelte";
 import { CLAVE_MODO_ABIERTO, modoAbierto } from "./modo-abierto.svelte";
@@ -135,6 +137,14 @@ class StoreSync {
     // Solo WebSocket: cualquier otra cosa en ese parámetro es un error o un
     // intento de que la terminal hable con algo que no es un Hub.
     if (!/^wss?:\/\//.test(url)) return null;
+    try {
+      // Si el enlace apunta al puerto de una impresora de red, el ticket sale
+      // con la petición de WebSocket cada 10 segundos por los reintentos.
+      const puerto = new URL(url).port;
+      if (["9100", "9101", "9102", "9103", "515", "631"].includes(puerto)) return null;
+    } catch {
+      return null;
+    }
     // Sin clave del local no hay canal: el enlace está incompleto.
     if (!claveValida(clave)) return null;
 
@@ -200,6 +210,27 @@ class StoreSync {
 
     this.url = (await almacen.estado.cargar<string>(CLAVE_HUB)) ?? "";
     this.clave = (await almacen.estado.cargar<string>(CLAVE_SECRETO)) ?? "";
+
+    // Si la URL guardada apuntaba a una impresora (por un emparejamiento erróneo
+    // anterior), se elimina para romper el bucle de reintentos infinitos que 
+    // hace que la impresora escupa tickets sin parar.
+    try {
+      let puerto = "";
+      try {
+        puerto = new URL(this.url).port;
+      } catch {
+        // Si no tiene protocolo, new URL falla. Buscamos el puerto al final.
+        const partes = this.url.split(":");
+        if (partes.length > 1) puerto = partes[partes.length - 1]!.replace(/\D/g, "");
+      }
+
+      if (["9100", "9101", "9102", "9103", "515", "631"].includes(puerto)) {
+        this.url = "";
+        this.clave = "";
+        await almacen.estado.eliminar(CLAVE_HUB);
+        await almacen.estado.eliminar(CLAVE_SECRETO);
+      }
+    } catch {}
   }
 
   /**
@@ -241,6 +272,14 @@ class StoreSync {
 
     if (!/^wss?:\/\//.test(url)) {
       return { ok: false, error: "El enlace no trae la dirección del Hub" };
+    }
+    try {
+      const puerto = new URL(url).port;
+      if (["9100", "9101", "9102", "9103", "515", "631"].includes(puerto)) {
+        return { ok: false, error: "El enlace apunta a una impresora, no al Hub" };
+      }
+    } catch {
+      return { ok: false, error: "La dirección del Hub no es válida" };
     }
     if (!claveValida(clave)) {
       return { ok: false, error: "El enlace no trae la clave del local, o está incompleta" };
@@ -308,6 +347,9 @@ class StoreSync {
     // puede seguir vendiendo un platillo que se acaba de agotar en otra caja.
     menu.alPublicar((datos) => this.publicar(CLAVE_MENU, datos));
     plano.alPublicar((datos) => this.publicar(CLAVE_PLANO, datos));
+    // El rol de mesas viaja igual: quien lo cambia es el encargado desde una
+    // pantalla, y quien lo necesita es la tablet del mesero.
+    asignaciones.alPublicar((datos) => this.publicar(CLAVE_ASIGNACIONES, datos));
 
     void this.cliente.conectar();
   }
@@ -338,6 +380,12 @@ class StoreSync {
       updated_at: plano.plano.updated_at,
       datos: plano.plano,
     });
+    catalogos.push({
+      clave: CLAVE_ASIGNACIONES,
+      version: asignaciones.rol.version,
+      updated_at: asignaciones.rol.updated_at,
+      datos: asignaciones.rol,
+    });
     return catalogos;
   }
 
@@ -348,6 +396,8 @@ class StoreSync {
         if (menu.fusionar(catalogo.datos as MenuLocal)) this.catalogosRecibidos += 1;
       } else if (catalogo.clave === CLAVE_PLANO) {
         if (plano.fusionar(catalogo.datos as PlanoLocal)) this.catalogosRecibidos += 1;
+      } else if (catalogo.clave === CLAVE_ASIGNACIONES) {
+        if (asignaciones.fusionar(catalogo.datos as RolDeMesas)) this.catalogosRecibidos += 1;
       } else if (catalogo.clave === CLAVE_LICENCIA) {
         /*
          * El veredicto lo calcula el HUB, que es donde vive la llave. Esta

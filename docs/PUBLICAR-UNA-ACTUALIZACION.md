@@ -29,7 +29,7 @@ cuela nada. Las públicas que verifican van en los Hubs y no permiten firmar.
 ## Preparativos, una sola vez
 
 1. Crear el repositorio (puede ser **privado**; entonces hace falta un token).
-2. En **MOTRAE Central → Llaves**, generar los dos pares Ed25519 y anotar el
+2. En **MotRest Central → Llaves**, generar los dos pares Ed25519 y anotar el
    repositorio. La pública de publicación debe ser distinta de la pública de
    licencias.
 3. Antes de crear el instalador, incrustar las públicas y el repositorio en el Hub:

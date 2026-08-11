@@ -75,8 +75,20 @@
           {#if n > 0}<span class="cuenta">{n}</span>{/if}
         </button>
       {/each}
-      <button class="est recall" class:on={verEntregados} onclick={() => (verEntregados = !verEntregados)}>
-        Recall
+      <!--
+        «Recall» no le decía nada a nadie. Es el término del oficio para volver a
+        traer a la pantalla lo que ya se despachó, y sirve para lo de siempre: la
+        mesa dice que no le llegó el postre, o un plato se regresa y hay que
+        rehacerlo. Sin esto, un ticket entregado desaparece y no hay forma de
+        volver a él desde la cocina.
+      -->
+      <button
+        class="est recall"
+        class:on={verEntregados}
+        title="Vuelve a mostrar lo ya entregado, para rehacer un platillo o comprobar qué salió"
+        onclick={() => (verEntregados = !verEntregados)}
+      >
+        {verEntregados ? "Ocultar entregados" : "Ver entregados"}
       </button>
     </div>
   </header>
@@ -154,22 +166,37 @@
 
                 {#if puedeOperar}
                   <div class="acciones">
+                    <!--
+                      EL COLOR SIGUE AL SIGUIENTE PASO, NO AL ESTADO FINAL.
+
+                      Antes «Listo» estaba encendido desde que el ticket entraba
+                      a la cocina, y «Empezar» apagado a su lado: el botón que
+                      llamaba la atención era el que NO tocaba pulsar todavía, y
+                      el atajo evidente era saltarse la marca de arranque —con
+                      ella se pierde el cronómetro por platillo, que es lo único
+                      que hace útil el semáforo—.
+
+                      Ahora manda el orden real del pase: primero se enciende
+                      «Empezar»; en cuanto el cocinero lo toma, ese botón
+                      desaparece y «Listo» se queda solo, grande y encendido.
+                      En cada momento hay exactamente un botón que pide algo.
+                    -->
                     {#if renglon.estado === "enviado"}
                       <button
-                        class="accion"
+                        class="accion primaria"
                         onclick={() => pos.marcarEnMarcha(ticket.orden_id, renglon.renglon_id, renglon.estacion_id)}
                       >
                         Empezar
                       </button>
                       <button
-                        class="accion listo"
+                        class="accion"
                         onclick={() => pos.marcarListo(ticket.orden_id, renglon.renglon_id)}
                       >
                         Listo
                       </button>
                     {:else if renglon.estado === "en_marcha"}
                       <button
-                        class="accion listo"
+                        class="accion primaria grande"
                         onclick={() => pos.marcarListo(ticket.orden_id, renglon.renglon_id)}
                       >
                         Listo
@@ -466,10 +493,23 @@
     border-color: var(--acento);
     color: #fff;
   }
-  .accion.listo {
+  /* El paso que toca ahora. Solo hay uno encendido por platillo. */
+  .accion.primaria {
     background: var(--acento);
     border-color: var(--acento);
     color: #fff;
+  }
+  /*
+   * Cuando «Listo» se queda solo, ocupa el renglón entero y crece.
+   *
+   * No es adorno: se pulsa con la mano ocupada, sin mirar del todo, y a veces
+   * con guante. Un botón que abarca todo el ancho no se falla.
+   */
+  .accion.grande {
+    padding: 0.7rem;
+    font-size: 1.05rem;
+    font-weight: 700;
+    letter-spacing: 0.02em;
   }
   /*
    * El botón de entregar es lo único encendido del tablero, a propósito.

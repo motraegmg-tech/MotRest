@@ -135,6 +135,14 @@ export function formaPagoSat(forma: FormaPago): string {
      */
     case "agregador":
       return "99";
+    /*
+     * Consumo de socio. Tampoco entró dinero por este comprobante: lo cubrió el
+     * saldo pactado con el socio. Es un pago en especie a cuenta de un acuerdo
+     * privado, y para el SAT eso es "por definir" — declararlo como efectivo
+     * sería declarar un cobro que no ocurrió.
+     */
+    case "socio":
+      return "99";
   }
 }
 

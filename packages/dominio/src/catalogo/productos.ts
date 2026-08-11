@@ -30,6 +30,28 @@ export interface Producto {
   precio: Centavos;
   /** Perfil de impuesto: alimenta el recuadro de IVA del formulario. */
   impuesto_id: ID;
+  /**
+   * true = `precio` es lo que paga el comensal, CON el impuesto dentro.
+   *
+   * ## Por qué existe, y por qué es del producto y no del perfil
+   *
+   * El restaurantero piensa en precios cerrados: «esa pizza son 100 pesos». Con
+   * el impuesto por fuera eso obliga a guardar una base de 86.21 y confiar en
+   * que al sumarle el IVA dé exactamente 100 — y en el 14 % de los precios
+   * redondos NO da: no existe ninguna base entera en centavos cuyo IVA del 16 %
+   * sume 99.00, ni 128.00, ni 7.00. Guardando el total y despejando la base al
+   * revés, el importe cuadra siempre, porque el residuo del redondeo se absorbe
+   * en el IVA (ver `calcularImpuesto`).
+   *
+   * Va en el PRODUCTO y no en el perfil de impuesto porque el perfil se comparte
+   * entre toda la carta: cambiarlo ahí reinterpretaría de golpe el precio de
+   * todos los platillos ya capturados, que pasarían a valer un 16 % menos sin
+   * que nadie tocara nada. Así, cada platillo conserva el significado que tenía
+   * hasta que alguien lo edita, y al editarlo el total al comensal no cambia.
+   *
+   * Ausente = el precio es la base gravable, que es como se guardó siempre.
+   */
+  precio_incluye_impuesto?: boolean;
 
   /** OPCIONAL: receta con insumos, solo si el restaurante quiere ese detalle. */
   receta_id?: ID;

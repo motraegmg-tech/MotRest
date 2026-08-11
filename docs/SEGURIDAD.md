@@ -74,7 +74,7 @@ Tres consecuencias buscadas:
 - **Solo funciona una vez.** En cuanto existe una cuenta activa con su credencial
   estrenada, esa pantalla no vuelve a aparecer en la vida del local.
 
-Cuando MOTRAE Central da de alta un restaurante, crea además el perfil del
+Cuando MotRest Central da de alta un restaurante, crea además el perfil del
 **responsable** como `propietario` y un PIN inicial aleatorio de ocho dígitos.
 Central guarda solo el hash dentro de DPAPI; la licencia firmada lo entrega
 solamente a la caja, nunca a las tablets. Ese perfil **fija el nombre** del

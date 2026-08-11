@@ -128,6 +128,68 @@ describe("cortesías", () => {
     expect(t.cortesias).toBe(pesos(300));
     expect(t.costo).toBe(pesos(90));
   });
+
+  /*
+   * El botón de cortesía se pulsa por error, y hasta ahora la única salida era
+   * cancelar la cuenta entera. Retirarla devuelve el importe COMPLETO, IVA
+   * incluido: la cuenta tiene que quedar exactamente como estaba.
+   */
+  it("retirar la cortesía de la cuenta la devuelve a su total", () => {
+    const { f, orden_id, eventos } = cuentaBase();
+    const t = totalesComanda(
+      proyectarComanda([
+        ...eventos,
+        f.crear("cortesia_otorgada", orden_id, { orden_id, motivo: "Invitación" }),
+        f.crear("cortesia_retirada", orden_id, { orden_id }),
+      ]),
+    );
+    expect(t.cortesias).toBe(CERO);
+    expect(t.total).toBe(pesos(348));
+  });
+
+  it("retirar la cortesía de un renglón no se lleva la de otro", () => {
+    const { f, orden_id, eventos, a, b } = cuentaBase();
+    const t = totalesComanda(
+      proyectarComanda([
+        ...eventos,
+        f.crear("cortesia_otorgada", orden_id, { orden_id, renglon_id: a.id, motivo: "Se cayó" }),
+        f.crear("cortesia_otorgada", orden_id, { orden_id, renglon_id: b.id, motivo: "Tardó" }),
+        f.crear("cortesia_retirada", orden_id, { orden_id, renglon_id: a.id }),
+      ]),
+    );
+    // Se queda regalado el de 200 y vuelve a cobrarse el de 100.
+    expect(t.cortesias).toBe(pesos(200));
+    expect(t.subtotal).toBe(pesos(100));
+  });
+
+  it("retirar una cortesía que no existe no toca la cuenta", () => {
+    const { f, orden_id, eventos } = cuentaBase();
+    const t = totalesComanda(
+      proyectarComanda([...eventos, f.crear("cortesia_retirada", orden_id, { orden_id })]),
+    );
+    expect(t.total).toBe(pesos(348));
+  });
+});
+
+/*
+ * Liberar una mesa que se abrió por error.
+ *
+ * Antes había que cobrarla en cero, y esas cuentas fantasma hundían el ticket
+ * promedio de la jornada. `orden_anulada` la cierra sin convertirla en venta.
+ */
+describe("mesa liberada sin consumo", () => {
+  it("cierra la sentada y la marca anulada", () => {
+    const f = new FabricaEventos<EventoComanda>(CTX);
+    const orden_id = uuidv7();
+    const c = proyectarComanda([
+      f.crear("orden_creada", orden_id, { orden_id, mesa_id: "mesa-3", abierta_ts: Date.now() }),
+      f.crear("orden_anulada", orden_id, { orden_id, motivo: "Se liberó sin consumo" }),
+    ]);
+
+    expect(c.cerrada).toBe(true);
+    expect(c.anulada).toBe(true);
+    expect(c.cerrada_ts).toBeGreaterThan(0);
+  });
 });
 
 describe("propina y cobro", () => {

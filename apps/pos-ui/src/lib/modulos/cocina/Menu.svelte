@@ -8,6 +8,7 @@
    */
   import { mxn, pct } from "../../formato";
   import { menu } from "../../menu.svelte";
+  import { rutas } from "../../nav/rutas.svelte";
   import EditorProducto from "./EditorProducto.svelte";
   import EditorPromociones from "./EditorPromociones.svelte";
   import EditorReceta from "./EditorReceta.svelte";
@@ -26,14 +27,37 @@
   const permisos = $derived(menu.permisos);
   const resumen = $derived(menu.resumen);
 
+  /**
+   * Buscar «champinon» tiene que encontrar «Champiñón».
+   *
+   * Quien captura la carta no teclea los acentos, y un `includes` a secas dejaba
+   * el platillo fuera de los resultados aunque estuviera en el menú.
+   */
+  const normalizar = (s: string) =>
+    s
+      .normalize("NFD")
+      .replace(/\p{Diacritic}/gu, "")
+      .toLowerCase();
+
   const grupos = $derived.by(() => {
-    const texto = filtro.trim().toLowerCase();
-    if (texto.length === 0) return menu.porCategoria;
+    // Cada palabra por separado y en cualquier orden: «hawaiana pizza» encuentra
+    // «Pizza Hawaiana», y de paso los espacios de más dejan de estorbar.
+    const palabras = normalizar(filtro).split(/\s+/).filter(Boolean);
+    if (palabras.length === 0) return menu.porCategoria;
+
     return menu.porCategoria
-      .map((g) => ({
-        ...g,
-        productos: g.productos.filter((p) => p.nombre.toLowerCase().includes(texto)),
-      }))
+      .map((g) => {
+        const categoria = normalizar(g.categoria.nombre);
+        return {
+          ...g,
+          productos: g.productos.filter((p) => {
+            // La categoría cuenta como parte del texto buscable: escribir
+            // «bebida» tiene que traer la sección completa.
+            const heno = `${normalizar(p.nombre)} ${categoria}`;
+            return palabras.every((palabra) => heno.includes(palabra));
+          }),
+        };
+      })
       .filter((g) => g.productos.length > 0);
   });
 
@@ -62,6 +86,20 @@
       </p>
     </div>
     <div class="botones">
+      <!--
+        Las estaciones no están fijas: se dan de alta, se renombran y se borran.
+        El editor vive en Administración → Catálogo porque ahí están también los
+        insumos, pero quien las busca las busca desde aquí — así que aquí va el
+        camino, en vez de dejar que parezca que Horno y Pastas vienen de fábrica.
+      -->
+      {#if permisos.editarProductos}
+        <button
+          class="secundario"
+          onclick={() => rutas.ir("administracion", "catalogo", { ver: "estaciones" })}
+        >
+          Estaciones ({menu.estaciones.length})
+        </button>
+      {/if}
       <button class="secundario" onclick={() => (panel = { modo: "promociones" })}>
         Promociones{menu.promociones.length > 0 ? ` (${menu.promociones.length})` : ""}
       </button>
@@ -132,13 +170,20 @@
       <div class="productos">
         {#each grupo.productos as p (p.id)}
           <article class="producto" class:agotado={!p.disponible}>
+            <!--
+              El precio grande es EL DE LA CARTA: lo que paga el comensal, con
+              impuesto dentro. Antes salía la base gravable, así que la pantalla
+              y el menú de la pared decían cifras distintas para el mismo
+              platillo. El desglose se conserva debajo, en pequeño, porque es lo
+              que hace falta para revisar el margen.
+            -->
             <div class="linea">
               <b class="nombre">{p.nombre}</b>
-              <span class="precio">{mxn(p.precio)}</span>
+              <span class="precio">{mxn(p.impuesto.total)}</span>
             </div>
 
             <div class="etiquetas">
-              <span class="iva">+ IVA {mxn(p.impuesto.iva)}</span>
+              <span class="iva">{mxn(p.impuesto.base)} + IVA {mxn(p.impuesto.iva)}</span>
               {#if p.costo !== undefined && p.food_cost !== undefined}
                 <span class="costo">costo {mxn(p.costo)}</span>
                 <span class="fc" class:alto={p.food_cost > 0.45}>fc {pct(p.food_cost)}</span>

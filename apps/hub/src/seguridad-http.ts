@@ -192,6 +192,13 @@ export function politicaDeRitmoHttp(ruta: string, metodo: string | undefined): P
   if (ruta === "/imprimir") return { clave: "impresion", limite: 120 };
   // Consultar el listado arranca un PowerShell; se pide al configurar, no al vender.
   if (ruta === "/impresoras-sistema") return { clave: "impresoras-sistema", limite: 20 };
+  /*
+   * Buscar impresoras barre la red del local: son cientos de sockets por
+   * llamada. La cuota es baja a propósito —se pulsa un botón al montar el local,
+   * no se consulta durante el servicio— y evita que una pantalla con un bucle
+   * deje la wifi del restaurante inservible un viernes.
+   */
+  if (ruta === "/impresoras-detectadas") return { clave: "impresoras-detectadas", limite: 10 };
   if (ruta === "/licencia") return { clave: "licencia", limite: 20 };
   if (ruta === "/salud") return { clave: "salud", limite: 60 };
 

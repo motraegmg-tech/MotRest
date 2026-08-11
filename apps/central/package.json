@@ -2,7 +2,7 @@
   "name": "@motrest/central",
   "version": "0.0.0",
   "private": true,
-  "description": "MOTRAE Central — el panel de Gonzalo: cartera de restaurantes, cobros, salud de cada instalación, altas y llaves, y publicación de actualizaciones.",
+  "description": "MotRest Central — el panel de Gonzalo: cartera de restaurantes, cobros, salud de cada instalación, altas y llaves, y publicación de actualizaciones.",
   "type": "module",
   "scripts": {
     "dev": "vite",

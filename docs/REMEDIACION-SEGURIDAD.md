@@ -511,7 +511,7 @@ se quieren 80 de verdad son 17 caracteres (83,4 bits) y una línea.
 **CN-044 · Contrastar los crates de Rust. ✅ Hecho.**
 
 Se instaló `cargo-audit` y se corrió sobre los dos `src-tauri/`. **Resultado: cero
-vulnerabilidades** en 441 crates (MotRest) y 419 (MOTRAE Central), contra 1 190
+vulnerabilidades** en 441 crates (MotRest) y 419 (MotRest Central), contra 1 190
 avisos de RustSec.
 
 Sí salen **17 avisos de mantenimiento** en cada uno —`glib` (unsound),

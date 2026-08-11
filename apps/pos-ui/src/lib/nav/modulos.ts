@@ -155,6 +155,9 @@ export const MODULOS: EntradaModulo[] = [
     operativo: true,
     secciones: [
       { clave: "checador", titulo: "Checador", permiso: "rrhh.checada.registrar" },
+      // El rol de mesas lo CONSULTA cualquiera que atienda —saber si una mesa es
+      // tuya no es información reservada—; editarlo pide administrar personal.
+      { clave: "mesas", titulo: "Rol de mesas", permiso: "rrhh.checada.registrar" },
       { clave: "prenomina", titulo: "Prenómina", permiso: "rrhh.empleado.editar" },
     ],
     resumen: "Checador de asistencia, turnos, propinas, prenómina y desempeño del equipo.",
@@ -225,6 +228,7 @@ export const MODULOS: EntradaModulo[] = [
       { clave: "salones", titulo: "Salones y plano", permiso: "cat.area.editar" },
       { clave: "catalogo", titulo: "Insumos y estaciones", permiso: "cat.producto.editar" },
       { clave: "impresoras", titulo: "Impresoras", permiso: "admin.dispositivo.aprobar" },
+      { clave: "socios", titulo: "Socios", permiso: "admin.socio.editar" },
       { clave: "mensajes", titulo: "Mensajes para el cliente", permiso: "admin.usuario.editar" },
       { clave: "hub", titulo: "Hub del local", permiso: "admin.dispositivo.aprobar" },
       { clave: "bitacora", titulo: "Bitácora", permiso: "admin.bitacora.ver" },
@@ -236,6 +240,7 @@ export const MODULOS: EntradaModulo[] = [
       "Bitácoras de auditoría (cancelaciones, descuentos, reimpresiones)",
       "Catálogo de productos, categorías y precios",
       "Salones, mesas, estaciones e impresoras",
+      "Socios e inversionistas con beneficios de consumo",
       "Multisucursal y multiempresa",
     ],
     enF1: "Usuarios y permisos granulares, salones, insumos, estaciones y bitácora de auditoría — todo editable sin tocar código.",

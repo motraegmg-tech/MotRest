@@ -80,7 +80,7 @@ El procedimiento completo, paso a paso y con ejemplo, está en
 
 1. Copiar el código de instalación que aparece en **Servicio suspendido** (o el
    `sucursal_id` de **Administración → Hub** si el local ya está abierto).
-2. Dar de alta el local en **MOTRAE Central → Restaurantes** con **ese mismo**
+2. Dar de alta el local en **MotRest Central → Restaurantes** con **ese mismo**
    identificador, y pulsar «Emitir licencia».
 3. Pegar el `licencia.json` en **Licencia de MOTRAE** de la pantalla suspendida,
    o en **Administración → Licencia** si el local ya está abierto.
@@ -170,7 +170,7 @@ pospone, el aviso se queda puesto en la barra lateral hasta que se instale.
 El procedimiento completo está en
 [`PUBLICAR-UNA-ACTUALIZACION.md`](PUBLICAR-UNA-ACTUALIZACION.md). En corto: se
 sube el instalador y un `motrest.json` firmado a un release de GitHub, desde
-**MOTRAE Central → Versiones**.
+**MotRest Central → Versiones**.
 
 > **Regla de oro:** una versión nueva se prueba con el ensayo del viernes
 > completo **y se instala sobre una instalación anterior** antes de publicarla.

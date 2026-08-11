@@ -13,7 +13,7 @@
  * existe —existe en todos— sino en si se puede auditar y si el cliente lo sabe:
  *
  *   1. **LA CREDENCIAL NO ESTÁ EN EL CÓDIGO.** Viaja dentro de la licencia
- *      firmada y la elige Gonzalo en MOTRAE Central. Nadie que lea este
+ *      firmada y la elige Gonzalo en MotRest Central. Nadie que lea este
  *      repositorio puede entrar, y nadie que edite un archivo puede fabricarse
  *      un usuario con estos poderes: sin la firma de MOTRAE no vale.
  *

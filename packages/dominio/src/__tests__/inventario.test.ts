@@ -3,7 +3,7 @@ import { pesos } from "../comun/dinero.js";
 import { uuidv7 } from "../comun/ids.js";
 import { IVA_16, snapshotTasas } from "../comun/impuestos.js";
 import { indexar, type CatalogoIndex, type Producto } from "../catalogo/productos.js";
-import type { Receta } from "../catalogo/recetas.js";
+import { costoDesdeInsumo, costoReceta, type Receta } from "../catalogo/recetas.js";
 import type { RenglonComanda } from "../comanda/renglon.js";
 import { FabricaEventos } from "../evento.js";
 import {
@@ -309,5 +309,54 @@ describe("el signo del movimiento lo decide el motivo", () => {
     expect(manuales).not.toContain("consumo_receta");
     expect(manuales).toContain("merma");
     expect(manuales).toContain("recepcion");
+  });
+});
+
+/*
+ * EL COSTO DEL INGREDIENTE SALE DEL ALMACÉN.
+ *
+ * Era la mitad que le faltaba al vínculo: un ingrediente ya declaraba «250 g de
+ * masa» y los descontaba al enviar a cocina, pero su COSTO se tecleaba aparte.
+ * Con las dos cifras desconectadas, subir el precio de la harina no cambiaba el
+ * costo de ninguna pizza y el food cost seguía diciendo lo de hace seis meses.
+ */
+describe("costo del ingrediente a partir de su insumo", () => {
+  const masa = insumos[0]!; // 5 centavos el gramo
+  const limon = insumos[2]!; // 2 pesos la pieza
+
+  it("multiplica el gramaje por lo que cuesta el insumo", () => {
+    expect(costoDesdeInsumo({ cantidad: 250, unidad: "g" }, masa)).toBe(pesos(12.5));
+    expect(costoDesdeInsumo({ cantidad: 2, unidad: "pz" }, limon)).toBe(pesos(4));
+  });
+
+  it("convierte al vuelo dentro del mismo sistema: 1.5 kg de masa son 1500 g", () => {
+    expect(costoDesdeInsumo({ cantidad: 1.5, unidad: "kg" }, masa)).toBe(pesos(75));
+  });
+
+  it("cierra al centavo: medio centavo no existe", () => {
+    // 33 g × 5 centavos = 165 centavos exactos; 33.5 g redondea.
+    expect(costoDesdeInsumo({ cantidad: 33.5, unidad: "g" }, masa)).toBe(168);
+  });
+
+  /*
+   * Los tres casos donde NO se puede calcular devuelven null y no cero, para
+   * que quien llama conserve lo tecleado: un cero silencioso convierte un
+   * platillo caro en uno que parece regalado.
+   */
+  it("sin insumo, sin gramaje o con unidades incompatibles devuelve null", () => {
+    expect(costoDesdeInsumo({ cantidad: 250, unidad: "g" }, undefined)).toBeNull();
+    expect(costoDesdeInsumo({ cantidad: undefined, unidad: "g" }, masa)).toBeNull();
+    expect(costoDesdeInsumo({ cantidad: 250, unidad: undefined }, masa)).toBeNull();
+    // Gramos contra piezas exigiría saber cuánto pesa un limón.
+    expect(costoDesdeInsumo({ cantidad: 250, unidad: "g" }, limon)).toBeNull();
+  });
+
+  it("una cantidad negativa no produce un costo negativo", () => {
+    expect(costoDesdeInsumo({ cantidad: -10, unidad: "g" }, masa)).toBeNull();
+  });
+
+  it("el costo de la receta es la suma de sus ingredientes ya valorados", () => {
+    const receta = recetas[2]!; // Limonada: 2 limones
+    expect(costoReceta(receta)).toBe(pesos(4));
   });
 });

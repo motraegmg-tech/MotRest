@@ -6,18 +6,29 @@
    * rinde, queda a la vista para reimprimirlo a mano. Lo que jamás se pierde es
    * el evento de venta, que ya está en el registro.
    */
-  import { impresion, enLaCaja } from "../../impresion.svelte";
+  import {
+    impresion,
+    enLaCaja,
+    type ImpresoraDetectada,
+  } from "../../impresion.svelte";
   import { menu } from "../../menu.svelte";
   import { hora } from "../../formato";
   import { sesion } from "../../sesion/sesion.svelte";
 
   let nueva = $state("");
+  let manual = $state(false);
 
   // La lista de impresoras del sistema solo existe en la caja, y solo hace
   // falta aquí: se pide al abrir la pantalla, no en el arranque del POS.
   const esCaja = enLaCaja();
   $effect(() => {
     void impresion.cargarImpresorasSistema();
+    /*
+     * Al abrir se consultan las de Windows, que es instantáneo. El barrido de la
+     * red NO se hace solo: tarda unos segundos y abre cientos de conexiones, así
+     * que se dispara con el botón de quien lo necesita.
+     */
+    if (impresion.deteccion === null) void impresion.buscar(false);
   });
 
   const puedeEditar = $derived(sesion.puedeOperar("admin.dispositivo.aprobar"));
@@ -34,6 +45,50 @@
       : [...imp.areas, areaId];
     impresion.actualizar(impresoraId, { areas });
   }
+
+  // --- Asistente de detección -------------------------------------------------------
+
+  /**
+   * Lo que se lleva elegido para CADA impresora encontrada, mientras no se
+   * confirme. Se guarda por clave de la detectada y no en la lista de impresoras
+   * porque hasta que alguien pulsa «Agregar» no existe nada que configurar.
+   */
+  let elegidas = $state<Record<string, { areas: string[]; nombre: string }>>({});
+
+  /** Identidad estable de una encontrada: el dispositivo, o la dirección. */
+  function claveDe(d: ImpresoraDetectada): string {
+    return d.origen === "usb" ? `usb:${d.dispositivo}` : `red:${d.host}:${d.puerto}`;
+  }
+
+  function borrador(d: ImpresoraDetectada) {
+    return elegidas[claveDe(d)] ?? { areas: [], nombre: d.nombre };
+  }
+
+  function alternarAreaNueva(d: ImpresoraDetectada, areaId: string) {
+    const actual = borrador(d);
+    const areas = actual.areas.includes(areaId)
+      ? actual.areas.filter((a) => a !== areaId)
+      : [...actual.areas, areaId];
+    elegidas = { ...elegidas, [claveDe(d)]: { ...actual, areas } };
+  }
+
+  function renombrarNueva(d: ImpresoraDetectada, nombre: string) {
+    elegidas = { ...elegidas, [claveDe(d)]: { ...borrador(d), nombre } };
+  }
+
+  function agregarDetectada(d: ImpresoraDetectada) {
+    const { areas, nombre } = borrador(d);
+    impresion.adoptar(d, areas, nombre);
+    // Se limpia el borrador: la ficha real ya manda a partir de aquí.
+    const { [claveDe(d)]: _usado, ...resto } = elegidas;
+    elegidas = resto;
+  }
+
+  /** Las de papel primero; las virtuales se agrupan aparte y colapsadas. */
+  const encontradas = $derived(impresion.deteccion?.impresoras ?? []);
+  const dePapel = $derived(encontradas.filter((d) => !d.virtual));
+  const virtuales = $derived(encontradas.filter((d) => d.virtual));
+  let verVirtuales = $state(false);
 </script>
 
 <div class="seccion">
@@ -41,24 +96,185 @@
     <div>
       <h1>Impresoras</h1>
       <p class="sub">
-        A qué impresora va cada área. Un área sin impresora asignada cae a caja:
-        una comanda mal ubicada se lleva caminando, una que no se imprime no se
-        prepara.
+        A qué impresora va cada área. <b>Cada una imprime solo lo que se le
+        marque</b>: un área sin impresora asignada no sale en papel en ningún
+        lado, y eso es a propósito — apagar la de cocina tiene que dejar de
+        imprimir comandas, no mandarlas todas al rollo de la caja.
       </p>
     </div>
-    {#if puedeEditar}
-      <div class="alta">
-        <input bind:value={nueva} placeholder="Nombre de la impresora" />
-        <button
-          class="principal"
-          onclick={() => { impresion.agregar(nueva); nueva = ""; }}
-          disabled={nueva.trim().length < 2}
-        >
-          Agregar
-        </button>
-      </div>
-    {/if}
   </div>
+
+  <!--
+    DETECTAR Y CONECTAR.
+
+    Va lo primero y siempre visible, porque es lo primero que hace falta al
+    montar un local y lo que se vuelve a necesitar cada vez que cambian una
+    impresora. Antes había que averiguar la IP del aparato o teclear su nombre
+    de Windows letra por letra: dos datos que el restaurantero no tiene, y que
+    mal puestos dejan a la cocina sin comandas sin decir por qué.
+  -->
+  {#if puedeEditar}
+    <section class="tarjeta detectar">
+      <div class="cab">
+        <b>Detectar y conectar</b>
+        <span class="sp"></span>
+        {#if esCaja}
+          <button onclick={() => impresion.buscar(false)} disabled={impresion.buscando}>
+            Solo las de este equipo
+          </button>
+          <button class="principal" onclick={() => impresion.buscar(true)} disabled={impresion.buscando}>
+            {impresion.buscando ? "Buscando…" : "Buscar impresoras"}
+          </button>
+        {/if}
+      </div>
+
+      {#if !esCaja}
+        <p class="nota aviso">
+          La búsqueda se hace desde la <b>caja</b>, que es el equipo conectado a
+          las impresoras. Desde esta terminal se puede ver la configuración, pero
+          no detectar ni imprimir.
+        </p>
+      {:else}
+        <p class="explica">
+          Busca las que están <b>conectadas por cable</b> a este equipo y las
+          <b>inalámbricas o de red</b> que respondan en la red del restaurante.
+          Solo hay que elegir qué imprime cada una.
+        </p>
+
+        {#if impresion.buscando}
+          <p class="buscando" role="status">
+            Revisando la red del local… tarda unos segundos, no cierres la pantalla.
+          </p>
+        {/if}
+
+        {#if impresion.errorBusqueda}
+          <p class="error" role="alert">{impresion.errorBusqueda}</p>
+        {/if}
+
+        {#if impresion.deteccion}
+          {#if impresion.deteccion.sin_red}
+            <p class="nota">
+              Todavía no se ha barrido la red. Pulsa <b>Buscar impresoras</b> para
+              encontrar también las inalámbricas.
+            </p>
+          {:else}
+            <p class="nota">
+              Se revisaron {impresion.deteccion.redes.length === 1 ? "la red" : "las redes"}
+              {impresion.deteccion.redes.map((r) => `${r}.x`).join(", ")}.
+            </p>
+          {/if}
+
+          {#if dePapel.length === 0}
+            <p class="vacio">
+              No se encontró ninguna impresora. Comprueba que esté encendida y —si
+              es de red— que esté en la misma wifi que esta caja. También puedes
+              darla de alta a mano abajo.
+            </p>
+          {/if}
+
+          {#each dePapel as d (claveDe(d))}
+            {@const ya = impresion.yaConfigurada(d)}
+            {@const b = borrador(d)}
+            <article class="hallazgo" class:puesta={!!ya}>
+              <div class="fila-hallazgo">
+                <span class="icono" aria-hidden="true">{d.origen === "usb" ? "🔌" : "📶"}</span>
+                <span class="quien">
+                  <b>{d.nombre}</b>
+                  <small>{d.detalle}</small>
+                </span>
+                <span class="sp"></span>
+                <button onclick={() => impresion.probarDetectada(d)}>Imprimir prueba</button>
+                {#if ya}
+                  <span class="ya">Ya configurada como «{ya.nombre}»</span>
+                {/if}
+              </div>
+
+              {#if !ya}
+                <div class="config-hallazgo">
+                  <label class="nombre-hallazgo">
+                    <span>Nombre en MotRest</span>
+                    <input
+                      value={b.nombre}
+                      oninput={(e) => renombrarNueva(d, e.currentTarget.value)}
+                      placeholder="Caja, Cocina, Barra…"
+                    />
+                  </label>
+
+                  <div class="areas">
+                    <span class="etiqueta">¿Qué imprime?</span>
+                    {#each areas as area (area.id)}
+                      <button
+                        class="area"
+                        class:on={b.areas.includes(area.id)}
+                        onclick={() => alternarAreaNueva(d, area.id)}
+                      >
+                        {area.nombre}
+                      </button>
+                    {/each}
+                  </div>
+
+                  <button
+                    class="principal"
+                    disabled={b.areas.length === 0}
+                    onclick={() => agregarDetectada(d)}
+                  >
+                    Conectar esta impresora
+                  </button>
+                  {#if b.areas.length === 0}
+                    <!--
+                      Sin áreas no se deja agregar. Una impresora dada de alta que
+                      no imprime nada es la peor de las configuraciones: parece
+                      lista y no sale un solo papel.
+                    -->
+                    <span class="falta">Elige al menos una cosa que imprima</span>
+                  {/if}
+                </div>
+              {/if}
+            </article>
+          {/each}
+
+          {#if virtuales.length > 0}
+            <button class="mas" onclick={() => (verVirtuales = !verVirtuales)}>
+              {verVirtuales ? "Ocultar" : "Ver"} las {virtuales.length} que no imprimen
+              en papel (PDF, XPS, fax)
+            </button>
+            {#if verVirtuales}
+              {#each virtuales as d (claveDe(d))}
+                <div class="fila-hallazgo tenue">
+                  <span class="icono" aria-hidden="true">📄</span>
+                  <span class="quien">
+                    <b>{d.nombre}</b>
+                    <small>{d.detalle}</small>
+                  </span>
+                </div>
+              {/each}
+            {/if}
+          {/if}
+        {/if}
+      {/if}
+
+      <!--
+        El alta a mano se conserva plegada: cubre la impresora en otra subred, la
+        que está apagada durante la búsqueda y el servidor de impresión en un
+        puerto que no es el 9100.
+      -->
+      <button class="mas" onclick={() => (manual = !manual)}>
+        {manual ? "Ocultar" : "No aparece: darla de alta a mano"}
+      </button>
+      {#if manual}
+        <div class="alta">
+          <input bind:value={nueva} placeholder="Nombre de la impresora" />
+          <button
+            class="principal"
+            onclick={() => { impresion.agregar(nueva); nueva = ""; manual = false; }}
+            disabled={nueva.trim().length < 2}
+          >
+            Agregar
+          </button>
+        </div>
+      {/if}
+    </section>
+  {/if}
 
   {#if esCaja}
     <p class="nota">
@@ -278,6 +494,110 @@
   .alta {
     display: flex;
     gap: 0.4rem;
+    max-width: 28rem;
+  }
+
+  /* --- Detectar y conectar --- */
+
+  .detectar {
+    border-color: var(--acento);
+  }
+  .explica {
+    font-size: 0.85rem;
+    color: var(--gris);
+    line-height: 1.55;
+  }
+  .buscando {
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: var(--acento);
+  }
+  .error {
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: var(--peligro);
+  }
+  .hallazgo {
+    border: 1px solid var(--borde);
+    border-radius: var(--r-md);
+    padding: 0.7rem 0.85rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.6rem;
+  }
+  /* La que ya está puesta se apaga: lo que importa son las que faltan. */
+  .hallazgo.puesta {
+    background: var(--fondo);
+  }
+  .fila-hallazgo {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    flex-wrap: wrap;
+  }
+  .fila-hallazgo.tenue {
+    opacity: 0.6;
+    padding: 0.35rem 0;
+  }
+  .icono {
+    font-size: 1.15rem;
+  }
+  .quien {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+  }
+  .quien b {
+    font-size: 0.95rem;
+  }
+  .quien small {
+    font-size: 0.76rem;
+    color: var(--gris);
+  }
+  .ya {
+    font-size: 0.76rem;
+    font-weight: 600;
+    color: #3f5c31;
+    background: #eef3ea;
+    border-radius: var(--r-pill);
+    padding: 0.15rem 0.65rem;
+  }
+  .config-hallazgo {
+    display: flex;
+    flex-direction: column;
+    gap: 0.55rem;
+    padding-top: 0.5rem;
+    border-top: 1px dashed var(--borde);
+  }
+  .nombre-hallazgo {
+    display: flex;
+    flex-direction: column;
+    gap: 0.2rem;
+    max-width: 18rem;
+  }
+  .nombre-hallazgo span {
+    font-size: 0.72rem;
+    font-weight: 600;
+    color: var(--gris);
+  }
+  .config-hallazgo .principal {
+    align-self: flex-start;
+  }
+  .falta {
+    font-size: 0.76rem;
+    color: var(--gris);
+    font-style: italic;
+  }
+  .mas {
+    align-self: flex-start;
+    border: none;
+    padding: 0.2rem 0;
+    font-size: 0.8rem;
+    color: var(--gris);
+    text-decoration: underline;
+  }
+  .mas:hover {
+    color: var(--acento);
   }
   .nota {
     background: var(--fondo);

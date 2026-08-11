@@ -154,9 +154,12 @@
     <!-- Indicadores -->
     <div class="indicadores">
       <div class="dato">
-        <span class="etiqueta">Vendido</span>
+        <span class="etiqueta">Vendido (con IVA)</span>
         <b>{mxn(resumen.total)}</b>
-        <small>{resumen.cuentas} cuentas · {resumen.platillos} platillos</small>
+        <small>
+          {resumen.cuentas} cuentas · {resumen.platillos} platillos ·
+          sin IVA {mxn(resumen.subtotal)}
+        </small>
       </div>
       <div class="dato">
         <span class="etiqueta">Ticket promedio</span>
@@ -256,7 +259,7 @@
             <tr>
               <th>Mesero</th>
               <th class="num">Cuentas</th>
-              <th class="num">Vendido</th>
+              <th class="num">Vendido (con IVA)</th>
               <th class="num">Ticket</th>
               <th class="num">Propina</th>
             </tr>
@@ -284,7 +287,7 @@
           <tr>
             <th>Producto</th>
             <th class="num">Unidades</th>
-            <th class="num">Importe</th>
+            <th class="num">Vendido (con IVA)</th>
             {#if verCostos}
               <th class="num">Margen</th>
               <th class="num">%</th>

@@ -132,7 +132,7 @@ repositorio**. Si el repo se mueve, hay que corregirla.
 El puente sobra en cuanto el Hub instalado lleve el transporte USB nativo.
 Requiere:
 
-1. Las llaves **públicas** de MOTRAE Central en el entorno:
+1. Las llaves **públicas** de MotRest Central en el entorno:
    `MOTREST_LICENCIA_PUBLICA` y `MOTREST_ACTUALIZACIONES_PUBLICA`.
    No están en el repo (correcto). Ver `entregables/MotRest-Tablet-2026-08-07/LLAVES-PUBLICAS-E-INSTALADOR.md`.
 2. **Node exactamente 24.16.0** (`.nvmrc`): el ejecutable del Hub es una copia

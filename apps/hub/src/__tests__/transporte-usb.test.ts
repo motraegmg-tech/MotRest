@@ -30,6 +30,17 @@ describe("validación del nombre de impresora", () => {
   });
 });
 
+/*
+ * MÁS TIEMPO QUE EL DEL PROPIO TRANSPORTE, Y POR ESO EXACTAMENTE.
+ *
+ * `enviarAUsb` se rinde a los 10 s, pero el límite por defecto de vitest son 5,
+ * así que bajo carga —varias pruebas arrancando PowerShell a la vez— el corredor
+ * mataba la prueba ANTES de que el transporte pudiera contestar y el fallo salía
+ * intermitente, sin nada roto detrás. Un límite por debajo del que se está
+ * probando no mide el código: mide la máquina.
+ */
+const ESPERA_SPOOLER_MS = 20_000;
+
 describe.runIf(EN_WINDOWS)("envío al spooler", () => {
   /** ¿Está la impresora de pruebas en este equipo? */
   async function hayOneNote(): Promise<boolean> {
@@ -44,13 +55,13 @@ describe.runIf(EN_WINDOWS)("envío al spooler", () => {
       expect(typeof i.nombre).toBe("string");
       expect(i.nombre.length).toBeGreaterThan(0);
     }
-  });
+  }, ESPERA_SPOOLER_MS);
 
   it("entrega un trabajo a una impresora instalada", async ({ skip }) => {
     if (!(await hayOneNote())) skip();
     const r = await enviarAUsb("OneNote (Desktop)", TICKET, "MotRest prueba");
     expect(r.ok).toBe(true);
-  });
+  }, ESPERA_SPOOLER_MS);
 
   it("acepta un ticket largo: los bytes van por la entrada estándar", async ({ skip }) => {
     if (!(await hayOneNote())) skip();
@@ -58,13 +69,13 @@ describe.runIf(EN_WINDOWS)("envío al spooler", () => {
     // mueve los datos a los argumentos, esta prueba lo caza.
     const r = await enviarAUsb("OneNote (Desktop)", new Uint8Array(40_000).fill(0x41));
     expect(r.ok).toBe(true);
-  });
+  }, ESPERA_SPOOLER_MS);
 
   it("avisa cuando la impresora no existe, en vez de darla por impresa", async () => {
     const r = await enviarAUsb("Impresora Que No Existe MotRest", TICKET);
     expect(r.ok).toBe(false);
     expect(r.error).toContain("No existe una impresora");
-  });
+  }, ESPERA_SPOOLER_MS);
 
   /*
    * La prueba que justifica el diseño: el nombre viaja por variable de entorno
@@ -84,7 +95,7 @@ describe.runIf(EN_WINDOWS)("envío al spooler", () => {
      * completo entrecomillado.
      */
     expect(r.error).toBe(`No existe una impresora llamada '${nombre}' en este equipo`);
-  });
+  }, ESPERA_SPOOLER_MS);
 
   it("rechaza un nombre inválido sin llegar a arrancar PowerShell", async () => {
     const r = await enviarAUsb("con\\barra", TICKET);

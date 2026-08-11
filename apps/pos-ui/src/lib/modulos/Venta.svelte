@@ -11,55 +11,67 @@
   import PanelCuenta from "../PanelCuenta.svelte";
   import PanelMesa from "../PanelMesa.svelte";
   import PanelSalon from "../PanelSalon.svelte";
+  import AvisosDeCocina from "../AvisosDeCocina.svelte";
   import { pos } from "../pos.svelte";
+  import { vistaMesa } from "../vista-mesa.svelte";
 
-  /** Vista de la columna central. */
-  let modo = $state<"mesa" | "pedido">("mesa");
+  /**
+   * Vista de la columna central, POR MESA.
+   *
+   * Antes era una variable de este componente y un `$effect` la devolvía a
+   * «mesa» en cuanto se tocaba otra. Ahora cada mesa recuerda si estaba
+   * pidiendo, igual que recuerda si estaba a medio cobrar (ver
+   * `vista-mesa.svelte.ts`), así que moverse por el salón deja de tirar trabajo.
+   */
+  const modo = $derived(vistaMesa.de(pos.mesaActiva).modo);
 
-  /** Paso activo en el perfil de teléfono. */
-  let paso = $state<"salon" | "centro" | "cuenta">("centro");
-
-  // Al cambiar de mesa se vuelve al panel de la mesa: el pedido es de una mesa
-  // concreta, no un modo global.
-  let ultimaMesa = $state(pos.mesaActiva);
-  $effect(() => {
-    if (pos.mesaActiva !== ultimaMesa) {
-      ultimaMesa = pos.mesaActiva;
-      modo = "mesa";
-    }
-  });
+  /** Columna visible en el perfil de teléfono. Esa sí es de la pantalla. */
+  let columna = $state<"salon" | "centro" | "cuenta">("centro");
 </script>
 
 <div class="venta">
-  <div class="salon" data-paso={paso}>
+  <div class="salon" data-paso={columna}>
     <PanelSalon />
   </div>
 
-  <div class="centro" data-paso={paso}>
+  <div class="centro" data-paso={columna}>
     {#if modo === "pedido"}
       <div class="barra-pedido">
-        <button class="volver" onclick={() => (modo = "mesa")}>← Mesa {pos.nombreMesaActiva}</button>
+        <button
+          class="volver"
+          onclick={() => vistaMesa.fijar(pos.mesaActiva, { modo: "mesa" })}
+        >
+          ← Mesa {pos.nombreMesaActiva}
+        </button>
         <span class="titulo-pedido">Pedido</span>
       </div>
       <CatalogoProductos />
     {:else}
-      <PanelMesa onPedido={() => (modo = "pedido")} />
+      <PanelMesa onPedido={() => vistaMesa.fijar(pos.mesaActiva, { modo: "pedido" })} />
     {/if}
   </div>
 
-  <div class="cuenta" data-paso={paso}>
+  <div class="cuenta" data-paso={columna}>
     <PanelCuenta />
   </div>
 
   <ConfiguradorProducto />
 
+  <!--
+    Lo que cocina acaba de dejar listo. Va en el módulo de venta y no en el
+    panel de una mesa porque el aviso importa justo cuando el mesero está
+    mirando OTRA mesa: si solo se viera dentro de la cuenta que ya tiene
+    abierta, avisaría de lo único que no hacía falta avisar.
+  -->
+  <AvisosDeCocina />
+
   <!-- Navegación por pasos, solo en teléfono -->
   <nav class="pasos">
-    <button class:on={paso === "salon"} onclick={() => (paso = "salon")}>Salón</button>
-    <button class:on={paso === "centro"} onclick={() => (paso = "centro")}>
+    <button class:on={columna === "salon"} onclick={() => (columna = "salon")}>Salón</button>
+    <button class:on={columna === "centro"} onclick={() => (columna = "centro")}>
       {modo === "pedido" ? "Pedido" : "Mesa"}
     </button>
-    <button class:on={paso === "cuenta"} onclick={() => (paso = "cuenta")}>
+    <button class:on={columna === "cuenta"} onclick={() => (columna = "cuenta")}>
       Cuenta
       {#if pos.renglones.length > 0}<span class="badge">{pos.renglones.length}</span>{/if}
     </button>

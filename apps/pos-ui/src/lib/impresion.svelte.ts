@@ -105,6 +105,25 @@ export interface ImpresoraDelSistema {
   estado: string;
 }
 
+/** Una impresora que el Hub encontró sola. Ver `hub/src/impresion/buscador.ts`. */
+export interface ImpresoraDetectada {
+  origen: "usb" | "red";
+  nombre: string;
+  detalle: string;
+  host?: string;
+  puerto?: number;
+  dispositivo?: string;
+  /** true = no imprime en papel (PDF, XPS, fax). Se agrupa aparte. */
+  virtual?: boolean;
+  ancho: 32 | 42;
+}
+
+export interface ResultadoBusqueda {
+  impresoras: ImpresoraDetectada[];
+  redes: string[];
+  sin_red: boolean;
+}
+
 /** ¿Esta terminal es la caja —la única que puede imprimir de verdad—? */
 export function enLaCaja(): boolean {
   return typeof globalThis !== "undefined" &&
@@ -140,6 +159,15 @@ class StoreImpresion {
   vistaPrevia = $state<{ titulo: string; texto: string } | null>(null);
   /** Impresoras que Windows tiene dadas de alta. Solo se puebla en la caja. */
   impresorasSistema = $state.raw<ImpresoraDelSistema[]>([]);
+
+  // --- Detección automática ------------------------------------------------------------
+
+  /** Lo último que encontró la búsqueda. Null = todavía no se ha buscado. */
+  deteccion = $state.raw<ResultadoBusqueda | null>(null);
+  /** true = la búsqueda está en curso. El barrido de red tarda unos segundos. */
+  buscando = $state(false);
+  /** Por qué no se pudo buscar, si es que no se pudo. */
+  errorBusqueda = $state("");
 
   private almacen: Almacen | null = null;
   private transporte = new TransporteSimulado();
@@ -178,6 +206,146 @@ class StoreImpresion {
     } catch {
       // Sin lista, la configuración sigue funcionando a mano.
     }
+  }
+
+  /**
+   * Busca impresoras: las de Windows y, si se pide, las que contestan en la red.
+   *
+   * El barrido de red va aparte porque tarda unos segundos: al abrir la pantalla
+   * se consulta solo el spooler, que es instantáneo, y la búsqueda completa la
+   * dispara quien la necesita.
+   */
+  async buscar(conRed: boolean): Promise<void> {
+    if (this.buscando) return;
+    this.errorBusqueda = "";
+
+    if (!enLaCaja()) {
+      this.errorBusqueda =
+        "Solo la caja puede buscar impresoras: es el equipo que habla con ellas.";
+      return;
+    }
+
+    this.buscando = true;
+    try {
+      const respuesta = await fetch(`/impresoras-detectadas${conRed ? "?red=1" : ""}`);
+      if (!respuesta.ok) {
+        this.errorBusqueda = `El Hub respondió ${respuesta.status}`;
+        return;
+      }
+      this.deteccion = (await respuesta.json()) as ResultadoBusqueda;
+    } catch (causa) {
+      this.errorBusqueda =
+        causa instanceof Error ? causa.message : "No se pudo contactar al Hub";
+    } finally {
+      this.buscando = false;
+    }
+  }
+
+  /** ¿Esta impresora encontrada ya está dada de alta en MotRest? */
+  yaConfigurada(detectada: ImpresoraDetectada): Impresora | undefined {
+    return this.impresoras.find((i) =>
+      detectada.origen === "usb"
+        ? i.conexion === "usb" && i.dispositivo === detectada.dispositivo
+        : i.conexion === "red" &&
+          i.host === detectada.host &&
+          (i.puerto ?? 9100) === (detectada.puerto ?? 9100),
+    );
+  }
+
+  /**
+   * Da de alta una impresora encontrada, ya conectada y con lo que imprime.
+   *
+   * Es el único camino que deja la impresora lista de una vez: nombre, conexión,
+   * dirección o dispositivo y áreas, sin volver a la ficha a rellenar campos. Si
+   * ya estaba dada de alta se le actualizan las áreas en vez de duplicarla —dos
+   * fichas de la misma impresora imprimen dos veces cada comanda—.
+   */
+  adoptar(detectada: ImpresoraDetectada, areas: readonly ID[], nombre?: string): ID {
+    const comun: Partial<Impresora> = {
+      nombre: (nombre ?? detectada.nombre).trim() || detectada.nombre,
+      conexion: detectada.origen === "usb" ? "usb" : "red",
+      ancho: detectada.ancho,
+      areas: [...areas],
+      activa: true,
+      ...(detectada.origen === "usb"
+        ? { dispositivo: detectada.dispositivo }
+        : { host: detectada.host, puerto: detectada.puerto ?? 9100 }),
+    };
+
+    const existente = this.yaConfigurada(detectada);
+    if (existente) {
+      this.actualizar(existente.id, comun);
+      return existente.id;
+    }
+
+    const id = idCorto("imp");
+    this.impresoras = [
+      ...this.impresoras,
+      {
+        id,
+        corta: true,
+        // Solo la de caja abre el cajón, y eso lo decide quién imprime tickets.
+        cajon: areas.includes("caja"),
+        ...comun,
+      } as Impresora,
+    ];
+    void this.guardar();
+    return id;
+  }
+
+  /**
+   * Página de prueba en una impresora que TODAVÍA NO está dada de alta.
+   *
+   * Es lo que permite saber cuál de las tres cajas del mostrador es «192.168.1.62»
+   * antes de comprometerse: se manda un papel y se mira de dónde sale. Sin esto,
+   * identificar una impresora de red exige darla de alta a ciegas y borrarla si
+   * no era.
+   */
+  probarDetectada(detectada: ImpresoraDetectada): void {
+    const efimera: Impresora = {
+      id: `imp-prueba-${uuidv7()}`,
+      nombre: detectada.nombre,
+      conexion: detectada.origen === "usb" ? "usb" : "red",
+      ancho: detectada.ancho,
+      areas: [],
+      corta: true,
+      cajon: false,
+      activa: true,
+      ...(detectada.origen === "usb"
+        ? { dispositivo: detectada.dispositivo }
+        : { host: detectada.host, puerto: detectada.puerto ?? 9100 }),
+    };
+
+    const ticket = comandaCocina(
+      {
+        orden_id: "prueba",
+        mesa: "—",
+        mesero: "Prueba de impresión",
+        estacion: "¿ES ESTA?",
+        ts: Date.now(),
+        renglones: [
+          { cantidad: 1, descripcion: detectada.nombre },
+          { cantidad: 1, descripcion: detectada.detalle },
+          { cantidad: 1, descripcion: "Si ves este papel, es la correcta." },
+        ],
+      },
+      efimera.ancho,
+    );
+
+    /*
+     * La impresora efímera se pasa a la cola SOLO para este trabajo: no se
+     * guarda en la configuración. Si no imprime, no queda ninguna ficha suelta
+     * que alguien tenga que borrar después.
+     */
+    this.cola.encolar({
+      id: uuidv7(),
+      impresora_id: efimera.id,
+      documento: "prueba",
+      datos: ticket.construir(),
+      vista: ticket.aTexto(),
+    });
+    this.vistaPrevia = { titulo: `Prueba · ${detectada.nombre}`, texto: ticket.aTexto() };
+    void this.cola.procesar([...this.impresoras, efimera]);
   }
 
   get activas(): Impresora[] {

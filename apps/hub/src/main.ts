@@ -43,6 +43,7 @@ import type {
   EventoOpinion,
   MemoriaDeCanal,
   PulsoCliente,
+  TerminalReportada,
 } from "@motrest/dominio";
 import {
   CERO,
@@ -96,6 +97,7 @@ import { Cancelador } from "./fiscal/cancelador.js";
 import { MAPEO_REST_COMUN, PacHttp, consultaPorFolio } from "./fiscal/pac-http.js";
 import { enviarARed } from "./impresion/transporte-red.js";
 import { enviarAUsb, impresorasDelSistema } from "./impresion/transporte-usb.js";
+import { buscarImpresoras } from "./impresion/buscador.js";
 import { enMegas, evaluarCrecimiento } from "./crecimiento.js";
 import {
   INTERVALO_RESPALDO_MS,
@@ -323,7 +325,7 @@ function sucursalDelLocal(): string {
 /**
  * Fija la identidad del local con la que trae su licencia. **Es el alta.**
  *
- * Gonzalo da de alta el restaurante en MOTRAE Central, Central emite el archivo
+ * Gonzalo da de alta el restaurante en MotRest Central, Central emite el archivo
  * firmado, y ese archivo se pega en la caja. A partir de ahí el equipo sabe qué
  * restaurante es, sin que nadie teclee un identificador ni lo lleve el código.
  *
@@ -1118,6 +1120,35 @@ function atenderInterno(peticion: IncomingMessage, respuesta: ServerResponse): v
   }
 
   /*
+   * Buscar impresoras: las de Windows y, si se pide, las que contestan en la red
+   * del local.
+   *
+   * Se protege igual que `/imprimir`: solo desde la caja y solo desde el origen
+   * del propio Hub. El barrido no admite que le digan qué red mirar —sale de las
+   * interfaces de este equipo y solo cubre rangos privados—, así que nadie puede
+   * usar al Hub para escanear una red ajena. Ver `impresion/buscador.ts`.
+   */
+  if (url.pathname === "/impresoras-detectadas") {
+    if (!esLocal) {
+      json(403, { error: "Solo desde la caja" });
+      return;
+    }
+    if (!esOrigenDelHub(peticion.headers.origin, seguro, autoridad)) {
+      json(403, { error: "Origen no autorizado" });
+      return;
+    }
+    if (peticion.method !== "GET") {
+      json(405, { error: "Usa GET" });
+      return;
+    }
+    // Sin `red=1` solo se consulta el spooler: es instantáneo y es lo que se
+    // pide al abrir la pantalla. El barrido tarda segundos y va a botón.
+    const conRed = url.searchParams.get("red") === "1";
+    void buscarImpresoras({ conRed }).then((resultado) => json(200, resultado));
+    return;
+  }
+
+  /*
    * El kiosco de autoservicio (F4).
    *
    * Va sin autenticación y es correcto: quien está delante del kiosco está
@@ -1678,7 +1709,7 @@ let wss: WebSocketServer;
 let wssLocal: WebSocketServer;
 let contador = 0;
 
-function alConectar(socket: WebSocket): void {
+function alConectar(socket: WebSocket, esLocal = false): void {
   const id = `cx-${++contador}`;
 
   /*
@@ -1711,7 +1742,7 @@ function alConectar(socket: WebSocket): void {
     },
   };
 
-  hub.conectar(conexion);
+  hub.conectar(conexion, esLocal);
 
   /** Cuántos mensajes ilegibles lleva esta conexión. */
   let ilegibles = 0;
@@ -1794,8 +1825,8 @@ async function arrancar(): Promise<void> {
 
   wss = new WebSocketServer({ server: servidor, path: "/sync" });
   wssLocal = new WebSocketServer({ server: servidorLocal, path: "/sync" });
-  wss.on("connection", alConectar);
-  wssLocal.on("connection", alConectar);
+  wss.on("connection", (socket) => alConectar(socket, false));
+  wssLocal.on("connection", (socket) => alConectar(socket, true));
 
   /*
    * Que la próxima vez encienda solo.
@@ -2038,11 +2069,36 @@ function pulsoDelLocal(): PulsoCliente {
     ts: Date.now(),
     version: VERSION,
     terminales: hub.conectados,
+    dispositivos: terminalesDelLocal(),
+    hub_id: HUB_ID,
+    plataforma: `${process.platform} ${process.arch}`,
+    arranque_automatico: arranqueAutomatico.activo,
     eventos: hub.seqActual,
     ...(copias[0] ? { respaldo_ts: copias[0].ts } : {}),
     ...(corte ? { ventas_dia: corte.ventas, cuentas_dia: corte.cuentas } : {}),
     ...(problemas.length > 0 ? { problemas } : {}),
   };
+}
+
+/**
+ * El inventario de terminales del local, para el parte de MOTRAE.
+ *
+ * SE CONSTRUYE CAMPO A CAMPO Y ESO NO ES ESTILO. `dispositivos()` devuelve
+ * también el `token` de emparejamiento de cada terminal: la credencial con la
+ * que se sincroniza contra este Hub. Mandarlo por el relay —aunque el relay sea
+ * de MOTRAE y el enlace vaya cifrado— sería sacar del restaurante la llave de su
+ * propio canal, y un `...dispositivo` lo haría sin que nadie lo notara.
+ *
+ * El `device_id` va recortado por la misma razón por la que se manda: sirve para
+ * reconocer la terminal al teléfono, no para nada más.
+ */
+function terminalesDelLocal(): TerminalReportada[] {
+  return almacen.log.dispositivos().map((d) => ({
+    device_id: d.device_id.slice(0, 24),
+    aprobado: d.aprobado,
+    visto_ts: d.visto_ts,
+    ...(d.nombre ? { nombre: d.nombre.slice(0, 48) } : {}),
+  }));
 }
 
 /** Las cifras del último turno que se cerró, para el pulso. */

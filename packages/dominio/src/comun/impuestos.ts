@@ -61,6 +61,30 @@ export function calcularImpuesto(precio: Centavos, perfil: PerfilImpuesto): Desg
   return { base, iva, ieps, total: precio };
 }
 
+/**
+ * El perfil con el que hay que leer el precio de UN producto concreto.
+ *
+ * Un producto puede declarar que su precio ya trae el impuesto dentro
+ * (`precio_incluye_impuesto`), aunque el perfil compartido de la carta diga lo
+ * contrario. Es lo que permite capturar precios cerrados —100 pesos son 100
+ * pesos— sin reinterpretar de golpe toda la carta ya capturada.
+ *
+ * POR QUÉ GUARDAR EL TOTAL SALE MEJOR QUE DESPEJAR LA BASE. Con el impuesto por
+ * fuera hay cifras inalcanzables: no existe ninguna base entera en centavos cuyo
+ * IVA del 16 % sume exactamente 99.00, 128.00 ni 7.00 —el 14 % de los precios
+ * redondos hasta 2000 pesos—. Guardando el total, la base se despeja al revés y
+ * el residuo del redondeo se absorbe en el IVA, así que el importe cuadra
+ * siempre y el comensal paga la cifra de la carta.
+ */
+export function perfilDelProducto(
+  perfil: PerfilImpuesto,
+  precioIncluyeImpuesto: boolean | undefined,
+): PerfilImpuesto {
+  if (precioIncluyeImpuesto === undefined) return perfil;
+  if (perfil.incluido_en_precio === precioIncluyeImpuesto) return perfil;
+  return { ...perfil, incluido_en_precio: precioIncluyeImpuesto };
+}
+
 /** Perfil sin impuestos, útil como valor por defecto. */
 export const EXENTO: PerfilImpuesto = {
   id: "imp-exento",

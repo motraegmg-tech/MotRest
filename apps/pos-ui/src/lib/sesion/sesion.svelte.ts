@@ -29,6 +29,8 @@ import {
   normalizarCodigo,
   cuentaResponsableDeLicencia,
   credencialDeSoporte,
+  esSoporte,
+  localYaEstrenado,
   requiereAltaDeResponsable,
   usuarioResponsable,
   usuarioSoporte,
@@ -60,6 +62,7 @@ import { CLAVES, type Almacen } from "@motrest/protocolo-sync";
  * propietario, cambiar de dueño invalidaría la llave de repuesto del negocio.
  */
 const RESCATE_ID = "local:rescate";
+import { asistencia } from "../asistencia.svelte";
 import { esLaCaja } from "../entorno";
 import { SUCURSAL_ID, obtenerDeviceId } from "../presentacion";
 import { USUARIOS_SEMILLA, USUARIO_POR_DEFECTO } from "./usuarios";
@@ -387,6 +390,34 @@ class Sesion {
     this.guardarSesionActiva();
   }
 
+  /**
+   * Alguien acaba de identificarse de verdad: se le abre la sesión Y SE LE
+   * CHECA LA ENTRADA.
+   *
+   * ## Abrir sesión es llegar a trabajar
+   *
+   * El checador supone una tablet en la puerta, pero en un local pequeño no la
+   * hay: la gente llega, abre su usuario en la caja y se pone a comandar. La
+   * prenómina del sábado salía en ceros porque nadie iba a marcar su hora en
+   * una pantalla aparte. La checada solo se registra la PRIMERA vez de la
+   * jornada y nunca si ya está dentro (ver `entradaPorAcceso`), así que ir y
+   * venir entre usuarios durante el turno no infla las horas de nadie.
+   *
+   * ## Por qué aquí y no en `establecerSesion`
+   *
+   * Porque aquello también se usa al rehidratar en modo demostración, cuando el
+   * checador todavía no ha cargado su log ni tiene almacén: la checada se
+   * emitiría contra una lista vacía y se perdería al hidratar. Aquí solo se
+   * llega por un inicio de sesión real, con la aplicación ya en marcha.
+   *
+   * El soporte de MOTRAE queda fuera: no es personal del restaurante y su
+   * jornada no se le paga a nadie.
+   */
+  private abrirSesionDe(usuario: Usuario, cambioRapido: boolean): void {
+    this.establecerSesion(usuario, cambioRapido);
+    if (!esSoporte(usuario)) asistencia.entradaPorAcceso(usuario.id);
+  }
+
   // --- Consultas ------------------------------------------------------------------
 
   get autenticado(): boolean {
@@ -414,7 +445,22 @@ class Sesion {
    */
   get requiereAltaInicial(): boolean {
     if (!this.terminalPrincipal) return false;
-    return requiereAltaDeResponsable(this.usuariosDelLocal, (id) => this.tieneCredencial(id));
+    return requiereAltaDeResponsable(
+      this.usuariosDelLocal,
+      (id) => this.tieneCredencial(id),
+      localYaEstrenado(this.eventos),
+    );
+  }
+
+  /**
+   * ¿Este local ya pasó por su puesta en marcha alguna vez?
+   *
+   * Lo consulta la pantalla de acceso para explicar por qué se pide un PIN que
+   * quizá el usuario no eligió: cuando MOTRAE repone el acceso del responsable,
+   * el PIN vigente es el que Central entregó, no el que el local recordaba.
+   */
+  get yaEstrenado(): boolean {
+    return localYaEstrenado(this.eventos);
   }
 
   /** La cuenta de propietario que este local ya tiene, venga de donde venga. */
@@ -756,7 +802,7 @@ class Sesion {
     const { [usuarioId]: _descartado, ...resto } = this.intentos;
     this.intentos = resto;
     void this.guardarSecretos();
-    this.establecerSesion(usuario, false);
+    this.abrirSesionDe(usuario, false);
     return { ok: true };
   }
 
@@ -845,7 +891,7 @@ class Sesion {
         if (credencial.tipo !== "pin") continue;
         if (await verificarCredencial(pin, credencial)) {
           this.intentosAutorizacion = { fallos: 0, ultimo_fallo_ts: 0 };
-          this.establecerSesion(usuario, true);
+          this.abrirSesionDe(usuario, true);
           return { ok: true };
         }
       }

@@ -9,10 +9,18 @@
 import { describe, expect, it } from "vitest";
 import { CERO, pesos, sumar } from "../comun/dinero.js";
 import { FabricaEventos } from "../evento.js";
-import type { EventoPrenomina, JornadaTrabajador } from "../personal/prenomina.js";
+import type {
+  EventoPrenomina,
+  JornadaTrabajador,
+  SueldoSemanal,
+} from "../personal/prenomina.js";
+import type { DiaSemana } from "../personal/asignaciones.js";
 import { semanaDe } from "../inteligencia/reportes.js";
 import {
   calcularPrenomina,
+  diasProgramados,
+  sueldoSemanal,
+  sueldosVigentes,
   tarifasVigentes,
 } from "../personal/prenomina.js";
 
@@ -171,6 +179,155 @@ describe("totales del periodo", () => {
     const p = calcularPrenomina([], new Map());
     expect(p.renglones).toEqual([]);
     expect(p.total).toBe(CERO);
+  });
+});
+
+// --- Sueldo diario y faltas -----------------------------------------------------------------
+
+/*
+ * EL MODO QUE PIDIÓ GONZALO: sueldo pactado por día, y la falta se descuenta.
+ *
+ * Lo delicado aquí no es multiplicar: es NO descontar de más. Un día sin sueldo
+ * pactado es descanso, y un día que todavía no ha llegado no es una falta. Las
+ * dos cosas, mal resueltas, se traducen en dinero que alguien no cobra.
+ */
+describe("sueldo diario", () => {
+  const LUN = 1;
+  const MAR = 2;
+  const MIE = 3;
+  const SEMANA_COMPLETA: DiaSemana[] = [0, 1, 2, 3, 4, 5, 6];
+
+  /** Lucía gana $400 de lunes a miércoles; jueves a domingo descansa. */
+  const sueldos = new Map<string, SueldoSemanal>([
+    ["t1", { 1: pesos(400), 2: pesos(400), 3: pesos(400) }],
+  ]);
+
+  const conDias = (dias: DiaSemana[], minutos = 480): JornadaTrabajador => ({
+    ...jornada("t1", "Lucía", minutos),
+    dias_asistidos: dias,
+  });
+
+  const calcular = (
+    j: JornadaTrabajador,
+    transcurridos: DiaSemana[] = SEMANA_COMPLETA,
+  ) =>
+    calcularPrenomina([j], new Map(), {
+      modoSueldo: "por_dia",
+      sueldos,
+      diasTranscurridos: transcurridos,
+    });
+
+  it("una semana completa se paga entera", () => {
+    const r = calcular(conDias([LUN, MAR, MIE])).renglones[0]!;
+    expect(r.sueldo_programado).toBe(pesos(1200));
+    expect(r.faltas).toEqual([]);
+    expect(r.descuento_faltas).toBe(CERO);
+    expect(r.sueldo).toBe(pesos(1200));
+  });
+
+  it("faltar un día programado descuenta EXACTAMENTE ese día", () => {
+    const p = calcular(conDias([LUN, MIE]));
+    const r = p.renglones[0]!;
+    expect(r.faltas).toEqual([MAR]);
+    expect(r.descuento_faltas).toBe(pesos(400));
+    expect(r.sueldo).toBe(pesos(800));
+    expect(p.faltas).toBe(1);
+    expect(p.total_descuentos).toBe(pesos(400));
+  });
+
+  it("no venir en su día de descanso NO es una falta", () => {
+    // Jueves a domingo no están pactados: no aparecen ni como programados.
+    const r = calcular(conDias([LUN, MAR, MIE])).renglones[0]!;
+    expect(r.dias_programados).toEqual([LUN, MAR, MIE]);
+    expect(r.faltas).toEqual([]);
+  });
+
+  /*
+   * El error más caro de este cálculo. Abrir la prenómina un martes contaba
+   * como falta el miércoles que todavía no llega, y esa era la cifra que
+   * acababa pagándose de menos.
+   */
+  it("un día que todavía no ha llegado no cuenta como falta", () => {
+    const r = calcular(conDias([LUN, MAR]), [LUN, MAR]).renglones[0]!;
+    expect(r.dias_programados).toEqual([LUN, MAR]);
+    expect(r.faltas).toEqual([]);
+    expect(r.sueldo).toBe(pesos(800));
+  });
+
+  it("sin saber qué días asistió, no se descuenta nada: no se cobra lo que no se puede probar", () => {
+    const r = calcularPrenomina([jornada("t1", "Lucía", 480)], new Map(), {
+      modoSueldo: "por_dia",
+      sueldos,
+    }).renglones[0]!;
+    expect(r.faltas).toEqual([]);
+    expect(r.sueldo).toBe(pesos(1200));
+  });
+
+  it("quien no vino ningún día sigue apareciendo, con su semana descontada", () => {
+    const r = calcular(conDias([], 0)).renglones[0]!;
+    expect(r.faltas).toEqual([LUN, MAR, MIE]);
+    expect(r.sueldo).toBe(CERO);
+    expect(r.descuento_faltas).toBe(pesos(1200));
+  });
+
+  it("sin sueldo capturado sale en cero y se señala, igual que sin tarifa", () => {
+    const p = calcularPrenomina([conDias([LUN])], new Map(), {
+      modoSueldo: "por_dia",
+      sueldos: new Map(),
+      diasTranscurridos: SEMANA_COMPLETA,
+    });
+    expect(p.renglones[0]!.sueldo).toBe(CERO);
+    expect(p.renglones[0]!.sinTarifa).toBe(true);
+    expect(p.sin_tarifa).toBe(1);
+  });
+
+  it("las propinas se suman igual que en el modo por hora", () => {
+    const j = { ...conDias([LUN, MAR, MIE]), propinasPropias: pesos(250) };
+    const r = calcular(j).renglones[0]!;
+    expect(r.total).toBe(pesos(1450));
+  });
+
+  it("el modo por hora no gana campos de sueldo diario ni descuenta faltas", () => {
+    const p = calcularPrenomina([conDias([LUN])], new Map([["t1", pesos(50)]]));
+    expect(p.modo_sueldo).toBe("por_hora");
+    expect(p.renglones[0]!.faltas).toEqual([]);
+    expect(p.renglones[0]!.sueldo).toBe(pesos(400));
+    expect(p.total_descuentos).toBe(CERO);
+  });
+});
+
+describe("condiciones vigentes", () => {
+  it("el último sueldo asignado es el que manda", () => {
+    const f = fabrica();
+    const sueldos = sueldosVigentes([
+      f.crear("sueldo_diario_asignado", STREAM, {
+        trabajador_id: "t1",
+        sueldo_por_dia: { 1: pesos(300) },
+      }),
+      f.crear("sueldo_diario_asignado", STREAM, {
+        trabajador_id: "t1",
+        sueldo_por_dia: { 1: pesos(400), 2: pesos(400) },
+        nota: "Aumento",
+      }),
+    ]);
+    expect(sueldos.get("t1")).toEqual({ 1: pesos(400), 2: pesos(400) });
+  });
+
+  it("los dos tipos de evento conviven sin pisarse", () => {
+    const f = fabrica();
+    const eventos = [
+      f.crear("tarifa_asignada", STREAM, { trabajador_id: "t1", tarifa_hora: pesos(50) }),
+      f.crear("sueldo_diario_asignado", STREAM, {
+        trabajador_id: "t1",
+        sueldo_por_dia: { 5: pesos(600) },
+      }),
+    ];
+    expect(tarifasVigentes(eventos).get("t1")).toBe(pesos(50));
+    expect(sueldoSemanal(sueldosVigentes(eventos).get("t1") ?? {})).toBe(pesos(600));
+  });
+
+  it("los días programados son los que tienen sueldo, no los siete", () => {
+    expect(diasProgramados({ 1: pesos(400), 5: pesos(600) })).toEqual([1, 5]);
   });
 });
 

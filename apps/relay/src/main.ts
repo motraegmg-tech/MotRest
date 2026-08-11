@@ -308,7 +308,7 @@ async function atender(peticion: IncomingMessage, respuesta: ServerResponse): Pr
   }
 
   /*
-   * Lo que MOTRAE Central viene a buscar: qué versión tiene cada restaurante y
+   * Lo que MotRest Central viene a buscar: qué versión tiene cada restaurante y
    * cuándo dio señales por última vez.
    *
    * Va contra la MISMA clave de administración que `/salud/detalle`, y no contra

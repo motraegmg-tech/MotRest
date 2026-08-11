@@ -231,8 +231,10 @@ export function impresorasDelSistema(timeoutMs = 10_000): Promise<ImpresoraDelSi
   const guion =
     "$ProgressPreference = 'SilentlyContinue'; " +
     "try { $p = @(Get-Printer | Select-Object Name, PortName, " +
-    "@{n='PrinterStatus';e={[string]$_.PrinterStatus}}); " +
-    "[Console]::Out.Write((ConvertTo-Json -InputObject $p -Compress)) } catch { [Console]::Out.Write('[]') }";
+    "@{n='PrinterStatus';e={[string]$_.PrinterStatus}}) } " +
+    "catch { $p = @(Get-WmiObject -Class Win32_Printer | Select-Object Name, PortName, " +
+    "@{n='PrinterStatus';e={'Normal'}}) } " +
+    "try { [Console]::Out.Write((ConvertTo-Json -InputObject $p -Compress)) } catch { [Console]::Out.Write('[]') }";
 
   return new Promise((resolver) => {
     let resuelto = false;

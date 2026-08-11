@@ -42,6 +42,6 @@ jobs:
         working-directory: apps/escritorio/src-tauri
         run: cargo audit
 
-      - name: Auditar los crates de MOTRAE Central
+      - name: Auditar los crates de MotRest Central
         working-directory: apps/central-escritorio/src-tauri
         run: cargo audit

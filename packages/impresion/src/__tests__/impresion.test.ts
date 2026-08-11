@@ -382,13 +382,25 @@ describe("ruteo por área", () => {
     expect(impresoraPara(impresoras, "caja")?.id).toBe("imp-caja");
   });
 
-  it("un área sin impresora cae a caja: mejor mal ubicada que no impresa", () => {
-    expect(impresoraPara(impresoras, "est-postres")?.id).toBe("imp-caja");
+  /*
+   * REGRESIÓN DE RODIZIO (ago-2026): la caja escupía las comandas de cocina.
+   *
+   * Estas dos pruebas afirmaban lo contrario —que un área huérfana «cae a caja,
+   * mejor mal ubicada que no impresa»— y describían el defecto, no la regla. En
+   * el restaurante eso significaba que apagar la impresora de cocina no dejaba
+   * de imprimir comandas: las mandaba todas al rollo de la caja, y no había
+   * forma de detenerlo salvo desactivar también la impresora de la caja, con lo
+   * que se perdían los tickets. Una configuración que no se puede apagar no es
+   * una configuración.
+   */
+  it("un área sin impresora asignada no se imprime en ningún lado", () => {
+    expect(impresoraPara(impresoras, "est-postres")).toBeUndefined();
   });
 
-  it("ignora las impresoras desactivadas", () => {
-    // La de barra está apagada, así que su área cae a caja.
-    expect(impresoraPara(impresoras, "est-barra")?.id).toBe("imp-caja");
+  it("apagar la impresora de un área NO manda su papel a la caja", () => {
+    expect(impresoraPara(impresoras, "est-barra")).toBeUndefined();
+    // Y la caja sigue imprimiendo lo suyo, que es lo que no debía cambiar.
+    expect(impresoraPara(impresoras, "caja")?.id).toBe("imp-caja");
   });
 
   it("sin ninguna impresora no revienta: devuelve nada", () => {

@@ -20,6 +20,7 @@ import {
   productosEnEstacion,
   recetaNueva,
   recetasConInsumo,
+  sanearIdsDeProductos,
   validarCategoria,
   validarEstacion,
   validarInsumo,
@@ -317,6 +318,62 @@ describe("edición del menú", () => {
     expect(p.disponible).toBe(false);
     expect(menuPorCategoria(indexar(menu), MESERO).map((g) => g.categoria.nombre))
       .toEqual(["Pizzas", "Bebidas"]);
+  });
+});
+
+/*
+ * Regresión de la carta de Rodizio (ago-2026): 39 platillos capturados, 31
+ * visibles. Los ids se recortaban a los 8 primeros caracteres del UUIDv7 —la
+ * parte alta del milisegundo—, así que todo lo dado de alta dentro del mismo
+ * minuto salía con el mismo id y se pisaba al indexar el catálogo.
+ */
+describe("ids únicos en el catálogo", () => {
+  it("dos altas seguidas NO comparten id, aunque caigan en el mismo instante", () => {
+    let menu = menuBase();
+    for (let i = 0; i < 50; i++) {
+      menu = agregarProducto(menu, borrador({ nombre: `Platillo ${i}` }));
+    }
+    const ids = new Set(menu.productos.map((p) => p.id));
+    expect(ids.size).toBe(menu.productos.length);
+    // Y ninguno se pierde al indexar, que es donde se notaba el defecto.
+    expect(indexar(menu).productos.size).toBe(menu.productos.length);
+  });
+
+  it("recetas e ingredientes nuevos tampoco chocan entre sí", () => {
+    const recetas = new Set(Array.from({ length: 50 }, () => recetaNueva("Pizza").id));
+    expect(recetas.size).toBe(50);
+  });
+
+  it("sanear devuelve a la carta los platillos que quedaron con id ajeno", () => {
+    const menu = menuBase();
+    const [margherita, agua] = [menu.productos[0]!, menu.productos[1]!];
+    // Tal cual quedó guardado: el tercero llegó con el id del segundo.
+    const roto: MenuLocal = {
+      ...menu,
+      productos: [margherita, agua, { ...agua, nombre: "Agua mineral", orden: 2 }],
+    };
+    expect(indexar(roto).productos.size).toBe(2); // el defecto
+
+    const { menu: sano, reparados } = sanearIdsDeProductos(roto);
+    expect(reparados).toBe(1);
+    expect(indexar(sano).productos.size).toBe(3);
+    expect(sano.productos.map((p) => p.nombre)).toEqual([
+      "Margherita",
+      "Agua natural",
+      "Agua mineral",
+    ]);
+    // El primero conserva su id: las cuentas y tickets ya emitidos lo apuntan.
+    expect(sano.productos[1]!.id).toBe("prod-agua");
+    expect(sano.productos[2]!.id).not.toBe("prod-agua");
+    // Sube la versión para que la carta reparada se replique a las demás.
+    expect(sano.version).toBe(roto.version + 1);
+  });
+
+  it("un menú sano se devuelve intacto, sin gastar una versión de más", () => {
+    const menu = menuBase();
+    const { menu: sano, reparados } = sanearIdsDeProductos(menu);
+    expect(reparados).toBe(0);
+    expect(sano).toBe(menu);
   });
 });
 

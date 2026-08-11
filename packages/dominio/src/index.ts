@@ -9,6 +9,7 @@
 // Comunes
 export * from "./comun/dinero.js";
 export * from "./comun/firma.js";
+export * from "./comun/cofre.js";
 export * from "./comun/ids.js";
 export * from "./comun/impuestos.js";
 
@@ -50,6 +51,7 @@ export * from "./inventario/costeo-real.js";
 export * from "./inventario/explosion.js";
 
 // Personal (checador)
+export * from "./personal/asignaciones.js";
 export * from "./personal/asistencia.js";
 export * from "./personal/prenomina.js";
 
@@ -86,6 +88,7 @@ export * from "./organizacion/licencia.js";
 export * from "./organizacion/actualizaciones.js";
 export * from "./organizacion/central.js";
 export * from "./organizacion/api-publica.js";
+export * from "./organizacion/socios.js";
 
 // Fiscal (CFDI 4.0)
 export * from "./fiscal/claves.js";

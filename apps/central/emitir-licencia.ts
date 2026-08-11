@@ -1,7 +1,7 @@
 /**
  * Emitir la licencia de un restaurante desde la terminal.
  *
- * Es la misma emisión que hace el botón de MOTRAE Central, en forma de comando.
+ * Es la misma emisión que hace el botón de MotRest Central, en forma de comando.
  * Existe porque hay dos momentos en los que abrir el navegador estorba: cuando
  * se está instalando en el local con las manos ocupadas, y cuando se quiere
  * dejar el alta escrita en un guion.
@@ -85,7 +85,7 @@ async function principal(): Promise<void> {
   if (!llavePrivada) {
     console.error(
       "Falta MOTRAE_LLAVE_PRIVADA_LICENCIAS.\n\n" +
-        "Es la llave privada Ed25519 de MOTRAE Central → Llaves.\n" +
+        "Es la llave privada Ed25519 de MotRest Central → Llaves.\n" +
         "En PowerShell:\n" +
         '  $env:MOTRAE_LLAVE_PRIVADA_LICENCIAS = "la-llave-privada"\n',
     );

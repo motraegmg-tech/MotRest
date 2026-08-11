@@ -18,8 +18,10 @@ export type Accion =
   | "pos.item.cancelar_previo_envio"
   | "pos.item.cancelar_enviado"
   | "pos.item.enviar_cocina"
+  | "pos.item.entregar"
   | "pos.descuento.aplicar"
   | "pos.cortesia.otorgar"
+  | "pos.socio.consumir"
   | "pos.precio.editar_en_linea"
   | "pos.cuenta.dividir"
   | "pos.cuenta.transferir"
@@ -72,6 +74,7 @@ export type Accion =
   | "admin.usuario.eliminar"
   | "admin.rol.editar"
   | "admin.dispositivo.aprobar"
+  | "admin.socio.editar"
   | "admin.bitacora.ver";
 
 export type ModuloId = "m1" | "m2" | "m3" | "m4" | "m5" | "m6" | "m7" | "m8" | "m9";
@@ -111,8 +114,26 @@ export const CATALOGO_ACCIONES: GrupoAcciones[] = [
       def("pos.item.cancelar_previo_envio", "m1", "Cancelar antes de enviar", "Quitar un renglón que aún no sale a cocina"),
       def("pos.item.cancelar_enviado", "m1", "Cancelar ya enviado", "Quitar un renglón que la cocina ya recibió", true),
       def("pos.item.enviar_cocina", "m1", "Enviar a cocina", "Mandar los platillos capturados a producción"),
+      /*
+       * Quien lleva el plato a la mesa es quien sabe que llegó.
+       *
+       * Marcar la entrega existía solo en el tablero de cocina, y ahí lo pulsaba
+       * quien lo deja bajo la lámpara —no quien lo sirve—. El resultado era un
+       * KDS que decía «entregado» de platillos que seguían en el pase. Va como
+       * acción propia de M1 y no reusando la de cocina porque son dos hechos
+       * distintos y los hace gente distinta.
+       */
+      def("pos.item.entregar", "m1", "Marcar entregado", "Confirmar desde el salón que el platillo llegó a la mesa"),
       def("pos.descuento.aplicar", "m1", "Aplicar descuentos", "Rebajar el importe de un renglón o de la cuenta", true),
       def("pos.cortesia.otorgar", "m1", "Otorgar cortesías", "Marcar un consumo como cortesía de la casa", true),
+      /*
+       * Cargarle una cuenta a un socio es gastar SU bolsa del mes, y el socio no
+       * está mirando. Va aparte de las cortesías porque no es lo mismo regalar
+       * de la casa que consumir el derecho de un tercero, y sensible porque el
+       * error se descubre a fin de mes, cuando el socio reclama un consumo que
+       * no hizo.
+       */
+      def("pos.socio.consumir", "m1", "Cargar consumo a un socio", "Cobrar una cuenta contra la bolsa mensual de un socio", true),
       def("pos.precio.editar_en_linea", "m1", "Editar precio en la venta", "Cambiar el precio de un renglón durante el servicio", true),
       def("pos.cuenta.dividir", "m1", "Dividir cuentas", "Separar una cuenta en varias"),
       def("pos.cuenta.transferir", "m1", "Traspasar cuentas", "Mover renglones o cuentas entre mesas"),
@@ -259,6 +280,18 @@ export const CATALOGO_ACCIONES: GrupoAcciones[] = [
       ),
       def("admin.rol.editar", "m9", "Editar roles", "Modificar las plantillas de permisos", true),
       def("admin.dispositivo.aprobar", "m9", "Aprobar dispositivos", "Autorizar terminales nuevas en el local", true),
+      /*
+       * Quién es socio y qué tiene pactado es información societaria: cuánto
+       * puede consumir cada dueño y qué parte del negocio le toca. No la
+       * administra el gerente de turno.
+       */
+      def(
+        "admin.socio.editar",
+        "m9",
+        "Gestionar socios",
+        "Dar de alta socios e inversionistas y fijar sus beneficios",
+        true,
+      ),
       def("admin.bitacora.ver", "m9", "Ver la bitácora", "Consultar la auditoría de todo lo ocurrido"),
     ],
   },

@@ -1,13 +1,17 @@
 <script lang="ts">
   import {
     CERO,
-    FORMAS_PAGO,
+    FORMAS_PAGO_MANUALES,
+    desglosarConTasas,
     importeRenglon,
     pesos,
+    problemaConsumoSocio,
     repartir,
     restar,
     sumar,
+    type Centavos,
     type FormaPago,
+    type RenglonComanda,
   } from "@motrest/dominio";
   import QRCode from "qrcode";
   import DialogoFactura from "./DialogoFactura.svelte";
@@ -17,6 +21,8 @@
   import { plano } from "./plano.svelte";
   import { pos } from "./pos.svelte";
   import { sesion } from "./sesion/sesion.svelte";
+  import { socios } from "./socios.svelte";
+  import { vistaMesa } from "./vista-mesa.svelte";
 
   let facturando = $state(false);
 
@@ -27,24 +33,70 @@
     entregado: "entregado",
   };
 
-  type Vista = "cuenta" | "cobro" | "traspaso";
-  let vista = $state<Vista>("cuenta");
-  let formaPago = $state<FormaPago>("efectivo");
-  let recibido = $state("");
-  let partes = $state(2);
-  /** Propina tecleada a mano, en pesos. Vacío = se usan los porcentajes. */
-  let propinaLibre = $state("");
+  /*
+   * EL PASO ES DE LA MESA, NO DE LA PANTALLA.
+   *
+   * Esto vivía en variables del componente, así que era una sola cosa para todo
+   * el salón: dejar la mesa 1 a medio cobrar y tocar la mesa 4 abría el cobro de
+   * una mesa que no había pedido nada, y volver a la cuenta desde ahí borraba lo
+   * avanzado en la primera. Ver `vista-mesa.svelte.ts`.
+   */
+  const paso = $derived(vistaMesa.de(pos.mesaActiva));
+  const fijar = (cambios: Parameters<typeof vistaMesa.fijar>[1]) =>
+    vistaMesa.fijar(pos.mesaActiva, cambios);
+
+  /**
+   * Lo que paga el comensal por un renglón: el precio con SU impuesto dentro.
+   *
+   * La carta de Rodizio no incluye IVA, así que el importe de línea es la base.
+   * Enseñar esa cifra en el panel obliga al comensal —y al mesero— a sumar
+   * renglones que no le dan el total. Aquí se muestra ya con el impuesto, igual
+   * que en la cuenta impresa.
+   */
+  function conImpuesto(renglon: RenglonComanda): Centavos {
+    return desglosarConTasas(importeRenglon(renglon), renglon.impuesto).total;
+  }
 
   /*
-   * Fija la propina al monto tecleado, no lo acumula: quien corrige un 150 mal
-   * escrito por 100 espera 100, no 250.
+   * LA PROPINA TECLEADA A MANO.
+   *
+   * Aquí estaba el defecto que hacía que solo funcionaran los porcentajes: el
+   * campo era `type="number"` con `bind:value`, y Svelte convierte el valor de
+   * un input numérico a NÚMERO. La comprobación `propinaLibre.trim()` reventaba
+   * con «trim is not a function» en el primer dígito, el error moría dentro del
+   * manejador y `fijarPropina` no llegaba a llamarse nunca. Ahora el campo es de
+   * texto y el valor se normaliza a mano.
    */
-  function fijarPropinaLibre() {
-    const monto = Number(propinaLibre);
-    if (propinaLibre.trim() === "" || !Number.isFinite(monto) || monto < 0) return;
+  let temporizadorPropina: ReturnType<typeof setTimeout> | undefined;
+
+  function propinaTecleada(texto: string) {
+    fijar({ propinaLibre: texto });
+    /*
+     * Se espera a que deje de teclear. Aplicarlo en cada pulsación escribiría
+     * tres eventos de propina para un «100», y cada evento viaja a todas las
+     * terminales del local.
+     */
+    clearTimeout(temporizadorPropina);
+    const mesa = pos.mesaActiva;
+    temporizadorPropina = setTimeout(() => aplicarPropinaLibre(mesa), 350);
+  }
+
+  /**
+   * Deja la propina EXACTAMENTE en lo tecleado; no lo acumula: quien corrige un
+   * 150 mal escrito por 100 espera 100, no 250.
+   */
+  function aplicarPropinaLibre(mesaId: string = pos.mesaActiva) {
+    clearTimeout(temporizadorPropina);
+    // Si mientras se escribía se cambió de mesa, esta propina ya no es de la
+    // mesa que está en pantalla y aplicarla se la pondría a la equivocada.
+    if (mesaId !== pos.mesaActiva) return;
+
+    const texto = vistaMesa.de(mesaId).propinaLibre.trim().replace(",", ".");
+    if (texto === "") return;
+    const monto = Number(texto);
+    if (!Number.isFinite(monto) || monto < 0) return;
     pos.fijarPropina(pesos(monto));
   }
-  let renglonATraspasar = $state<string | null>(null);
 
   /*
    * Indicaciones para cocina, editables DESPUÉS de capturar el platillo.
@@ -106,20 +158,60 @@
       renglonEnEdicion.estado !== "cancelado",
   );
 
+  /** ¿Este perfil puede confirmar que el platillo llegó a la mesa? */
+  const puedeEntregar = $derived(sesion.puedeVer("pos.item.entregar"));
+
+  async function entregar(renglonId: string) {
+    const ordenId = pos.comanda?.orden_id;
+    if (!ordenId) return;
+    await pos.marcarEntregado(ordenId, renglonId);
+  }
+
   const t = $derived(pos.totales);
   const promos = $derived(pos.promociones?.descuentos ?? []);
-  const recibidoCentavos = $derived(pesos(Number(recibido) || 0));
+  const recibidoCentavos = $derived(pesos(Number(paso.recibido) || 0));
   const cambio = $derived(
     t && recibidoCentavos > t.saldo ? restar(recibidoCentavos, t.saldo) : CERO,
   );
 
+  /** En un cobro mixto, lo que entra al cajón. Nunca más que el saldo. */
+  const enEfectivo = $derived(
+    t ? (Math.min(pesos(Number(paso.efectivoMixto) || 0), t.saldo) as Centavos) : CERO,
+  );
+  /** Y lo que se cubre con la terminal. */
+  const conTarjeta = $derived(t ? restar(t.saldo, enEfectivo) : CERO);
+
   async function cobrarAhora() {
     if (!t) return;
+    // Lo tecleado en el campo de propina puede estar todavía esperando en el
+    // temporizador. Se aplica ANTES de leer el saldo o se cobraría sin ella.
+    aplicarPropinaLibre();
+
     const ordenId = pos.comanda?.orden_id;
-    const esEfectivo = formaPago === "efectivo";
-    await pos.cobrar(formaPago, t.saldo, esEfectivo && recibidoCentavos > 0 ? recibidoCentavos : undefined);
-    recibido = "";
-    vista = "cuenta";
+    const saldo = pos.totales?.saldo ?? t.saldo;
+    const mesa = pos.mesaActiva;
+
+    if (paso.forma === "mixto") {
+      await pos.cobrarMixto(
+        enEfectivo,
+        paso.formaTarjeta,
+        saldo,
+        recibidoCentavos > 0 ? recibidoCentavos : undefined,
+      );
+    } else {
+      const esEfectivo = paso.forma === "efectivo";
+      await pos.cobrar(
+        paso.forma,
+        saldo,
+        esEfectivo && recibidoCentavos > 0 ? recibidoCentavos : undefined,
+      );
+    }
+
+    // Cobrada y liberada: la mesa vuelve al principio para la siguiente sentada.
+    // Si quedó saldo, se conserva la forma de pago elegida y solo se limpia lo
+    // que ya se usó.
+    if (pos.comandaDeMesa(mesa)?.cerrada !== false) vistaMesa.reiniciar(mesa);
+    else vistaMesa.fijar(mesa, { vista: "cuenta", recibido: "", efectivoMixto: "" });
 
     /*
      * Al cerrar la cuenta es el ÚNICO momento en que hay una conversación con
@@ -187,15 +279,60 @@
   }
 
   async function dividir() {
-    await pos.dividirEnPartes(partes, formaPago);
-    vista = "cuenta";
+    aplicarPropinaLibre();
+    const mesa = pos.mesaActiva;
+    // Repartir la cuenta es siempre en una sola forma de pago; el mixto no
+    // aplica y se cae a efectivo, que es lo que ocurre en la mesa.
+    await pos.dividirEnPartes(paso.partes, paso.forma === "mixto" ? "efectivo" : paso.forma);
+    vistaMesa.reiniciar(mesa);
   }
 
   async function traspasar(mesaId: string) {
-    if (!renglonATraspasar) return;
-    await pos.traspasarRenglon(renglonATraspasar, mesaId);
-    renglonATraspasar = null;
-    vista = "cuenta";
+    if (!paso.renglonATraspasar) return;
+    await pos.traspasarRenglon(paso.renglonATraspasar, mesaId);
+    fijar({ renglonATraspasar: null, vista: "cuenta" });
+  }
+
+  // --- Cortesía por socio ------------------------------------------------------
+  /*
+   * El socio consume contra la bolsa que tiene pactada al mes. Se registra como
+   * un COBRO con forma «socio», no como una cortesía de la casa: la venta
+   * ocurrió y tiene que seguir contando completa en finanzas y en inteligencia.
+   * Lo único distinto es que el dinero no entra al cajón.
+   */
+  const cortesiaPuesta = $derived(pos.tieneCortesia(undefined));
+
+  const socioElegido = $derived(
+    paso.socioElegido ? (socios.de(paso.socioElegido) ?? null) : null,
+  );
+  const bolsaSocio = $derived(socioElegido ? socios.bolsa(socioElegido) : null);
+  /** Lo tecleado; vacío = todo el saldo de la cuenta, que es el caso normal. */
+  const cargoSocio = $derived(
+    paso.montoSocio.trim() === ""
+      ? (Math.min(t?.saldo ?? 0, bolsaSocio?.disponible ?? 0) as Centavos)
+      : pesos(Number(paso.montoSocio.replace(",", ".")) || 0),
+  );
+  const problemaSocio = $derived(
+    socioElegido && bolsaSocio
+      ? problemaConsumoSocio(socioElegido, cargoSocio, bolsaSocio)
+      : null,
+  );
+
+  function abrirSocio() {
+    // Se propone el único socio si solo hay uno: en un local con un socio,
+    // elegirlo de una lista de uno es un toque de más en cada cuenta.
+    const unico = socios.activos.length === 1 ? socios.activos[0]!.socio_id : null;
+    fijar({ vista: "socio", socioElegido: paso.socioElegido ?? unico, montoSocio: "" });
+  }
+
+  async function cargarASocio() {
+    if (!socioElegido || problemaSocio) return;
+    const mesa = pos.mesaActiva;
+    const ok = await pos.cobrarASocio(socioElegido.socio_id, cargoSocio, socioElegido.nombre);
+    if (!ok) return;
+
+    if (pos.comandaDeMesa(mesa)?.cerrada !== false) vistaMesa.reiniciar(mesa);
+    else vistaMesa.fijar(mesa, { vista: "cuenta", socioElegido: null, montoSocio: "" });
   }
 </script>
 
@@ -225,7 +362,7 @@
       {sesion.nombreDe(pos.comanda.mesero_id)} · abierta {hora(pos.comanda.abierta_ts)}
     </div>
 
-    {#if vista === "cuenta"}
+    {#if paso.vista === "cuenta"}
       <div class="items">
         {#if pos.renglones.length === 0}
           <p class="sin-consumo">
@@ -246,11 +383,34 @@
                 <small class="indicacion">⚠ {renglon.notas}</small>
               {/if}
               {#if etiquetaEstado[renglon.estado]}
-                <em class="est-r">{etiquetaEstado[renglon.estado]}</em>
+                <!--
+                  «LISTO» PARPADEA, Y SOLO ESE.
+
+                  Es el único estado que le pide algo al mesero: hay un plato
+                  bajo la lámpara enfriándose. El resto son informativos y se
+                  quedan quietos — si todo se moviera, nada llamaría la atención.
+                -->
+                <em class="est-r" class:avisa={renglon.estado === "listo"}>
+                  {etiquetaEstado[renglon.estado]}
+                </em>
               {/if}
             </span>
-            <span class="p">{mxn(importeRenglon(renglon))}</span>
+            <span class="p">{mxn(conImpuesto(renglon))}</span>
             <span class="acciones">
+              <!--
+                Marcar la entrega desde el salón. Quien lleva el plato a la mesa
+                es quien sabe que llegó: hasta ahora esto solo existía en el
+                tablero de cocina, donde lo pulsaba quien lo deja en el pase.
+              -->
+              {#if puedeEntregar && renglon.estado !== "entregado" && renglon.estado !== "capturado"}
+                <button
+                  class="mini entregar"
+                  class:urge={renglon.estado === "listo"}
+                  title="Marcar como entregado en la mesa"
+                  aria-label="Marcar {renglon.descripcion} como entregado"
+                  onclick={() => entregar(renglon.id)}
+                >✔</button>
+              {/if}
               <button
                 class="mini"
                 class:activa={renglon.notas}
@@ -262,7 +422,7 @@
                 class="mini"
                 title="Traspasar a otra mesa"
                 aria-label="Traspasar {renglon.descripcion}"
-                onclick={() => { renglonATraspasar = renglon.id; vista = "traspaso"; }}
+                onclick={() => fijar({ renglonATraspasar: renglon.id, vista: "traspaso" })}
               >⇄</button>
               <button
                 class="mini x"
@@ -334,10 +494,33 @@
           <button class="mini" onclick={() => pos.aplicarDescuento(0.1, "Descuento de cortesía")}>
             −10%
           </button>
-          <button class="mini" onclick={() => pos.otorgarCortesia(undefined, "Cortesía de la casa")}>
-            Cortesía
+          <!--
+            INTERRUPTOR: pulsarlo otra vez retira la cortesía.
+
+            Se pulsaba por error y la única salida era cancelar la cuenta
+            entera. Que quede encendido mientras está puesta es además lo que
+            hace evidente que la mesa está regalada.
+          -->
+          <button
+            class="mini"
+            class:on={cortesiaPuesta}
+            aria-pressed={cortesiaPuesta}
+            onclick={() => pos.alternarCortesia(undefined, "Cortesía de la casa")}
+          >
+            {cortesiaPuesta ? "Cortesía ✓ · quitar" : "Cortesía"}
           </button>
         </span>
+        <!--
+          Cortesía por socio: se cobra contra la bolsa mensual del socio. La
+          venta NO se toca —el socio consumió— y por eso sigue completa en
+          finanzas y en inteligencia; lo que cambia es de dónde salió el dinero.
+        -->
+        {#if socios.activos.length > 0}
+          <span class="grupo">
+            Socios
+            <button class="mini" onclick={abrirSocio}>Cortesía por socio</button>
+          </span>
+        {/if}
       </div>
 
       <div class="btns">
@@ -365,25 +548,38 @@
         <button
           class="b2 cobrar"
           disabled={!pos.hayCuenta}
-          onclick={() => (vista = "cobro")}
+          onclick={() => fijar({ vista: "cobro" })}
         >
           Cobrar {mxn(t.saldo)}
         </button>
       </div>
-    {:else if vista === "cobro"}
+    {:else if paso.vista === "cobro"}
       <div class="panel-cobro">
         <p class="titulo-panel">Cobrar {mxn(t.saldo)}</p>
 
         <div class="formas">
-          {#each FORMAS_PAGO as forma (forma.valor)}
+          {#each FORMAS_PAGO_MANUALES as forma (forma.valor)}
             <button
               class="mini"
-              class:on={formaPago === forma.valor}
-              onclick={() => (formaPago = forma.valor)}
+              class:on={paso.forma === forma.valor}
+              onclick={() => fijar({ forma: forma.valor })}
             >
               {forma.etiqueta}
             </button>
           {/each}
+          <!--
+            La mesa junta lo que trae suelto y el resto lo pasa con plástico.
+            No es una forma de pago nueva: al registrarlo se asientan DOS pagos,
+            uno de cada forma, para que el corte siga sabiendo cuánto entró al
+            cajón y las finanzas cuánto se depositará por terminal.
+          -->
+          <button
+            class="mini"
+            class:on={paso.forma === "mixto"}
+            onclick={() => fijar({ forma: "mixto" })}
+          >
+            Tarjeta y efectivo
+          </button>
         </div>
 
         <!--
@@ -400,24 +596,31 @@
               <button
                 class="mini"
                 class:on={t.propina > 0 && t.propina === Math.round(t.total * pct)}
-                onclick={() => { pos.propinaPorcentaje(pct); propinaLibre = ""; }}
+                onclick={() => { pos.propinaPorcentaje(pct); fijar({ propinaLibre: "" }); }}
               >
                 {Math.round(pct * 100)}%
               </button>
             {/each}
+            <!--
+              Texto y no `type="number"`: con un input numérico Svelte convierte
+              el valor a número, y la comprobación que había aquí reventaba en el
+              primer dígito. Era la razón de que solo se guardaran las propinas
+              puestas por porcentaje.
+            -->
             <input
               class="monto-propina"
-              type="number"
+              type="text"
               inputmode="decimal"
-              bind:value={propinaLibre}
-              oninput={fijarPropinaLibre}
+              value={paso.propinaLibre}
+              oninput={(e) => propinaTecleada(e.currentTarget.value)}
+              onchange={() => aplicarPropinaLibre()}
               placeholder="Otra"
               aria-label="Propina en pesos"
             />
             {#if t.propina > 0}
               <button
                 class="mini quitar"
-                onclick={() => { pos.propinaPorcentaje(0); propinaLibre = ""; }}
+                onclick={() => { pos.propinaPorcentaje(0); fijar({ propinaLibre: "" }); }}
               >
                 Quitar
               </button>
@@ -430,10 +633,45 @@
           {/if}
         </div>
 
-        {#if formaPago === "efectivo"}
+        {#if paso.forma === "mixto"}
+          <div class="mixto">
+            <label class="campo">
+              <span>Cuánto pagan en efectivo</span>
+              <input
+                type="text"
+                inputmode="decimal"
+                value={paso.efectivoMixto}
+                oninput={(e) => fijar({ efectivoMixto: e.currentTarget.value })}
+                placeholder="0.00"
+              />
+            </label>
+            <label class="campo">
+              <span>El resto, con</span>
+              <select
+                value={paso.formaTarjeta}
+                onchange={(e) => fijar({ formaTarjeta: e.currentTarget.value as FormaPago })}
+              >
+                {#each FORMAS_PAGO_MANUALES.filter((f) => !f.efectivo) as forma (forma.valor)}
+                  <option value={forma.valor}>{forma.etiqueta}</option>
+                {/each}
+              </select>
+            </label>
+            <p class="reparto">
+              Efectivo <b>{mxn(enEfectivo)}</b> · tarjeta <b>{mxn(conTarjeta)}</b>
+            </p>
+          </div>
+        {/if}
+
+        {#if paso.forma === "efectivo" || paso.forma === "mixto"}
           <label class="campo">
-            <span>Recibido</span>
-            <input type="number" inputmode="decimal" bind:value={recibido} placeholder="0.00" />
+            <span>{paso.forma === "mixto" ? "Efectivo que entregó" : "Recibido"}</span>
+            <input
+              type="text"
+              inputmode="decimal"
+              value={paso.recibido}
+              oninput={(e) => fijar({ recibido: e.currentTarget.value })}
+              placeholder="0.00"
+            />
           </label>
           {#if cambio > 0}
             <p class="cambio">Cambio: <b>{mxn(cambio)}</b></p>
@@ -444,14 +682,79 @@
 
         <div class="dividir">
           <span>Dividir en</span>
-          <button class="mini" onclick={() => (partes = Math.max(2, partes - 1))}>−</button>
-          <b>{partes}</b>
-          <button class="mini" onclick={() => (partes = Math.min(20, partes + 1))}>+</button>
-          <span class="cada">{mxn(repartir(sumar(t.total, t.propina), partes)[0] ?? CERO)} c/u</span>
+          <button class="mini" onclick={() => fijar({ partes: Math.max(2, paso.partes - 1) })}>−</button>
+          <b>{paso.partes}</b>
+          <button class="mini" onclick={() => fijar({ partes: Math.min(20, paso.partes + 1) })}>+</button>
+          <span class="cada">{mxn(repartir(sumar(t.total, t.propina), paso.partes)[0] ?? CERO)} c/u</span>
           <button class="mini" onclick={dividir}>Dividir y cobrar</button>
         </div>
 
-        <button class="volver" onclick={() => (vista = "cuenta")}>← Volver a la cuenta</button>
+        <button class="volver" onclick={() => fijar({ vista: "cuenta" })}>← Volver a la cuenta</button>
+      </div>
+    {:else if paso.vista === "socio"}
+      <!--
+        CORTESÍA POR SOCIO.
+
+        El socio consume contra la bolsa que tiene pactada al mes. Se registra
+        como cobro y no como cortesía de la casa: el consumo ocurrió y la venta
+        tiene que seguir contando completa en finanzas y en inteligencia. Lo
+        único que cambia es que el dinero no entra al cajón.
+      -->
+      <div class="panel-cobro">
+        <p class="titulo-panel">Cortesía por socio</p>
+
+        <div class="socios-lista">
+          {#each socios.activos as socio (socio.socio_id)}
+            {@const bolsa = socios.bolsa(socio)}
+            <button
+              class="socio"
+              class:on={paso.socioElegido === socio.socio_id}
+              class:agotado={bolsa.disponible <= 0}
+              onclick={() => fijar({ socioElegido: socio.socio_id })}
+            >
+              <span class="nom">{socio.nombre}</span>
+              <span class="bolsa">
+                {#if bolsa.tope <= 0}
+                  Sin bolsa pactada
+                {:else}
+                  Le quedan <b>{mxn(bolsa.disponible)}</b> de {mxn(bolsa.tope)} este mes
+                {/if}
+              </span>
+            </button>
+          {/each}
+        </div>
+
+        {#if socioElegido && bolsaSocio}
+          <label class="campo">
+            <span>Cuánto se le carga</span>
+            <input
+              type="text"
+              inputmode="decimal"
+              value={paso.montoSocio}
+              oninput={(e) => fijar({ montoSocio: e.currentTarget.value })}
+              placeholder={mxn(Math.min(t.saldo, bolsaSocio.disponible) as Centavos)}
+            />
+          </label>
+          <p class="ayuda-socio">
+            En blanco se carga todo lo que se pueda de esta cuenta.
+            {#if bolsaSocio.credito > 0}
+              De su tope, <b>{mxn(bolsaSocio.credito)}</b> es crédito a liquidar a
+              fin de mes.
+            {/if}
+          </p>
+          {#if problemaSocio}
+            <p class="error-socio" role="alert">{problemaSocio}</p>
+          {/if}
+          <button class="b1" disabled={!!problemaSocio} onclick={cargarASocio}>
+            Cargar {mxn(cargoSocio)} a {socioElegido.nombre}
+          </button>
+        {:else}
+          <p class="ayuda-socio">Elige de quién es el consumo.</p>
+        {/if}
+
+        <button class="volver" onclick={() => fijar({ vista: "cuenta" })}>
+          ← Volver a la cuenta
+        </button>
       </div>
     {:else}
       <div class="panel-cobro">
@@ -461,7 +764,7 @@
             <button class="mini" onclick={() => traspasar(mesa.id)}>{mesa.nombre}</button>
           {/each}
         </div>
-        <button class="volver" onclick={() => { renglonATraspasar = null; vista = "cuenta"; }}>
+        <button class="volver" onclick={() => fijar({ renglonATraspasar: null, vista: "cuenta" })}>
           ← Cancelar
         </button>
       </div>
@@ -725,6 +1028,43 @@
     border-radius: var(--r-pill);
     padding: 0.08rem 0.4rem;
   }
+  /*
+   * «LISTO» LATE; LOS DEMÁS ESTADOS NO.
+   *
+   * El mesero mira este panel de reojo, entre mesa y mesa. Un platillo listo es
+   * lo único que le pide algo —recogerlo antes de que se enfríe—, así que es lo
+   * único que se mueve: si parpadeara todo, no destacaría nada. La animación es
+   * un halo suave y lento a propósito; un destello rápido en una pantalla que se
+   * tiene delante ocho horas cansa y se acaba ignorando.
+   */
+  .est-r.avisa {
+    color: #fff;
+    background: var(--acento);
+    animation: latido-listo 1.6s ease-in-out infinite;
+  }
+  @keyframes latido-listo {
+    0%,
+    100% {
+      box-shadow: 0 0 0 0 color-mix(in srgb, var(--acento) 55%, transparent);
+    }
+    55% {
+      box-shadow: 0 0 0 0.28rem color-mix(in srgb, var(--acento) 0%, transparent);
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .est-r.avisa {
+      animation: none;
+    }
+  }
+  .acciones .mini.entregar:hover {
+    color: var(--acento);
+  }
+  /* Cuando el platillo ya está listo, el visto bueno se enciende: es el gesto
+     que toca hacer en ese momento. */
+  .acciones .mini.entregar.urge {
+    color: var(--acento);
+    font-weight: 800;
+  }
   .item .p {
     font-weight: 600;
     white-space: nowrap;
@@ -969,6 +1309,31 @@
     outline: none;
     border-color: var(--acento);
   }
+  /* El reparto entre cajón y terminal, a la vista antes de registrar nada. */
+  .mixto {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    padding: 0.6rem 0.7rem;
+    border: 1px solid var(--borde);
+    border-radius: var(--r-md);
+    background: var(--fondo);
+  }
+  .mixto select {
+    padding: 0.6rem 0.75rem;
+    border: 1.5px solid var(--borde);
+    border-radius: var(--r-sm);
+    font-size: 0.95rem;
+    font-family: var(--font-cuerpo);
+    background: #fff;
+  }
+  .reparto {
+    font-size: 0.82rem;
+    color: var(--pizarra);
+  }
+  .reparto b {
+    color: var(--acento);
+  }
   .cambio {
     font-size: 0.95rem;
     color: var(--acento);
@@ -1000,6 +1365,62 @@
     color: var(--gris);
     text-decoration: underline;
     align-self: flex-start;
+  }
+
+  /* --- Cortesía por socio --- */
+  .socios-lista {
+    display: flex;
+    flex-direction: column;
+    gap: 0.35rem;
+  }
+  .socio {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.1rem;
+    border: 1.5px solid var(--borde);
+    border-radius: var(--r-md);
+    padding: 0.5rem 0.7rem;
+    background: #fff;
+    text-align: left;
+  }
+  .socio:hover {
+    border-color: var(--acento);
+  }
+  .socio.on {
+    border-color: var(--acento);
+    background: var(--claro);
+  }
+  /*
+   * El que ya gastó su bolsa se atenúa pero NO se esconde: quien cobra tiene
+   * que poder ver que ese socio existe y que se le acabó, o va a pensar que el
+   * sistema lo perdió.
+   */
+  .socio.agotado {
+    opacity: 0.55;
+  }
+  .socio .nom {
+    font-weight: 600;
+    font-size: 0.92rem;
+    color: var(--pizarra);
+  }
+  .socio .bolsa {
+    font-size: 0.76rem;
+    color: var(--gris);
+  }
+  .socio .bolsa b {
+    color: var(--acento);
+  }
+  .ayuda-socio {
+    font-size: 0.78rem;
+    color: var(--gris);
+    line-height: 1.45;
+  }
+  .error-socio {
+    font-size: 0.8rem;
+    font-weight: 600;
+    color: var(--peligro);
+    line-height: 1.4;
   }
   .vacia {
     flex: 1;

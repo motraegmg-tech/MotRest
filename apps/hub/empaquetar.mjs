@@ -46,7 +46,7 @@ async function llavePublicaDeEntorno(nombre) {
   const texto = process.env[nombre]?.trim() ?? "";
   if (!texto) {
     throw new Error(
-      `Falta ${nombre}. Genera los pares en MOTRAE Central y pasa la llave pública al empaquetado.`,
+      `Falta ${nombre}. Genera los pares en MotRest Central y pasa la llave pública al empaquetado.`,
     );
   }
 

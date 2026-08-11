@@ -1,7 +1,7 @@
 [package]
 name = "motrae-central"
-version = "1.0.2"
-description = "MOTRAE Central — el panel de MOTRAE"
+version = "1.1.0"
+description = "MotRest Central — el panel de MOTRAE"
 authors = ["MOTRAE"]
 edition = "2021"
 rust-version = "1.77"

@@ -1,4 +1,4 @@
-# MOTRAE Central para Windows
+# MotRest Central para Windows
 
 El panel de MOTRAE como aplicación de escritorio: cartera de restaurantes,
 licencias, salud de cada instalación y publicación de versiones.
@@ -47,7 +47,7 @@ corepack pnpm@9.15.0 --filter @motrest/central build       # el panel
 corepack pnpm@9.15.0 --filter @motrest/central-escritorio build
 ```
 
-Sale en `src-tauri/target/release/bundle/nsis/MOTRAE Central_1.0.0_x64-setup.exe`.
+Sale en `src-tauri/target/release/bundle/nsis/MotRest Central_1.0.0_x64-setup.exe`.
 
 ### En Windows, compila fuera de `Documents`
 

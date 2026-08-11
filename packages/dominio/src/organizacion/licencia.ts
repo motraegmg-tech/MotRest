@@ -36,7 +36,7 @@ export type Plan = "prueba" | "mensual" | "anual";
  * La credencial de MOTRAE para este local, en forma de hash.
  *
  * NUNCA la contraseña en claro. Va aquí y no en el código porque la elige
- * Gonzalo en MOTRAE Central, y porque al ir dentro de lo firmado nadie puede
+ * Gonzalo en MotRest Central, y porque al ir dentro de lo firmado nadie puede
  * sustituirla por una suya.
  */
 export interface CredencialSoporte {
@@ -85,7 +85,7 @@ export interface Licencia {
   emitida_ts: number;
   /** Credencial de soporte de MOTRAE para este local. */
   soporte?: CredencialSoporte;
-  /** Responsable creado por MOTRAE Central al dar de alta el restaurante. */
+  /** Responsable creado por MotRest Central al dar de alta el restaurante. */
   responsable?: ResponsableLicenciado;
   /**
    * true = el bloqueo cae en cuanto vence la gracia, aunque haya turno abierto.
@@ -334,7 +334,7 @@ export async function firmaDeMotrae(
 /**
  * Emite una licencia firmada. Solo MOTRAE, que es quien tiene la llave privada.
  *
- * Esa privada **no sale de MOTRAE Central**. Antes esta misma llave se instalaba
+ * Esa privada **no sale de MotRest Central**. Antes esta misma llave se instalaba
  * en cada restaurante para poder verificar, así que cualquier cliente podía
  * emitirse licencias — y firmar actualizaciones para toda la flota.
  */

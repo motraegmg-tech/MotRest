@@ -227,7 +227,7 @@ describe("lo que se le manda a cada terminal", () => {
 /*
  * EL ALTA DE UN RESTAURANTE, que es la razón de ser de todo esto.
  *
- * Gonzalo da de alta el local en MOTRAE Central, Central emite el archivo
+ * Gonzalo da de alta el local en MotRest Central, Central emite el archivo
  * firmado, y ese archivo se pega en la caja. El equipo pasa de «no sé qué
  * restaurante soy» a saberlo, sin que nadie teclee un identificador y sin que
  * venga escrito en el código —donde era el mismo para todas las instalaciones—.

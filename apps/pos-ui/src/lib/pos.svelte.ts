@@ -27,6 +27,7 @@ import {
   totalesComanda,
   uuidv7,
   yaEnviado,
+  type Accion,
   type Centavos,
   type ConfiguracionRenglon,
   type DescuentoPromocion,
@@ -234,10 +235,14 @@ class TiendaPOS {
    *
    * Es la candidata a reabrir: un cobro mal hecho se descubre en los segundos
    * siguientes, no una hora después.
+   *
+   * Una sentada ANULADA no cuenta: se liberó sin consumo, así que no hay ticket
+   * que reimprimir ni cobro que deshacer. Sin este filtro, liberar una mesa
+   * dejaba en pantalla dos botones que no llevaban a ninguna parte.
    */
   get ultimaCobrada() {
     const c = this.comanda;
-    return c?.cerrada ? c : null;
+    return c?.cerrada && !c.anulada ? c : null;
   }
 
   /** Hay algo consumido: es lo que permite cobrar o facturar. */
@@ -362,8 +367,9 @@ class TiendaPOS {
   private async emitirDeCocina(
     ordenId: ID,
     crear: (mesaId: ID) => EventoComanda,
+    accion: Accion = "cocina.item.marcar_listo",
   ): Promise<void> {
-    const permiso = await autorizacion.solicitar("cocina.item.marcar_listo");
+    const permiso = await autorizacion.solicitar(accion);
     if (!permiso.ok) return;
 
     const mesaId = this.mesaDeOrden(ordenId);
@@ -390,9 +396,19 @@ class TiendaPOS {
     );
   }
 
+  /**
+   * El platillo llegó a la mesa.
+   *
+   * Lo firma `pos.item.entregar` y no el permiso de cocina: quien lo sirve es el
+   * mesero, y hasta ahora esto solo se podía marcar desde el tablero —o sea, lo
+   * pulsaba quien deja el plato bajo la lámpara, no quien lo lleva—. Cocina
+   * conserva el botón: en un pase con mostrador es ella la que entrega.
+   */
   async marcarEntregado(ordenId: ID, renglonId: ID): Promise<void> {
-    await this.emitirDeCocina(ordenId, () =>
-      fabrica.crear("item_entregado", ordenId, { orden_id: ordenId, renglon_id: renglonId }),
+    await this.emitirDeCocina(
+      ordenId,
+      () => fabrica.crear("item_entregado", ordenId, { orden_id: ordenId, renglon_id: renglonId }),
+      "pos.item.entregar",
     );
   }
 
@@ -444,6 +460,55 @@ class TiendaPOS {
     this.sincronizarActor();
     this.abrirMesa(this.mesaActiva);
     this.flash(`Mesa ${this.nombreMesaActiva} en servicio`);
+  }
+
+  /**
+   * ¿Se puede devolver esta mesa a «libre»?
+   *
+   * Solo si está en servicio y NADIE pidió nada: sin renglones vivos y sin
+   * pagos. Con consumo, lo que corresponde es cancelar los renglones —que deja
+   * rastro de qué se canceló y quién lo autorizó— o cobrar.
+   */
+  get puedeLiberarMesa(): boolean {
+    const c = this.comanda;
+    return !!c && !c.cerrada && this.renglones.length === 0 && c.pagos.length === 0;
+  }
+
+  /**
+   * Devuelve la mesa a «libre» sin cobrarla.
+   *
+   * Pasa todos los días: se pone una mesa en servicio y los comensales se
+   * cambian de lugar o se van antes de pedir. Hasta ahora la única forma de
+   * soltarla era cobrar una cuenta de cero pesos, que ensuciaba el corte con
+   * ventas fantasma; por eso esto emite `orden_anulada` y no `cuenta_cerrada`:
+   * la sentada se cierra pero NO cuenta como venta en ningún reporte.
+   */
+  async liberarMesa(): Promise<void> {
+    const orden_id = this.ordenActiva(this.mesaActiva);
+    if (!orden_id) return;
+
+    if (!this.puedeLiberarMesa) {
+      this.flash("Esta mesa ya tiene consumo: cancela los renglones o cóbrala");
+      return;
+    }
+
+    const permiso = await autorizacion.solicitar(
+      "pos.orden.abrir",
+      undefined,
+      `liberar la mesa ${this.nombreMesaActiva}`,
+    );
+    if (!permiso.ok) return;
+
+    const mesa = this.nombreMesaActiva;
+    this.sincronizarActor();
+    this.emitir(
+      this.mesaActiva,
+      fabrica.crear("orden_anulada", orden_id, {
+        orden_id,
+        motivo: "Se liberó sin consumo",
+      }),
+    );
+    this.flash(`Mesa ${mesa} libre`);
   }
 
   abrirMesa(mesaId: ID): ID {
@@ -654,7 +719,15 @@ class TiendaPOS {
     const porEstacion = new Map<ID, { cantidad: number; descripcion: string; detalle?: string; notas?: string }[]>();
 
     for (const renglon of renglones) {
-      // Lo que no tiene estación va a "caja", que es donde alguien lo verá.
+      /*
+       * Lo que no tiene estación se rutea al área "caja".
+       *
+       * Es un ruteo explícito, no un comodín: la impresora de caja imprime esto
+       * porque declara el área "caja", igual que la de barra imprime lo suyo. Si
+       * el local no quiere ese papel, le quita el área a la impresora y deja de
+       * salir — que es justo lo que antes no se podía hacer, porque `impresoraPara`
+       * caía a la caja por su cuenta cuando ninguna otra reclamaba el área.
+       */
       const estacion = renglon.estacion_id ?? "caja";
       const lista = porEstacion.get(estacion) ?? [];
       lista.push({
@@ -709,6 +782,26 @@ class TiendaPOS {
     this.flash(`Descuento de ${Math.round(porcentaje * 100)} % aplicado`);
   }
 
+  /** ¿Está ya en cortesía este renglón —o la cuenta entera, si no se pasa uno—? */
+  tieneCortesia(renglonId?: ID): boolean {
+    return (this.comanda?.cortesias ?? []).some((c) => c.renglon_id === renglonId);
+  }
+
+  /**
+   * El botón de cortesía es un INTERRUPTOR: si ya está puesta, la quita.
+   *
+   * Se pulsaba por error y no había vuelta atrás salvo cancelar la cuenta
+   * entera. Que el mismo botón haga y deshaga es además lo que la gente espera
+   * de un botón que se queda encendido.
+   */
+  async alternarCortesia(renglonId: ID | undefined, motivo: string): Promise<void> {
+    if (this.tieneCortesia(renglonId)) {
+      await this.retirarCortesia(renglonId);
+      return;
+    }
+    await this.otorgarCortesia(renglonId, motivo);
+  }
+
   async otorgarCortesia(renglonId: ID | undefined, motivo: string): Promise<void> {
     const orden_id = this.ordenActiva(this.mesaActiva);
     if (!orden_id) return;
@@ -733,6 +826,31 @@ class TiendaPOS {
   }
 
   /**
+   * Quita una cortesía ya puesta.
+   *
+   * **No pide autorización, y es deliberado.** Retirar una cortesía SUBE la
+   * cuenta: no hay forma de sacar dinero del negocio con esto, así que exigir la
+   * firma de un gerente solo serviría para dejar regalada la cuenta de quien
+   * pulsó el botón por equivocación mientras alguien va a buscarlo. Queda
+   * registrado quién lo hizo, que es lo que importa aquí.
+   */
+  async retirarCortesia(renglonId?: ID): Promise<void> {
+    const orden_id = this.ordenActiva(this.mesaActiva);
+    if (!orden_id || !this.tieneCortesia(renglonId)) return;
+
+    this.sincronizarActor();
+    this.emitir(
+      this.mesaActiva,
+      fabrica.crear("cortesia_retirada", orden_id, {
+        orden_id,
+        renglon_id: renglonId,
+        autorizador_id: sesion.usuarioActual?.id,
+      }),
+    );
+    this.flash("Cortesía retirada");
+  }
+
+  /**
    * Vuelve a abrir una cuenta ya cobrada.
    *
    * Pasa en cualquier servicio: se cobró de más, el cliente quiere agregar algo
@@ -745,7 +863,9 @@ class TiendaPOS {
    */
   async reabrirCuenta(motivo: string): Promise<boolean> {
     const orden_id = this.ordenDeLaMesa(this.mesaActiva);
-    if (!orden_id || !this.comanda?.cerrada) return false;
+    // `ultimaCobrada` y no `cerrada` a secas: una sentada liberada sin consumo
+    // también está cerrada, y reabrirla dejaría una mesa ocupada sin cuenta.
+    if (!orden_id || !this.ultimaCobrada) return false;
 
     const limpio = motivo.trim();
     if (limpio.length < 3) {
@@ -877,17 +997,106 @@ class TiendaPOS {
 
   /** Registra un pago. Si es efectivo, `recibido` permite calcular el cambio. */
   async cobrar(forma: FormaPago, monto: Centavos, recibido?: Centavos): Promise<void> {
-    const permiso = await autorizacion.solicitar("pos.cobro.registrar");
-    if (!permiso.ok) return;
+    await this.registrarPagos([{ forma, monto, recibido }]);
+  }
+
+  /**
+   * Cobro repartido entre efectivo y tarjeta, que es de lo más común: la mesa
+   * junta lo que trae suelto y el resto lo pasa con plástico.
+   *
+   * **No se inventa una forma de pago «mixto».** Se registran DOS pagos reales,
+   * uno de cada forma, y esa es toda la decisión de diseño: el corte de caja
+   * necesita saber cuánto entró al cajón —que es lo que se cuenta a mano al
+   * cerrar— y las finanzas necesitan saber cuánto se depositará por terminal.
+   * Una etiqueta «mixto» perdería las dos cifras justo donde hacen falta.
+   */
+  async cobrarMixto(
+    enEfectivo: Centavos,
+    formaTarjeta: FormaPago,
+    total: Centavos,
+    recibido?: Centavos,
+  ): Promise<void> {
+    // El efectivo nunca puede pasarse del total: lo que sobra es cambio, no un
+    // cobro de más, y cargarlo como pago dejaría la cuenta con saldo negativo.
+    const efectivo = Math.min(Math.max(enEfectivo, 0), total) as Centavos;
+    const conTarjeta = restar(total, efectivo);
+
+    await this.registrarPagos([
+      { forma: "efectivo", monto: efectivo, recibido },
+      { forma: formaTarjeta, monto: conTarjeta },
+    ]);
+  }
+
+  /**
+   * Carga parte —o toda— la cuenta a la bolsa mensual de un socio.
+   *
+   * **Es un COBRO, no una cortesía**, y de ahí cuelga todo lo demás: la venta se
+   * registra a precio de carta y sigue contando completa en finanzas y en
+   * inteligencia. Lo único distinto es de dónde salió el dinero: del trato con
+   * el socio y no del cajón. Registrarlo como cortesía habría borrado del
+   * reporte unas ventas que sí ocurrieron —y en un local donde los socios comen
+   * seguido, eso falsea el consumo de insumos y el ticket promedio.
+   *
+   * Quién es el socio viaja en el propio pago: sin eso el consumo no se le
+   * puede descontar a nadie a fin de mes.
+   */
+  async cobrarASocio(socioId: ID, monto: Centavos, nombreSocio: string): Promise<boolean> {
+    const t = this.totales;
+    if (!t || monto <= 0) return false;
+
+    // Nunca más que el saldo: lo que sobra no es un cobro de más, es que se
+    // tecleó mal, y dejaría la cuenta con saldo negativo.
+    const cargo = Math.min(monto, t.saldo) as Centavos;
+    if (cargo <= 0) return false;
+
+    const ok = await this.registrarPagos(
+      [{ forma: "socio", monto: cargo, socio_id: socioId }],
+      { accion: "pos.socio.consumir", contexto: `${nombreSocio} · mesa ${this.nombreMesaActiva}` },
+    );
+    return ok;
+  }
+
+  /**
+   * Asienta uno o varios pagos de la misma cuenta y, si ya no queda saldo, la
+   * cierra e imprime el ticket.
+   *
+   * Va todo junto a propósito: el cierre y la impresión tienen que ocurrir una
+   * sola vez aunque el cobro se haya repartido en dos formas de pago.
+   */
+  private async registrarPagos(
+    pagos: readonly {
+      forma: FormaPago;
+      monto: Centavos;
+      recibido?: Centavos;
+      socio_id?: ID;
+    }[],
+    opciones?: { accion?: Accion; contexto?: string },
+  ): Promise<boolean> {
+    const permiso = await autorizacion.solicitar(
+      opciones?.accion ?? "pos.cobro.registrar",
+      undefined,
+      opciones?.contexto,
+    );
+    if (!permiso.ok) return false;
 
     const orden_id = this.ordenActiva(this.mesaActiva);
-    if (!orden_id || !this.hayCuenta || monto <= 0) return;
+    const validos = pagos.filter((p) => p.monto > 0);
+    if (!orden_id || !this.hayCuenta || validos.length === 0) return false;
 
     this.sincronizarActor();
-    this.emitir(
-      this.mesaActiva,
-      fabrica.crear("pago_registrado", orden_id, { orden_id, monto, forma, recibido }),
-    );
+    for (const pago of validos) {
+      this.emitir(
+        this.mesaActiva,
+        fabrica.crear("pago_registrado", orden_id, {
+          orden_id,
+          monto: pago.monto,
+          forma: pago.forma,
+          recibido: pago.recibido,
+          socio_id: pago.socio_id,
+          autorizador_id: permiso.autorizador_id,
+        }),
+      );
+    }
 
     // Si ya no queda saldo, la cuenta se cierra y la mesa se libera.
     const t = this.totales;
@@ -906,6 +1115,7 @@ class TiendaPOS {
     } else {
       this.flash("Pago parcial registrado");
     }
+    return true;
   }
 
   /**

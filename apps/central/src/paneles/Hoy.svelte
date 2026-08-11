@@ -11,13 +11,27 @@
    * debería ir una lista no se lee como "todo bien": se lee como "no cargó".
    */
   import { central } from "../lib/central.svelte";
-  import { dinero } from "../lib/formato";
+  import { desde, dinero } from "../lib/formato";
   import type { Urgencia } from "@motrest/dominio";
 
   const { onAbrir }: { onAbrir: (id: string) => void } = $props();
 
   const pendientes = $derived(central.pendientes);
   const resumen = $derived(central.resumen);
+
+  /*
+   * Los avisos que no son de ningún restaurante, sino de MOTRAE.
+   *
+   * Van arriba del todo y por delante de la lista de locales porque son los dos
+   * que nadie va a ir a buscar a otra pantalla: unas llaves sin respaldo no
+   * duelen hasta el día que la máquina no arranca, y una contraseña de soporte a
+   * medio rotar no duele hasta que hay que usarla en el local equivocado.
+   */
+  const sinRespaldo = $derived(!central.respaldoAlDia);
+  const soportePendiente = $derived(central.localesConSoportePendiente);
+  const relay = $derived(central.saludRelay);
+  /* Si el relay no contesta, lo caído es el relay y no los restaurantes. */
+  const relayMudo = $derived(central.puedeConsultarRelay && central.errorPulsos !== "");
 
   const ETIQUETA: Record<Urgencia, string> = {
     caido: "Caído",
@@ -30,6 +44,42 @@
 
 <section>
   <h1>Hoy</h1>
+
+  {#if relayMudo}
+    <!--
+      Si el relay se cae, lo que se ve abajo es «todos llevan horas sin
+      reportar», que se lee como avería masiva cuando en realidad todos están
+      vendiendo. Decir quién es el caído cambia a quién hay que llamar.
+    -->
+    <div class="alarma">
+      <b>El relay no contesta.</b>
+      Los restaurantes siguen operando igual: lo que se pierde es la vista, no el
+      servicio. Lo de abajo puede estar viejo.
+    </div>
+  {/if}
+
+  {#if sinRespaldo}
+    <div class="alarma">
+      <b>Las llaves de firma no tienen un respaldo que abra fuera de esta computadora.</b>
+      Si este equipo se pierde, se van con él las licencias y las actualizaciones
+      de todos los restaurantes, y no se pueden regenerar. Sáquelo en
+      <b>Llaves → Respaldo portátil</b>.
+    </div>
+  {/if}
+
+  {#if soportePendiente.length > 0}
+    <div class="ojo">
+      <b>
+        {soportePendiente.length === 1
+          ? "Un local sigue aceptando la contraseña de soporte anterior."
+          : `${soportePendiente.length} locales siguen aceptando la contraseña de soporte anterior.`}
+      </b>
+      Viaja firmada dentro de la licencia: hasta reemitirles, su acceso no cambió.
+      <span class="quienes">
+        {soportePendiente.map((c) => c.nombre).join(", ")}
+      </span>
+    </div>
+  {/if}
 
   {#if central.clientes.length === 0}
     <div class="vacio">
@@ -61,24 +111,45 @@
     {/if}
 
     <h2>El negocio</h2>
+    <!--
+      LO COBRADO VA AL LADO DE LO PROMETIDO, y la distancia entre los dos es el
+      único número honesto de esta pantalla. Un panel que solo enseña «al mes si
+      todos pagan» hace sentir un negocio que puede no estar pasando.
+    -->
     <div class="cifras">
       <div class="cifra">
         <b>{resumen.locales}</b>
         <span>locales activos</span>
       </div>
       <div class="cifra destacada">
-        <b>{dinero(resumen.ingreso_mensual)}</b>
-        <span>al mes si todos pagan</span>
+        <b>{dinero(resumen.cobrado_mes)}</b>
+        <span>cobrado en 30 días</span>
       </div>
       <div class="cifra">
-        <b>{resumen.al_corriente}</b>
-        <span>al corriente</span>
+        <b>{dinero(resumen.ingreso_mensual)}</b>
+        <span>al mes si todos pagan</span>
       </div>
       <div class="cifra" class:mal={resumen.bloqueados > 0}>
         <b>{resumen.bloqueados}</b>
         <span>bloqueados</span>
       </div>
     </div>
+
+    {#if resumen.por_cobrar_resultados > 0}
+      <p class="resultados-pendientes">
+        Además, <b>{dinero(resumen.por_cobrar_resultados)}</b> en comisiones por
+        resultado ya verificadas y todavía sin cobrar.
+      </p>
+    {/if}
+
+    {#if relay}
+      <h2>El relay</h2>
+      <div class="relay">
+        <span><b>{relay.hubs_conectados}</b> de {relay.restaurantes} Hubs conectados ahora</span>
+        <span>{relay.pulsos} partes guardados</span>
+        <span>consultado {desde(relay.consultado_ts, central.ahora)}</span>
+      </div>
+    {/if}
 
     {#if resumen.versiones.length > 0}
       <h2>Qué versión tiene cada quien</h2>
@@ -135,6 +206,45 @@
     padding: 1.1rem 1.2rem;
     font-size: 0.9rem;
     line-height: 1.6;
+    color: var(--pizarra);
+  }
+  .alarma,
+  .ojo {
+    background: var(--blanco);
+    border: 1px solid var(--borde);
+    border-left: 3px solid var(--peligro);
+    border-radius: var(--r-md);
+    padding: 0.85rem 1rem;
+    margin-bottom: 0.7rem;
+    font-size: 0.86rem;
+    line-height: 1.6;
+    color: var(--pizarra);
+  }
+  .ojo {
+    border-left-color: var(--acento-2);
+  }
+  .quienes {
+    display: block;
+    margin-top: 0.3rem;
+    font-size: 0.8rem;
+    color: var(--gris);
+  }
+  .resultados-pendientes {
+    font-size: 0.84rem;
+    color: var(--gris);
+    margin: 0.6rem 0 0;
+  }
+  .resultados-pendientes b {
+    color: var(--acento);
+  }
+  .relay {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 1.2rem;
+    font-size: 0.82rem;
+    color: var(--gris);
+  }
+  .relay b {
     color: var(--pizarra);
   }
   .vacio p {

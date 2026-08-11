@@ -64,7 +64,7 @@ Una conexión, estable, sin bucle. Antes: 7 reconexiones en 9 s.
 
 ## 2. Licencia = identidad del restaurante · TERMINADO
 
-Lo que pidió Gonzalo: *«genero los restaurantes en MOTRAE Central, cada uno con su
+Lo que pidió Gonzalo: *«genero los restaurantes en MotRest Central, cada uno con su
 licencia JSON, la pongo dentro del MotRest del restaurante y automáticamente identificará
 qué restaurante es»*.
 
@@ -96,7 +96,7 @@ qué restaurante es»*.
    (no hace falta: la licencia dice qué restaurante es). Un local que dejó de pagar sigue
    viendo lo de antes.
 
-**MOTRAE Central ya estaba listo**: `alta()` acepta `datos.id` o lo deriva del nombre, y
+**MotRest Central ya estaba listo**: `alta()` acepta `datos.id` o lo deriva del nombre, y
 `emitirLicencia` usa `sucursal_id: cliente.id`. No hubo que tocarlo.
 
 ### Verificado de punta a punta sobre el binario empaquetado

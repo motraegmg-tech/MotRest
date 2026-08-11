@@ -93,19 +93,28 @@ export function esperaReintento(intentos: number): number {
 /**
  * A qué impresora va un documento.
  *
- * Si un área no tiene impresora asignada, se cae a la de "caja" cuando existe:
- * una comanda impresa en el lugar equivocado se puede llevar caminando; una
- * comanda que no se imprime en ningún lado no se prepara.
+ * **Cada impresora imprime SOLO las áreas que tiene asignadas.** Si nadie
+ * reclama un área, ese documento no se imprime en ningún lado, y así tiene que
+ * ser.
+ *
+ * AQUÍ HUBO UNA CAÍDA A «CAJA» Y HAY QUE DEJAR ESCRITO POR QUÉ SE FUE. El
+ * razonamiento era razonable sobre el papel —una comanda impresa en el sitio
+ * equivocado se lleva caminando; una que no se imprime no se prepara— pero en el
+ * restaurante producía justo lo contrario de lo que el dueño configuró: quitarle
+ * a la impresora de cocina el área de cocina no dejaba de imprimir comandas, las
+ * mandaba TODAS a la caja. El rollo de la caja se acababa a media noche con
+ * comandas que nadie pidió, y la única forma de detenerlo era desactivar la
+ * impresora entera —con lo que se perdían también los tickets—.
+ *
+ * Una configuración que no se puede apagar no es una configuración. Cuando un
+ * área queda sin impresora, el KDS sigue mostrando el platillo: la cocina no se
+ * queda ciega, solo deja de salir papel donde nadie lo quiso.
  */
 export function impresoraPara(
   impresoras: readonly Impresora[],
   area: ID,
 ): Impresora | undefined {
-  const activas = impresoras.filter((i) => i.activa);
-  return (
-    activas.find((i) => i.areas.includes(area)) ??
-    activas.find((i) => i.areas.includes("caja"))
-  );
+  return impresoras.find((i) => i.activa && i.areas.includes(area));
 }
 
 /** Todas las impresoras que deben recibir copia de un área. */

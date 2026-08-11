@@ -19,8 +19,11 @@ import {
   type EventoOpinion,
   type EventoReserva,
   type EventoPrenomina,
+  type EventoSocio,
+  TIPOS_EVENTO_SOCIO,
 } from "@motrest/dominio";
 import { almacenEnMemoria, almacenIndexedDB, type Almacen } from "@motrest/protocolo-sync";
+import { asignaciones } from "../asignaciones.svelte";
 import { asistencia } from "../asistencia.svelte";
 import { caja } from "../caja.svelte";
 import { clientes } from "../clientes.svelte";
@@ -36,6 +39,7 @@ import { licencia } from "../licencia.svelte";
 import { modoAbierto } from "../modo-abierto.svelte";
 import { canales } from "../canales.svelte";
 import { prenomina } from "../prenomina.svelte";
+import { socios } from "../socios.svelte";
 import { cartaVacia, catalogo, impuestos } from "../catalogo";
 import { menuDemostracion } from "../demo/carta";
 import { esLaCaja } from "../entorno";
@@ -67,10 +71,12 @@ const TIPOS_COMANDA = new Set([
   "item_entregado",
   "descuento_aplicado",
   "cortesia_otorgada",
+  "cortesia_retirada",
   "propina_registrada",
   "pago_registrado",
   "cuenta_cerrada",
   "cuenta_reabierta",
+  "orden_anulada",
   "ticket_reimpreso",
 ]);
 
@@ -91,7 +97,7 @@ const TIPOS_INVENTARIO = new Set(["movimiento_inventario", "conteo_registrado"])
 const TIPOS_ASISTENCIA = new Set(["checada_registrada"]);
 
 /** Condiciones laborales: la tarifa por hora de cada quien. */
-const TIPOS_PRENOMINA = new Set(["tarifa_asignada"]);
+const TIPOS_PRENOMINA = new Set(["tarifa_asignada", "sueldo_diario_asignado"]);
 
 /** Voz del cliente. */
 const TIPOS_OPINION = new Set(["opinion_registrada"]);
@@ -130,6 +136,9 @@ const TIPOS_CLIENTE = new Set([
   "cliente_desactivado",
 ]);
 
+/** Socios e inversionistas del local y sus beneficios (M9). */
+const TIPOS_SOCIO = new Set<string>(TIPOS_EVENTO_SOCIO);
+
 class Arranque {
   cargando = $state(true);
   error = $state("");
@@ -164,6 +173,9 @@ class Arranque {
       // comandas se agrupan por las mesas del plano y sus renglones se leen
       // contra los productos del menú.
       await plano.hidratar(almacen);
+      // El rol de mesas cuelga del plano: se carga junto a él para que el salón
+      // ya sepa de quién es cada mesa en el primer pintado.
+      await asignaciones.hidratar(almacen);
       /*
        * La carta de la demostración es SOLO para la demostración.
        *
@@ -272,6 +284,11 @@ class Arranque {
             TIPOS_RESERVA.has((e as EventoReserva).tipo),
           ) as EventoReserva[],
         );
+        socios.hidratar(
+          ordenados.filter((e) =>
+            TIPOS_SOCIO.has((e as EventoSocio).tipo),
+          ) as EventoSocio[],
+        );
       }
 
       // Migración idempotente: una instalación que ya tenía operación pero
@@ -283,6 +300,7 @@ class Arranque {
       pos.conectarAlmacen(almacen);
       sesion.conectarAlmacen(almacen);
       plano.conectarAlmacen(almacen);
+      asignaciones.conectarAlmacen(almacen);
       fiscal.conectarAlmacen(almacen);
       inventario.conectarAlmacen(almacen);
       menu.conectarAlmacen(almacen);
@@ -294,6 +312,7 @@ class Arranque {
       prenomina.conectarAlmacen(almacen);
       opiniones.conectarAlmacen(almacen);
       reservas.conectarAlmacen(almacen);
+      socios.conectarAlmacen(almacen);
       await correo.hidratar(almacen);
       await canales.hidratar(almacen);
       /*
@@ -363,6 +382,7 @@ class Arranque {
     prenomina.hidratar([]);
     opiniones.hidratar([]);
     reservas.hidratar([]);
+    socios.hidratar([]);
   }
 
   /**
@@ -428,6 +448,11 @@ class Arranque {
       TIPOS_RESERVA.has((e as EventoReserva).tipo),
     ) as EventoReserva[];
     if (reserva.length > 0) reservas.integrar(reserva);
+
+    const socio = ordenados.filter((e) =>
+      TIPOS_SOCIO.has((e as EventoSocio).tipo),
+    ) as EventoSocio[];
+    if (socio.length > 0) socios.integrar(socio);
   }
 
   /**

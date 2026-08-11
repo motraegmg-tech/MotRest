@@ -19,7 +19,7 @@ lugares desde los que se podía obtener la llave maestra.
 1. MotRest usa **Ed25519** mediante WebCrypto nativo.
 2. Hay **dos pares independientes**: licencias y publicaciones. Comprometer uno
    no permite firmar el otro.
-3. Las privadas viven en MOTRAE Central, cifradas por Windows DPAPI. Las públicas
+3. Las privadas viven en MotRest Central, cifradas por Windows DPAPI. Las públicas
    se validan al empaquetar y se incrustan en el ejecutable del Hub.
 4. La firma cubre el JSON canónico completo, excepto `firma`, con claves
    ordenadas. Ningún campo nuevo —incluidas las notas para el restaurante— queda

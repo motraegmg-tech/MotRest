@@ -5,7 +5,14 @@
    * Es la columna central del POS. Al tocar un producto, si necesita
    * configuración se abre el configurador; si no, entra directo a la cuenta.
    */
-  import { buscarProductos, productosDeCategoria, type Producto } from "@motrest/dominio";
+  import {
+    buscarProductos,
+    calcularImpuesto,
+    perfilDelProducto,
+    productosDeCategoria,
+    type Centavos,
+    type Producto,
+  } from "@motrest/dominio";
   import { catalogo } from "./catalogo";
   import { menu } from "./menu.svelte";
   import { configurador } from "./configurador.svelte";
@@ -43,6 +50,24 @@
     } else {
       await pos.agregarSimple(producto.id);
     }
+  }
+
+  /**
+   * El precio que se enseña es EL DE LA CARTA: con impuesto dentro.
+   *
+   * Aquí salía la base gravable, y en la carta de Rodizio el IVA se suma encima:
+   * el mesero veía 86.21 donde el menú de la mesa dice 100, y el comensal que
+   * pregunta «¿cuánto cuesta?» recibía un número que no existe en ningún papel.
+   */
+  function precioDeCarta(producto: Producto): Centavos {
+    const perfil = catalogo.impuestos.get(producto.impuesto_id);
+    if (!perfil) return producto.precio;
+    // `perfilDelProducto` respeta si ese platillo guarda su precio ya con el
+    // impuesto dentro; sin esto, a los capturados así se les sumaría dos veces.
+    return calcularImpuesto(
+      producto.precio,
+      perfilDelProducto(perfil, producto.precio_incluye_impuesto),
+    ).total;
   }
 
   /** Etiqueta corta de lo que el producto pedirá configurar. */
@@ -94,7 +119,7 @@
         <div class="contenido">
           <span class="nombre">{producto.nombre}</span>
           {#if requiere}<span class="pista">{requiere}</span>{/if}
-          <span class="precio">{mxn(producto.precio)}</span>
+          <span class="precio">{mxn(precioDeCarta(producto))}</span>
         </div>
       </button>
     {:else}

@@ -51,7 +51,7 @@ Anótalo tal cual, con guiones y todo.
 > registrada. Si MOTRAE quiere decidirlo de antemano, puede usar
 > `MOTREST_SUCURSAL_ID=suc-rodizio-centro` antes de ese primer arranque.
 
-### 3 · Dar de alta el restaurante en MOTRAE Central
+### 3 · Dar de alta el restaurante en MotRest Central
 
 **Restaurantes → + Alta**:
 
@@ -156,7 +156,7 @@ Sale así:
 | `--desde` | Renovar contando desde el vencimiento anterior |
 | `--salida` | Dónde escribirlo (por defecto `licencia.json`) |
 
-> Usa este comando para la **primera emisión**. Para renovar, usa MOTRAE Central:
+> Usa este comando para la **primera emisión**. Para renovar, usa MotRest Central:
 > así conserva el PIN que el responsable ya haya cambiado.
 
 Después se copia el archivo al equipo del local y se pega en **Licencia de
