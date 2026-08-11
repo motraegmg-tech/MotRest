@@ -16,6 +16,7 @@ import {
   type DecisionFailover,
   type TerminalDelLocal,
 } from "@motrest/dominio";
+import { esLaCaja } from "./entorno";
 import { obtenerDeviceId } from "./presentacion";
 
 class StoreFailover {
@@ -59,6 +60,20 @@ class StoreFailover {
    * por ignorancia y callar por conveniencia.
    */
   get aviso(): string {
+    /*
+     * LA CAJA NO SE AVISA A SÍ MISMA.
+     *
+     * El equipo donde corre el Hub ES el titular: es la computadora central del
+     * restaurante, la que sirve el punto de venta a todas las demás. Decirle
+     * «la caja no responde» es pedirle que se busque a sí misma, y es lo que
+     * estaba pasando en Rodizio — que no tiene tablets todavía, solo esa
+     * computadora, y leía un aviso pensado para el salón.
+     *
+     * Se reconoce por `__MOTREST_HUB__`, el marcador que el Hub inyecta ÚNICA-
+     * MENTE en la página que sirve a su propio equipo. Una terminal de la red
+     * no lo lleva, así que a ella sí le sigue apareciendo el aviso cuando toca.
+     */
+    if (esLaCaja()) return "";
     if (this.titularVisto === null) return "";
     return avisoParaElPersonal(this.decision);
   }

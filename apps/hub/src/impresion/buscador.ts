@@ -31,7 +31,11 @@
  */
 import { Socket } from "node:net";
 import { networkInterfaces } from "node:os";
-import { impresorasDelSistema, type ImpresoraDelSistema } from "./transporte-usb.js";
+import {
+  impresorasDelSistema,
+  puertosSinCola,
+  type ImpresoraDelSistema,
+} from "./transporte-usb.js";
 
 export interface ImpresoraDetectada {
   /** Cómo llegaría el papel: por el cable USB del equipo, o por la red. */
@@ -53,6 +57,16 @@ export interface ImpresoraDetectada {
    * la que se busca. Se ordenan al final y la pantalla las agrupa aparte.
    */
   virtual?: boolean;
+  /** Solo USB sin dar de alta: el puerto de Windows donde está enchufada. */
+  puerto_sistema?: string;
+  /**
+   * true = está conectada pero Windows no le creó la cola de impresión.
+   *
+   * No se puede imprimir todavía; hay que darla de alta primero. Se ofrece
+   * hacerlo desde la propia pantalla en vez de mandar a nadie al panel de
+   * control de Windows.
+   */
+  sin_instalar?: boolean;
   /** Ancho de papel probable, deducido del nombre. 42 = 80 mm, 32 = 58 mm. */
   ancho: 32 | 42;
 }
@@ -248,8 +262,27 @@ export async function buscarImpresoras(
 
   const delSistema = (await impresorasDelSistema()).map(desdeElSistema);
 
+  /*
+   * Las que están enchufadas pero Windows no terminó de dar de alta.
+   *
+   * Van en la MISMA lista, no en un apartado técnico aparte: para quien monta
+   * el local es una impresora que está ahí, conectada, y lo único que la
+   * distingue es que hay que pulsar un botón más. Esconderla en «avanzado»
+   * reproduce el problema que esto viene a resolver — en Rodizio la impresora
+   * llevaba horas enchufada y encendida, y el asistente decía que no había
+   * ninguna.
+   */
+  const sinCola: ImpresoraDetectada[] = (await puertosSinCola()).map((p) => ({
+    origen: "usb" as const,
+    nombre: (p.descripcion || p.puerto).trim(),
+    detalle: `Conectada por cable, falta darla de alta en Windows (${p.puerto})`,
+    puerto_sistema: p.puerto,
+    sin_instalar: true,
+    ancho: anchoProbable(p.descripcion),
+  }));
+
   if (opciones.conRed === false) {
-    return { impresoras: ordenar(delSistema), redes: [], sin_red: true };
+    return { impresoras: ordenar([...delSistema, ...sinCola]), redes: [], sin_red: true };
   }
 
   const redes = redesLocales();

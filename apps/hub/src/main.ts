@@ -96,7 +96,11 @@ import { Facturador } from "./fiscal/facturador.js";
 import { Cancelador } from "./fiscal/cancelador.js";
 import { MAPEO_REST_COMUN, PacHttp, consultaPorFolio } from "./fiscal/pac-http.js";
 import { enviarARed } from "./impresion/transporte-red.js";
-import { enviarAUsb, impresorasDelSistema } from "./impresion/transporte-usb.js";
+import {
+  enviarAUsb,
+  impresorasDelSistema,
+  instalarImpresoraEnPuerto,
+} from "./impresion/transporte-usb.js";
 import { buscarImpresoras } from "./impresion/buscador.js";
 import { enMegas, evaluarCrecimiento } from "./crecimiento.js";
 import {
@@ -1155,6 +1159,56 @@ function atenderInterno(peticion: IncomingMessage, respuesta: ServerResponse): v
     // pide al abrir la pantalla. El barrido tarda segundos y va a botón.
     const conRed = url.searchParams.get("red") === "1";
     void buscarImpresoras({ conRed }).then((resultado) => json(200, resultado));
+    return;
+  }
+
+  /*
+   * Dar de alta en Windows una impresora que está enchufada y sin cola.
+   *
+   * Solo desde la caja, igual que la búsqueda: crea una cola de impresión en el
+   * equipo, y eso no lo pide una tablet del salón por la wifi.
+   */
+  if (url.pathname === "/instalar-impresora") {
+    if (!esLocal) {
+      json(403, { error: "Solo desde la caja" });
+      return;
+    }
+    if (!esOrigenDelHub(peticion.headers.origin, seguro, autoridad)) {
+      json(403, { error: "Origen no autorizado" });
+      return;
+    }
+    if (peticion.method !== "POST") {
+      json(405, { error: "Usa POST" });
+      return;
+    }
+    void leerCuerpo(peticion)
+      .then(async (crudo) => {
+        const datos = JSON.parse(crudo.toString("utf8") || "{}") as {
+          nombre?: unknown;
+          puerto?: unknown;
+        };
+        const nombre = typeof datos.nombre === "string" ? datos.nombre.trim() : "";
+        const puerto = typeof datos.puerto === "string" ? datos.puerto.trim() : "";
+        // El puerto se acota a lo que Windows nombra así: no se le pasa a
+        // PowerShell cualquier cosa que llegue por el cuerpo de la petición.
+        if (!nombre || !/^USB\d{3,}$/i.test(puerto)) {
+          json(400, { error: "Hace falta el nombre y un puerto USB válido" });
+          return;
+        }
+        const r = await instalarImpresoraEnPuerto(nombre, puerto);
+        if (!r.ok) {
+          registrar("aviso", `No se pudo dar de alta ${nombre} en ${puerto}: ${r.error}`);
+          json(500, {
+            error: r.error,
+            // El caso más común, dicho para que se pueda resolver sin llamar.
+            pista: "Windows pide permisos de administrador para dar de alta una impresora.",
+          });
+          return;
+        }
+        registrar("info", `Impresora ${nombre} dada de alta en ${puerto}`);
+        json(200, { ok: true });
+      })
+      .catch(() => json(400, { error: "Cuerpo ilegible" }));
     return;
   }
 

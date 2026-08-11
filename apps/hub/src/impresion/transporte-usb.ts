@@ -266,6 +266,139 @@ export function impresorasDelSistema(timeoutMs = 10_000): Promise<ImpresoraDelSi
   });
 }
 
+/** Corre un guion de PowerShell y devuelve su salida, o "" si algo falla. */
+function correrPowerShell(guion: string, timeoutMs: number): Promise<string> {
+  if (process.platform !== "win32") return Promise.resolve("");
+  return new Promise((resolver) => {
+    let resuelto = false;
+    const terminar = (texto: string): void => {
+      if (resuelto) return;
+      resuelto = true;
+      clearTimeout(alarma);
+      resolver(texto);
+    };
+    const hijo = spawn(
+      "powershell.exe",
+      [
+        "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass",
+        "-EncodedCommand", Buffer.from(guion, "utf16le").toString("base64"),
+      ],
+      { windowsHide: true },
+    );
+    const alarma = setTimeout(() => { hijo.kill(); terminar(""); }, timeoutMs);
+    let salida = "";
+    hijo.stdout.on("data", (t: Buffer) => { salida += t.toString("utf8"); });
+    hijo.on("error", () => terminar(""));
+    hijo.on("close", () => terminar(salida));
+  });
+}
+
+export interface PuertoSinCola {
+  /** `USB001`, `USB002`… */
+  puerto: string;
+  /** Lo que Windows leyó del propio aparato: «BIXOLONSRP-350plus». */
+  descripcion: string;
+}
+
+/**
+ * Impresoras enchufadas que Windows NO terminó de dar de alta.
+ *
+ * ESTE CASO NO ERA RARO: es lo que pasó en Rodizio. Windows reconoció la
+ * BIXOLON por USB y hasta le creó el puerto `USB001` con su nombre, pero nunca
+ * instaló la cola de impresión. MotRest entrega los bytes al spooler, y sin cola
+ * no hay a dónde entregarlos: la impresora estaba conectada, encendida y era
+ * invisible para el asistente, que solo listaba colas.
+ *
+ * Desde fuera se ve como un fallo del software. Se detecta aquí para poder
+ * ofrecer el arreglo en vez de que alguien tenga que saber de spoolers.
+ */
+export function puertosSinCola(timeoutMs = 10_000): Promise<PuertoSinCola[]> {
+  const guion =
+    "$ProgressPreference = 'SilentlyContinue'; " +
+    // Los puertos que YA usa alguna cola quedan fuera: esos no son el problema.
+    "try { $usados = @(Get-Printer | Select-Object -ExpandProperty PortName) } catch { $usados = @() } " +
+    "try { $libres = @(Get-PrinterPort | Where-Object { $_.Name -like 'USB*' -and " +
+    "$usados -notcontains $_.Name -and $_.Description } | " +
+    "Select-Object @{n='puerto';e={$_.Name}}, @{n='descripcion';e={[string]$_.Description}}) } " +
+    "catch { $libres = @() } " +
+    "try { [Console]::Out.Write((ConvertTo-Json -InputObject $libres -Compress)) } catch { [Console]::Out.Write('[]') }";
+
+  return correrPowerShell(guion, timeoutMs).then((salida) => {
+    try {
+      const dato: unknown = JSON.parse(salida.trim() || "[]");
+      const lista = Array.isArray(dato) ? dato : [dato];
+      return lista
+        .filter((p): p is PuertoSinCola =>
+          !!p && typeof (p as PuertoSinCola).puerto === "string")
+        .map((p) => ({ puerto: p.puerto, descripcion: p.descripcion ?? "" }));
+    } catch {
+      return [];
+    }
+  });
+}
+
+/**
+ * Da de alta la cola que le faltaba a una impresora ya enchufada.
+ *
+ * Usa el controlador **genérico de texto** que Windows ya trae, y no el del
+ * fabricante, porque MotRest imprime en RAW: el controlador no interpreta nada,
+ * solo pone los bytes en el cable. Es lo que permite resolverlo sin descargar
+ * nada ni pedirle al restaurante el CD de la impresora.
+ *
+ * Requiere permisos de administrador. Si no los hay, se devuelve el motivo tal
+ * como lo dio Windows en vez de un «no se pudo» que no ayuda a nadie.
+ */
+export async function instalarImpresoraEnPuerto(
+  nombre: string,
+  puerto: string,
+  timeoutMs = 30_000,
+): Promise<{ ok: boolean; error?: string }> {
+  // Ni el nombre ni el puerto se interpolan crudos: van por variable de entorno
+  // del propio PowerShell, así que un nombre con comillas es un nombre y no un
+  // comando. Es la misma regla que sigue el envío de bytes a la impresora.
+  const guion =
+    "$ErrorActionPreference = 'Stop'; " +
+    "$n = $env:MOTREST_IMP_NOMBRE; $p = $env:MOTREST_IMP_PUERTO; " +
+    "try { " +
+    "  foreach ($d in @('Generic / Text Only','Genérico / Sólo texto')) { " +
+    "    try { Add-PrinterDriver -Name $d; $drv = $d; break } catch {} } " +
+    "  if (-not $drv) { throw 'No se pudo instalar el controlador genérico de texto' } " +
+    "  Add-Printer -Name $n -DriverName $drv -PortName $p; " +
+    "  [Console]::Out.Write('OK') " +
+    "} catch { [Console]::Out.Write('ERROR:' + $_.Exception.Message) }";
+
+  const salida = await new Promise<string>((resolver) => {
+    if (process.platform !== "win32") return resolver("ERROR:solo en Windows");
+    let resuelto = false;
+    const terminar = (t: string): void => {
+      if (resuelto) return;
+      resuelto = true;
+      clearTimeout(alarma);
+      resolver(t);
+    };
+    const hijo = spawn(
+      "powershell.exe",
+      [
+        "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass",
+        "-EncodedCommand", Buffer.from(guion, "utf16le").toString("base64"),
+      ],
+      {
+        windowsHide: true,
+        env: { ...process.env, MOTREST_IMP_NOMBRE: nombre, MOTREST_IMP_PUERTO: puerto },
+      },
+    );
+    const alarma = setTimeout(() => { hijo.kill(); terminar("ERROR:tardó demasiado"); }, timeoutMs);
+    let salida = "";
+    hijo.stdout.on("data", (t: Buffer) => { salida += t.toString("utf8"); });
+    hijo.on("error", (e) => terminar("ERROR:" + e.message));
+    hijo.on("close", () => terminar(salida));
+  });
+
+  const texto = salida.trim();
+  if (texto.startsWith("OK")) return { ok: true };
+  return { ok: false, error: texto.replace(/^ERROR:/, "") || "Windows no explicó el fallo" };
+}
+
 /** Windows devuelve un objeto suelto cuando solo hay una impresora, no un arreglo. */
 function interpretarListado(salida: string): ImpresoraDelSistema[] {
   const limpia = salida.trim();

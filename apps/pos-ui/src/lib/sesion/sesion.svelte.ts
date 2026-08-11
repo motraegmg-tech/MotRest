@@ -133,6 +133,8 @@ class Sesion {
 
   /** Intentos fallidos por usuario. Reactivo: la UI muestra los restantes. */
   private intentos = $state<Record<ID, EstadoIntentos>>({});
+  /** Vacío mientras los secretos se guarden bien. Lo lee la pantalla. */
+  errorAlGuardar = $state("");
   /** Intentos fallidos del diálogo de autorización (no se sabe de quién es el PIN). */
   private intentosAutorizacion = $state<EstadoIntentos>({ fallos: 0, ultimo_fallo_ts: 0 });
 
@@ -321,6 +323,18 @@ class Sesion {
       await this.almacen.estado.guardar(CLAVES.provisionesResponsable, this.provisionesResponsable);
       if (this.rescate) await this.almacen.estado.guardar(CLAVES.rescate, this.rescate);
     } catch (causa) {
+      /*
+       * ESTE FALLO NO PUEDE SER SILENCIOSO.
+       *
+       * Era un `console.error` en una aplicación que nadie mira con la consola
+       * abierta, y detrás se escondía que el PIN del responsable no se estaba
+       * guardando: el restaurante quedaba fuera de su sistema al reiniciar y no
+       * había ni un rastro visible. Se sube a la superficie para que la próxima
+       * vez se vea en la pantalla y no haga falta un depurador remoto.
+       */
+      this.errorAlGuardar =
+        "No se pudieron guardar las credenciales en este equipo. " +
+        "Avise a MOTRAE: el acceso podría perderse al cerrar la aplicación.";
       console.error("No se pudieron guardar las credenciales", causa);
     }
   }

@@ -200,4 +200,42 @@ describe("persistencia real entre recargas (IndexedDB)", () => {
     expect(await segunda.estado.cargar("sesion_activa")).toBe("usr-gonzalo");
     segunda.cerrar();
   });
+
+  /*
+   * Lo que dejó al responsable de Rodizio fuera de su propio sistema.
+   *
+   * Los stores del POS son de Svelte 5 y casi todo lo que sale de un `$state`
+   * es un Proxy. `put()` serializa con structured clone, que revienta con un
+   * Proxy: la escritura fallaba, quien llamaba lo anotaba en la consola, y las
+   * escrituras siguientes de esa misma función no llegaban a ejecutarse. En el
+   * disco de la caja: `credenciales` 43 veces, `provisiones_responsable` cero.
+   */
+  it("guardar un objeto reactivo (Proxy) NO revienta", async () => {
+    const factory = new IDBFactory();
+    const almacen = await almacenIndexedDB(factory);
+
+    const original = { "usr-gonzalo": { provision_id: "local:usr-gonzalo", debe_cambiar: false } };
+    const comoUnStore = new Proxy(original, {});
+
+    await expect(almacen.estado.guardar("provisiones_responsable", comoUnStore)).resolves
+      .toBeUndefined();
+    expect(await almacen.estado.cargar("provisiones_responsable")).toEqual(original);
+    almacen.cerrar();
+  });
+
+  it("una escritura que falla no impide las siguientes de la misma tanda", async () => {
+    const factory = new IDBFactory();
+    const almacen = await almacenIndexedDB(factory);
+
+    // Tal cual lo hace `guardarSecretos`: varias claves seguidas, y la de en
+    // medio es la reactiva. Antes, esa tiraba y las de después no corrían.
+    await almacen.estado.guardar("credenciales", { "usr-gonzalo": [{ tipo: "pin" }] });
+    await almacen.estado.guardar("intentos", new Proxy({ "usr-gonzalo": { fallos: 0 } }, {}));
+    await almacen.estado.guardar("provisiones_responsable", new Proxy({ aplicada: true }, {}));
+
+    expect(await almacen.estado.cargar("credenciales")).not.toBeNull();
+    expect(await almacen.estado.cargar("intentos")).not.toBeNull();
+    expect(await almacen.estado.cargar("provisiones_responsable")).toEqual({ aplicada: true });
+    almacen.cerrar();
+  });
 });

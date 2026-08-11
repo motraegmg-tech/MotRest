@@ -115,6 +115,10 @@ export interface ImpresoraDetectada {
   dispositivo?: string;
   /** true = no imprime en papel (PDF, XPS, fax). Se agrupa aparte. */
   virtual?: boolean;
+  /** Solo si falta darla de alta: el puerto de Windows donde está enchufada. */
+  puerto_sistema?: string;
+  /** true = conectada, pero Windows no le creó la cola. Hay que instalarla. */
+  sin_instalar?: boolean;
   ancho: 32 | 42;
 }
 
@@ -168,6 +172,8 @@ class StoreImpresion {
   buscando = $state(false);
   /** Por qué no se pudo buscar, si es que no se pudo. */
   errorBusqueda = $state("");
+  /** El puerto que se está dando de alta ahora mismo, o "" si ninguno. */
+  instalando = $state("");
 
   private almacen: Almacen | null = null;
   private transporte = new TransporteSimulado();
@@ -238,6 +244,45 @@ class StoreImpresion {
         causa instanceof Error ? causa.message : "No se pudo contactar al Hub";
     } finally {
       this.buscando = false;
+    }
+  }
+
+  /**
+   * Le pide a Windows que dé de alta una impresora que está enchufada y sin cola.
+   *
+   * Es el caso de una térmica que alguien conectó y Windows dejó a medias: el
+   * puerto existe, la impresora no. Sin esto había que ir al panel de control de
+   * Windows a instalarla a mano, sabiendo además que sirve el controlador
+   * genérico de texto — que no lo sabe nadie que no haya escrito este código.
+   */
+  async instalar(detectada: ImpresoraDetectada): Promise<boolean> {
+    this.errorBusqueda = "";
+    if (!detectada.puerto_sistema) {
+      this.errorBusqueda = "Esa impresora no necesita instalarse.";
+      return false;
+    }
+    this.instalando = detectada.puerto_sistema;
+    try {
+      const respuesta = await fetch("/instalar-impresora", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ nombre: detectada.nombre, puerto: detectada.puerto_sistema }),
+      });
+      const cuerpo = (await respuesta.json()) as { error?: string; pista?: string };
+      if (!respuesta.ok) {
+        this.errorBusqueda = [cuerpo.error, cuerpo.pista].filter(Boolean).join(" ");
+        return false;
+      }
+      // Se vuelve a buscar: ahora sale como una impresora normal, con su cola,
+      // y desde ahí sigue el camino de siempre —probar y elegir qué imprime—.
+      await this.buscar(false);
+      return true;
+    } catch (causa) {
+      this.errorBusqueda =
+        causa instanceof Error ? causa.message : "No se pudo contactar al Hub";
+      return false;
+    } finally {
+      this.instalando = "";
     }
   }
 

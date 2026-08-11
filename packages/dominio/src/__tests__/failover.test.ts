@@ -114,7 +114,7 @@ describe("cuando la caja lleva rato sin responder", () => {
   it("la suplente de mayor prioridad toma el mando", () => {
     const d = decidirFailover(estado(caida), AHORA);
     expect(d.situacion).toBe("relevar");
-    expect(avisoParaElPersonal(d)).toContain("está haciendo de caja");
+    expect(avisoParaElPersonal(d)).toContain("llevando el control");
   });
 
   it("la segunda suplente aguanta: le toca a la primera", () => {
@@ -188,7 +188,7 @@ describe("cuando la red se parte en dos mitades", () => {
       necesarias: 3,
     });
     expect(aviso).toContain("Siga vendiendo");
-    expect(aviso).toContain("Avise al gerente");
+    expect(aviso).toContain("Avise al encargado");
     expect(aviso).not.toMatch(/isla|failover|Hub|mayoría/i);
   });
 });

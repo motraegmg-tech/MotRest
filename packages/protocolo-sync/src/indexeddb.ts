@@ -158,9 +158,30 @@ export class RepositorioEventosIDB implements RepositorioEventos {
 export class RepositorioEstadoIDB implements RepositorioEstado {
   constructor(private readonly bd: IDBDatabase) {}
 
+  /**
+   * SE GUARDA UNA COPIA PLANA, NO EL OBJETO QUE LLEGA.
+   *
+   * IndexedDB serializa con structured clone, y eso **revienta con un Proxy**.
+   * Los stores del POS son de Svelte 5: casi todo lo que sale de un `$state` es
+   * un Proxy, así que `put()` lanzaba `DataCloneError` y quien llamaba lo
+   * anotaba en la consola y seguía como si nada.
+   *
+   * Lo que producía, medido en la caja de Rodizio: de las cuatro cosas que
+   * `guardarSecretos()` escribe seguidas, la primera entraba —iba convertida a
+   * objeto plano— y la segunda tiraba la excepción, así que la tercera y la
+   * cuarta NO SE EJECUTABAN NUNCA. En disco: `credenciales` 43 veces,
+   * `intentos` 0, `provisiones_responsable` 0. Sin esa tercera, al reabrir el
+   * POS la provisión de la licencia parecía nueva, se volvía a aplicar y
+   * **pisaba el PIN que el restaurante había elegido**. El responsable se
+   * quedaba fuera de su propio sistema cada vez que cerraba la aplicación.
+   *
+   * El almacén en memoria ya hacía esta misma copia; este no, y esa diferencia
+   * era justo la que no se veía en las pruebas.
+   */
   async guardar<T>(clave: string, valor: T): Promise<void> {
+    const plano = JSON.parse(JSON.stringify(valor)) as T;
     const tx = this.bd.transaction(TIENDA_ESTADO, "readwrite");
-    tx.objectStore(TIENDA_ESTADO).put({ clave, valor });
+    tx.objectStore(TIENDA_ESTADO).put({ clave, valor: plano });
     await alTerminar(tx);
   }
 

@@ -56,6 +56,9 @@ class StoreSync {
    */
   desfaseReloj = $state(0);
 
+  /** Repite el latido del titular mientras el enlace siga sano. */
+  private pulsoFailover: ReturnType<typeof setInterval> | null = null;
+
   estado = $state<EstadoEnlace>("isla");
   detalle = $state<string>("");
   url = $state<string>("");
@@ -361,6 +364,23 @@ class StoreSync {
     // El reloj del aviso: sin él, el estado se congela en el que hubiera al
     // cargar y el cartel no aparecería aunque la caja se cayera de verdad.
     failover.iniciar();
+
+    /*
+     * EL LATIDO SE REPITE MIENTRAS EL ENLACE ESTÉ SANO.
+     *
+     * `alCambiarEstado` solo dispara en los CAMBIOS, y un enlace que va bien no
+     * cambia de estado nunca. Con un único latido al conectar, a los 90 segundos
+     * `decidirFailover` daba al titular por perdido y el cartel «La caja no
+     * responde… Avise al gerente» volvía a salir con el local sincronizado y
+     * vendiendo. Es el mismo falso positivo de antes, solo que tardaba minuto y
+     * medio en aparecer — y por eso parecía arreglado al probarlo.
+     *
+     * Cada 10 s: muy por debajo del umbral de 30 s, y sin coste — no manda nada
+     * por la red, solo confirma lo que el enlace ya sabe.
+     */
+    this.pulsoFailover ??= setInterval(() => {
+      if (this.estado === "sincronizado") failover.latidoDelTitular();
+    }, 10_000);
 
     // Un cambio en la carta o en el plano se publica al instante: un mesero no
     // puede seguir vendiendo un platillo que se acaba de agotar en otra caja.

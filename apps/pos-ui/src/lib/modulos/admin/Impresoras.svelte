@@ -183,13 +183,31 @@
                   <small>{d.detalle}</small>
                 </span>
                 <span class="sp"></span>
-                <button onclick={() => impresion.probarDetectada(d)}>Imprimir prueba</button>
+                <!--
+                  Una impresora sin dar de alta en Windows no puede imprimir ni
+                  una prueba: primero hay que crearle la cola. Se ofrece aquí, y
+                  no en el panel de control de Windows, porque quien monta el
+                  local no tiene por qué saber que existe el spooler.
+                -->
+                {#if d.sin_instalar}
+                  <button
+                    class="instalar"
+                    disabled={impresion.instalando === d.puerto_sistema}
+                    onclick={() => impresion.instalar(d)}
+                  >
+                    {impresion.instalando === d.puerto_sistema
+                      ? "Dando de alta…"
+                      : "Dar de alta en Windows"}
+                  </button>
+                {:else}
+                  <button onclick={() => impresion.probarDetectada(d)}>Imprimir prueba</button>
+                {/if}
                 {#if ya}
                   <span class="ya">Ya configurada como «{ya.nombre}»</span>
                 {/if}
               </div>
 
-              {#if !ya}
+              {#if !ya && !d.sin_instalar}
                 <div class="config-hallazgo">
                   <label class="nombre-hallazgo">
                     <span>Nombre en MotRest</span>

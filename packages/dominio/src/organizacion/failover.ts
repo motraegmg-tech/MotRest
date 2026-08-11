@@ -247,19 +247,28 @@ export function decidirFailover(estado: EstadoLocal, ahora: number): DecisionFai
  * llamar a alguien.
  */
 export function avisoParaElPersonal(decision: DecisionFailover): string {
+  /*
+   * SE DICE «LA COMPUTADORA», NO «LA CAJA».
+   *
+   * En un restaurante «la caja» es el cajón del dinero, o el turno que se
+   * cuadra al cerrar. Aquí significaba otra cosa —el equipo donde corre el
+   * Hub— y el mensaje se leía como un problema con el dinero. Lo confundió
+   * hasta quien conoce el sistema por dentro; un mesero a media cena no tiene
+   * ninguna posibilidad.
+   */
   switch (decision.situacion) {
     case "normal":
       return "";
     case "esperando":
-      return "La caja no responde. Siga vendiendo con normalidad.";
+      return "Sin conexión con la computadora del restaurante. Siga vendiendo con normalidad.";
     case "relevar":
-      return "Esta tablet está haciendo de caja mientras la computadora vuelve. Todo funciona.";
+      return "Esta terminal está llevando el control mientras la computadora vuelve. Todo funciona.";
     case "devolver":
-      return "La caja volvió. Todo vuelve a la normalidad.";
+      return "La computadora del restaurante volvió. Todo vuelve a la normalidad.";
     case "aguantar":
       return (
-        "La caja no responde y esta tablet no puede sustituirla. " +
-        "Siga vendiendo: se guarda todo y se junta al reconectar. Avise al gerente."
+        "Esta terminal perdió la conexión con la computadora del restaurante. " +
+        "Siga vendiendo: se guarda todo y se junta al reconectar. Avise al encargado."
       );
   }
 }
