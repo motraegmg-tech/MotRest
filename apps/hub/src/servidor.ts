@@ -642,6 +642,13 @@ export class Hub {
       }
 
       if (crudo.sucursal_id !== sesion.sucursal_id) {
+        // Con los DOS identificadores: este rechazo deja la terminal en isla sin
+        // vender, y sin saber cuál esperaba el Hub y cuál trajo ella no hay forma
+        // de arreglarlo desde el restaurante.
+        this.anotar(
+          "aviso",
+          `Sucursal distinta desde ${sesion.device_id}: el evento dice "${crudo.sucursal_id}" y esta sesión es "${sesion.sucursal_id}"`,
+        );
         sesion.conexion.enviar({
           tipo: "error",
           codigo: "sucursal_distinta",
@@ -676,7 +683,13 @@ export class Hub {
 
       const veto = this.revalidarPermiso(crudo, identidadProvisional);
       if (veto) {
-        this.anotar("aviso", `Permiso denegado en el Hub: ${crudo.tipo} de ${crudo.empleado_id}`);
+        // El MOTIVO va en la bitácora, no solo el tipo de evento. Sin él, un
+        // local que se queda en isla deja escrito «permiso denegado» y nada más,
+        // y hay que reproducirlo con un depurador para saber qué le faltaba.
+        this.anotar(
+          "aviso",
+          `Permiso denegado en el Hub: ${crudo.tipo} de ${crudo.empleado_id} — ${veto}`,
+        );
         sesion.conexion.enviar({
           tipo: "error",
           codigo: "permiso_denegado",

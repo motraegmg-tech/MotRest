@@ -616,11 +616,21 @@ function enlacesEmparejamiento(): { etiqueta: string; url: string }[] {
     `https://${host}:${PUERTO}/?hub=wss://${host}:${PUERTO}/sync&k=${claveLocal}` +
     `&s=${encodeURIComponent(sucursalDelLocal())}`;
 
+  /*
+   * LA IP VA PRIMERO, y el nombre después.
+   *
+   * Estaba al revés, con buen motivo: `motrest.local` sobrevive a que el router
+   * cambie la IP del equipo, que rompería el emparejamiento de todas las
+   * terminales a la vez. Pero `.local` es mDNS, y **el navegador de Android no
+   * lo resuelve**: la tablet escaneaba el QR y respondía «no se puede acceder a
+   * este sitio», que es donde se quedaba el montaje de un local.
+   *
+   * Un enlace que no abre no protege de nada. La IP conecta hoy; el nombre
+   * queda de alternativa para cuando la IP cambie, que es cuando sirve.
+   */
   return [
-    // El nombre va PRIMERO: sobrevive a que el router cambie la IP del equipo,
-    // que es lo que rompería el emparejamiento de todas las terminales a la vez.
-    { etiqueta: `${NOMBRE_RED}.local`, url: enlace(`${NOMBRE_RED}.local`) },
     ...direccionesLan().map((ip) => ({ etiqueta: ip, url: enlace(ip) })),
+    { etiqueta: `${NOMBRE_RED}.local`, url: enlace(`${NOMBRE_RED}.local`) },
   ];
 }
 
