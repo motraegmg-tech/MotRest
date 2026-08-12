@@ -42,7 +42,7 @@ const EMISOR_INICIAL: DatosEmisor = {
   nombre: "",
   regimen_fiscal: "601",
   codigo_postal: "",
-  nombre_comercial: "Rodizio Centro",
+  nombre_comercial: "",
 };
 
 export interface ResultadoFactura {

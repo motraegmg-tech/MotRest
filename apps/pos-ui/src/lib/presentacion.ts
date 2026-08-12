@@ -26,13 +26,26 @@ import type { ID } from "@motrest/dominio";
 const LLAVE_SUCURSAL = "motrest.sucursal_id";
 
 /**
- * El identificador con el que nació el producto.
+ * Un identificador provisional PROPIO de esta terminal.
  *
- * Se conserva como último recurso porque los locales instalados antes de que
- * esto existiera —Rodizio, hoy— tienen toda su operación sellada con él.
- * Cambiárselo dejaría su historia atribuida a una sucursal que no existe.
+ * Aquí había una constante con el identificador de Rodizio, heredada de cuando
+ * era el único local. El problema no era el nombre sino la colisión: dos
+ * restaurantes recién instalados nacían con el MISMO identificador de sucursal,
+ * se anunciaban igual ante el relay y ante Central, y la licencia de uno habría
+ * valido en el otro.
+ *
+ * Se genera uno único y se guarda, exactamente como hace el Hub cuando arranca
+ * sin identidad (`sucursalDelLocal` en `apps/hub/src/main.ts`). Es feo de leer y
+ * no importa: dura hasta que se pega la licencia firmada, que trae el
+ * identificador de verdad y lo sustituye.
+ *
+ * Las terminales que ya operaban conservan el suyo: esta rama solo se toca
+ * cuando no hay nada guardado, así que la historia de Rodizio sigue sellada con
+ * el identificador con el que se registró.
  */
-const SUCURSAL_HEREDADA: ID = "suc-rodizio-centro";
+function sucursalProvisional(): ID {
+  return `suc-${uuidv7().slice(0, 8)}`;
+}
 
 function resolverSucursal(): ID {
   // 1. La caja: su propio Hub se lo inyecta en la página que le sirve.
@@ -51,10 +64,12 @@ function resolverSucursal(): ID {
     const guardado = localStorage.getItem(LLAVE_SUCURSAL);
     if (guardado) return guardado;
   } catch {
-    // Navegador sin almacenamiento: se sigue con el heredado.
+    // Sin almacenamiento no se recuerda nada; se genera uno para esta sesión.
+    return sucursalProvisional();
   }
 
-  return SUCURSAL_HEREDADA;
+  // 4. Nadie sabe todavía qué local es esto: uno propio, y se recuerda.
+  return recordarSucursal(sucursalProvisional());
 }
 
 function recordarSucursal(id: ID): ID {
@@ -99,30 +114,36 @@ export const EMPLEADO_ACTUAL: ID = "usr-gonzalo";
  */
 export const CONTACTO_MOTRAE = "MOTRAE · 2283536911";
 
+/**
+ * EL PRODUCTO NO SE LLAMA COMO SU PRIMER CLIENTE.
+ *
+ * Aquí ponía `sucursal: "Rodizio"` y unos `datosLocal` con su dirección y su
+ * RFC. Eran valores de desarrollo que se quedaron: cualquier restaurante que
+ * instalara MotRest veía «Rodizio» en la cabecera de su propio punto de venta y
+ * lo imprimía en los tickets que entregaba a sus comensales.
+ *
+ * El nombre de un local sale de UN sitio: la licencia firmada que MOTRAE emite
+ * al darlo de alta. Mientras no haya licencia no hay restaurante todavía, y lo
+ * honesto es no decir ninguno.
+ */
 export const cabecera = {
   titulo: "Punto de venta",
-  /*
-   * Solo el nombre del restaurante, por ahora.
-   *
-   * Cuando el alta del restaurante se capture desde Administración, aquí irá el
-   * nombre real del negocio y la sucursal en la que está esta caja
-   * ("Rodizio · Centro"). Hasta entonces, media etiqueta inventada confunde más
-   * que un nombre a secas.
-   */
-  sucursal: "Rodizio",
+  /** Lo rellena `local.svelte.ts` con lo que diga la licencia. */
+  sucursal: "",
 };
 
 /**
- * Encabezado del ticket impreso.
+ * Respaldo de la cabecera del ticket cuando el local no ha llenado su ficha.
  *
- * Son los datos que el comensal se lleva en el papel. En F2 se capturan desde
- * Administración junto con el resto del perfil fiscal del emisor.
+ * Todo vacío a propósito. La plantilla omite las líneas vacías, así que un
+ * restaurante sin configurar imprime solo su nombre —el de la licencia— y nada
+ * inventado. Se captura en Administración → Impresoras.
  */
 export const datosLocal = {
-  nombre: "Rodizio",
-  direccion: "Av. Central 100, Centro",
-  rfc: "XAXX010101000",
-  telefono: "55 1234 5678",
+  nombre: "",
+  direccion: "",
+  rfc: "",
+  telefono: "",
 };
 
 /**

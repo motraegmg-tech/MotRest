@@ -4,6 +4,8 @@
   import { rutas } from "./nav/rutas.svelte";
   import { pos } from "./pos.svelte";
   import { cabecera } from "./presentacion";
+  import { licencia } from "./licencia.svelte";
+  import { local } from "./local.svelte";
   import { sesion } from "./sesion/sesion.svelte";
   import { sync } from "./sync.svelte";
 
@@ -24,11 +26,21 @@
   let cambiandoClave = $state(false);
   const usuario = $derived(sesion.usuarioActual);
   const esPin = $derived(usuario ? sesion.tipoCredencialDe(usuario.id) === "pin" : false);
+  const nombreDelLocal = $derived(
+    local.ficha.nombre.trim() || licencia.licencia?.nombre || cabecera.sucursal,
+  );
 </script>
 
 <header class="hd">
   <h1>{moduloActual?.titulo ?? cabecera.titulo}</h1>
-  <span class="chip">{cabecera.sucursal}</span>
+  <!--
+    El nombre del RESTAURANTE, no uno escrito en el código.
+    Manda la ficha que capturó el local; si está vacía, la licencia firmada. Sin
+    licencia todavía no hay restaurante, y el chip no se enseña.
+  -->
+  {#if nombreDelLocal}
+    <span class="chip">{nombreDelLocal}</span>
+  {/if}
   {#if enVenta}
     <span class="chip acento">Mesa {pos.nombreMesaActiva}</span>
   {/if}

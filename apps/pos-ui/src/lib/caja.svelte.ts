@@ -31,7 +31,9 @@ import type { CifrasCorte, DatosCorte } from "@motrest/impresion";
 import type { Almacen } from "@motrest/protocolo-sync";
 import { impresion } from "./impresion.svelte";
 import { pos } from "./pos.svelte";
-import { cabecera, SUCURSAL_ID, obtenerDeviceId } from "./presentacion";
+import { cabecera, SUCURSAL_ID, datosLocal, obtenerDeviceId } from "./presentacion";
+import { local } from "./local.svelte";
+import { licencia } from "./licencia.svelte";
 
 export interface ResultadoCaja {
   ok: boolean;
@@ -199,7 +201,8 @@ class StoreCaja {
     const cifras: CifrasCorte = resumen;
     const datos: Omit<DatosCorte, "sello"> = {
       folio: sesion.sesion_id.slice(0, 8).toUpperCase(),
-      local: cabecera.sucursal,
+      // El nombre real del local: su ficha, o el de la licencia firmada.
+      local: local.fichaParaTicket(licencia.licencia?.nombre ?? cabecera.sucursal).nombre,
       cajero: cajeroNombre,
       abierta_ts: sesion.abierta_ts,
       cerrada_ts,
