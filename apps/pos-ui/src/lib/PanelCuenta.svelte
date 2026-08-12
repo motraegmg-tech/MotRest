@@ -552,6 +552,21 @@
         >
           Cobrar {mxn(t.saldo)}
         </button>
+        <!--
+          LIBERAR LA MESA, aquí y no solo en el plano.
+
+          Es donde hace falta: quien acaba de mirar lo que pidió la mesa y ve que
+          está vacía o que se sentaron en otra es quien quiere soltarla, y tener
+          que volver al plano para eso es un viaje de ida y vuelta a media
+          atención. `puedeLiberarMesa` ya impide soltarla si hay algo cobrado o
+          enviado a cocina, así que el botón solo aparece cuando de verdad se
+          puede: no hace falta preguntar «¿seguro?» a algo que no destruye nada.
+        -->
+        {#if pos.puedeLiberarMesa}
+          <button class="b2 liberar" onclick={() => pos.liberarMesa()}>
+            Liberar mesa
+          </button>
+        {/if}
       </div>
     {:else if paso.vista === "cobro"}
       <div class="panel-cobro">
@@ -662,9 +677,19 @@
           </div>
         {/if}
 
-        {#if paso.forma === "efectivo" || paso.forma === "mixto"}
+        <!--
+          SOLO EN EFECTIVO PURO.
+
+          En un cobro mixto salían dos campos de efectivo seguidos —«cuánto
+          pagan en efectivo» y «efectivo que entregó»— y el cajero no tenía cómo
+          saber cuál era cuál a media noche de viernes. No hacen falta los dos:
+          en un mixto el comensal dice cuánto pone en efectivo y el resto va con
+          tarjeta, así que esa cantidad es exacta y no hay cambio que devolver.
+          El campo de arriba, dentro del recuadro del mixto, ya lo cubre.
+        -->
+        {#if paso.forma === "efectivo"}
           <label class="campo">
-            <span>{paso.forma === "mixto" ? "Efectivo que entregó" : "Recibido"}</span>
+            <span>Recibido</span>
             <input
               type="text"
               inputmode="decimal"
@@ -1225,6 +1250,15 @@
   .b2.cobrar {
     border-color: var(--acento);
     color: var(--acento);
+  }
+  /*
+   * Discreto: liberar es la salida de un error, no una acción del servicio.
+   * Con el mismo peso que «Cobrar» acabaría pulsándose por inercia.
+   */
+  .b2.liberar {
+    border-style: dashed;
+    color: var(--gris);
+    font-weight: 500;
   }
   .b2.cobrar:hover {
     background: var(--acento);

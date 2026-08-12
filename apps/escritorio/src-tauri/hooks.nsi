@@ -11,7 +11,32 @@
 ; Se borra `pos` y NADA más. En particular NUNCA `datos`, que es donde vive
 ; `hub.sqlite`: ahí está la venta del local.
 
+; --- Cerrar lo que esté corriendo ANTES de copiar nada ------------------------
+;
+; El instalador reemplaza los archivos pero no toca los procesos, y el Hub NO es
+; la ventana: es un proceso aparte que sigue vivo cuando se cierra la aplicación
+; y que vuelve a arrancar solo con Windows. Resultado medido en la caja de
+; Rodizio: un Hub arrancado a las 18:46 sobrevivió a TRES actualizaciones
+; seguidas. Durante horas la caja ejecutó código viejo mientras en disco estaba
+; el nuevo, y cada arranque posterior dejaba un segundo Hub peleándose el puerto
+; (`EADDRINUSE`) sobre la misma base de datos.
+;
+; Eso convierte cualquier actualización en una lotería: la versión que se
+; instala no es la que se ejecuta, y no hay nada en pantalla que lo delate.
+;
+; `taskkill /T` incluye los hijos —Tauri lanza el Hub como hijo suyo— y `/F`
+; porque el Hub no atiende peticiones de cierre: es un servicio, no una ventana.
+; Si no había ninguno corriendo devuelve error y no pasa nada: se ignora.
+
 !macro NSIS_HOOK_PREINSTALL
+  DetailPrint "Cerrando MotRest si estaba abierto…"
+  nsExec::ExecToLog 'taskkill /F /T /IM motrest.exe'
+  Pop $0
+  nsExec::ExecToLog 'taskkill /F /T /IM motrest-hub.exe'
+  Pop $0
+  ; Un respiro para que Windows suelte los archivos antes de sobrescribirlos.
+  Sleep 2000
+
   RMDir /r "$INSTDIR\pos"
 !macroend
 

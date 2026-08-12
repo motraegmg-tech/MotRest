@@ -46,6 +46,19 @@
 
   const resumen = $derived(resumenVentas(comandas));
   const productos = $derived(ventasPorProducto(comandas));
+
+  /**
+   * Cuántos productos se enseñan antes de pedir «Ver todo».
+   *
+   * Doce entran en pantalla sin cortar y cubren la carta de un local pequeño
+   * entero. Por encima de eso lo que importa no es la lista completa sino los
+   * primeros, que ya vienen ordenados por lo que más se vende.
+   */
+  const TOPE_PRODUCTOS = 12;
+  let verTodosProductos = $state(false);
+  const productosVisibles = $derived(
+    verTodosProductos ? productos : productos.slice(0, TOPE_PRODUCTOS),
+  );
   const meseros = $derived(ventasPorMesero(comandas));
   const horas = $derived(ventasPorHora(comandas));
   const clasificados = $derived(menuEngineering(productos));
@@ -295,7 +308,7 @@
           </tr>
         </thead>
         <tbody>
-          {#each productos as p (p.producto_id)}
+          {#each productosVisibles as p (p.producto_id)}
             <tr>
               <td><b>{p.descripcion}</b></td>
               <td class="num">{p.unidades}</td>
@@ -308,6 +321,19 @@
           {/each}
         </tbody>
       </table>
+      <!--
+        VER TODO, con la cuenta de lo que falta.
+        La tabla se cortaba por altura y no había forma de saber si debajo
+        quedaban tres productos o cuarenta: la carta entera parecía ser lo que
+        cupiera en la pantalla. Decir cuántos faltan es la mitad del arreglo.
+      -->
+      {#if productos.length > TOPE_PRODUCTOS}
+        <button class="ver-todo" onclick={() => (verTodosProductos = !verTodosProductos)}>
+          {verTodosProductos
+            ? "Ver menos"
+            : `Ver todo (${productos.length - TOPE_PRODUCTOS} más)`}
+        </button>
+      {/if}
     </section>
 
     <!-- Menu engineering -->
@@ -1214,5 +1240,23 @@
     font-size: 0.84rem;
     line-height: 1.5;
     color: var(--pizarra);
+  }
+
+  /* Discreto y a lo ancho: no compite con los datos, pero se ve que está. */
+  .ver-todo {
+    width: 100%;
+    margin-top: 0.6rem;
+    padding: 0.5rem;
+    border: 1px dashed var(--borde);
+    border-radius: var(--r-sm);
+    background: transparent;
+    color: var(--gris);
+    font: inherit;
+    font-size: 0.82rem;
+    cursor: pointer;
+  }
+  .ver-todo:hover {
+    color: var(--pizarra);
+    border-color: var(--acento);
   }
 </style>
