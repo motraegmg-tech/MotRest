@@ -58,8 +58,19 @@ function cargarPngjs() {
 
 const { PNG } = cargarPngjs();
 
-/** Naranja MOTRAE. El de la marca, no el que salga de la foto. */
-const NARANJA = [242, 133, 58];
+/**
+ * El naranja DEL LOGOTIPO, medido sobre el original.
+ *
+ * Era `[242, 133, 58]` — el acento naranja de MOTRAE, que se usa en pantalla.
+ * Pero el logotipo impreso no es ese: muestreado sobre `Logo M MotRest.png`,
+ * el tono dominante es `rgb(252, 96, 0)` con 222 856 píxeles, bastante más
+ * saturado. Con el acento, el icono de la aplicación salía apagado y no era la
+ * marca, era una aproximación.
+ *
+ * Los dos naranjas conviven a propósito: el acento para interfaz, este para el
+ * logotipo. Si algún día se unifican, se cambia aquí y se vuelve a correr.
+ */
+const NARANJA = [252, 96, 0];
 
 // --- Utilidades -------------------------------------------------------------------------
 
@@ -188,7 +199,15 @@ function iconoDesdeLaM() {
   // se ve apretado en la barra de tareas.
   const anchoM = maxX - minX + 1;
   const altoM = maxY - minY + 1;
-  const lado = Math.round(Math.max(anchoM, altoM) * 1.42);
+  /*
+   * Cuánto respira la M dentro del cuadro.
+   *
+   * Estaba en 1.42 y dejaba tanto margen que a 32 px —el tamaño al que se ve de
+   * verdad, en la barra de tareas— la marca quedaba diminuta en medio de un
+   * cuadrado naranja pálido. 1.16 la acerca al encuadre del logotipo original
+   * sin que los cubiertos toquen el borde redondeado.
+   */
+  const lado = Math.round(Math.max(anchoM, altoM) * 1.16);
   const cx = (minX + maxX) / 2;
   const cy = (minY + maxY) / 2;
   const desdeX = cx - lado / 2;
