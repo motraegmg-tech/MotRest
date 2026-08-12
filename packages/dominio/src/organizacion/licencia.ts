@@ -79,6 +79,54 @@ export interface RelayLicenciado {
   clave: string;
 }
 
+/** Permiso, con fecha, para mudar este local a otro equipo. */
+export interface RespaldoLicenciado {
+  /**
+   * Con qué se cifra y se abre el archivo de respaldo.
+   *
+   * Es de ESTE restaurante y viaja en su licencia, no en el respaldo. Por eso
+   * un archivo perdido no sirve de nada sin el documento firmado que lo
+   * acompaña: son dos cosas que no suelen extraviarse juntas.
+   */
+  clave: string;
+  /**
+   * Hasta cuándo se puede restaurar. Después, el archivo deja de abrirse.
+   *
+   * La exportación NO caduca —guardar copias es sano y el local debería hacerlo
+   * siempre—; lo que caduca es el permiso de volcarlas en un equipo distinto.
+   */
+  restaurar_hasta: number;
+}
+
+/**
+ * ¿Se puede restaurar un respaldo en este equipo ahora mismo?
+ *
+ * Las dos condiciones juntas: que la licencia lo autorice y que el permiso no
+ * haya caducado. Se responde con el motivo para poder decírselo a quien está
+ * delante de la máquina, que casi nunca es quien pidió el permiso.
+ */
+export function permisoDeRestauracion(
+  licencia: Licencia | null,
+  verificada: boolean,
+  ahora = Date.now(),
+): { puede: true; clave: string } | { puede: false; motivo: string } {
+  if (!licencia || !verificada) {
+    return { puede: false, motivo: "Este equipo no tiene una licencia válida de MOTRAE" };
+  }
+  const permiso = licencia.respaldo;
+  if (!permiso?.clave) {
+    return {
+      puede: false,
+      motivo: "La licencia de este restaurante no autoriza restaurar respaldos. Pídalo a MOTRAE.",
+    };
+  }
+  if (ahora > permiso.restaurar_hasta) {
+    const dia = new Date(permiso.restaurar_hasta).toLocaleDateString("es-MX");
+    return { puede: false, motivo: `El permiso para restaurar venció el ${dia}. Pida uno nuevo.` };
+  }
+  return { puede: true, clave: permiso.clave };
+}
+
 /**
  * El documento firmado que MOTRAE emite. Viaja como texto y se guarda tal cual.
  *
@@ -117,6 +165,19 @@ export interface Licencia {
    * pega en cada caja.
    */
   relay?: RelayLicenciado;
+  /**
+   * Permiso para restaurar el respaldo de este local en un equipo nuevo.
+   *
+   * VA EN LA LICENCIA Y NO SE PREGUNTA POR RED, porque el momento en que hace
+   * falta es exactamente el peor para depender de internet: alguien está
+   * montando la computadora de repuesto un lunes por la mañana con el
+   * restaurante por abrir. El documento firmado ya está en sus manos.
+   *
+   * Es MOTRAE quien lo concede, caso por caso, y por eso caduca: un permiso
+   * permanente convierte cualquier respaldo robado en una copia funcionante del
+   * negocio en la máquina de cualquiera.
+   */
+  respaldo?: RespaldoLicenciado;
   /**
    * true = el bloqueo cae en cuanto vence la gracia, aunque haya turno abierto.
    *

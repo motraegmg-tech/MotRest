@@ -126,6 +126,14 @@ interface SecretosProtegidos {
    * firmada al emitirla, que es como llega a su caja.
    */
   claves_relay?: Record<string, string>;
+  /**
+   * La clave con la que se cifra el respaldo portátil de cada local.
+   *
+   * Se genera sola la primera vez que se autoriza una mudanza y no cambia: si
+   * cambiara, los respaldos que el restaurante ya tenía guardados dejarían de
+   * abrirse, y eso es justo lo contrario de para lo que existen.
+   */
+  claves_respaldo?: Record<string, string>;
   /** Impide que un reloj atrasado repita un `publicado_ts`. */
   ultimo_publicado_ts?: number;
   /** Cuándo se sacó por última vez un respaldo que abre fuera de esta máquina. */
@@ -875,6 +883,21 @@ export class StoreCentral {
               },
             }
           : {}),
+        /*
+         * El permiso de mudanza, si está vigente al emitir.
+         *
+         * Se copia con su fecha: la licencia es el documento que lo autoriza y
+         * tiene que poder caducar sola, sin que nadie tenga que retirarlo.
+         */
+        ...(cliente.respaldo_hasta && cliente.respaldo_hasta > Date.now() &&
+        this.protegidos.claves_respaldo?.[cliente.id]
+          ? {
+              respaldo: {
+                clave: this.protegidos.claves_respaldo[cliente.id]!,
+                restaurar_hasta: cliente.respaldo_hasta,
+              },
+            }
+          : {}),
         ...(opciones.bloqueo_inmediato ? { bloqueo_inmediato: true } : {}),
       },
       privada,
@@ -1088,6 +1111,39 @@ export class StoreCentral {
     else delete claves[sucursalId];
 
     return this.reemplazarProtegidos({ ...this.protegidos, claves_relay: claves });
+  }
+
+  /**
+   * Autoriza a un local a restaurar su respaldo en otro equipo, con fecha.
+   *
+   * Se concede caso por caso y por unos días: el permiso viaja firmado dentro
+   * de la licencia y no se puede retirar a distancia —el equipo puede estar sin
+   * red justo cuando se usa—, así que lo que lo acota es que caduque solo.
+   *
+   * La clave se genera una vez y se conserva. Cambiarla dejaría ilegibles los
+   * respaldos que el restaurante ya tuviera guardados.
+   */
+  async autorizarRespaldo(sucursalId: string, dias: number): Promise<Resultado> {
+    if (!this.clientes.some((c) => c.id === sucursalId)) {
+      return { ok: false, error: "No existe ese local" };
+    }
+    if (!Number.isInteger(dias) || dias < 1 || dias > 90) {
+      return { ok: false, error: "El permiso va de 1 a 90 días" };
+    }
+    const claves = { ...(this.protegidos.claves_respaldo ?? {}) };
+    claves[sucursalId] ??= generarPinSeguro(32);
+
+    const hasta = Date.now() + dias * 86_400_000;
+    const r = await this.reemplazarProtegidos({ ...this.protegidos, claves_respaldo: claves });
+    if (!r.ok) return r;
+
+    this.actualizar(sucursalId, { respaldo_hasta: hasta });
+    return { ok: true };
+  }
+
+  /** Hasta cuándo puede este local restaurar en otro equipo. 0 = nunca. */
+  permisoDeRespaldo(sucursalId: string): number {
+    return this.clientes.find((c) => c.id === sucursalId)?.respaldo_hasta ?? 0;
   }
 
   /**

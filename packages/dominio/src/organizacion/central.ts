@@ -123,6 +123,14 @@ export interface ClienteMotRest {
   resultados?: ResultadoVerificado[];
   /** false = se dio de baja. Deja de contar para todo. */
   activo: boolean;
+  /**
+   * Hasta cuándo puede este local restaurar su respaldo en otro equipo.
+   *
+   * Lo concede MOTRAE caso por caso y viaja firmado en la licencia. Ausente o
+   * en el pasado = no se puede: una mudanza de equipo es justo cuando conviene
+   * que alguien haya dicho que sí a propósito.
+   */
+  respaldo_hasta?: number;
   /** Notas de MOTRAE. Nunca las ve el restaurante. */
   notas?: string;
 }

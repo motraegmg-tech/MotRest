@@ -57,6 +57,7 @@ import {
   pideBaja,
   puedeInstalarse,
   registrarDisponible,
+  permisoDeRestauracion,
   streamIdentidad,
   usuarioSoporte,
   USUARIO_SOPORTE_ID,
@@ -104,6 +105,7 @@ import {
   instalarImpresoraEnPuerto,
 } from "./impresion/transporte-usb.js";
 import { buscarImpresoras } from "./impresion/buscador.js";
+import { exportarRespaldo, leerRespaldo } from "./respaldo-portatil.js";
 import { enMegas, evaluarCrecimiento } from "./crecimiento.js";
 import {
   INTERVALO_RESPALDO_MS,
@@ -574,6 +576,8 @@ function direccionesLan(): string[] {
 const CLAVE_CATALOGOS = "catalogos";
 /** Estado publicado solo por el Hub; nunca llega desde una terminal. */
 const CLAVE_CATALOGOS_INTERNOS = "catalogos_hub";
+/** Los ajustes que guarda el POS: ficha del local y textos del ticket. */
+const CLAVE_LOCAL_AJUSTES = "ajustes_local";
 /** Configuración de WhatsApp de este restaurante, si la tiene. */
 const CLAVE_WHATSAPP = "whatsapp";
 /** Clave bajo la que se guarda el secreto del local. */
@@ -1171,6 +1175,128 @@ function atenderInterno(peticion: IncomingMessage, respuesta: ServerResponse): v
     // pide al abrir la pantalla. El barrido tarda segundos y va a botón.
     const conRed = url.searchParams.get("red") === "1";
     void buscarImpresoras({ conRed }).then((resultado) => json(200, resultado));
+    return;
+  }
+
+  /*
+   * Llevarse el restaurante a otra computadora.
+   *
+   * Solo desde la caja: es el registro completo del negocio, y no se sirve por
+   * la wifi del local a quien lo pida.
+   */
+  if (url.pathname === "/respaldo/exportar") {
+    if (!esLocal) {
+      json(403, { error: "Solo desde la caja" });
+      return;
+    }
+    if (!esOrigenDelHub(peticion.headers.origin, seguro, autoridad)) {
+      json(403, { error: "Origen no autorizado" });
+      return;
+    }
+    const permiso = permisoDeRestauracion(licencia?.paraTerminales(true).licencia ?? null, true);
+    // Exportar NO exige que el permiso esté vigente —guardar copias es sano y
+    // el local debería hacerlo siempre—, pero sí hace falta la clave con la que
+    // se cifra, y esa viene en el mismo sitio.
+    const clave = permiso.puede ? permiso.clave : null;
+    if (!clave) {
+      json(400, {
+        error: "La licencia de este local no trae la clave de respaldo. Pídala a MOTRAE.",
+      });
+      return;
+    }
+    void (async () => {
+      try {
+        const estado: Record<string, unknown> = {};
+        for (const c of [CLAVE_CATALOGOS, CLAVE_CATALOGOS_INTERNOS, CLAVE_LOCAL_AJUSTES]) {
+          const v = await almacen.estado.cargar<unknown>(c);
+          if (v !== null) estado[c] = v;
+        }
+        const texto = await exportarRespaldo(
+          almacen.log,
+          sucursalDelLocal(),
+          licencia?.paraTerminales(true).licencia?.nombre ?? "",
+          estado,
+          clave,
+        );
+        registrar("info", `Respaldo portátil generado (${Math.round(texto.length / 1024)} KB)`);
+        respuesta.writeHead(200, {
+          "content-type": "application/json; charset=utf-8",
+          "content-disposition": `attachment; filename="motrest-respaldo.json"`,
+        });
+        respuesta.end(texto);
+      } catch (causa) {
+        registrar("error", `No se pudo generar el respaldo: ${String(causa)}`);
+        json(500, { error: "No se pudo generar el respaldo" });
+      }
+    })();
+    return;
+  }
+
+  /*
+   * Volcar un respaldo en este equipo. REEMPLAZA, y solo si está vacío.
+   */
+  if (url.pathname === "/respaldo/restaurar") {
+    if (!esLocal) {
+      json(403, { error: "Solo desde la caja" });
+      return;
+    }
+    if (!esOrigenDelHub(peticion.headers.origin, seguro, autoridad)) {
+      json(403, { error: "Origen no autorizado" });
+      return;
+    }
+    if (peticion.method !== "POST") {
+      json(405, { error: "Usa POST" });
+      return;
+    }
+    const permiso = permisoDeRestauracion(licencia?.paraTerminales(true).licencia ?? null, true);
+    if (!permiso.puede) {
+      json(403, { error: permiso.motivo });
+      return;
+    }
+    /*
+     * SOBRE UN LOCAL VACÍO Y NADA MÁS.
+     *
+     * Si este equipo ya vendió algo, volcar encima mezclaría dos registros sin
+     * forma de separarlos después. Y vaciarlo por dentro para «hacer sitio»
+     * sería peor: quien se equivoca de máquina tiene que poder deshacerlo.
+     */
+    if (hub.seqActual > 0) {
+      json(409, {
+        error:
+          `Este equipo ya tiene ${hub.seqActual} movimientos registrados. ` +
+          "Un respaldo solo se restaura sobre una instalación nueva.",
+      });
+      return;
+    }
+    void leerCuerpo(peticion, 64 * 1024 * 1024)
+      .then(async (crudo) => {
+        const r = await leerRespaldo(crudo.toString("utf8"), permiso.clave, sucursalDelLocal());
+        if (!r.ok) {
+          registrar("aviso", `Respaldo rechazado: ${r.error}`);
+          json(400, { error: r.error });
+          return;
+        }
+        almacen.log.ingerir(r.contenido.eventos);
+        for (const [c, v] of Object.entries(r.contenido.estado)) {
+          await almacen.estado.guardar(c, v);
+        }
+        registrar(
+          "aviso",
+          `Local restaurado desde respaldo: ${r.contenido.eventos.length} eventos del ${new Date(r.contenido.creado_ts).toISOString()}`,
+        );
+        json(200, {
+          ok: true,
+          eventos: r.contenido.eventos.length,
+          creado_ts: r.contenido.creado_ts,
+          // El equipo tiene que reiniciarse: las proyecciones en memoria se
+          // cargaron al arrancar y ahora hay una historia entera debajo.
+          reiniciar: true,
+        });
+      })
+      .catch((causa) => {
+        registrar("error", `Fallo al restaurar: ${String(causa)}`);
+        json(500, { error: "No se pudo leer el archivo" });
+      });
     return;
   }
 
