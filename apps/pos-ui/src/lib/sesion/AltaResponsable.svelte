@@ -27,6 +27,7 @@
    *    usuario: el perfil firmado lo sobrescribiría en el siguiente arranque.
    */
   import { licencia } from "../licencia.svelte";
+  import { respaldo } from "../respaldo.svelte";
   import { sesion } from "./sesion.svelte";
 
   /**
@@ -44,6 +45,13 @@
   const licenciado = $derived(sesion.responsablePendiente ?? perfilDeLaLicencia);
   /** El nombre del restaurante, tal como lo registró MOTRAE. */
   const nombreDelLocal = $derived(licencia.licencia?.nombre ?? "");
+
+  // --- Mudanza desde otra computadora ---
+  let mostrarRestaurar = $state(false);
+  async function alElegirRespaldo(e: Event) {
+    const archivo = (e.currentTarget as HTMLInputElement).files?.[0];
+    if (archivo) await respaldo.restaurar(archivo);
+  }
 
   let nombre = $state("");
   let pin = $state("");
@@ -96,6 +104,51 @@
       <b>Esta pantalla solo aparece una vez</b>: a partir de la próxima apertura,
       MotRest abrirá pidiendo quién entra y su PIN.
     </p>
+
+    <!--
+      ¿VIENES DE OTRA COMPUTADORA?
+
+      Va aquí porque es el único sitio donde sirve: en un equipo nuevo no hay
+      usuarios todavía, así que nadie puede entrar a Administración a buscar la
+      opción. Quien está montando la máquina de repuesto un lunes por la mañana
+      la necesita en la primera pantalla que ve, no dos menús adentro.
+
+      Discreto y debajo del alta normal: mudarse de equipo es lo excepcional.
+    -->
+    {#if respaldo.disponible}
+      <div class="mudanza">
+        {#if !mostrarRestaurar}
+          <button class="enlace" onclick={() => (mostrarRestaurar = true)}>
+            ¿Ya usaba MotRest en otra computadora?
+          </button>
+        {:else}
+          <p class="mudanza-titulo">Restaurar desde un respaldo</p>
+          <p class="mudanza-ayuda">
+            El archivo que sacó de la computadora anterior. Solo funciona si MOTRAE
+            autorizó la mudanza de este restaurante y el permiso sigue vigente.
+          </p>
+          <input
+            type="file"
+            accept="application/json,.json"
+            disabled={respaldo.restaurando}
+            onchange={alElegirRespaldo}
+          />
+          {#if respaldo.restaurando}
+            <p class="mudanza-ayuda">Restaurando… no cierre la aplicación.</p>
+          {/if}
+          {#if respaldo.error}
+            <p class="mudanza-error">{respaldo.error}</p>
+          {/if}
+          {#if respaldo.resultado}
+            <p class="mudanza-ok">
+              Restaurados <b>{respaldo.resultado.eventos}</b> movimientos del
+              {new Date(respaldo.resultado.creado_ts).toLocaleDateString("es-MX")}.
+              <b>Cierre y vuelva a abrir MotRest</b> para terminar.
+            </p>
+          {/if}
+        {/if}
+      </div>
+    {/if}
 
     {#if licenciado}
       <div class="campo">
@@ -284,4 +337,26 @@
     color: var(--gris);
     cursor: not-allowed;
   }
+
+  .mudanza {
+    margin: 0.9rem 0 0.4rem;
+    padding: 0.7rem 0.8rem;
+    border: 1px dashed var(--borde);
+    border-radius: var(--r-sm);
+  }
+  .mudanza .enlace {
+    background: none;
+    border: 0;
+    padding: 0;
+    font: inherit;
+    font-size: 0.84rem;
+    color: var(--gris);
+    text-decoration: underline;
+    cursor: pointer;
+  }
+  .mudanza .enlace:hover { color: var(--acento); }
+  .mudanza-titulo { margin: 0 0 0.3rem; font-weight: 600; font-size: 0.9rem; }
+  .mudanza-ayuda { margin: 0.3rem 0; font-size: 0.78rem; line-height: 1.5; color: var(--gris); }
+  .mudanza-error { margin: 0.4rem 0 0; font-size: 0.8rem; color: var(--peligro); }
+  .mudanza-ok { margin: 0.4rem 0 0; font-size: 0.8rem; line-height: 1.5; }
 </style>

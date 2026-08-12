@@ -55,6 +55,23 @@
   let claveRelay = $state("");
   const tieneEnlace = $derived(central.tieneEnlaceRelay(cliente.id));
 
+  // --- Mudanza a otra computadora ---
+  let diasRespaldo = $state(7);
+  let autorizando = $state(false);
+  const permisoRespaldo = $derived(central.permisoDeRespaldo(cliente.id));
+  const permisoVigente = $derived(permisoRespaldo > Date.now());
+
+  async function autorizarMudanza() {
+    error = "";
+    autorizando = true;
+    try {
+      const r = await central.autorizarRespaldo(cliente.id, diasRespaldo);
+      if (!r.ok) error = r.error;
+    } finally {
+      autorizando = false;
+    }
+  }
+
   async function guardar(evento: Event) {
     evento.preventDefault();
     error = "";
@@ -157,6 +174,41 @@
         {/if}
       </small>
     </label>
+
+    <!--
+      MUDANZA A OTRA COMPUTADORA.
+
+      Se concede por días y no de forma permanente a propósito: el permiso viaja
+      firmado dentro de la licencia y no se puede retirar a distancia —el equipo
+      puede estar sin red justo cuando se usa—, así que lo único que lo acota es
+      que caduque solo. Un permiso indefinido convierte cualquier respaldo
+      extraviado en una copia funcionante del negocio en la máquina de otro.
+    -->
+    <div class="mudanza">
+      <span class="etiqueta-mudanza">Restaurar en otra computadora</span>
+      {#if permisoVigente}
+        <p class="permiso-ok">
+          Autorizado hasta el <b>{new Date(permisoRespaldo).toLocaleDateString("es-MX")}</b>.
+          Viaja en la próxima licencia que emita.
+        </p>
+      {:else}
+        <p class="permiso-no">
+          No autorizado. El restaurante puede guardar respaldos, pero no volcarlos
+          en un equipo distinto.
+        </p>
+      {/if}
+      <div class="dias">
+        <input type="number" min="1" max="90" bind:value={diasRespaldo} />
+        <span>días</span>
+        <button type="button" onclick={autorizarMudanza} disabled={autorizando}>
+          {autorizando ? "Autorizando…" : permisoVigente ? "Extender" : "Autorizar"}
+        </button>
+      </div>
+      <small>
+        Después de autorizar hay que <b>emitir la licencia</b>: el permiso llega al
+        local dentro de ella.
+      </small>
+    </div>
 
     <label>
       Notas de MOTRAE <em>(nunca las ve el restaurante)</em>
@@ -300,4 +352,17 @@
     border: none;
     color: var(--gris);
   }
+
+  .mudanza {
+    margin: 0.2rem 0 0.7rem;
+    padding: 0.6rem 0.7rem;
+    border: 1px dashed var(--borde);
+    border-radius: var(--r-sm);
+  }
+  .etiqueta-mudanza { font-size: 0.78rem; font-weight: 600; }
+  .permiso-ok, .permiso-no { margin: 0.3rem 0; font-size: 0.78rem; line-height: 1.5; color: var(--gris); }
+  .dias { display: flex; align-items: center; gap: 0.4rem; margin: 0.4rem 0 0.2rem; }
+  .dias input { width: 4.5rem; }
+  .dias span { font-size: 0.8rem; color: var(--gris); }
+  .mudanza small { display: block; font-size: 0.72rem; color: var(--gris); line-height: 1.5; }
 </style>

@@ -15,6 +15,7 @@
   import { hora } from "../../formato";
   import { sesion } from "../../sesion/sesion.svelte";
   import { local } from "../../local.svelte";
+  import { respaldo } from "../../respaldo.svelte";
 
   let nueva = $state("");
   let manual = $state(false);
@@ -189,6 +190,37 @@
       la firma de quién hizo el software, no un mensaje del restaurante.
     </p>
   </section>
+
+  <!--
+    LLEVARSE EL RESTAURANTE A OTRA COMPUTADORA.
+
+    El Hub ya guarda copias solo, pero sirven para volver atrás en ESTA máquina.
+    Esto es lo otro: un archivo que se copia a una USB y se vuelca en un equipo
+    nuevo el día que el actual se muera. Restaurar no está aquí sino en la
+    pantalla de bienvenida — en un equipo nuevo todavía no hay usuarios y nadie
+    podría entrar a buscarlo.
+  -->
+  {#if respaldo.disponible}
+    <section class="tarjeta">
+      <h2>Respaldo para cambiar de computadora</h2>
+      <p class="ayuda">
+        Guarda todo el restaurante —ventas, carta, plano, personal e inventario—
+        en un archivo cifrado. Guárdelo en una USB o en la nube: el día que este
+        equipo falle, se restaura en el nuevo desde la primera pantalla.
+      </p>
+      <button class="conectar" disabled={respaldo.exportando} onclick={() => respaldo.exportar()}>
+        {respaldo.exportando ? "Preparando…" : "Guardar respaldo"}
+      </button>
+      {#if respaldo.error}
+        <p class="aviso-error">{respaldo.error}</p>
+      {/if}
+      <p class="ayuda">
+        Solo se abre con la licencia de este restaurante, así que un archivo
+        perdido no le sirve a nadie. <b>Restaurarlo en otra computadora necesita
+        que MOTRAE lo autorice</b>, y ese permiso caduca.
+      </p>
+    </section>
+  {/if}
 
   <!--
     DETECTAR Y CONECTAR.
