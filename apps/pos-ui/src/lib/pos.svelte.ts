@@ -46,6 +46,8 @@ import { inventario } from "./inventario.svelte";
 import { plano } from "./plano.svelte";
 import { impresion } from "./impresion.svelte";
 import { EMPLEADO_ACTUAL, SUCURSAL_ID, datosLocal, obtenerDeviceId } from "./presentacion";
+import { local } from "./local.svelte";
+import { portal } from "./portal.svelte";
 import { sembrarSalon, type OpcionesSemilla } from "./semilla";
 import { autorizacion } from "./sesion/autorizacion.svelte";
 import { sesion } from "./sesion/sesion.svelte";
@@ -1222,12 +1224,17 @@ class TiendaPOS {
     comanda: EstadoComanda,
     t: TotalesComanda,
     reimpresion?: number,
+    urlOpinion?: string,
   ): void {
     impresion.ticket({
       reimpresion,
       folio: comanda.orden_id.slice(-8).toUpperCase(),
       ts: Date.now(),
-      local: datosLocal,
+      // La ficha que capturó el restaurante, no la constante que traía el
+      // código con los datos de Rodizio dentro.
+      local: local.fichaParaTicket(datosLocal.nombre),
+      textos: local.textosTicket,
+      url_opinion: urlOpinion,
       mesa: this.nombreMesaActiva,
       mesero: sesion.nombreDe(comanda.mesero_id),
       renglones: renglonesActivos(comanda).map((r) => ({

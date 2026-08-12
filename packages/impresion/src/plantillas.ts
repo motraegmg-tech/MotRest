@@ -152,8 +152,63 @@ export interface DatosTicket {
   cambio: Centavos;
   /** URL de autofactura; se imprime como QR si viene. */
   url_autofactura?: string;
+  /**
+   * URL de la encuesta de esta cuenta; se imprime como QR si viene.
+   *
+   * Es el MISMO enlace firmado que la caja enseña en pantalla al cobrar. En el
+   * papel llega más lejos: la pantalla solo la ve quien está pagando y dura lo
+   * que dura el cobro, mientras que el ticket se lo lleva el comensal y lo mira
+   * otra vez en la mesa, o al día siguiente en la bolsa del pantalón.
+   */
+  url_opinion?: string;
   reimpresion?: number;
+  /** Textos que el restaurante puede cambiar. Ver `TextosTicket`. */
+  textos?: TextosTicket;
 }
+
+/**
+ * Lo que el restaurante puede escribir en su propio ticket.
+ *
+ * Todo lo demás del ticket son datos —importes, folio, impuestos— y no se
+ * edita: cambiarlos no sería personalizar, sería falsear un comprobante. Aquí
+ * solo caben las frases que le hablan al comensal.
+ *
+ * El pie de MOTRAE no está en esta lista a propósito: es la firma de quién hizo
+ * el software, no un mensaje del restaurante.
+ */
+export interface TextosTicket {
+  /** Debajo de los datos del local. Vacío = no se imprime. */
+  encabezado?: string;
+  /** Sobre el QR de facturación. */
+  invitacion_factura?: string;
+  /** Sobre el QR de la encuesta. */
+  invitacion_opinion?: string;
+  /** La despedida. */
+  agradecimiento?: string;
+  /** Una línea libre al final, antes de la firma. Vacío = no se imprime. */
+  pie?: string;
+}
+
+/** Lo que dice el ticket si el restaurante no ha cambiado nada. */
+export const TEXTOS_TICKET_POR_DEFECTO: Required<Omit<TextosTicket, "encabezado" | "pie">> & {
+  encabezado: string;
+  pie: string;
+} = {
+  encabezado: "",
+  invitacion_factura: "Factura tu consumo",
+  invitacion_opinion: "¿Cómo estuvo todo? Cuéntanos",
+  agradecimiento: "¡Gracias por su visita!",
+  pie: "",
+};
+
+/**
+ * La firma de MOTRAE. NO es configurable.
+ *
+ * Va en cada ticket que imprime el producto: es de dónde salió el software, no
+ * un mensaje del restaurante. Antes decía `MotRest v1` —la versión de la
+ * plantilla— que no le dice nada a nadie y parecía un número de serie perdido.
+ */
+const FIRMA_MOTRAE = "MotRest by Motrae";
 
 export function ticketVenta(datos: DatosTicket, columnas: AnchoPapel = 42): Ticket {
   const t = new Ticket(columnas);
@@ -168,6 +223,13 @@ export function ticketVenta(datos: DatosTicket, columnas: AnchoPapel = 42): Tick
   if (datos.local.direccion) t.linea(datos.local.direccion, centrado);
   if (datos.local.rfc) t.linea(`RFC: ${datos.local.rfc}`, centrado);
   if (datos.local.telefono) t.linea(`Tel: ${datos.local.telefono}`, centrado);
+
+  // El mensaje del local va tras sus datos y antes de la línea: es su voz, no
+  // parte del comprobante. Se parte por palabras para que no se corte a mitad.
+  {
+    const cabecera = { ...TEXTOS_TICKET_POR_DEFECTO, ...(datos.textos ?? {}) }.encabezado;
+    if (cabecera) for (const l of envolverPalabras(cabecera, columnas)) t.linea(l, centrado);
+  }
   t.separador("=");
 
   t.columnasDobles(`Folio: ${datos.folio}`, fechaHora(datos.ts));
@@ -203,16 +265,33 @@ export function ticketVenta(datos: DatosTicket, columnas: AnchoPapel = 42): Tick
   }
   if (datos.cambio > 0) t.columnasDobles("Cambio", mxn(datos.cambio), { negrita: true });
 
+  const txt = { ...TEXTOS_TICKET_POR_DEFECTO, ...(datos.textos ?? {}) };
+
   if (datos.url_autofactura) {
     t.salto();
-    t.linea("Factura tu consumo", { ...centrado, negrita: true });
+    t.linea(txt.invitacion_factura, { ...centrado, negrita: true });
     t.qr(datos.url_autofactura);
     t.linea(`Folio ${datos.folio}`, centrado);
   }
 
+  /*
+   * El QR de la encuesta va DESPUÉS del de facturación y antes del adiós.
+   *
+   * Ese orden no es casual: facturar es un trámite con prisa —quien lo necesita
+   * lo busca— y opinar es voluntario. Ponerlo primero le quitaría sitio a lo que
+   * el comensal vino a buscar; ponerlo al final, junto al «gracias», lo deja
+   * donde la vista se queda cuando ya terminó de mirar los importes.
+   */
+  if (datos.url_opinion) {
+    t.salto();
+    t.linea(txt.invitacion_opinion, { ...centrado, negrita: true });
+    t.qr(datos.url_opinion);
+  }
+
   t.salto();
-  t.linea("¡Gracias por su visita!", centrado);
-  t.linea(`MotRest v${VERSION_PLANTILLAS}`, centrado);
+  if (txt.agradecimiento) t.linea(txt.agradecimiento, centrado);
+  if (txt.pie) for (const l of envolverPalabras(txt.pie, columnas)) t.linea(l, centrado);
+  t.linea(FIRMA_MOTRAE, centrado);
   return t.cortar();
 }
 
@@ -302,7 +381,7 @@ export function precuenta(datos: DatosPrecuenta, columnas: AnchoPapel = 42): Tic
   t.linea("NO ES COMPROBANTE DE PAGO", centrado);
   t.linea("Solicite su ticket al pagar", centrado);
   t.salto();
-  t.linea(`MotRest v${VERSION_PLANTILLAS}`, centrado);
+  t.linea(FIRMA_MOTRAE, centrado);
   return t.cortar();
 }
 
@@ -384,7 +463,7 @@ export function corteCaja(datos: DatosCorte, columnas: AnchoPapel = 42): Ticket 
   t.salto();
   t.linea("Firma: ____________________");
   t.salto();
-  t.linea(`MotRest v${VERSION_PLANTILLAS}`, centrado);
+  t.linea(FIRMA_MOTRAE, centrado);
 
   return t.cortar();
 }
@@ -507,6 +586,6 @@ export function representacionCfdi(
 
   t.salto();
   for (const linea of envolverPalabras(rep.leyenda, columnas)) t.linea(linea, centrado);
-  t.linea(`MotRest v${VERSION_PLANTILLAS}`, centrado);
+  t.linea(FIRMA_MOTRAE, centrado);
   return t.cortar();
 }

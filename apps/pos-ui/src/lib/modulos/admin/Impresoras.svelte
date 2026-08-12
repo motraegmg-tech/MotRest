@@ -14,6 +14,7 @@
   import { menu } from "../../menu.svelte";
   import { hora } from "../../formato";
   import { sesion } from "../../sesion/sesion.svelte";
+  import { local } from "../../local.svelte";
 
   let nueva = $state("");
   let manual = $state(false);
@@ -103,6 +104,91 @@
       </p>
     </div>
   </div>
+
+  <!--
+    LO QUE VA IMPRESO EN EL TICKET.
+
+    Estaba escrito dentro del código, con los datos de un restaurante concreto:
+    cualquier local que instalara MotRest entregaba tickets con el nombre, la
+    dirección y el RFC de otro. Va aquí, junto a las impresoras, porque es donde
+    se viene cuando algo del papel no está bien.
+  -->
+  <section class="tarjeta">
+    <h2>Lo que aparece en el ticket</h2>
+    <p class="ayuda">
+      Los datos de tu restaurante y las frases que lee el comensal. Los importes,
+      el folio y los impuestos no se editan: eso es el comprobante.
+    </p>
+
+    <div class="ficha">
+      <label>
+        Nombre del restaurante
+        <input
+          value={local.ficha.nombre}
+          oninput={(e) => local.fijarFicha({ nombre: e.currentTarget.value })}
+          placeholder="El de la licencia si lo dejas vacío"
+        />
+      </label>
+      <label>
+        Dirección
+        <input
+          value={local.ficha.direccion}
+          oninput={(e) => local.fijarFicha({ direccion: e.currentTarget.value })}
+          placeholder="Calle, número y colonia"
+        />
+      </label>
+      <label>
+        Teléfono
+        <input
+          value={local.ficha.telefono}
+          oninput={(e) => local.fijarFicha({ telefono: e.currentTarget.value })}
+          placeholder="55 1234 5678"
+        />
+      </label>
+      <label>
+        RFC
+        <input
+          value={local.ficha.rfc}
+          oninput={(e) => local.fijarFicha({ rfc: e.currentTarget.value.toUpperCase() })}
+          placeholder="Se imprime solo si lo pones"
+        />
+      </label>
+      <label class="ancho">
+        Mensaje bajo los datos <em>(opcional)</em>
+        <input
+          value={local.textosTicket.encabezado}
+          oninput={(e) => local.fijarTextosTicket({ encabezado: e.currentTarget.value })}
+          placeholder="Pizzas y pasta a la leña desde 1998"
+        />
+      </label>
+      <label class="ancho">
+        Invitación a dejar reseña <em>(va sobre el código QR)</em>
+        <input
+          value={local.textosTicket.invitacion_opinion}
+          oninput={(e) => local.fijarTextosTicket({ invitacion_opinion: e.currentTarget.value })}
+        />
+      </label>
+      <label>
+        Despedida
+        <input
+          value={local.textosTicket.agradecimiento}
+          oninput={(e) => local.fijarTextosTicket({ agradecimiento: e.currentTarget.value })}
+        />
+      </label>
+      <label>
+        Última línea <em>(opcional)</em>
+        <input
+          value={local.textosTicket.pie}
+          oninput={(e) => local.fijarTextosTicket({ pie: e.currentTarget.value })}
+          placeholder="Síguenos en @turestaurante"
+        />
+      </label>
+    </div>
+    <p class="ayuda">
+      Debajo de todo siempre sale <b>MotRest by Motrae</b>. Eso no se cambia: es
+      la firma de quién hizo el software, no un mensaje del restaurante.
+    </p>
+  </section>
 
   <!--
     DETECTAR Y CONECTAR.
@@ -870,5 +956,29 @@
   }
   .principal:hover:not(:disabled) {
     color: #fff;
+  }
+
+  .ficha {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr));
+    gap: 0.75rem;
+    margin: 0.8rem 0;
+  }
+  .ficha .ancho { grid-column: 1 / -1; }
+  .ficha label {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+    font-size: 0.78rem;
+    font-weight: 600;
+  }
+  .ficha em { font-weight: 400; color: var(--gris); font-style: normal; }
+  .ficha input {
+    font: inherit;
+    font-size: 0.9rem;
+    font-weight: 400;
+    padding: 0.5rem 0.6rem;
+    border: 1px solid var(--borde);
+    border-radius: var(--r-sm);
   }
 </style>
