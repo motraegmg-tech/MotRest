@@ -210,6 +210,35 @@ describe("persistencia real entre recargas (IndexedDB)", () => {
    * escrituras siguientes de esa misma función no llegaban a ejecutarse. En el
    * disco de la caja: `credenciales` 43 veces, `provisiones_responsable` cero.
    */
+  /*
+   * Lo que hacía desaparecer a los empleados de Rodizio.
+   *
+   * Los permisos de un alta salen tal cual de la pantalla, y en Svelte 5 eso es
+   * un Proxy. `anexar` lo metía directo en IndexedDB: `DataCloneError`, el
+   * `.catch()` lo anotaba en la consola, y el usuario vivía solo en memoria
+   * hasta que alguien cerraba la aplicación. En el log del Hub no había ni un
+   * alta de empleado, ni un rechazo: el evento nunca salió de la terminal.
+   */
+  it("anexar un evento con datos reactivos dentro NO revienta", async () => {
+    const factory = new IDBFactory();
+    const almacen = await almacenIndexedDB(factory);
+
+    const base = eventos(1)[0]!;
+    const alta = {
+      ...base,
+      tipo: "usuario_creado",
+      usuario_id: "usr-nuevo",
+      // Tal cual llega de la pantalla de administración.
+      permisos: new Proxy([{ accion: "pos.orden.abrir", nivel: "operar" }], {}),
+    } as unknown as EventoBase;
+
+    await expect(almacen.eventos.anexar([alta])).resolves.toBeUndefined();
+    const guardados = await almacen.eventos.leerTodos();
+    expect(guardados).toHaveLength(1);
+    expect((guardados[0] as unknown as { permisos: unknown[] }).permisos).toHaveLength(1);
+    almacen.cerrar();
+  });
+
   it("guardar un objeto reactivo (Proxy) NO revienta", async () => {
     const factory = new IDBFactory();
     const almacen = await almacenIndexedDB(factory);

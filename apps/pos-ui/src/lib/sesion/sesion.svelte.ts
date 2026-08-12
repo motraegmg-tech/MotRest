@@ -390,7 +390,24 @@ class Sesion {
     const evento = this.fabrica.crear(tipo, STREAM, datos);
     this.eventos = [...this.eventos, evento];
 
-    void this.almacen?.eventos.anexar([evento]).catch((causa) => {
+    /*
+     * SI ESTO FALLA, SE DICE. Y si no hay almacén, también.
+     *
+     * Era `this.almacen?.…` con un `console.error` detrás: sin almacén no se
+     * guardaba nada y no se enteraba nadie, y con almacén un fallo de escritura
+     * quedaba en una consola que en una aplicación de escritorio no mira nadie.
+     * Así se perdieron todos los altas de empleados de Rodizio —aparecían en
+     * pantalla, vivían en memoria y desaparecían al reabrir—.
+     */
+    if (!this.almacen) {
+      this.errorAlGuardar =
+        "Este equipo no está guardando los cambios. Avise a MOTRAE antes de seguir.";
+      return;
+    }
+    void this.almacen.eventos.anexar([evento]).catch((causa) => {
+      this.errorAlGuardar =
+        "No se pudo guardar el último cambio en este equipo. " +
+        "Avise a MOTRAE: puede perderse al cerrar la aplicación.";
       console.error("No se pudo guardar el evento de identidad", causa);
     });
   }

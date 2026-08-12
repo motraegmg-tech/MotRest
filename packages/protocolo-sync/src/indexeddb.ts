@@ -71,7 +71,23 @@ export class RepositorioEventosIDB implements RepositorioEventos {
     if (eventos.length === 0) return;
     const tx = this.bd.transaction(TIENDA_EVENTOS, "readwrite");
     const tienda = tx.objectStore(TIENDA_EVENTOS);
-    for (const evento of eventos) {
+    for (const crudo of eventos) {
+      /*
+       * COPIA PLANA, por lo mismo que en `guardar()` de aquí al lado.
+       *
+       * Un evento puede traer dentro datos que vienen de un `$state` de Svelte
+       * —los permisos de un alta de usuario salen tal cual de la pantalla— y
+       * eso es un Proxy, que structured clone no sabe serializar.
+       *
+       * Lo que producía, medido en la caja de Rodizio: al dar de alta a un
+       * empleado, `put` lanzaba `DataCloneError`, quien llamaba lo anotaba en la
+       * consola y seguía. El usuario aparecía en pantalla porque estaba en
+       * memoria, pero NUNCA se guardaba ni se enviaba al Hub. Al reabrir la
+       * aplicación desaparecía, y no había ni un rechazo que mirar porque el
+       * evento jamás salió de la terminal. En el log del Hub: cinco altas en
+       * total, las cinco del responsable, ni una de empleado.
+       */
+      const evento = JSON.parse(JSON.stringify(crudo)) as EventoBase;
       const fila: EventoGuardado = {
         id: evento.id,
         stream_id: evento.stream_id,

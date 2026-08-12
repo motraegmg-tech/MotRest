@@ -128,13 +128,19 @@ describe("ancho de papel probable", () => {
 });
 
 describe("búsqueda completa", () => {
+  /*
+   * 20 s y no los 5 de vitest: en Windows esto arranca PowerShell DOS veces —una
+   * para las colas y otra para los puertos sin cola— y bajo carga no le da
+   * tiempo. No está roto el código, está corto el corredor; es el mismo ajuste
+   * que llevan las pruebas del transporte USB por el mismo motivo.
+   */
   it("sin barrido de red contesta igual, y lo dice", async () => {
     const r = await buscarImpresoras({ conRed: false });
     expect(r.sin_red).toBe(true);
     expect(r.redes).toEqual([]);
     // Fuera de Windows no hay spooler y la lista sale vacía: no es un error.
     expect(Array.isArray(r.impresoras)).toBe(true);
-  });
+  }, 20_000);
 
   it("las virtuales quedan al final de la lista", async () => {
     const lista = [
