@@ -51,3 +51,45 @@ ul,
 ol {
   list-style: none;
 }
+
+/*
+ * LAS TARJETAS DE UNA PANTALLA NO SE ENCOGEN.
+ *
+ * Cada módulo es una `.seccion`: una columna flex con altura limitada y scroll
+ * propio. Un hijo de flex se encoge por defecto, así que cuando el contenido no
+ * cabía —que es siempre en Inteligencia o en Inventario— el navegador no hacía
+ * scroll de la página: aplastaba cada tarjeta hasta dejarla en una barrita de
+ * cuatro píxeles con su propio scroll interno. El título asomaba y el contenido
+ * quedaba escondido dentro de un carril que nadie sabía que se podía mover.
+ *
+ * Va aquí y no en cada módulo porque el defecto no era de ninguno en concreto:
+ * era del patrón. Dos pantallas lo habían parcheado por su cuenta sin que nadie
+ * notara que las otras once seguían rotas, y la siguiente habría nacido igual.
+ */
+.seccion > * {
+  flex-shrink: 0;
+}
+
+/*
+ * El botón que abre la lista completa. Va aquí porque ya aparece en cinco
+ * tarjetas de tres módulos distintos y todas lo dibujaban igual: discreto, a lo
+ * ancho, y con el borde punteado que dice «esto sigue» sin competir con los
+ * botones que mueven dinero.
+ */
+.ver-todo {
+  width: 100%;
+  margin-top: 0.6rem;
+  padding: 0.5rem;
+  border: 1px dashed var(--borde);
+  border-radius: var(--r-sm);
+  background: transparent;
+  color: var(--gris);
+  font: inherit;
+  font-size: 0.82rem;
+  cursor: pointer;
+}
+
+.ver-todo:hover {
+  color: var(--pizarra);
+  border-color: var(--acento);
+}

@@ -24,6 +24,7 @@
     ventasPorMesero,
     ventasPorProducto,
   } from "@motrest/dominio";
+  import VentanaAmplia from "../VentanaAmplia.svelte";
   import { mxn, pct } from "../formato";
   import { inventario } from "../inventario.svelte";
   import { local } from "../local.svelte";
@@ -48,21 +49,41 @@
   const productos = $derived(ventasPorProducto(comandas));
 
   /**
-   * Cuántos productos se enseñan antes de pedir «Ver todo».
+   * Cuántos renglones se enseñan en la tarjeta antes de pedir «Ver más».
    *
-   * Doce entran en pantalla sin cortar y cubren la carta de un local pequeño
-   * entero. Por encima de eso lo que importa no es la lista completa sino los
-   * primeros, que ya vienen ordenados por lo que más se vende.
+   * Doce productos entran en pantalla sin cortar y cubren la carta de un local
+   * pequeño entera. Por encima de eso lo que importa no es la lista completa
+   * sino los primeros, que ya vienen ordenados por lo que más se vende; el resto
+   * se mira cuando se quiere mirar, en la ventana.
    */
   const TOPE_PRODUCTOS = 12;
-  let verTodosProductos = $state(false);
-  const productosVisibles = $derived(
-    verTodosProductos ? productos : productos.slice(0, TOPE_PRODUCTOS),
-  );
+  const TOPE_CUADRANTE = 6;
+  const TOPE_MERMAS = 8;
+  const TOPE_QUEJAS = 3;
+  const TOPE_SIMULADOR = 10;
+
+  /**
+   * Qué lista se está viendo completa, o `null` si ninguna.
+   *
+   * Una sola a la vez y en una ventana aparte: desplegarlas dentro de la tarjeta
+   * empujaba el resto de la pantalla y obligaba a recorrerla entera para volver
+   * a lo que se estaba mirando.
+   */
+  let ampliado = $state<
+    null | "productos" | "menu" | "mermas" | "quejas" | "simulador"
+  >(null);
+
+  const productosVisibles = $derived(productos.slice(0, TOPE_PRODUCTOS));
   const meseros = $derived(ventasPorMesero(comandas));
   const horas = $derived(ventasPorHora(comandas));
   const clasificados = $derived(menuEngineering(productos));
   const conteo = $derived(conteoPorClase(clasificados));
+  /** ¿Algún cuadrante tiene más platillos de los que caben en la tarjeta? */
+  const hayMasEnMenu = $derived(
+    (["estrella", "caballo", "rompecabezas", "perro"] as const).some(
+      (clase) => conteo[clase] > TOPE_CUADRANTE,
+    ),
+  );
 
   // Centinela de mermas (C5): se calcula sobre los movimientos del mismo
   // periodo, para que la fuga cuadre con las ventas que se están mirando.
@@ -293,8 +314,7 @@
     </div>
 
     <!-- Productos -->
-    <section class="tarjeta">
-      <h2>Productos vendidos</h2>
+    {#snippet tablaProductos(lista: typeof productos)}
       <table>
         <thead>
           <tr>
@@ -308,7 +328,7 @@
           </tr>
         </thead>
         <tbody>
-          {#each productosVisibles as p (p.producto_id)}
+          {#each lista as p (p.producto_id)}
             <tr>
               <td><b>{p.descripcion}</b></td>
               <td class="num">{p.unidades}</td>
@@ -321,22 +341,59 @@
           {/each}
         </tbody>
       </table>
+    {/snippet}
+
+    <section class="tarjeta">
+      <h2>Productos vendidos</h2>
+      {@render tablaProductos(productosVisibles)}
       <!--
-        VER TODO, con la cuenta de lo que falta.
-        La tabla se cortaba por altura y no había forma de saber si debajo
-        quedaban tres productos o cuarenta: la carta entera parecía ser lo que
-        cupiera en la pantalla. Decir cuántos faltan es la mitad del arreglo.
+        VER MÁS, con la cuenta de lo que falta.
+        La tabla se cortaba y no había forma de saber si debajo quedaban tres
+        productos o cuarenta: la carta entera parecía ser lo que cupiera en la
+        pantalla. Decir cuántos faltan es la mitad del arreglo.
       -->
       {#if productos.length > TOPE_PRODUCTOS}
-        <button class="ver-todo" onclick={() => (verTodosProductos = !verTodosProductos)}>
-          {verTodosProductos
-            ? "Ver menos"
-            : `Ver todo (${productos.length - TOPE_PRODUCTOS} más)`}
+        <button class="ver-todo" onclick={() => (ampliado = "productos")}>
+          Ver más ({productos.length - TOPE_PRODUCTOS} productos más)
         </button>
       {/if}
     </section>
 
     <!-- Menu engineering -->
+    {#snippet cuadrantesMenu(tope: number)}
+      <div class="cuadrantes">
+        {#each ["estrella", "caballo", "rompecabezas", "perro"] as const as clase (clase)}
+          {@const dela = clasificados.filter((c) => c.clase === clase)}
+          <div class="cuadrante {clase}">
+            <div class="cab-cuadrante">
+              <b>{ETIQUETAS_CLASE[clase]}</b>
+              <span>{conteo[clase]}</span>
+            </div>
+            <p class="consejo">{CONSEJOS_CLASE[clase]}</p>
+            <ul>
+              {#each dela.slice(0, tope) as p (p.producto_id)}
+                <li>
+                  <span class="nom">{p.descripcion}</span>
+                  <span class="det">{p.unidades} u · {mxn(p.margen)}</span>
+                </li>
+              {:else}
+                <li class="ninguno">—</li>
+              {/each}
+              <!--
+                Se dice cuántos quedan fuera DENTRO del cuadrante: sin esto, un
+                cuadrante recortado y uno completo se ven igual, y el que decide
+                qué platillo quitar de la carta se queda con media lista creyendo
+                que la vio entera.
+              -->
+              {#if dela.length > tope}
+                <li class="ninguno">+{dela.length - tope} más</li>
+              {/if}
+            </ul>
+          </div>
+        {/each}
+      </div>
+    {/snippet}
+
     {#if verCostos && clasificados.length > 0}
       <section class="tarjeta">
         <h2>Ingeniería de menú</h2>
@@ -346,27 +403,13 @@
           promedio de tu propia carta — no contra un porcentaje de manual.
         </p>
 
-        <div class="cuadrantes">
-          {#each ["estrella", "caballo", "rompecabezas", "perro"] as const as clase (clase)}
-            <div class="cuadrante {clase}">
-              <div class="cab-cuadrante">
-                <b>{ETIQUETAS_CLASE[clase]}</b>
-                <span>{conteo[clase]}</span>
-              </div>
-              <p class="consejo">{CONSEJOS_CLASE[clase]}</p>
-              <ul>
-                {#each clasificados.filter((c) => c.clase === clase) as p (p.producto_id)}
-                  <li>
-                    <span class="nom">{p.descripcion}</span>
-                    <span class="det">{p.unidades} u · {mxn(p.margen)}</span>
-                  </li>
-                {:else}
-                  <li class="ninguno">—</li>
-                {/each}
-              </ul>
-            </div>
-          {/each}
-        </div>
+        {@render cuadrantesMenu(TOPE_CUADRANTE)}
+
+        {#if hayMasEnMenu}
+          <button class="ver-todo" onclick={() => (ampliado = "menu")}>
+            Ver más ({clasificados.length} platillos clasificados)
+          </button>
+        {/if}
       </section>
     {:else if !verCostos}
       <p class="nota">
@@ -406,10 +449,15 @@
         {#if voz.quejas.length > 0}
           <p class="nota">
             Lo que más se queja:
-            {#each voz.quejas.slice(0, 3) as q, i (q.motivo)}
+            {#each voz.quejas.slice(0, TOPE_QUEJAS) as q, i (q.motivo)}
               {i > 0 ? " · " : " "}<b>{etiquetaMotivo(q.motivo)}</b> ({q.veces})
             {/each}
           </p>
+          {#if voz.quejas.length > TOPE_QUEJAS}
+            <button class="ver-todo" onclick={() => (ampliado = "quejas")}>
+              Ver más ({voz.quejas.length - TOPE_QUEJAS} motivos más)
+            </button>
+          {/if}
         {/if}
 
         <!--
@@ -472,42 +520,51 @@
               {/if}
             </p>
           {/if}
-          <table>
-            <thead>
-              <tr>
-                <th>Insumo</th>
-                <th class="num">Merma</th>
-                <th class="num">Faltante</th>
-                <th class="num">Pérdida</th>
-                <th class="num">Fuga</th>
-                <th></th>
-              </tr>
-            </thead>
-            <tbody>
-              {#each centinela.alertas as a (a.insumo_id)}
-                <tr>
-                  <td>
-                    <span class="punto {a.severidad}"></span>
-                    <b>{a.nombre}</b>
-                  </td>
-                  <td class="num tenue">
-                    {a.merma > 0 ? formatearCantidad(a.merma, a.unidad) : "—"}
-                    {#if a.costo_merma > 0}<small>{mxn(a.costo_merma)}</small>{/if}
-                  </td>
-                  <td class="num" class:alerta={a.costo_faltante > 0}>
-                    {a.faltante > 0 ? formatearCantidad(a.faltante, a.unidad) : "—"}
-                    {#if a.costo_faltante > 0}<small>{mxn(a.costo_faltante)}</small>{/if}
-                  </td>
-                  <td class="num"><b>{mxn(a.perdida)}</b></td>
-                  <td class="num" class:alerta={a.severidad === "alta"}>{pct(a.tasa)}</td>
-                  <td class="consejo-celda">{consejoMerma(a)}</td>
-                </tr>
-              {/each}
-            </tbody>
-          </table>
+          {@render tablaMermas(centinela.alertas.slice(0, TOPE_MERMAS))}
+          {#if centinela.alertas.length > TOPE_MERMAS}
+            <button class="ver-todo" onclick={() => (ampliado = "mermas")}>
+              Ver más ({centinela.alertas.length - TOPE_MERMAS} insumos más)
+            </button>
+          {/if}
         {/if}
       </section>
     {/if}
+
+    {#snippet tablaMermas(alertas: NonNullable<typeof centinela>["alertas"])}
+      <table>
+        <thead>
+          <tr>
+            <th>Insumo</th>
+            <th class="num">Merma</th>
+            <th class="num">Faltante</th>
+            <th class="num">Pérdida</th>
+            <th class="num">Fuga</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody>
+          {#each alertas as a (a.insumo_id)}
+            <tr>
+              <td>
+                <span class="punto {a.severidad}"></span>
+                <b>{a.nombre}</b>
+              </td>
+              <td class="num tenue">
+                {a.merma > 0 ? formatearCantidad(a.merma, a.unidad) : "—"}
+                {#if a.costo_merma > 0}<small>{mxn(a.costo_merma)}</small>{/if}
+              </td>
+              <td class="num" class:alerta={a.costo_faltante > 0}>
+                {a.faltante > 0 ? formatearCantidad(a.faltante, a.unidad) : "—"}
+                {#if a.costo_faltante > 0}<small>{mxn(a.costo_faltante)}</small>{/if}
+              </td>
+              <td class="num"><b>{mxn(a.perdida)}</b></td>
+              <td class="num" class:alerta={a.severidad === "alta"}>{pct(a.tasa)}</td>
+              <td class="consejo-celda">{consejoMerma(a)}</td>
+            </tr>
+          {/each}
+        </tbody>
+      </table>
+    {/snippet}
 
     <!-- Gemelo digital: simulador de escenarios (C1) -->
     {#if verCostos && productos.length > 0}
@@ -576,18 +633,34 @@
           {/if}
 
           {#if afectados.length > 0}
-            <table>
-              <thead>
-                <tr>
-                  <th>Producto</th>
-                  <th class="num">Precio</th>
-                  <th class="num">Unidades</th>
-                  <th class="num">Margen</th>
-                  <th class="num">Aguanta perder</th>
-                </tr>
-              </thead>
-              <tbody>
-                {#each afectados as r (r.producto_id)}
+            {@render tablaSimulador(afectados.slice(0, TOPE_SIMULADOR))}
+            {#if afectados.length > TOPE_SIMULADOR}
+              <button class="ver-todo" onclick={() => (ampliado = "simulador")}>
+                Ver más ({afectados.length - TOPE_SIMULADOR} productos más)
+              </button>
+            {/if}
+          {/if}
+
+          <div class="botones-sim">
+            <button class="mini" onclick={limpiarSim}>Reiniciar</button>
+          </div>
+        {/if}
+      </section>
+    {/if}
+
+    {#snippet tablaSimulador(lista: typeof afectados)}
+      <table>
+        <thead>
+          <tr>
+            <th>Producto</th>
+            <th class="num">Precio</th>
+            <th class="num">Unidades</th>
+            <th class="num">Margen</th>
+            <th class="num">Aguanta perder</th>
+          </tr>
+        </thead>
+        <tbody>
+          {#each lista as r (r.producto_id)}
                   <tr>
                     <td><b>{r.descripcion}</b></td>
                     <td class="num">
@@ -608,18 +681,67 @@
                       {:else}
                         <span class="tenue">—</span>
                       {/if}
-                    </td>
-                  </tr>
-                {/each}
-              </tbody>
-            </table>
-          {/if}
+            </td>
+          </tr>
+        {/each}
+        </tbody>
+      </table>
+    {/snippet}
 
-          <div class="botones-sim">
-            <button class="mini" onclick={limpiarSim}>Reiniciar</button>
-          </div>
-        {/if}
-      </section>
+    <!--
+      LAS LISTAS COMPLETAS.
+
+      Van al final del marcado y no dentro de cada tarjeta: la ventana se dibuja
+      sobre toda la pantalla, así que colgarla del sitio donde está el botón solo
+      la ataría al scroll de una tarjeta que en ese momento no se ve.
+    -->
+    {#if ampliado === "productos"}
+      <VentanaAmplia
+        titulo="Productos vendidos"
+        subtitulo="{productos.length} productos · {periodo === 'hoy' ? 'la jornada de hoy' : 'todo el histórico'}"
+        onCerrar={() => (ampliado = null)}
+      >
+        {@render tablaProductos(productos)}
+      </VentanaAmplia>
+    {:else if ampliado === "menu"}
+      <VentanaAmplia
+        titulo="Ingeniería de menú"
+        subtitulo="{clasificados.length} platillos · popularidad contra margen de tu propia carta"
+        onCerrar={() => (ampliado = null)}
+      >
+        {@render cuadrantesMenu(Number.POSITIVE_INFINITY)}
+      </VentanaAmplia>
+    {:else if ampliado === "mermas" && centinela}
+      <VentanaAmplia
+        titulo="Centinela de mermas"
+        subtitulo="{centinela.alertas.length} insumos con merma o faltante · fuga de {mxn(centinela.perdida_total)}"
+        onCerrar={() => (ampliado = null)}
+      >
+        {@render tablaMermas(centinela.alertas)}
+      </VentanaAmplia>
+    {:else if ampliado === "quejas"}
+      <VentanaAmplia
+        titulo="Lo que más se queja"
+        subtitulo="{voz.total} {voz.total === 1 ? 'mesa opinó' : 'mesas opinaron'} en el periodo"
+        onCerrar={() => (ampliado = null)}
+      >
+        <ul class="lista-quejas">
+          {#each voz.quejas as q (q.motivo)}
+            <li>
+              <b>{etiquetaMotivo(q.motivo)}</b>
+              <span>{q.veces} {q.veces === 1 ? "vez" : "veces"}</span>
+            </li>
+          {/each}
+        </ul>
+      </VentanaAmplia>
+    {:else if ampliado === "simulador"}
+      <VentanaAmplia
+        titulo="Simulador de escenarios"
+        subtitulo="{afectados.length} productos afectados por el escenario"
+        onCerrar={() => (ampliado = null)}
+      >
+        {@render tablaSimulador(afectados)}
+      </VentanaAmplia>
     {/if}
   {/if}
 </div>
@@ -1258,5 +1380,17 @@
   .ver-todo:hover {
     color: var(--pizarra);
     border-color: var(--acento);
+  }
+  .lista-quejas li {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 1rem;
+    padding: 0.55rem 0.2rem;
+    border-bottom: 1px solid var(--borde);
+  }
+  .lista-quejas li span {
+    font-size: 0.85rem;
+    color: var(--gris);
   }
 </style>

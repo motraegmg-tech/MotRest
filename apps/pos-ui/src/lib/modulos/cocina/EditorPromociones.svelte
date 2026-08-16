@@ -20,7 +20,10 @@
 
   let nombre = $state("");
   let tipo = $state<Promocion["tipo"]>("nxm");
-  let categoriaId = $state<string>("");
+  let categoriasElegidas = $state<string[]>([]);
+  let productosElegidos = $state<string[]>([]);
+  let buscarProducto = $state("");
+  let editandoId = $state<string | null>(null);
   let lleva = $state("2");
   let paga = $state("1");
   let porcentaje = $state("20");
@@ -39,8 +42,8 @@
     id: "borrador",
     nombre: nombre.trim() || "Sin nombre",
     tipo,
-    productos: [],
-    categorias: categoriaId ? [categoriaId] : [],
+    productos: [...productosElegidos],
+    categorias: [...categoriasElegidas],
     vigencia: {
       dias: dias.length > 0 ? [...dias].sort() : undefined,
       desde_hora: conHorario ? Number(desdeHora) : undefined,
@@ -54,9 +57,11 @@
   });
 
   function frase(p: Promocion): string {
-    const donde = p.categorias.length > 0
-      ? `en ${menu.categorias.find((c) => c.id === p.categorias[0])?.nombre ?? "?"}`
-      : "en toda la carta";
+    const alcances = [
+      ...p.categorias.map((id) => menu.categorias.find((c) => c.id === id)?.nombre ?? "?"),
+      ...p.productos.map((id) => menu.index.productos.get(id)?.nombre ?? "?"),
+    ];
+    const donde = alcances.length > 0 ? `en ${alcances.join(", ")}` : "en toda la carta";
     const cuando = p.vigencia.dias?.length
       ? ` · ${p.vigencia.dias.map((d) => DIAS[d]).join(", ")}`
       : "";
@@ -68,6 +73,59 @@
 
   function alternarDia(d: number) {
     dias = dias.includes(d) ? dias.filter((x) => x !== d) : [...dias, d];
+  }
+
+  function alternarCategoria(id: string) {
+    categoriasElegidas = categoriasElegidas.includes(id)
+      ? categoriasElegidas.filter((x) => x !== id)
+      : [...categoriasElegidas, id];
+  }
+
+  function alternarProducto(id: string) {
+    productosElegidos = productosElegidos.includes(id)
+      ? productosElegidos.filter((x) => x !== id)
+      : [...productosElegidos, id];
+  }
+
+  const productosFiltrados = $derived(
+    [...menu.index.productos.values()]
+      .filter((p) => p.nombre.toLocaleLowerCase("es").includes(buscarProducto.trim().toLocaleLowerCase("es")))
+      .sort((a, b) => a.nombre.localeCompare(b.nombre, "es")),
+  );
+
+  function limpiarFormulario() {
+    nombre = "";
+    tipo = "nxm";
+    categoriasElegidas = [];
+    productosElegidos = [];
+    buscarProducto = "";
+    lleva = "2";
+    paga = "1";
+    porcentaje = "20";
+    precioPesos = "";
+    dias = [];
+    conHorario = false;
+    desdeHora = "18";
+    hastaHora = "20";
+    editandoId = null;
+    aviso = "";
+  }
+
+  function editar(p: Promocion) {
+    nombre = p.nombre;
+    tipo = p.tipo;
+    categoriasElegidas = [...p.categorias];
+    productosElegidos = [...p.productos];
+    lleva = String(p.lleva ?? 2);
+    paga = String(p.paga ?? 1);
+    porcentaje = String(Math.round((p.fraccion ?? 0.2) * 100));
+    precioPesos = p.precio ? String(p.precio / 100) : "";
+    dias = [...(p.vigencia.dias ?? [])];
+    conHorario = p.vigencia.desde_hora !== undefined;
+    desdeHora = String(p.vigencia.desde_hora ?? 18);
+    hastaHora = String(p.vigencia.hasta_hora ?? 20);
+    editandoId = p.id;
+    aviso = "";
   }
 
   function guardar() {
@@ -83,11 +141,10 @@
       aviso = "Captura el precio especial.";
       return;
     }
-    const r = menu.guardarPromocion({ ...borrador, id: uuidv7() });
+    const r = menu.guardarPromocion({ ...borrador, id: editandoId ?? uuidv7() });
     aviso = r.ok ? "" : (r.problemas[0]?.mensaje ?? "No se pudo guardar");
     if (r.ok) {
-      nombre = "";
-      precioPesos = "";
+      limpiarFormulario();
     }
   }
 
@@ -120,16 +177,6 @@
         </select>
       </label>
 
-      <label>
-        <span>Aplica a</span>
-        <select bind:value={categoriaId}>
-          <option value="">Toda la carta</option>
-          {#each menu.categorias as c (c.id)}
-            <option value={c.id}>{c.nombre}</option>
-          {/each}
-        </select>
-      </label>
-
       {#if tipo === "nxm"}
         <label>
           <span>Se lleva</span>
@@ -151,6 +198,50 @@
         </label>
       {/if}
     </div>
+
+    <section class="alcance">
+      <div>
+        <span class="rotulo">Categorías</span>
+        <div class="selecciones">
+          {#each menu.categorias as c (c.id)}
+            <button
+              type="button"
+              class="opcion"
+              class:on={categoriasElegidas.includes(c.id)}
+              onclick={() => alternarCategoria(c.id)}
+            >
+              {c.nombre}
+            </button>
+          {/each}
+        </div>
+      </div>
+      <div>
+        <label class="buscador">
+          <span class="rotulo">Productos específicos</span>
+          <input bind:value={buscarProducto} placeholder="Buscar alimento o bebida" />
+        </label>
+        <div class="productos">
+          {#each productosFiltrados as p (p.id)}
+            <button
+              type="button"
+              class="opcion"
+              class:on={productosElegidos.includes(p.id)}
+              onclick={() => alternarProducto(p.id)}
+            >
+              {p.nombre}
+            </button>
+          {/each}
+        </div>
+      </div>
+      {#if categoriasElegidas.length === 0 && productosElegidos.length === 0}
+        <p class="tenue">Sin selección, aplica a toda la carta.</p>
+      {:else}
+        <p class="tenue">
+          Puedes mezclar categorías completas con productos sueltos; un producto repetido
+          por su categoría solo recibe el descuento una vez.
+        </p>
+      {/if}
+    </section>
 
     <div class="cuando">
       <span class="rotulo">Días</span>
@@ -191,7 +282,12 @@
     {#if aviso}<p class="error" role="alert">{aviso}</p>{/if}
 
     <div class="acciones">
-      <button class="principal" onclick={guardar}>Crear promoción</button>
+      <button class="principal" onclick={guardar}>
+        {editandoId ? "Guardar cambios" : "Crear promoción"}
+      </button>
+      {#if editandoId}
+        <button onclick={limpiarFormulario}>Cancelar edición</button>
+      {/if}
     </div>
   {/if}
 
@@ -207,6 +303,7 @@
             <span class="ahora">vigente ahora</span>
           {/if}
           {#if permisos.editarProductos}
+            <button class="mini" onclick={() => editar(p)}>Editar</button>
             <button class="mini" onclick={() => alternarActiva(p)}>
               {p.activa ? "Apagar" : "Encender"}
             </button>
@@ -287,6 +384,45 @@
     align-items: center;
     gap: 0.75rem;
     flex-wrap: wrap;
+  }
+  .alcance {
+    display: grid;
+    gap: 0.8rem;
+    padding: 0.85rem;
+    border: 1px solid var(--borde);
+    border-radius: var(--r-md);
+    background: var(--fondo);
+  }
+  .selecciones,
+  .productos {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.4rem;
+    margin-top: 0.35rem;
+  }
+  .productos {
+    max-height: 9rem;
+    overflow-y: auto;
+  }
+  .opcion {
+    padding: 0.3rem 0.6rem;
+    border: 1px solid var(--borde);
+    border-radius: var(--r-pill);
+    background: #fff;
+    font-size: 0.78rem;
+  }
+  .opcion.on {
+    border-color: var(--acento);
+    background: var(--claro);
+    color: var(--acento);
+    font-weight: 700;
+  }
+  .buscador {
+    display: grid;
+    gap: 0.3rem;
+  }
+  .buscador input {
+    max-width: 24rem;
   }
   .rotulo {
     font-size: 0.76rem;

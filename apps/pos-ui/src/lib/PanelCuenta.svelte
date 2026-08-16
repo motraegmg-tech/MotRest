@@ -13,11 +13,8 @@
     type FormaPago,
     type RenglonComanda,
   } from "@motrest/dominio";
-  import QRCode from "qrcode";
   import DialogoFactura from "./DialogoFactura.svelte";
   import { hora, mxn } from "./formato";
-  import { opiniones } from "./opiniones.svelte";
-  import { portal } from "./portal.svelte";
   import { plano } from "./plano.svelte";
   import { pos } from "./pos.svelte";
   import { sesion } from "./sesion/sesion.svelte";
@@ -187,7 +184,6 @@
     // temporizador. Se aplica ANTES de leer el saldo o se cobraría sin ella.
     aplicarPropinaLibre();
 
-    const ordenId = pos.comanda?.orden_id;
     const saldo = pos.totales?.saldo ?? t.saldo;
     const mesa = pos.mesaActiva;
 
@@ -213,14 +209,6 @@
     if (pos.comandaDeMesa(mesa)?.cerrada !== false) vistaMesa.reiniciar(mesa);
     else vistaMesa.fijar(mesa, { vista: "cuenta", recibido: "", efectivoMixto: "" });
 
-    /*
-     * Al cerrar la cuenta es el ÚNICO momento en que hay una conversación con
-     * la mesa. Se pregunta aquí o no se pregunta nunca; una encuesta por correo
-     * al día siguiente la contesta el 2 %.
-     */
-    if (ordenId && pos.comanda?.cerrada && !opiniones.yaOpinada(ordenId)) {
-      await prepararEncuesta(ordenId);
-    }
   }
 
   // --- Reabrir una cuenta cobrada por error ---
@@ -251,31 +239,18 @@
     poniendoNombre = false;
   }
 
-  // --- Voz del cliente: cómo estuvo todo ---
-  /*
-   * El enlace que se le entrega al comensal para que califique. Se arma al
-   * cobrar y se olvida al cerrar: no es estado del negocio, es algo que se
-   * enseña un momento.
-   */
-  let enlaceOpinion = $state<string | null>(null);
-  let qrOpinion = $state("");
+  // --- Propina que el comensal decide después de pagar -----------------------------
+  let propinaPosterior = $state("");
+  let formaPropinaPosterior = $state<FormaPago>("efectivo");
 
-  function cerrarOpinion() {
-    enlaceOpinion = null;
-    qrOpinion = "";
-  }
-
-  /** Arma el enlace firmado de esta cuenta y su QR. */
-  async function prepararEncuesta(ordenId: string) {
-    const enlace = await portal.enlaceDeCuenta(ordenId);
-    if (!enlace) return;
-    enlaceOpinion = enlace;
-    qrOpinion = await QRCode.toDataURL(enlace, {
-      width: 320,
-      margin: 1,
-      // Corrección media: el QR se lee aunque la pantalla tenga reflejos.
-      errorCorrectionLevel: "M",
-    }).catch(() => "");
+  function resolverPropinaPosterior(sinPropina = false) {
+    const monto = sinPropina
+      ? CERO
+      : pesos(Number(propinaPosterior.trim().replace(",", ".")) || 0);
+    if (!sinPropina && monto <= 0) return;
+    if (!pos.resolverPropinaPosterior(monto, sinPropina ? undefined : formaPropinaPosterior)) return;
+    propinaPosterior = "";
+    formaPropinaPosterior = "efectivo";
   }
 
   async function dividir() {
@@ -888,33 +863,39 @@
 {/if}
 
 
-<!--
-  LA ENCUESTA LA CONTESTA QUIEN COMIÓ, NO EL MESERO.
-
-  Antes esta ventana pedía la calificación y la tecleaba el mesero. Eso no es
-  una encuesta: es la opinión del mesero sobre su propio servicio, y la mejor
-  prueba es que casi nunca salía "mal".
-
-  Ahora se le entrega el enlace al comensal —impreso en su ticket o mostrado en
-  pantalla— y él contesta desde su teléfono. El enlace abre SU cuenta y nada
-  más: va firmado por el local y caduca a los tres días.
--->
-{#if enlaceOpinion}
-  <div class="velo-op" role="presentation" onclick={cerrarOpinion}></div>
-  <div class="op" role="dialog" aria-modal="true" aria-label="Encuesta del comensal">
-    <h3>Que nos califique el comensal</h3>
+<!-- El ticket interno espera esta respuesta para que nunca se archive sin propina. -->
+{#if pos.propinaPendiente}
+  <div class="velo-op" role="presentation"></div>
+  <div class="op" role="dialog" aria-modal="true" aria-label="Agregar propina">
+    <h3>¿Dejó propina?</h3>
     <p class="pista-nombre">
-      Muéstrale el código o pásale el teléfono. Contesta él, en diez segundos, y
-      su respuesta entra sola.
+      La mesa ya quedó liberada. El ticket interno se imprimirá cuando registres
+      la propina o confirmes que no dejó.
     </p>
-
-    <div class="qr-op">
-      <img src={qrOpinion} alt="Código para calificar la visita" />
-    </div>
-
-    <p class="enlace-op">{enlaceOpinion}</p>
-
-    <button class="saltar" onclick={cerrarOpinion}>Listo</button>
+    <label class="campo-modal">
+      <span>Monto</span>
+      <input
+        type="text"
+        inputmode="decimal"
+        bind:value={propinaPosterior}
+        placeholder="0.00"
+        aria-label="Monto de propina posterior"
+      />
+    </label>
+    <label class="campo-modal">
+      <span>Se pagó con</span>
+      <select bind:value={formaPropinaPosterior}>
+        {#each FORMAS_PAGO_MANUALES as forma (forma.valor)}
+          <option value={forma.valor}>{forma.etiqueta}</option>
+        {/each}
+      </select>
+    </label>
+    <button class="guardar-op" onclick={() => resolverPropinaPosterior(false)}>
+      Registrar propina e imprimir
+    </button>
+    <button class="saltar" onclick={() => resolverPropinaPosterior(true)}>
+      No dejó propina
+    </button>
   </div>
 {/if}
 
@@ -1609,23 +1590,23 @@
     font-weight: 700;
     margin-bottom: 0.85rem;
   }
-  /* El código que se le enseña al comensal para que califique él. */
-  .qr-op {
-    display: flex;
-    justify-content: center;
-    margin: 0.9rem 0 0.6rem;
-  }
-  .qr-op img {
-    width: 15rem;
-    height: 15rem;
-    border-radius: var(--r-md);
-    background: #fff;
-  }
-  .enlace-op {
-    font-size: 0.68rem;
+  .campo-modal {
+    display: grid;
+    gap: 0.25rem;
+    margin-top: 0.7rem;
+    text-align: left;
+    font-size: 0.8rem;
     color: var(--gris);
-    word-break: break-all;
-    line-height: 1.4;
+  }
+  .campo-modal input,
+  .campo-modal select {
+    width: 100%;
+    border: 1.5px solid var(--borde);
+    border-radius: var(--r-sm);
+    padding: 0.55rem 0.65rem;
+    background: #fff;
+    color: var(--pizarra);
+    font: inherit;
   }
   .saltar {
     margin-top: 0.7rem;

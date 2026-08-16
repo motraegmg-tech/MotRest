@@ -51,6 +51,11 @@ export interface TextosDelTicket {
   pie: string;
 }
 
+export interface QrAdicionalTicket {
+  leyenda: string;
+  url: string;
+}
+
 export const TEXTOS_TICKET_INICIALES: TextosDelTicket = {
   encabezado: "",
   invitacion_opinion: "¿Cómo estuvo todo? Cuéntanos",
@@ -63,6 +68,7 @@ interface Ajustes {
   retencionMeses?: MesesRetencion;
   ficha?: Partial<FichaDelLocal>;
   textosTicket?: Partial<TextosDelTicket>;
+  qrAdicional?: Partial<QrAdicionalTicket>;
 }
 
 class StoreLocal {
@@ -83,6 +89,9 @@ class StoreLocal {
   /** Las frases del ticket. Las de fábrica hasta que alguien las cambie. */
   textosTicket = $state<TextosDelTicket>({ ...TEXTOS_TICKET_INICIALES });
 
+  /** Segundo QR opcional, normalmente la ficha del restaurante en Google Maps. */
+  qrAdicional = $state<QrAdicionalTicket>({ leyenda: "Danos 5 estrellas en Google Maps", url: "" });
+
   private almacen: Almacen | null = null;
 
   async hidratar(almacen: Almacen): Promise<void> {
@@ -97,6 +106,9 @@ class StoreLocal {
     if (guardados?.ficha) this.ficha = { ...this.ficha, ...guardados.ficha };
     if (guardados?.textosTicket) {
       this.textosTicket = { ...this.textosTicket, ...guardados.textosTicket };
+    }
+    if (guardados?.qrAdicional) {
+      this.qrAdicional = { ...this.qrAdicional, ...guardados.qrAdicional };
     }
   }
 
@@ -128,6 +140,22 @@ class StoreLocal {
     this.guardar();
   }
 
+  fijarQrAdicional(cambios: Partial<QrAdicionalTicket>): void {
+    this.qrAdicional = { ...this.qrAdicional, ...cambios };
+    this.guardar();
+  }
+
+  /** Solo se imprime una URL web explícita; otros esquemas no llegan al papel. */
+  get qrAdicionalParaTicket(): QrAdicionalTicket | null {
+    try {
+      const url = new URL(this.qrAdicional.url.trim());
+      if (url.protocol !== "https:" && url.protocol !== "http:") return null;
+      return { leyenda: this.qrAdicional.leyenda.trim(), url: url.toString() };
+    } catch {
+      return null;
+    }
+  }
+
   private guardar(): void {
     void this.almacen?.estado
       .guardar<Ajustes>(CLAVE_LOCAL, {
@@ -135,6 +163,7 @@ class StoreLocal {
         retencionMeses: this.retencionMeses,
         ficha: { ...this.ficha },
         textosTicket: { ...this.textosTicket },
+        qrAdicional: { ...this.qrAdicional },
       })
       .catch((causa) => {
         console.error("No se pudieron guardar los ajustes del local", causa);

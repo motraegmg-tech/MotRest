@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { pesos, type Centavos } from "@motrest/dominio";
 import { Ticket, aCP437 } from "../escpos.js";
-import { comandaCocina, corteCaja, precuenta, ticketVenta } from "../plantillas.js";
+import { comandaCocina, corteCaja, precuenta, ticketInterno, ticketVenta } from "../plantillas.js";
 import { sellarCorte, verificarSello, type CifrasCorte } from "../sello.js";
 import {
   ColaImpresion,
@@ -137,7 +137,12 @@ describe("pre-cuenta", () => {
   const datos = {
     folio: "A1B2C3D4",
     ts: T0,
-    local: { nombre: "Rodizio", direccion: "Av. Central 100", telefono: "55 1234 5678" },
+    local: {
+      nombre: "Rodizio",
+      direccion: "Av. Central 100",
+      rfc: "XAXX010101000",
+      telefono: "55 1234 5678",
+    },
     mesa: "12",
     mesero: "Lucía",
     renglones: [
@@ -161,26 +166,61 @@ describe("pre-cuenta", () => {
     expect(suma).toBe(datos.total);
   });
 
-  it("se declara como lo que es, y no como un comprobante", () => {
+  it("es el ticket que se entrega al cliente, con los datos del local", () => {
     const texto = precuenta(datos).aTexto();
-    expect(texto).toContain("CUENTA");
-    expect(texto).toContain("NO ES COMPROBANTE DE PAGO");
+    expect(texto).toContain("Folio: A1B2C3D4");
+    expect(texto).toContain("RFC: XAXX010101000");
     expect(texto).toContain("Precios con IVA incluido");
+    expect(texto).not.toContain("NO ES COMPROBANTE");
   });
 
-  it("no lleva RFC: un papel con RFC parece una factura", () => {
-    expect(precuenta(datos).aTexto()).not.toContain("RFC");
-  });
-
-  /*
-   * Nada de lo que solo existe después de pagar. Si algún día alguien reusa la
-   * plantilla del ticket para esto, estas tres líneas lo cazan.
-   */
-  it("no lleva forma de pago, ni cambio, ni QR de factura", () => {
+  it("antes del cobro no inventa forma de pago ni cambio", () => {
     const texto = precuenta(datos).aTexto();
     expect(texto).not.toContain("Efectivo");
     expect(texto).not.toContain("Cambio");
-    expect(texto).not.toContain("Factura tu consumo");
+  });
+
+  it("al reimprimir después del cobro conserva el formato y agrega el pago", () => {
+    const texto = precuenta({
+      ...datos,
+      reimpresion: 1,
+      pagos: [{ forma: "Efectivo", monto: pesos(700) }],
+      cambio: pesos(70.12),
+    }).aTexto();
+    expect(texto).toContain("REIMPRESION #1");
+    expect(texto).toContain("Efectivo");
+    expect(texto).toContain("Cambio");
+  });
+
+  it("imprime hasta dos QR con la indicación elegida", () => {
+    const ticket = precuenta({
+      ...datos,
+      qrs: [
+        { leyenda: "¿Cómo estuvo todo?", url: "https://motrest.test/opinion" },
+        { leyenda: "Danos 5 estrellas", url: "https://maps.example/restaurante" },
+      ],
+    });
+    expect(ticket.aTexto()).toContain("¿Cómo estuvo todo?");
+    expect(ticket.aTexto()).toContain("Danos 5 estrellas");
+    expect(ticket.aTexto()).not.toContain("https://");
+    expect(ticket.construir().length).toBeGreaterThan(ticket.aTexto().length);
+  });
+
+  it("puede dibujar el QR como imagen sin ensuciar la vista legible", () => {
+    const matriz = {
+      ancho: 3,
+      alto: 3,
+      pixeles: [true, false, true, false, true, false, true, false, true],
+    };
+    const ticket = precuenta({
+      ...datos,
+      qrs: [{ leyenda: "QR compatible", url: "https://example.test", matriz }],
+    }, 42, "imagen");
+    const bytes = Array.from(ticket.construir());
+    expect(ticket.aTexto()).toContain("QR compatible");
+    expect(ticket.aTexto()).not.toContain("https://");
+    expect(bytes.some((b, i) => b === 0x1d && bytes[i + 1] === 0x76 && bytes[i + 2] === 0x30))
+      .toBe(true);
   });
 
   it("sin rebajas no repite el total dos veces bajo nombres distintos", () => {
@@ -198,6 +238,43 @@ describe("pre-cuenta", () => {
     expect(texto).toContain("-$29.88");
     expect(texto).toContain("$600.00");
     expect(conRebaja.suma - conRebaja.descuentos - conRebaja.cortesias).toBe(conRebaja.total);
+  });
+});
+
+describe("ticket interno", () => {
+  const datos = {
+    folio: "A1B2C3D4",
+    ts: T0,
+    mesa: "12",
+    mesero: "Lucía",
+    renglones: [{ cantidad: 1, descripcion: "Pizza", importe: pesos(290) }],
+    suma: pesos(290),
+    descuentos: pesos(0) as Centavos,
+    cortesias: pesos(0) as Centavos,
+    total: pesos(290),
+    propina: pesos(30),
+    pagos: [{ forma: "Tarjeta", monto: pesos(320) }],
+    cambio: pesos(0) as Centavos,
+  };
+
+  it("es compacto, lleva pago y deja línea de firma", () => {
+    const texto = ticketInterno(datos).aTexto();
+    expect(texto).toContain("TICKET INTERNO");
+    expect(texto).toContain("Tarjeta");
+    expect(texto).toContain("Firma:");
+    expect(texto).not.toContain("RFC:");
+  });
+
+  it("marca una cortesía total y no inventa entrada de dinero", () => {
+    const texto = ticketInterno({
+      ...datos,
+      cortesias: pesos(290),
+      total: pesos(0),
+      propina: pesos(0),
+      pagos: [],
+    }).aTexto();
+    expect(texto).toContain("CORTESIA DE LA CASA");
+    expect(texto).toContain("Sin entrada de dinero");
   });
 });
 

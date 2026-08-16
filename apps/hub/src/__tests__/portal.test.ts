@@ -59,7 +59,11 @@ function cuentaCobrada(cerradaTs = AHORA): { ordenId: string; eventos: EventoCom
   return {
     ordenId,
     eventos: [
-      f.crear("orden_creada", ordenId, { orden_id: ordenId, mesa_id: "mesa-5", abierta_ts: 1 }),
+      f.crear("orden_creada", ordenId, {
+        orden_id: ordenId,
+        mesa_id: "mesa-5",
+        abierta_ts: Math.min(cerradaTs, AHORA) - 60 * 60 * 1000,
+      }),
       f.crear("item_agregado", ordenId, { orden_id: ordenId, renglon: renglon("Pizza", 249) }),
       f.crear("pago_registrado", ordenId, {
         orden_id: ordenId, monto: pesos(288.84), forma: "efectivo",
@@ -135,13 +139,15 @@ describe("el comensal abre su cuenta", () => {
     expect(r.ok).toBe(false);
   });
 
-  /* Mientras la mesa está en servicio no hay nada que calificar. */
-  it("una cuenta todavía abierta no se puede consultar", async () => {
+  /* El QR se entrega al pedir la cuenta, antes de pasar la tarjeta. */
+  it("una cuenta todavía abierta ya se puede consultar desde el QR impreso", async () => {
     const { ordenId, eventos } = cuentaCobrada();
     const sinCerrar = eventos.filter((e) => e.tipo !== "cuenta_cerrada");
     const d = deps({ [ordenId]: sinCerrar });
     const r = await verCuenta(await codigoDeCuenta(ordenId, SECRETO), d, []);
-    expect(r.ok).toBe(false);
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.datos.cerrada_ts).toBeUndefined();
   });
 
   /* Un enlace vivo para siempre es una puerta que nadie vuelve a mirar. */

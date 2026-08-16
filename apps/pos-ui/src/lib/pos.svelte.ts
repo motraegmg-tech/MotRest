@@ -70,6 +70,8 @@ const opcionesSemilla: OpcionesSemilla = {
   fabrica,
 };
 
+const CLAVE_PROPINA_PENDIENTE = "pos_propina_pendiente";
+
 class TiendaPOS {
   /** Log de eventos por mesa (append-only: se reasigna al emitir). */
   private logs = $state.raw<Record<ID, readonly EventoComanda[]>>({});
@@ -82,6 +84,8 @@ class TiendaPOS {
    */
   mesaActiva = $state<ID>("");
   mensaje = $state<string>("");
+  /** Cuenta ya liberada cuyo ticket interno espera la decisión de propina. */
+  propinaPendiente = $state<{ mesa_id: ID; orden_id: ID } | null>(null);
   private temporizador: ReturnType<typeof setTimeout> | undefined;
 
   // --- Persistencia -----------------------------------------------------------
@@ -98,6 +102,22 @@ class TiendaPOS {
 
   conectarAlmacen(almacen: Almacen): void {
     this.almacen = almacen;
+    void almacen.estado
+      .cargar<{ mesa_id: ID; orden_id: ID } | null>(CLAVE_PROPINA_PENDIENTE)
+      .then((pendiente) => {
+        if (!pendiente) return;
+        const comanda = this.comandaDeMesa(pendiente.mesa_id);
+        if (comanda?.cerrada && comanda.orden_id === pendiente.orden_id) {
+          this.propinaPendiente = pendiente;
+        }
+      })
+      .catch((causa) => console.error("No se pudo recuperar la propina pendiente", causa));
+  }
+
+  private guardarPropinaPendiente(): void {
+    void this.almacen?.estado
+      .guardar(CLAVE_PROPINA_PENDIENTE, this.propinaPendiente)
+      .catch((causa) => console.error("No se pudo guardar la propina pendiente", causa));
   }
 
   /**
@@ -960,7 +980,7 @@ class TiendaPOS {
         fabrica.crear("pago_registrado", orden_id, { orden_id, monto, forma }),
       );
     }
-    this.emitir(this.mesaActiva, fabrica.crear("cuenta_cerrada", orden_id, { orden_id }));
+    await this.cerrarCuentaPagada(orden_id);
     this.flash(`Cuenta dividida en ${partes} · mesa ${this.nombreMesaActiva} liberada`);
   }
 
@@ -1083,7 +1103,12 @@ class TiendaPOS {
 
     const orden_id = this.ordenActiva(this.mesaActiva);
     const validos = pagos.filter((p) => p.monto > 0);
-    if (!orden_id || !this.hayCuenta || validos.length === 0) return false;
+    const saldoAntes = this.totales?.saldo;
+    // Una cortesía total cierra con $0: no existe un pago que registrar, pero sí
+    // existe una cuenta que liberar y dos papeles que imprimir.
+    if (!orden_id || !this.hayCuenta || (validos.length === 0 && (saldoAntes ?? 1) > 0)) {
+      return false;
+    }
 
     this.sincronizarActor();
     for (const pago of validos) {
@@ -1103,17 +1128,7 @@ class TiendaPOS {
     // Si ya no queda saldo, la cuenta se cierra y la mesa se libera.
     const t = this.totales;
     if (t && t.saldo <= 0) {
-      const mesa = this.nombreMesaActiva;
-      const comanda = this.comanda;
-      // El ticket se arma ANTES de cerrar, mientras la comanda sigue completa.
-      if (comanda) this.imprimirTicket(comanda, t);
-
-      this.emitir(this.mesaActiva, fabrica.crear("cuenta_cerrada", orden_id, { orden_id }));
-      this.flash(
-        t.cambio > 0
-          ? `Mesa ${mesa} cobrada · cambio ${(t.cambio / 100).toFixed(2)}`
-          : `Mesa ${mesa} cobrada · liberada`,
-      );
+      await this.cerrarCuentaPagada(orden_id);
     } else {
       this.flash("Pago parcial registrado");
     }
@@ -1140,10 +1155,18 @@ class TiendaPOS {
    * No emite ningún evento: pedir la cuenta no mueve dinero ni cambia la
    * comanda. Lo que sí queda registrado es el cobro, después.
    */
-  imprimirPrecuenta(): boolean {
+  async imprimirPrecuenta(): Promise<boolean> {
     const comanda = this.comanda;
     const t = this.totales;
     if (!comanda || !t) return false;
+
+    const impresa = await this.imprimirTicketCliente(comanda, t);
+    this.flash("Cuenta impresa");
+    return impresa;
+  }
+
+  /** Los importes que ve el cliente: cada renglón ya trae su impuesto. */
+  private datosComunesDelPapel(comanda: EstadoComanda, t: TotalesComanda) {
 
     const renglones = renglonesActivos(comanda).map((r) => ({
       cantidad: r.cantidad,
@@ -1172,25 +1195,40 @@ class TiendaPOS {
     ) as Centavos;
     const cortesias = (rebaja - descuentos) as Centavos;
 
-    impresion.precuenta({
+    return { renglones, suma, descuentos, cortesias, total: t.total };
+  }
+
+  /** Imprime el papel que se entrega al cliente, antes o después del cobro. */
+  private async imprimirTicketCliente(
+    comanda: EstadoComanda,
+    t: TotalesComanda,
+    reimpresion?: number,
+  ): Promise<boolean> {
+    const enlaceOpinion = await portal.enlaceDeCuenta(comanda.orden_id);
+    const comunes = this.datosComunesDelPapel(comanda, t);
+
+    return impresion.precuenta({
+      ...comunes,
+      reimpresion,
       folio: comanda.orden_id.slice(-8).toUpperCase(),
       ts: Date.now(),
-      local: {
-        nombre: datosLocal.nombre,
-        direccion: datosLocal.direccion,
-        telefono: datosLocal.telefono,
-      },
-      mesa: this.nombreMesaActiva,
+      local: local.fichaParaTicket(datosLocal.nombre),
+      textos: local.textosTicket,
+      qrs: [
+        ...(enlaceOpinion
+          ? [{ leyenda: local.textosTicket.invitacion_opinion, url: enlaceOpinion }]
+          : []),
+        ...(local.qrAdicionalParaTicket ? [local.qrAdicionalParaTicket] : []),
+      ],
+      mesa: plano.nombreMesa(comanda.mesa_id),
       mesero: sesion.nombreDe(comanda.mesero_id),
-      renglones,
-      suma,
-      descuentos,
-      cortesias,
-      total: t.total,
+      propina: t.propina,
+      pagos: comanda.pagos.map((p) => ({
+        forma: etiquetaFormaPago(p.forma),
+        monto: p.monto,
+      })),
+      cambio: t.cambio,
     });
-
-    this.flash("Cuenta impresa");
-    return true;
   }
 
   /**
@@ -1215,40 +1253,46 @@ class TiendaPOS {
       this.mesaActiva,
       fabrica.crear("ticket_reimpreso", orden_id, { orden_id, numero }),
     );
-    this.imprimirTicket(comanda, t, numero);
+    await this.imprimirTicketCliente(comanda, t, numero);
     this.flash(`Ticket reimpreso (copia ${numero})`);
     return true;
   }
 
-  private imprimirTicket(
-    comanda: EstadoComanda,
-    t: TotalesComanda,
-    reimpresion?: number,
-    urlOpinion?: string,
-  ): void {
-    impresion.ticket({
-      reimpresion,
+  /** Único cierre posterior a un pago, también para cuentas divididas y cortesías. */
+  private async cerrarCuentaPagada(ordenId: ID): Promise<void> {
+    const mesaId = this.mesaActiva;
+    const mesa = plano.nombreMesa(mesaId);
+    const comanda = this.comanda;
+    const t = this.totales;
+    if (!comanda || !t || comanda.orden_id !== ordenId || t.saldo > 0) return;
+
+    const cortesiaTotal = t.total === 0 && t.cortesias > 0;
+    // La cortesía también entrega comprobante al cliente, aunque no entre dinero.
+    if (cortesiaTotal) await this.imprimirTicketCliente(comanda, t);
+    this.emitir(mesaId, fabrica.crear("cuenta_cerrada", ordenId, { orden_id: ordenId }));
+
+    if (t.propina === 0 && !cortesiaTotal) {
+      this.propinaPendiente = { mesa_id: mesaId, orden_id: ordenId };
+      this.guardarPropinaPendiente();
+    } else {
+      this.imprimirTicketInterno(comanda, t);
+    }
+    this.flash(
+      t.cambio > 0
+        ? `Mesa ${mesa} cobrada · cambio ${(t.cambio / 100).toFixed(2)}`
+        : `Mesa ${mesa} cobrada · liberada`,
+    );
+  }
+
+  /** Imprime la copia compacta que conserva el restaurante. */
+  private imprimirTicketInterno(comanda: EstadoComanda, t: TotalesComanda): void {
+    const comunes = this.datosComunesDelPapel(comanda, t);
+    impresion.ticketInterno({
+      ...comunes,
       folio: comanda.orden_id.slice(-8).toUpperCase(),
       ts: Date.now(),
-      // La ficha que capturó el restaurante, no la constante que traía el
-      // código con los datos de Rodizio dentro.
-      local: local.fichaParaTicket(datosLocal.nombre),
-      textos: local.textosTicket,
-      url_opinion: urlOpinion,
-      mesa: this.nombreMesaActiva,
+      mesa: plano.nombreMesa(comanda.mesa_id),
       mesero: sesion.nombreDe(comanda.mesero_id),
-      renglones: renglonesActivos(comanda).map((r) => ({
-        cantidad: r.cantidad,
-        descripcion: r.descripcion,
-        detalle: r.detalle,
-        importe: (r.precio_unitario * r.cantidad) as Centavos,
-      })),
-      subtotal: t.subtotal,
-      descuentos: t.descuentos,
-      cortesias: t.cortesias,
-      iva: t.iva,
-      ieps: t.ieps,
-      total: t.total,
       propina: t.propina,
       pagos: comanda.pagos.map((p) => ({
         forma: etiquetaFormaPago(p.forma),
@@ -1256,6 +1300,42 @@ class TiendaPOS {
       })),
       cambio: t.cambio,
     });
+  }
+
+  /** Resuelve la ventana posterior al cobro y recién entonces imprime el interno. */
+  resolverPropinaPosterior(monto: Centavos, forma?: FormaPago): boolean {
+    const pendiente = this.propinaPendiente;
+    if (!pendiente || monto < 0 || (monto > 0 && !forma)) return false;
+
+    let comanda = this.comandaDeMesa(pendiente.mesa_id);
+    if (!comanda || comanda.orden_id !== pendiente.orden_id || !comanda.cerrada) return false;
+
+    this.sincronizarActor();
+    if (monto > 0 && forma) {
+      this.emitir(
+        pendiente.mesa_id,
+        fabrica.crear("propina_registrada", pendiente.orden_id, {
+          orden_id: pendiente.orden_id,
+          monto,
+        }),
+      );
+      this.emitir(
+        pendiente.mesa_id,
+        fabrica.crear("pago_registrado", pendiente.orden_id, {
+          orden_id: pendiente.orden_id,
+          monto,
+          forma,
+        }),
+      );
+      comanda = this.comandaDeMesa(pendiente.mesa_id);
+    }
+
+    if (!comanda) return false;
+    this.imprimirTicketInterno(comanda, totalesComanda(comanda));
+    this.propinaPendiente = null;
+    this.guardarPropinaPendiente();
+    this.flash(monto > 0 ? "Propina registrada · ticket interno impreso" : "Ticket interno impreso");
+    return true;
   }
 
   /** Cobro rápido del total pendiente en efectivo. */

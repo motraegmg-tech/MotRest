@@ -22,6 +22,7 @@
     type SueldoSemanal,
     type TipoChecada,
   } from "@motrest/dominio";
+  import VentanaAmplia from "../VentanaAmplia.svelte";
   import { asistencia } from "../asistencia.svelte";
   import { hora, mxn } from "../formato";
   import { prenomina } from "../prenomina.svelte";
@@ -30,6 +31,15 @@
   import RolDeMesas from "./personal/RolDeMesas.svelte";
 
   let seleccionado = $state<string>("");
+
+  /**
+   * Cuántas checadas se listan antes de pedir «Ver más».
+   *
+   * Veinte cubren un turno con su equipo completo entrando y saliendo. El resto
+   * se busca cuando se está revisando una nómina, y para eso está la ventana.
+   */
+  const TOPE_CHECADAS = 20;
+  let verChecadas = $state(false);
   let pin = $state("");
   let mensaje = $state("");
   let error = $state("");
@@ -648,28 +658,47 @@
   </div>
 
   <!-- Bitácora de checadas -->
+  {#snippet listaChecadas(lista: typeof asistencia.recientes)}
+    <div class="registro">
+      {#each lista as c (c.id)}
+        <div class="checada">
+          <span class="h">{hora(c.momento)}</span>
+          <span class="nombre">{sesion.nombreDe(c.trabajador_id)}</span>
+          <span class="tipo">{etiquetaChecada(c.tipo)}</span>
+          {#if c.corregida}
+            <span class="corregida">
+              corrección de {sesion.nombreDe(c.autorizador_id ?? "")}
+              {#if c.motivo}· {c.motivo}{/if}
+            </span>
+          {/if}
+        </div>
+      {/each}
+    </div>
+  {/snippet}
+
   <section class="tarjeta">
     <h2>Últimas checadas</h2>
     {#if !asistencia.hayRegistro}
       <p class="vacio">Todavía nadie ha checado en este dispositivo.</p>
     {:else}
-      <div class="registro">
-        {#each asistencia.recientes.slice(0, 20) as c (c.id)}
-          <div class="checada">
-            <span class="h">{hora(c.momento)}</span>
-            <span class="nombre">{sesion.nombreDe(c.trabajador_id)}</span>
-            <span class="tipo">{etiquetaChecada(c.tipo)}</span>
-            {#if c.corregida}
-              <span class="corregida">
-                corrección de {sesion.nombreDe(c.autorizador_id ?? "")}
-                {#if c.motivo}· {c.motivo}{/if}
-              </span>
-            {/if}
-          </div>
-        {/each}
-      </div>
+      {@render listaChecadas(asistencia.recientes.slice(0, TOPE_CHECADAS))}
+      {#if asistencia.recientes.length > TOPE_CHECADAS}
+        <button class="ver-todo" onclick={() => (verChecadas = true)}>
+          Ver más ({asistencia.recientes.length - TOPE_CHECADAS} checadas más)
+        </button>
+      {/if}
     {/if}
   </section>
+
+  {#if verChecadas}
+    <VentanaAmplia
+      titulo="Checadas"
+      subtitulo="{asistencia.recientes.length} registros en este dispositivo, del más reciente al más antiguo"
+      onCerrar={() => (verChecadas = false)}
+    >
+      {@render listaChecadas(asistencia.recientes)}
+    </VentanaAmplia>
+  {/if}
   {/if}
 </div>
 

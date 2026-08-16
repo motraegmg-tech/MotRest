@@ -18,6 +18,7 @@
     type MotivoMovimiento,
     calcularRendimiento
   } from "@motrest/dominio";
+  import VentanaAmplia from "../VentanaAmplia.svelte";
   import { catalogo } from "../catalogo";
   import { hora, mxn, pct } from "../formato";
   import { local } from "../local.svelte";
@@ -76,6 +77,15 @@
 
   /** Insumo cuyo historial se está mirando desplegado. Vacío = ninguno. */
   let detalle = $state("");
+
+  /**
+   * Cuántos movimientos se listan en la tarjeta antes de pedir «Ver más».
+   *
+   * Veinticinco cubren un servicio entero; el resto se mira cuando se está
+   * aclarando una diferencia, y para eso está la ventana.
+   */
+  const TOPE_MOVIMIENTOS = 25;
+  let verMovimientos = $state(false);
 
   /** Los últimos movimientos de UN insumo, que es como se aclara una diferencia. */
   function movimientosDe(insumoId: string) {
@@ -266,35 +276,54 @@
       </p>
     </section>
 
+    {#snippet listaMovimientos(lista: typeof inventario.movimientos)}
+      <div class="movimientos">
+        {#each lista as mov (mov.id)}
+          {#if mov.tipo === "movimiento_inventario"}
+            {@const insumo = inventario.insumo(mov.insumo_id)}
+            <div class="mov {mov.motivo}">
+              <span class="hora">{hora(mov.ts)}</span>
+              <span class="nombre">{insumo?.nombre ?? mov.insumo_id}</span>
+              <span class="motivo">{etiquetaMotivo(mov.motivo)}</span>
+              <span class="delta" class:resta={mov.delta < 0}>
+                {mov.delta > 0 ? "+" : ""}{formatearCantidad(mov.delta, mov.unidad)}
+              </span>
+            </div>
+          {:else}
+            <div class="mov conteo">
+              <span class="hora">{hora(mov.ts)}</span>
+              <span class="nombre">Conteo cíclico</span>
+              <span class="motivo">{mov.lineas.length} insumos ajustados</span>
+              <span class="delta"></span>
+            </div>
+          {/if}
+        {/each}
+      </div>
+    {/snippet}
+
     <section class="tarjeta">
       <h2>Últimos movimientos</h2>
       {#if inventario.movimientos.length === 0}
         <p class="vacio">Sin movimientos todavía.</p>
       {:else}
-        <div class="movimientos">
-          {#each inventario.movimientos.slice(0, 25) as mov (mov.id)}
-            {#if mov.tipo === "movimiento_inventario"}
-              {@const insumo = inventario.insumo(mov.insumo_id)}
-              <div class="mov {mov.motivo}">
-                <span class="hora">{hora(mov.ts)}</span>
-                <span class="nombre">{insumo?.nombre ?? mov.insumo_id}</span>
-                <span class="motivo">{etiquetaMotivo(mov.motivo)}</span>
-                <span class="delta" class:resta={mov.delta < 0}>
-                  {mov.delta > 0 ? "+" : ""}{formatearCantidad(mov.delta, mov.unidad)}
-                </span>
-              </div>
-            {:else}
-              <div class="mov conteo">
-                <span class="hora">{hora(mov.ts)}</span>
-                <span class="nombre">Conteo cíclico</span>
-                <span class="motivo">{mov.lineas.length} insumos ajustados</span>
-                <span class="delta"></span>
-              </div>
-            {/if}
-          {/each}
-        </div>
+        {@render listaMovimientos(inventario.movimientos.slice(0, TOPE_MOVIMIENTOS))}
+        {#if inventario.movimientos.length > TOPE_MOVIMIENTOS}
+          <button class="ver-todo" onclick={() => (verMovimientos = true)}>
+            Ver más ({inventario.movimientos.length - TOPE_MOVIMIENTOS} movimientos más)
+          </button>
+        {/if}
       {/if}
     </section>
+
+    {#if verMovimientos}
+      <VentanaAmplia
+        titulo="Movimientos de inventario"
+        subtitulo="{inventario.movimientos.length} movimientos registrados, del más reciente al más antiguo"
+        onCerrar={() => (verMovimientos = false)}
+      >
+        {@render listaMovimientos(inventario.movimientos)}
+      </VentanaAmplia>
+    {/if}
   {:else if vista === "movimiento"}
     <section class="tarjeta">
       <h2>Registrar movimiento</h2>

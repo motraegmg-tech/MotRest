@@ -26,14 +26,17 @@ import {
   corteCaja,
   impresoraPara,
   precuenta,
+  pruebaCodigosQr,
   representacionCfdi,
   sellarCorte,
+  ticketInterno,
   ticketVenta,
   type CifrasCorte,
   type DatosComanda,
   type DatosCorte,
   type DatosPrecuenta,
   type DatosTicket,
+  type DatosTicketInterno,
   type Impresora,
   type ResultadoEnvio,
   type TipoDocumento,
@@ -41,6 +44,24 @@ import {
   type Transporte,
 } from "@motrest/impresion";
 import type { Almacen } from "@motrest/protocolo-sync";
+import QRCode from "qrcode";
+
+function conMatrizQr(datos: DatosPrecuenta): DatosPrecuenta {
+  return {
+    ...datos,
+    qrs: datos.qrs?.map((qr) => {
+      const creado = QRCode.create(qr.url, { errorCorrectionLevel: "M" });
+      return {
+        ...qr,
+        matriz: {
+          ancho: creado.modules.size,
+          alto: creado.modules.size,
+          pixeles: Array.from(creado.modules.data, Boolean),
+        },
+      };
+    }),
+  };
+}
 
 /**
  * Transporte real: manda los bytes al Hub, que abre el socket a la impresora.
@@ -493,7 +514,8 @@ class StoreImpresion {
       this.vistaPrevia = { titulo: `Cuenta ${datos.folio}`, texto: precuenta(datos).aTexto() };
       return false;
     }
-    const ticket = precuenta(datos, impresora.ancho);
+    const preparados = impresora.modo_qr === "imagen" ? conMatrizQr(datos) : datos;
+    const ticket = precuenta(preparados, impresora.ancho, impresora.modo_qr ?? "nativo");
     this.encolar(impresora, "precuenta", ticket, datos.folio);
     this.vistaPrevia = { titulo: `Cuenta ${datos.folio}`, texto: ticket.aTexto() };
     return true;
@@ -508,6 +530,22 @@ class StoreImpresion {
     const ticket = ticketVenta(datos, impresora.ancho);
     this.encolar(impresora, "ticket", ticket, datos.folio);
     this.vistaPrevia = { titulo: `Ticket ${datos.folio}`, texto: ticket.aTexto() };
+    return true;
+  }
+
+  /** Copia simplificada que se queda en el restaurante después del cobro. */
+  ticketInterno(datos: DatosTicketInterno): boolean {
+    const impresora = impresoraPara(this.impresoras, "caja");
+    if (!impresora) {
+      this.vistaPrevia = {
+        titulo: `Ticket interno ${datos.folio}`,
+        texto: ticketInterno(datos).aTexto(),
+      };
+      return false;
+    }
+    const ticket = ticketInterno(datos, impresora.ancho);
+    this.encolar(impresora, "ticket_interno", ticket, datos.folio);
+    this.vistaPrevia = { titulo: `Ticket interno ${datos.folio}`, texto: ticket.aTexto() };
     return true;
   }
 
@@ -562,6 +600,31 @@ class StoreImpresion {
     );
 
     this.vistaPrevia = { titulo: `Prueba · ${impresora.nombre}`, texto: ticket.aTexto() };
+    this.encolar(impresora, "prueba", ticket);
+  }
+
+  /** Saca los dos modos QR en el mismo papel para elegir el compatible. */
+  pruebaQr(impresoraId: ID): void {
+    const impresora = this.impresoras.find((i) => i.id === impresoraId);
+    if (!impresora) return;
+    const contenido = "https://motrest.mx/prueba-qr";
+    const preparado = conMatrizQr({
+      folio: "PRUEBA",
+      ts: Date.now(),
+      local: { nombre: "MotRest" },
+      mesa: "—",
+      mesero: "—",
+      renglones: [],
+      suma: 0 as Centavos,
+      descuentos: 0 as Centavos,
+      cortesias: 0 as Centavos,
+      total: 0 as Centavos,
+      qrs: [{ leyenda: "", url: contenido }],
+    });
+    const matriz = preparado.qrs?.[0]?.matriz;
+    if (!matriz) return;
+    const ticket = pruebaCodigosQr(contenido, matriz, impresora.ancho);
+    this.vistaPrevia = { titulo: `Prueba QR · ${impresora.nombre}`, texto: ticket.aTexto() };
     this.encolar(impresora, "prueba", ticket);
   }
 

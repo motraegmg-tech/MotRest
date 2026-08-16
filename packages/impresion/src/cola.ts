@@ -39,12 +39,15 @@ export interface Impresora {
   corta: boolean;
   /** Puede abrir el cajón de efectivo. */
   cajon: boolean;
+  /** Cómo imprime QR: comando nativo o imagen para firmware antiguo. */
+  modo_qr?: "nativo" | "imagen";
   activa: boolean;
 }
 
 export type TipoDocumento =
   | "comanda"
   | "ticket"
+  | "ticket_interno"
   | "precuenta"
   | "corte"
   | "prueba"

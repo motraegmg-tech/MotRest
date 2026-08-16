@@ -10,7 +10,7 @@
  * cuenta otra — y el papel es el que se lleva el cliente.
  */
 import { aPesos, type Centavos, type RepresentacionImpresa } from "@motrest/dominio";
-import { Ticket, type Alineacion } from "./escpos.js";
+import { Ticket, type Alineacion, type ImagenMonocroma } from "./escpos.js";
 
 export const VERSION_PLANTILLAS = 1;
 
@@ -315,10 +315,10 @@ export interface RenglonPrecuenta {
 export interface DatosPrecuenta {
   folio: string;
   ts: number;
-  /** Sin RFC a propósito: esto no es un comprobante y no debe parecerlo. */
   local: {
     nombre: string;
     direccion?: string;
+    rfc?: string;
     telefono?: string;
   };
   mesa: string;
@@ -330,26 +330,44 @@ export interface DatosPrecuenta {
   descuentos: Centavos;
   cortesias: Centavos;
   total: Centavos;
+  propina?: Centavos;
+  pagos?: PagoTicket[];
+  cambio?: Centavos;
+  reimpresion?: number;
+  textos?: TextosTicket;
+  /** Hasta dos acciones que el comensal puede escanear desde su papel. */
+  qrs?: { leyenda: string; url: string; matriz?: ImagenMonocroma }[];
 }
 
 /**
- * La cuenta que se lleva a la mesa antes de cobrar.
- *
- * No es el ticket: no lleva forma de pago, ni cambio, ni QR de autofactura,
- * porque nada de eso existe todavía. Va marcada como lo que es para que nadie
- * la confunda con un comprobante —ni el comensal que la recibe, ni quien la
- * encuentre después en un corte—.
+ * El ticket del cliente. Se entrega al pedir la cuenta y puede reimprimirse ya
+ * con los pagos asentados. Los renglones llevan el impuesto dentro para que la
+ * suma que hace el comensal coincida con el total visible.
  */
-export function precuenta(datos: DatosPrecuenta, columnas: AnchoPapel = 42): Ticket {
+export function precuenta(
+  datos: DatosPrecuenta,
+  columnas: AnchoPapel = 42,
+  modoQr: "nativo" | "imagen" = "nativo",
+): Ticket {
   const t = new Ticket(columnas);
   const centrado: { alineacion: Alineacion } = { alineacion: "centro" };
+  const txt = { ...TEXTOS_TICKET_POR_DEFECTO, ...(datos.textos ?? {}) };
+
+  if (datos.reimpresion && datos.reimpresion > 0) {
+    t.linea(`** REIMPRESION #${datos.reimpresion} **`, { ...centrado, negrita: true });
+    t.salto();
+  }
 
   t.linea(datos.local.nombre, { ...centrado, negrita: true, doble_alto: true });
   if (datos.local.direccion) t.linea(datos.local.direccion, centrado);
+  if (datos.local.rfc) t.linea(`RFC: ${datos.local.rfc}`, centrado);
   if (datos.local.telefono) t.linea(`Tel: ${datos.local.telefono}`, centrado);
+  if (txt.encabezado) {
+    for (const l of envolverPalabras(txt.encabezado, columnas)) t.linea(l, centrado);
+  }
   t.separador("=");
 
-  t.columnasDobles(`Cuenta: ${datos.folio}`, fechaHora(datos.ts));
+  t.columnasDobles(`Folio: ${datos.folio}`, fechaHora(datos.ts));
   t.columnasDobles(`Mesa: ${datos.mesa}`, datos.mesero);
   t.separador();
 
@@ -373,15 +391,119 @@ export function precuenta(datos: DatosPrecuenta, columnas: AnchoPapel = 42): Tic
   }
 
   t.columnasDobles("TOTAL A PAGAR", mxn(datos.total), { negrita: true, doble_alto: true });
+  if ((datos.propina ?? 0) > 0) {
+    t.columnasDobles("Propina", mxn(datos.propina!));
+    t.columnasDobles("Total con propina", mxn((datos.total + datos.propina!) as Centavos), {
+      negrita: true,
+    });
+  }
   t.salto();
   t.linea("Precios con IVA incluido", centrado);
 
-  t.separador();
-  t.linea("*** CUENTA ***", { ...centrado, negrita: true });
-  t.linea("NO ES COMPROBANTE DE PAGO", centrado);
-  t.linea("Solicite su ticket al pagar", centrado);
+  if ((datos.pagos?.length ?? 0) > 0) {
+    t.separador();
+    for (const pago of datos.pagos ?? []) t.columnasDobles(pago.forma, mxn(pago.monto));
+    if ((datos.cambio ?? 0) > 0) {
+      t.columnasDobles("Cambio", mxn(datos.cambio!), { negrita: true });
+    }
+  }
+
+  for (const qr of (datos.qrs ?? []).slice(0, 2)) {
+    if (!qr.url.trim()) continue;
+    t.salto();
+    if (qr.leyenda.trim()) t.linea(qr.leyenda.trim(), { ...centrado, negrita: true });
+    if (modoQr === "imagen" && qr.matriz) t.imagenMonocroma(qr.matriz);
+    else t.qr(qr.url.trim());
+  }
+
   t.salto();
+  if (txt.agradecimiento) t.linea(txt.agradecimiento, centrado);
+  if (txt.pie) for (const l of envolverPalabras(txt.pie, columnas)) t.linea(l, centrado);
   t.linea(FIRMA_MOTRAE, centrado);
+  return t.cortar();
+}
+
+// --- Ticket interno -----------------------------------------------------------------
+
+export interface DatosTicketInterno {
+  folio: string;
+  ts: number;
+  mesa: string;
+  mesero: string;
+  renglones: RenglonPrecuenta[];
+  suma: Centavos;
+  descuentos: Centavos;
+  cortesias: Centavos;
+  total: Centavos;
+  propina: Centavos;
+  pagos: PagoTicket[];
+  cambio: Centavos;
+}
+
+/** Copia compacta que conserva el restaurante después de cobrar. */
+export function ticketInterno(datos: DatosTicketInterno, columnas: AnchoPapel = 42): Ticket {
+  const t = new Ticket(columnas);
+  const centrado: { alineacion: Alineacion } = { alineacion: "centro" };
+
+  t.linea("*** TICKET INTERNO ***", { ...centrado, negrita: true });
+  if (datos.total === 0 && datos.cortesias > 0) {
+    t.linea("CORTESIA DE LA CASA", { ...centrado, negrita: true, doble_alto: true });
+  }
+  t.columnasDobles(`Folio: ${datos.folio}`, fechaHora(datos.ts));
+  t.columnasDobles(`Mesa: ${datos.mesa}`, datos.mesero);
+  t.separador();
+
+  for (const renglon of datos.renglones) {
+    t.columnasDobles(`${renglon.cantidad}x ${renglon.descripcion}`, mxn(renglon.importe));
+    if (renglon.detalle) t.linea(`   ${renglon.detalle}`);
+  }
+
+  t.separador();
+  const hayRebajas = datos.descuentos > 0 || datos.cortesias > 0;
+  if (hayRebajas) {
+    t.columnasDobles("Suma", mxn(datos.suma));
+    if (datos.descuentos > 0) t.columnasDobles("Descuentos", `-${mxn(datos.descuentos)}`);
+    if (datos.cortesias > 0) t.columnasDobles("Cortesias", `-${mxn(datos.cortesias)}`);
+  }
+  t.columnasDobles("TOTAL", mxn(datos.total), { negrita: true, doble_alto: true });
+  if (datos.propina > 0) {
+    t.columnasDobles("Propina", mxn(datos.propina));
+    t.columnasDobles("Total cobrado", mxn((datos.total + datos.propina) as Centavos), {
+      negrita: true,
+    });
+  }
+
+  t.separador();
+  if (datos.pagos.length === 0 && datos.total === 0) {
+    t.linea("Sin entrada de dinero", centrado);
+  } else {
+    for (const pago of datos.pagos) t.columnasDobles(pago.forma, mxn(pago.monto));
+  }
+  if (datos.cambio > 0) t.columnasDobles("Cambio", mxn(datos.cambio), { negrita: true });
+  t.salto(2);
+  t.linea("Firma: __________________________", centrado);
+  t.linea(FIRMA_MOTRAE, centrado);
+  return t.cortar();
+}
+
+/** Hoja de diagnóstico: permite elegir visualmente el modo que sí lee la cámara. */
+export function pruebaCodigosQr(
+  contenido: string,
+  matriz: ImagenMonocroma,
+  columnas: AnchoPapel = 42,
+): Ticket {
+  const t = new Ticket(columnas);
+  const centrado: { alineacion: Alineacion } = { alineacion: "centro" };
+  t.linea("PRUEBA DE CODIGOS QR", { ...centrado, negrita: true, doble_alto: true });
+  t.linea("Escanea los dos con un telefono", centrado);
+  t.salto();
+  t.linea("1. QR NATIVO", { ...centrado, negrita: true });
+  t.qr(contenido);
+  t.salto();
+  t.linea("2. QR DIBUJADO COMO IMAGEN", { ...centrado, negrita: true });
+  t.imagenMonocroma(matriz);
+  t.salto();
+  t.linea("Guarda en MotRest el modo que funciono.", centrado);
   return t.cortar();
 }
 

@@ -17,6 +17,7 @@
     identidadDe,
     type Ficha360,
   } from "@motrest/dominio";
+  import VentanaAmplia from "../../VentanaAmplia.svelte";
   import { mxn } from "../../formato";
   import { opiniones } from "../../opiniones.svelte";
   import { pos } from "../../pos.svelte";
@@ -27,6 +28,10 @@
 
   let filtro = $state("");
   let abierta = $state<string | null>(null);
+
+  /** Cuántos comensales en riesgo caben en la tarjeta antes de pedir «Ver más». */
+  const TOPE_SE_VAN = 12;
+  let verSeVan = $state(false);
 
   const fuentes = $derived({
     comandas: pos.todasLasComandas,
@@ -97,15 +102,34 @@
           Venían seguido y llevan tiempo sin aparecer. Ordenados por lo que
           gastaban: primero el que más duele perder.
         </p>
-        <div class="chips">
-          {#each seVan.slice(0, 12) as f (f.nombre + f.telefono)}
-            <span class="chip">
-              <b>{f.nombre}</b>
-              {f.dias_sin_venir} días · {mxn(f.gastado)}
-            </span>
-          {/each}
-        </div>
+        {@render chipsSeVan(seVan.slice(0, TOPE_SE_VAN))}
+        {#if seVan.length > TOPE_SE_VAN}
+          <button class="ver-todo" onclick={() => (verSeVan = true)}>
+            Ver más ({seVan.length - TOPE_SE_VAN} comensales más)
+          </button>
+        {/if}
       </section>
+    {/if}
+
+    {#snippet chipsSeVan(lista: typeof seVan)}
+      <div class="chips">
+        {#each lista as f (f.nombre + f.telefono)}
+          <span class="chip">
+            <b>{f.nombre}</b>
+            {f.dias_sin_venir} días · {mxn(f.gastado)}
+          </span>
+        {/each}
+      </div>
+    {/snippet}
+
+    {#if verSeVan}
+      <VentanaAmplia
+        titulo="Se están yendo"
+        subtitulo="{seVan.length} comensales que venían seguido y llevan tiempo sin aparecer, del que más gastaba al que menos"
+        onCerrar={() => (verSeVan = false)}
+      >
+        {@render chipsSeVan(seVan)}
+      </VentanaAmplia>
     {/if}
 
     <input class="buscar" bind:value={filtro} placeholder="Buscar por nombre o teléfono…" />

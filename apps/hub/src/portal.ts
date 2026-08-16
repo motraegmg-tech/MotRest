@@ -88,12 +88,11 @@ async function cuentaDelCodigo(
   const comanda = proyectarComanda(eventos);
   const ahora = (deps.ahora ?? Date.now)();
 
-  // Solo se abre una cuenta YA COBRADA: mientras la mesa está en servicio, lo
-  // que se ve todavía puede cambiar y no hay nada que calificar.
-  if (!comanda.cerrada || comanda.cerrada_ts === undefined) {
-    return { ok: false, codigo: 404, error: "Ese código no corresponde a ninguna cuenta" };
-  }
-  if (!enlaceVigente(comanda.cerrada_ts, ahora)) {
+  // El QR se entrega al pedir la cuenta, antes del cobro. Por eso el enlace ya
+  // puede abrirse en la mesa; si todavía no se ha cerrado, la vigencia parte de
+  // la apertura. El portal solo devuelve consumo visible, nunca datos internos.
+  const referencia = comanda.cerrada_ts ?? comanda.abierta_ts;
+  if (!enlaceVigente(referencia, ahora)) {
     return { ok: false, codigo: 404, error: "Ese código no corresponde a ninguna cuenta" };
   }
 

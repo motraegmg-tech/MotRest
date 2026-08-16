@@ -16,6 +16,7 @@
   import { sesion } from "../../sesion/sesion.svelte";
   import { local } from "../../local.svelte";
   import { respaldo } from "../../respaldo.svelte";
+  import CodigoQr from "./CodigoQr.svelte";
 
   let nueva = $state("");
   let manual = $state(false);
@@ -91,6 +92,7 @@
   const dePapel = $derived(encontradas.filter((d) => !d.virtual));
   const virtuales = $derived(encontradas.filter((d) => d.virtual));
   let verVirtuales = $state(false);
+  const qrAdicionalValido = $derived(local.qrAdicionalParaTicket);
 </script>
 
 <div class="seccion">
@@ -169,6 +171,23 @@
           oninput={(e) => local.fijarTextosTicket({ invitacion_opinion: e.currentTarget.value })}
         />
       </label>
+      <label class="ancho">
+        Segundo QR <em>(opcional)</em>
+        <input
+          value={local.qrAdicional.leyenda}
+          oninput={(e) => local.fijarQrAdicional({ leyenda: e.currentTarget.value })}
+          placeholder="Danos 5 estrellas en Google Maps"
+        />
+      </label>
+      <label class="ancho">
+        Enlace del segundo QR
+        <input
+          type="url"
+          value={local.qrAdicional.url}
+          oninput={(e) => local.fijarQrAdicional({ url: e.currentTarget.value })}
+          placeholder="https://maps.app.goo.gl/..."
+        />
+      </label>
       <label>
         Despedida
         <input
@@ -184,6 +203,22 @@
           placeholder="Síguenos en @turestaurante"
         />
       </label>
+    </div>
+    <div class="vista-qrs">
+      <article>
+        <b>{local.textosTicket.invitacion_opinion}</b>
+        <CodigoQr contenido="https://motrest.local/portal/#/c/VISTA-PREVIA" tamano={150} />
+        <small>El enlace real se firma para cada cuenta.</small>
+      </article>
+      {#if qrAdicionalValido}
+        <article>
+          <b>{qrAdicionalValido.leyenda}</b>
+          <CodigoQr contenido={qrAdicionalValido.url} tamano={150} />
+          <small>{qrAdicionalValido.url}</small>
+        </article>
+      {:else if local.qrAdicional.url.trim()}
+        <p class="aviso-error">El segundo enlace debe comenzar con http:// o https://.</p>
+      {/if}
     </div>
     <p class="ayuda">
       Debajo de todo siempre sale <b>MotRest by Motrae</b>. Eso no se cambia: es
@@ -434,6 +469,7 @@
         <span class="sp"></span>
         {#if puedeEditar}
           <button onclick={() => impresion.prueba(imp.id)}>Página de prueba</button>
+          <button onclick={() => impresion.pruebaQr(imp.id)}>Probar QR</button>
           <button onclick={() => impresion.actualizar(imp.id, { activa: !imp.activa })}>
             {imp.activa ? "Desactivar" : "Activar"}
           </button>
@@ -523,6 +559,18 @@
             >
               <option value="32">58 mm (32)</option>
               <option value="42">80 mm (42)</option>
+            </select>
+          </label>
+          <label>
+            <span>Modo de código QR</span>
+            <select
+              value={imp.modo_qr ?? "nativo"}
+              onchange={(e) => impresion.actualizar(imp.id, {
+                modo_qr: e.currentTarget.value as "nativo" | "imagen",
+              })}
+            >
+              <option value="nativo">Normal de la impresora</option>
+              <option value="imagen">Dibujado como imagen</option>
             </select>
           </label>
         </div>
@@ -761,6 +809,27 @@
   }
   .tarjeta.inactiva {
     opacity: 0.55;
+  }
+  .vista-qrs {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 1rem;
+    align-items: flex-start;
+  }
+  .vista-qrs article {
+    display: grid;
+    justify-items: center;
+    gap: 0.45rem;
+    max-width: 18rem;
+    padding: 0.8rem;
+    border: 1px solid var(--borde);
+    border-radius: var(--r-md);
+    text-align: center;
+  }
+  .vista-qrs small {
+    max-width: 15rem;
+    overflow-wrap: anywhere;
+    color: var(--gris);
   }
   .cab {
     display: flex;

@@ -27,6 +27,13 @@ export interface OpcionesTexto {
   alineacion?: Alineacion;
 }
 
+/** Mapa binario de una imagen; `true` es un punto negro. */
+export interface ImagenMonocroma {
+  ancho: number;
+  alto: number;
+  pixeles: readonly boolean[];
+}
+
 /**
  * Tabla de conversión a CP437 para los caracteres del español.
  *
@@ -173,6 +180,46 @@ export class Ticket {
     return this;
   }
 
+  /**
+   * Dibuja una matriz como imagen raster ESC/POS.
+   *
+   * Es la salida para impresoras antiguas cuyo firmware no implementa el
+   * comando QR nativo. Se agregan cuatro módulos blancos alrededor: sin esa
+   * zona de silencio la cámara no puede distinguir el código del texto.
+   */
+  imagenMonocroma(imagen: ImagenMonocroma, escala = 4, margen = 4): this {
+    const ancho = (imagen.ancho + margen * 2) * escala;
+    const alto = (imagen.alto + margen * 2) * escala;
+    const bytesPorFila = Math.ceil(ancho / 8);
+    const datos = new Array<number>(bytesPorFila * alto).fill(0);
+
+    for (let y = 0; y < alto; y += 1) {
+      const my = Math.floor(y / escala) - margen;
+      if (my < 0 || my >= imagen.alto) continue;
+      for (let x = 0; x < ancho; x += 1) {
+        const mx = Math.floor(x / escala) - margen;
+        if (mx < 0 || mx >= imagen.ancho) continue;
+        if (!imagen.pixeles[my * imagen.ancho + mx]) continue;
+        datos[y * bytesPorFila + Math.floor(x / 8)]! |= 0x80 >> (x % 8);
+      }
+    }
+
+    this.alinear("centro");
+    this.bytes.push(
+      GS,
+      0x76,
+      0x30,
+      0x00,
+      bytesPorFila & 0xff,
+      (bytesPorFila >> 8) & 0xff,
+      alto & 0xff,
+      (alto >> 8) & 0xff,
+      ...datos,
+    );
+    this.alinear("izquierda");
+    return this;
+  }
+
   /** Corta el papel dejando margen para que el corte no se coma la última línea. */
   cortar(): this {
     this.salto(4);
@@ -230,6 +277,11 @@ function longitudComando(bytes: readonly number[], i: number): number {
   if (b === GS) {
     if (siguiente === 0x21) return 3;
     if (siguiente === 0x56) return 4;
+    if (siguiente === 0x76 && bytes[i + 2] === 0x30) {
+      const anchoBytes = (bytes[i + 4] ?? 0) | ((bytes[i + 5] ?? 0) << 8);
+      const alto = (bytes[i + 6] ?? 0) | ((bytes[i + 7] ?? 0) << 8);
+      return 8 + anchoBytes * alto;
+    }
     if (siguiente === 0x28) {
       // Los comandos GS ( k llevan su longitud en dos bytes.
       const pL = bytes[i + 3] ?? 0;
