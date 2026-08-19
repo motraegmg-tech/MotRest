@@ -83,8 +83,19 @@ export function centinelaMermas(
 
   for (const ev of eventos) {
     if (ev.tipo === "movimiento_inventario") {
-      if (ev.motivo === "consumo_receta") suma(consumo, ev.insumo_id, Math.abs(ev.delta));
-      else if (ev.motivo === "merma") suma(merma, ev.insumo_id, Math.abs(ev.delta));
+      /*
+       * Consumo LEGÍTIMO es todo lo que salió a propósito: lo que se llevaron
+       * las recetas y lo que alguien declaró como utilización —la comida del
+       * personal, la masa de la prueba—, menos lo que regresó al cancelarse un
+       * platillo. Es la base contra la que se mide la fuga, así que dejar fuera
+       * la utilización habría hecho ver como pérdida del 100 % un insumo que se
+       * gasta bien pero no se vende.
+       */
+      if (ev.motivo === "consumo_receta" || ev.motivo === "utilizacion") {
+        suma(consumo, ev.insumo_id, Math.abs(ev.delta));
+      } else if (ev.motivo === "reverso_receta") {
+        suma(consumo, ev.insumo_id, -Math.abs(ev.delta));
+      } else if (ev.motivo === "merma") suma(merma, ev.insumo_id, Math.abs(ev.delta));
     } else if (ev.tipo === "conteo_registrado") {
       for (const linea of ev.lineas) {
         // Solo el faltante es fuga. Que sobre suele ser un registro previo mal

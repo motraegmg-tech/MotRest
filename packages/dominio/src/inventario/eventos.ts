@@ -16,6 +16,8 @@ import type { Unidad } from "./insumos.js";
 
 export type MotivoMovimiento =
   | "consumo_receta"
+  | "reverso_receta"
+  | "utilizacion"
   | "recepcion"
   | "merma"
   | "ajuste_conteo"
@@ -37,6 +39,26 @@ export interface DefinicionMotivo {
 
 export const MOTIVOS: DefinicionMotivo[] = [
   { valor: "consumo_receta", etiqueta: "Consumo por receta", direccion: "sale", manual: false },
+  /*
+   * La contrapartida del consumo: lo que VUELVE al almacén porque el platillo se
+   * canceló después de haberse mandado a cocina.
+   *
+   * Es un motivo propio y no un `consumo_receta` en positivo porque el costeo
+   * ideal-contra-real y el centinela suman el consumo en valor absoluto: una
+   * devolución disfrazada de consumo habría hecho creer que salió el DOBLE de
+   * producto. Tampoco es `devolucion`, que es la que se le regresa al proveedor.
+   */
+  { valor: "reverso_receta", etiqueta: "Devolución por cancelación", direccion: "entra", manual: false },
+  /*
+   * Consumo capturado A MANO, sin venta de por medio.
+   *
+   * Es lo que se gasta y no sale en ningún ticket: la masa de la prueba, el
+   * queso de la comida del personal, el aceite que se llevó la freidora nueva.
+   * Hasta ahora eso solo podía anotarse como merma, y mezclarlo arruinaba el
+   * único número que sirve para cobrar por ahorro verificado: la merma dejaba de
+   * ser pérdida evitable para volverse «todo lo que no se vendió».
+   */
+  { valor: "utilizacion", etiqueta: "Utilización del insumo", direccion: "sale", manual: true },
   { valor: "recepcion", etiqueta: "Recepción de compra", direccion: "entra", manual: true },
   { valor: "merma", etiqueta: "Merma", direccion: "sale", manual: true },
   { valor: "ajuste_conteo", etiqueta: "Ajuste por conteo", direccion: "ambos", manual: true },
@@ -74,6 +96,17 @@ export type EventoInventario =
       delta: number;
       unidad: Unidad;
       motivo: MotivoMovimiento;
+      /**
+       * Renglón de comanda que lo causó, en el consumo por receta y en su
+       * devolución.
+       *
+       * Es lo que permite que cancelar un platillo regrese EXACTAMENTE lo que
+       * ese platillo se llevó, y una sola vez. Sin él, el almacén solo sabía que
+       * habían salido 400 g de masa en el envío de las 21:14, no de cuál de las
+       * dos pizzas de ese envío: cancelar una habría devuelto las dos, y
+       * cancelar las dos habría devuelto cuatro.
+       */
+      renglon_id?: ID;
       /** Evento que lo originó (el envío a cocina, la recepción de compra…). */
       referencia?: string;
       nota?: string;

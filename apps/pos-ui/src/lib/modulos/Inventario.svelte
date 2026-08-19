@@ -10,6 +10,7 @@
     MOTIVOS_MANUALES,
     costeoIdealReal,
     cuentasCerradasEn,
+    deltaDelMotivo,
     explicarVarianza,
     seDesvia,
     etiquetaMotivo,
@@ -86,6 +87,21 @@
    */
   const TOPE_MOVIMIENTOS = 25;
   let verMovimientos = $state(false);
+
+  /*
+   * EL SIGNO, A LA VISTA MIENTRAS SE TECLEA.
+   *
+   * La cantidad se captura siempre en positivo y el motivo decide si suma o
+   * resta, que es correcto pero invisible: quien anota una merma de 500 g y ve
+   * «500» en la casilla no tiene forma de saber que va a restar hasta que ya
+   * restó. Pintar el número —rojo si sale, verde si entra— convierte el signo en
+   * algo que se ve antes de pulsar Registrar, no después de cuadrar el conteo.
+   */
+  const delta = $derived.by(() => {
+    const escrita = Number(cantidad);
+    if (cantidad.trim() === "" || !Number.isFinite(escrita) || escrita === 0) return 0;
+    return deltaDelMotivo(motivo, escrita);
+  });
 
   /** Los últimos movimientos de UN insumo, que es como se aclara una diferencia. */
   function movimientosDe(insumoId: string) {
@@ -211,6 +227,7 @@
             <th class="num">Mínimo</th>
             <th class="num">Comprado</th>
             <th class="num">Usado en platillos</th>
+            <th class="num">Utilizado</th>
             <th class="num">Merma</th>
             <th class="num">Valor</th>
           </tr>
@@ -221,6 +238,12 @@
             {@const bajo = cant < insumo.stock_minimo}
             {@const uso = inventario.consumoDe(insumo.id)}
             {@const abierto = detalle === insumo.id}
+            <!--
+              Lo vendido va NETO de lo devuelto: una pizza que se mandó a cocina
+              y se canceló no consumió nada, y esta es la columna de la que sale
+              la conversación sobre el tamaño de las porciones.
+            -->
+            {@const enPlatillos = (uso.consumo_receta ?? 0) - (uso.reverso_receta ?? 0)}
             <tr class:bajo class:negativo={cant < 0}>
               <td>
                 <button class="abrir-insumo" onclick={() => (detalle = abierto ? "" : insumo.id)}>
@@ -233,10 +256,18 @@
               <td class="num tenue">
                 {uso.recepcion ? formatearCantidad(uso.recepcion, insumo.unidad_base) : "—"}
               </td>
-              <td class="num">
-                {uso.consumo_receta
-                  ? formatearCantidad(uso.consumo_receta, insumo.unidad_base)
-                  : "—"}
+              <td class="num" title={uso.reverso_receta
+                ? `${formatearCantidad(uso.consumo_receta ?? 0, insumo.unidad_base)} salieron y ${formatearCantidad(uso.reverso_receta, insumo.unidad_base)} volvieron por cancelaciones`
+                : ""}>
+                {enPlatillos ? formatearCantidad(enPlatillos, insumo.unidad_base) : "—"}
+                {#if uso.reverso_receta}
+                  <small class="devuelto">
+                    −{formatearCantidad(uso.reverso_receta, insumo.unidad_base)} devueltos
+                  </small>
+                {/if}
+              </td>
+              <td class="num tenue">
+                {uso.utilizacion ? formatearCantidad(uso.utilizacion, insumo.unidad_base) : "—"}
               </td>
               <td class="num" class:alerta={(uso.merma ?? 0) > 0}>
                 {uso.merma ? formatearCantidad(uso.merma, insumo.unidad_base) : "—"}
@@ -245,7 +276,7 @@
             </tr>
             {#if abierto}
               <tr class="detalle">
-                <td colspan="7">
+                <td colspan="8">
                   <div class="mov-insumo">
                     <span class="titulo-detalle">
                       Movimientos de {insumo.nombre}
@@ -271,8 +302,10 @@
       </table>
       <p class="pista-tabla">
         Lo <b>usado en platillos</b> lo descuenta el sistema solo, al enviar a
-        cocina: sale de la receta de cada platillo y de su gramaje. Un insumo sin
-        receta que lo use nunca se moverá por esta vía.
+        cocina: sale de la receta de cada platillo y de su gramaje, y vuelve al
+        almacén si ese platillo se cancela. Un insumo sin receta que lo use nunca
+        se moverá por esta vía. Lo <b>utilizado</b> es lo que alguien anotó a
+        mano porque se gastó sin venderse: la prueba, la comida del personal.
       </p>
     </section>
 
@@ -346,7 +379,24 @@
         </label>
         <label>
           <span>Cantidad ({inventario.insumo(insumoId)?.unidad_base ?? ""})</span>
-          <input type="number" inputmode="decimal" bind:value={cantidad} placeholder="0" />
+          <input
+            class="cantidad"
+            class:resta={delta < 0}
+            class:suma={delta > 0}
+            type="number"
+            inputmode="decimal"
+            bind:value={cantidad}
+            placeholder="0"
+          />
+          {#if delta !== 0}
+            {@const unidad = inventario.insumo(insumoId)?.unidad_base ?? "pz"}
+            {@const antes = inventario.cantidad(insumoId)}
+            <small class="efecto" class:resta={delta < 0} class:suma={delta > 0}>
+              {delta < 0 ? "Resta" : "Suma"}
+              {formatearCantidad(Math.abs(delta), unidad)} ·
+              queda {formatearCantidad(antes + delta, unidad)}
+            </small>
+          {/if}
         </label>
         <label class="ancho">
           <span>Nota</span>
@@ -354,9 +404,12 @@
         </label>
       </div>
       <p class="pista">
-        El signo lo decide el motivo: merma, traspaso y devolución restan aunque
-        captures la cantidad en positivo. Solo el <b>ajuste por conteo</b> respeta
-        el signo que escribas, porque puede corregir en las dos direcciones.
+        El signo lo decide el motivo: merma, <b>utilización</b>, traspaso y
+        devolución restan aunque captures la cantidad en positivo. Solo el
+        <b>ajuste por conteo</b> respeta el signo que escribas, porque puede
+        corregir en las dos direcciones. La cantidad se pinta de
+        <b class="tinta-resta">rojo</b> cuando va a restar y de
+        <b class="tinta-suma">verde</b> cuando va a sumar.
       </p>
       {#if error}<p class="error" role="alert">{error}</p>{/if}
       <div class="botones">
@@ -714,13 +767,18 @@
     white-space: nowrap;
     min-width: 5rem;
     text-align: right;
-    color: #6b8f57;
+    color: var(--exito);
   }
   .mov .delta.resta {
     color: var(--peligro);
   }
   .mov.merma .nombre {
     color: var(--peligro);
+  }
+  /* La devolución por cancelación se lee de un vistazo entre las salidas. */
+  .mov.reverso_receta .motivo {
+    color: var(--exito);
+    font-weight: 600;
   }
   .campos {
     display: flex;
@@ -755,6 +813,44 @@
   .campos select:focus {
     outline: none;
     border-color: var(--acento);
+  }
+  /*
+   * El signo, en el color. Se pinta el número y su borde, no solo un texto de
+   * apoyo: quien captura mira la casilla, no el pie del formulario.
+   */
+  .campos input.cantidad {
+    font-weight: 700;
+    transition: color 0.12s ease, border-color 0.12s ease;
+  }
+  .campos input.cantidad.resta {
+    color: var(--peligro);
+    border-color: var(--peligro);
+  }
+  .campos input.cantidad.suma {
+    color: var(--exito);
+    border-color: var(--exito);
+  }
+  .campos input.cantidad.resta:focus,
+  .campos input.cantidad.suma:focus {
+    border-color: currentColor;
+  }
+  .efecto {
+    font-size: 0.74rem;
+    font-weight: 600;
+  }
+  .efecto.resta,
+  .tinta-resta {
+    color: var(--peligro);
+  }
+  .efecto.suma,
+  .tinta-suma {
+    color: var(--exito);
+  }
+  .devuelto {
+    display: block;
+    font-size: 0.68rem;
+    font-weight: 600;
+    color: var(--exito);
   }
   .pista {
     margin-top: 0.75rem;

@@ -84,6 +84,15 @@ function consumo(gramos: number): EventoInventario {
   );
 }
 
+/** Lo que volvió al almacén porque el platillo se canceló después de enviarse. */
+function devolucionPorCancelacion(gramos: number): EventoInventario {
+  return new FabricaEventos<EventoInventario>(CTX).crear(
+    "movimiento_inventario",
+    "insumo:ins-masa",
+    { insumo_id: "ins-masa", delta: gramos, unidad: "g", motivo: "reverso_receta" },
+  );
+}
+
 describe("la varianza", () => {
   /* 40 pizzas × 200 g = 8 000 g ideales. Salieron 9 500: kilo y medio de más. */
   it("mide lo que salió de más contra lo que la receta pide", () => {
@@ -123,6 +132,28 @@ describe("la varianza", () => {
     const r = costeoIdealReal([venta("prod-pizza", 40)], [consumo(8160)], CATALOGO, INSUMOS);
     expect(seDesvia(r.insumos[0]!)).toBe(false);
     expect(explicarVarianza(r.insumos[0]!)).toMatch(/normal/i);
+  });
+
+  /*
+   * LA PIZZA QUE SE MANDÓ A COCINA Y SE CANCELÓ.
+   *
+   * Lo ideal se calcula sobre los renglones vivos, y un platillo cancelado ya no
+   * está entre ellos: se venden 40 pero salió masa para 41. Si la devolución no
+   * se restara de lo real, esas 41 pizzas de masa contra 40 de receta dejarían
+   * una fuga permanente de 200 g por cada cancelación — una acusación de robo
+   * fabricada por el propio sistema.
+   */
+  it("lo que volvió al almacén por una cancelación no cuenta como consumido", () => {
+    const r = costeoIdealReal(
+      [venta("prod-pizza", 40)],
+      [consumo(8200), devolucionPorCancelacion(200)],
+      CATALOGO,
+      INSUMOS,
+    );
+
+    expect(r.insumos[0]!.real).toBe(8000);
+    expect(r.insumos[0]!.varianza).toBe(0);
+    expect(r.desviacion).toBe(pesos(0));
   });
 });
 

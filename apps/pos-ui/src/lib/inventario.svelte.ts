@@ -4,6 +4,10 @@
  * El stock se deriva de los movimientos, nunca se sobrescribe. Cuando el POS
  * manda platillos a cocina, aquí se explotan sus recetas y se registran los
  * consumos — pero solo de los insumos que declararon su vínculo con el almacén.
+ *
+ * Y al revés: cuando un platillo ya mandado se cancela, lo que se llevó vuelve
+ * al almacén como una entrada nueva, no borrando el descuento. El log solo
+ * agrega, así que el histórico sigue explicando el número.
  */
 import {
   FabricaEventos,
@@ -14,7 +18,7 @@ import {
   deltaDelMotivo,
   enNegativo,
   existenciaDe,
-  insumosDeRenglones,
+  insumosDeRenglon,
   porReponer,
   proyectarExistencias,
   streamConteos,
@@ -130,24 +134,41 @@ class StoreInventario {
     return consumoPorMotivo(this.eventos, insumoId);
   }
 
+  /**
+   * Renglones que ya movieron el almacén, por motivo.
+   *
+   * Es la memoria que impide contar dos veces: un renglón solo se descuenta si
+   * nunca se descontó, y solo se devuelve si se había descontado y todavía no
+   * se ha devuelto. Sin esto, reenviar a cocina descontaría de nuevo y dos
+   * toques al botón de cancelar regresarían el doble de producto.
+   */
+  private renglonesCon(motivo: MotivoMovimiento): Set<ID> {
+    const marcados = new Set<ID>();
+    for (const ev of this.eventos) {
+      if (ev.tipo !== "movimiento_inventario") continue;
+      if (ev.motivo === motivo && ev.renglon_id) marcados.add(ev.renglon_id);
+    }
+    return marcados;
+  }
+
   // --- Movimientos --------------------------------------------------------------------
 
   /**
-   * Descuenta los insumos de lo que se acaba de mandar a cocina.
-   * Devuelve cuántos insumos se movieron (0 si el restaurante no lleva recetas).
+   * Movimientos que genera UN renglón, con el signo que pida el motivo.
+   *
+   * Se emite un evento por renglón y por insumo —no uno agregado por envío—
+   * porque es la única forma de saber después qué se llevó cada platillo. Ese
+   * detalle es justo lo que hace posible devolverlo al cancelarlo.
    */
-  consumirPorReceta(
-    renglones: readonly RenglonComanda[],
+  private movimientosDeRenglon(
+    renglon: RenglonComanda,
+    motivo: "consumo_receta" | "reverso_receta",
     referencia: string,
-    empleadoId?: ID,
-  ): number {
-    const consumos = insumosDeRenglones(renglones, catalogo);
-    if (consumos.length === 0) return 0;
-
-    this.actor(empleadoId);
+  ): EventoInventario[] {
+    const entra = motivo === "reverso_receta";
     const eventos: EventoInventario[] = [];
 
-    for (const consumo of consumos) {
+    for (const consumo of insumosDeRenglon(renglon, catalogo)) {
       const insumo = this.insumo(consumo.insumo_id);
       if (!insumo) continue;
 
@@ -163,13 +184,67 @@ class StoreInventario {
       eventos.push(
         this.fabrica.crear("movimiento_inventario", streamInsumo(insumo.id), {
           insumo_id: insumo.id,
-          delta: -enBase,
+          delta: entra ? enBase : -enBase,
           unidad: insumo.unidad_base,
-          motivo: "consumo_receta",
+          motivo,
+          renglon_id: renglon.id,
           referencia,
         }),
       );
     }
+
+    return eventos;
+  }
+
+  /**
+   * Descuenta los insumos de lo que se acaba de mandar a cocina.
+   * Devuelve cuántos insumos se movieron (0 si el restaurante no lleva recetas).
+   */
+  consumirPorReceta(
+    renglones: readonly RenglonComanda[],
+    referencia: string,
+    empleadoId?: ID,
+  ): number {
+    const yaDescontados = this.renglonesCon("consumo_receta");
+    const pendientes = renglones.filter((r) => !yaDescontados.has(r.id));
+    if (pendientes.length === 0) return 0;
+
+    this.actor(empleadoId);
+    const eventos = pendientes.flatMap((r) =>
+      this.movimientosDeRenglon(r, "consumo_receta", referencia),
+    );
+
+    this.emitir(eventos);
+    return eventos.length;
+  }
+
+  /**
+   * Regresa al almacén lo que se llevó un platillo que se canceló.
+   *
+   * El almacén no se corrige borrando el descuento —el log solo agrega—, sino
+   * anotando la entrada contraria. Así el histórico sigue explicando el número:
+   * salieron 200 g de masa a las 21:14 y volvieron a las 21:20 porque la mesa 8
+   * canceló la pizza.
+   *
+   * Solo devuelve lo que de verdad salió: un platillo que se cancela ANTES de
+   * mandarse a cocina nunca descontó nada, así que no hay nada que regresar.
+   */
+  devolverPorCancelacion(
+    renglones: readonly RenglonComanda[],
+    referencia: string,
+    empleadoId?: ID,
+  ): number {
+    const descontados = this.renglonesCon("consumo_receta");
+    const devueltos = this.renglonesCon("reverso_receta");
+    const porDevolver = renglones.filter(
+      (r) => descontados.has(r.id) && !devueltos.has(r.id),
+    );
+    if (porDevolver.length === 0) return 0;
+
+    this.actor(empleadoId);
+    const eventos = porDevolver.flatMap((r) =>
+      this.movimientosDeRenglon(r, "reverso_receta", referencia),
+    );
 
     this.emitir(eventos);
     return eventos.length;

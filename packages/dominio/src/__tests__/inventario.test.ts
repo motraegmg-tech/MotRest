@@ -286,14 +286,20 @@ describe("merma", () => {
 
 describe("el signo del movimiento lo decide el motivo", () => {
   it("las salidas restan aunque se capturen en positivo", () => {
-    for (const motivo of ["merma", "traspaso", "devolucion", "consumo_receta"] as const) {
+    for (const motivo of [
+      "merma",
+      "traspaso",
+      "devolucion",
+      "consumo_receta",
+      "utilizacion",
+    ] as const) {
       expect(deltaDelMotivo(motivo, 500), motivo).toBe(-500);
       expect(deltaDelMotivo(motivo, -500), motivo).toBe(-500);
     }
   });
 
   it("las entradas suman aunque se capturen en negativo", () => {
-    for (const motivo of ["recepcion", "produccion"] as const) {
+    for (const motivo of ["recepcion", "produccion", "reverso_receta"] as const) {
       expect(deltaDelMotivo(motivo, 500), motivo).toBe(500);
       expect(deltaDelMotivo(motivo, -500), motivo).toBe(500);
     }
@@ -309,6 +315,24 @@ describe("el signo del movimiento lo decide el motivo", () => {
     expect(manuales).not.toContain("consumo_receta");
     expect(manuales).toContain("merma");
     expect(manuales).toContain("recepcion");
+  });
+
+  /*
+   * La devolución por cancelación la genera el POS al cancelar un platillo ya
+   * mandado a cocina. Ofrecerla en el formulario habría dado dos caminos para lo
+   * mismo, y uno de ellos sin renglón al que atarse: el almacén no habría podido
+   * saber si esa entrada ya estaba contada.
+   */
+  it("la devolución por cancelación tampoco: la emite el sistema", () => {
+    const manuales = MOTIVOS_MANUALES.map((m) => m.valor);
+    expect(manuales).not.toContain("reverso_receta");
+  });
+
+  it("la utilización sí se captura a mano, y aparece en el formulario", () => {
+    const utilizacion = MOTIVOS_MANUALES.find((m) => m.valor === "utilizacion");
+    expect(utilizacion).toBeDefined();
+    expect(utilizacion!.etiqueta).toBe("Utilización del insumo");
+    expect(utilizacion!.direccion).toBe("sale");
   });
 });
 

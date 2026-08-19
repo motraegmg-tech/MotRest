@@ -11,6 +11,7 @@
   --acento: #f2853a; /* naranja MOTRAE — acento dominante · mesa enviada a cocina */
   --acento-2: #e6b23a; /* ámbar de apoyo */
   --peligro: #e0392b; /* rojo MOTRAE — cancelar / alertas · mesa ocupada */
+  --exito: #57ad30; /* verde MOTRAE — lo que SUMA: entradas al almacén, saldos a favor */
 
   /* Neutros */
   --negro: #14181a; /* barra lateral, paneles oscuros */

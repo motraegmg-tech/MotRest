@@ -108,11 +108,22 @@ export function costeoIdealReal(
     if (!producto?.receta_id) sinReceta += 1;
   }
 
-  // 2. Lo REAL: lo que de verdad salió por consumo de receta.
+  /*
+   * 2. Lo REAL: lo que de verdad salió por consumo de receta, NETO de lo que
+   * volvió al almacén al cancelarse un platillo.
+   *
+   * El neteo no es un detalle: lo ideal se calcula sobre los renglones activos,
+   * y un platillo cancelado ya no está ahí. Contar su consumo sin restar su
+   * devolución habría dejado una varianza permanente —producto que «se fue» sin
+   * venderse— por cada pizza que alguien mandó a cocina y luego canceló.
+   */
   const real = new Map<ID, number>();
   for (const ev of movimientos) {
-    if (ev.tipo !== "movimiento_inventario" || ev.motivo !== "consumo_receta") continue;
-    real.set(ev.insumo_id, (real.get(ev.insumo_id) ?? 0) + Math.abs(ev.delta));
+    if (ev.tipo !== "movimiento_inventario") continue;
+    const signo =
+      ev.motivo === "consumo_receta" ? 1 : ev.motivo === "reverso_receta" ? -1 : 0;
+    if (signo === 0) continue;
+    real.set(ev.insumo_id, (real.get(ev.insumo_id) ?? 0) + signo * Math.abs(ev.delta));
   }
 
   // 3. La comparación, solo sobre insumos que alguna receta declaró.

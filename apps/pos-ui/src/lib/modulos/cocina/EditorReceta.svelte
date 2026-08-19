@@ -3,8 +3,9 @@
    * Receta de un platillo — la capa OPCIONAL del ADR-16.
    *
    * Un ingrediente que declara insumo, cantidad y unidad DESCUENTA existencias
-   * al enviar el platillo a cocina. Uno que solo lleva nombre y costo es puro
-   * desglose. Ambos son válidos: el restaurante decide hasta dónde quiere llegar.
+   * al enviar el platillo a cocina, y las DEVUELVE si ese platillo se cancela.
+   * Uno que solo lleva nombre y costo es puro desglose. Ambos son válidos: el
+   * restaurante decide hasta dónde quiere llegar.
    */
   import {
     costoDesdeInsumo,
@@ -132,8 +133,9 @@
     <div>
       <h2>Receta · {nombreProducto}</h2>
       <p class="sub">
-        Opcional. Solo los ingredientes con insumo del almacén descuentan
-        existencias al enviar a cocina.
+        Opcional. Solo los ingredientes con insumo del almacén mueven
+        existencias: se descuentan al enviar a cocina y vuelven si el platillo se
+        cancela.
       </p>
     </div>
     <button class="cerrar" onclick={onCerrar} aria-label="Cerrar">✕</button>

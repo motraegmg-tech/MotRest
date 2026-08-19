@@ -687,15 +687,32 @@ class TiendaPOS {
     if (!permiso.ok) return;
 
     this.sincronizarActor();
-    this.emitir(
-      this.mesaActiva,
-      fabrica.crear("item_cancelado", orden_id, {
-        orden_id,
-        renglon_id: renglonId,
-        autorizador_id: permiso.autorizador_id ?? sesion.usuarioActual?.id,
-      }),
-    );
-    if (enviado) this.flash(`"${renglon.descripcion}" cancelado con autorización`);
+    const cancelacion = fabrica.crear("item_cancelado", orden_id, {
+      orden_id,
+      renglon_id: renglonId,
+      autorizador_id: permiso.autorizador_id ?? sesion.usuarioActual?.id,
+    });
+    this.emitir(this.mesaActiva, cancelacion);
+
+    /*
+     * Lo que el platillo se llevó del almacén vuelve al almacén.
+     *
+     * Solo si ya había salido a cocina: ahí es donde se descuenta. Cancelar algo
+     * que todavía no se manda no mueve nada, y el propio store se encarga de que
+     * un renglón no se devuelva dos veces.
+     */
+    const devueltos = enviado
+      ? inventario.devolverPorCancelacion(
+          [renglon],
+          cancelacion.id,
+          sesion.usuarioActual?.id,
+        )
+      : 0;
+
+    if (enviado) {
+      const detalle = devueltos > 0 ? ` · ${devueltos} insumos devueltos al almacén` : "";
+      this.flash(`"${renglon.descripcion}" cancelado con autorización${detalle}`);
+    }
   }
 
   async enviarACocina(): Promise<void> {
