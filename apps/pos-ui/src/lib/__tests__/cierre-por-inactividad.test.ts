@@ -11,7 +11,8 @@
  * exactamente en qué instante se mira.
  */
 import { beforeAll, beforeEach, describe, expect, it } from "vitest";
-import { INACTIVIDAD_MS, inactividad } from "../sesion/inactividad";
+import { permisosDePlantilla, type Usuario } from "@motrest/dominio";
+import { INACTIVIDAD_CAJA_MS, INACTIVIDAD_MS, inactividad } from "../sesion/inactividad";
 import { arranque } from "../persistencia/arranque.svelte";
 import { sesion } from "../sesion/sesion.svelte";
 import { credencialesDeDemostracion } from "../sesion/usuarios";
@@ -19,52 +20,106 @@ import { credencialesDeDemostracion } from "../sesion/usuarios";
 const CONTRASENA = credencialesDeDemostracion().contrasena;
 const T0 = 1_800_000_000_000;
 
+/** Personal de piso: el plazo corto. Se crea una vez y se reutiliza. */
+let mesero: Usuario;
+const PIN_MESERO = "8317";
+
 beforeAll(async () => {
   await arranque.iniciar();
+  await sesion.iniciarSesion("usr-gonzalo", CONTRASENA);
+
+  const r = await sesion.crearUsuario({
+    nombre: "Mesero del plazo corto",
+    rol_id: "mesero",
+    puesto: "mesero",
+    pin: PIN_MESERO,
+    permisos: permisosDePlantilla("mesero"),
+  });
+  if (!r.ok) throw new Error(`No se pudo crear al mesero: ${r.error}`);
+  mesero = sesion.usuarios.find((u) => u.nombre === "Mesero del plazo corto")!;
 });
 
 beforeEach(async () => {
-  if (!sesion.autenticado) await sesion.iniciarSesion("usr-gonzalo", CONTRASENA);
+  // El propietario es quien sella el corte: le toca el plazo largo.
+  if (sesion.usuarioActual?.id !== "usr-gonzalo") {
+    sesion.cerrarSesion();
+    await sesion.iniciarSesion("usr-gonzalo", CONTRASENA);
+  }
   inactividad.registrarActividad(T0);
 });
 
-describe("el plazo", () => {
-  it("cierra la sesión cuando se cumplen los 45 segundos sin tocar nada", () => {
-    expect(sesion.autenticado).toBe(true);
+describe("los dos plazos", () => {
+  it("son 30 segundos para el piso y 7 minutos para quien cierra la caja", () => {
+    expect(INACTIVIDAD_MS).toBe(30_000);
+    expect(INACTIVIDAD_CAJA_MS).toBe(7 * 60_000);
+  });
 
+  it("al personal de piso se le cierra a los 30 segundos", async () => {
+    sesion.cerrarSesion();
+    await sesion.iniciarSesion(mesero.id, PIN_MESERO);
+    inactividad.registrarActividad(T0);
+
+    expect(inactividad.plazoMs()).toBe(INACTIVIDAD_MS);
+    expect(inactividad.revisar(T0 + INACTIVIDAD_MS - 1)).toBe(false);
     expect(inactividad.revisar(T0 + INACTIVIDAD_MS)).toBe(true);
     expect(sesion.autenticado).toBe(false);
   });
 
-  it("un instante antes NO cierra: el cajero sigue dentro", () => {
-    expect(inactividad.revisar(T0 + INACTIVIDAD_MS - 1)).toBe(false);
+  /*
+   * EL ARQUEO. Contar el efectivo de un turno son varios minutos con las manos
+   * en los billetes y ninguna en la pantalla. Con el plazo corto, la sesión se
+   * caía justo a la mitad: billetes contados y nada registrado.
+   */
+  it("a quien sella el corte se le respetan los 7 minutos", () => {
+    expect(inactividad.plazoMs()).toBe(INACTIVIDAD_CAJA_MS);
+
+    // Donde al mesero ya se le habría cerrado, aquí sigue contando.
+    expect(inactividad.revisar(T0 + INACTIVIDAD_MS * 5)).toBe(false);
     expect(sesion.autenticado).toBe(true);
+
+    expect(inactividad.revisar(T0 + INACTIVIDAD_CAJA_MS)).toBe(true);
+    expect(sesion.autenticado).toBe(false);
   });
 
-  it("son 45 segundos, ni más ni menos", () => {
-    expect(INACTIVIDAD_MS).toBe(45_000);
+  /*
+   * El plazo se resuelve en cada latido, no al entrar. En la caja el usuario
+   * cambia veinte veces por turno con el conmutador rápido, y el plazo tiene que
+   * seguir a quien está dentro AHORA — si se congelara al iniciar sesión, un
+   * mesero heredaría los 7 minutos del gerente que lo precedió.
+   */
+  it("el plazo sigue a quien está dentro, no a quien entró primero", async () => {
+    expect(inactividad.plazoMs()).toBe(INACTIVIDAD_CAJA_MS);
+
+    sesion.cerrarSesion();
+    await sesion.iniciarSesion(mesero.id, PIN_MESERO);
+
+    expect(inactividad.plazoMs()).toBe(INACTIVIDAD_MS);
   });
 
   /*
    * El caso de todos los días: alguien está comandando y el plazo vence a media
    * captura. Cada toque tiene que devolver el plazo ENTERO, no un resto.
    */
-  it("tocar la interfaz devuelve el plazo completo", () => {
-    inactividad.revisar(T0 + 44_000);
-    inactividad.registrarActividad(T0 + 44_000);
+  it("tocar la interfaz devuelve el plazo completo", async () => {
+    sesion.cerrarSesion();
+    await sesion.iniciarSesion(mesero.id, PIN_MESERO);
+    inactividad.registrarActividad(T0);
 
-    // Han pasado 44 s desde el toque, pero 88 desde el principio.
-    expect(inactividad.revisar(T0 + 88_000)).toBe(false);
+    inactividad.revisar(T0 + 29_000);
+    inactividad.registrarActividad(T0 + 29_000);
+
+    // Han pasado 29 s desde el toque, pero 58 desde el principio.
+    expect(inactividad.revisar(T0 + 58_000)).toBe(false);
     expect(sesion.autenticado).toBe(true);
 
-    expect(inactividad.revisar(T0 + 44_000 + INACTIVIDAD_MS)).toBe(true);
+    expect(inactividad.revisar(T0 + 29_000 + INACTIVIDAD_MS)).toBe(true);
   });
 
   it("informa cuánto falta, para poder avisar antes de cerrar", () => {
-    expect(inactividad.restante(T0)).toBe(INACTIVIDAD_MS);
-    expect(inactividad.restante(T0 + 30_000)).toBe(15_000);
+    expect(inactividad.restante(T0)).toBe(INACTIVIDAD_CAJA_MS);
+    expect(inactividad.restante(T0 + 60_000)).toBe(INACTIVIDAD_CAJA_MS - 60_000);
     // Nunca negativo: vencido es vencido.
-    expect(inactividad.restante(T0 + 90_000)).toBe(0);
+    expect(inactividad.restante(T0 + INACTIVIDAD_CAJA_MS * 2)).toBe(0);
   });
 });
 
@@ -73,7 +128,7 @@ describe("cuándo NO debe cerrar", () => {
     sesion.cerrarSesion();
     expect(sesion.autenticado).toBe(false);
 
-    expect(inactividad.revisar(T0 + INACTIVIDAD_MS * 10)).toBe(false);
+    expect(inactividad.revisar(T0 + INACTIVIDAD_CAJA_MS * 10)).toBe(false);
   });
 
   /*
@@ -82,16 +137,19 @@ describe("cuándo NO debe cerrar", () => {
    * siguiente latido. La caja quedaría inservible: entrar, cerrarse, entrar.
    */
   it("el plazo no envejece mientras nadie ha entrado", async () => {
+    const LA_NOCHE = T0 + 8 * 60 * 60 * 1000;
     sesion.cerrarSesion();
 
-    // La terminal pasa la noche en la pantalla de acceso.
-    inactividad.revisar(T0 + 8 * 60 * 60 * 1000);
+    // La terminal pasa la noche entera en la pantalla de acceso.
+    inactividad.revisar(LA_NOCHE);
 
-    await sesion.iniciarSesion("usr-gonzalo", CONTRASENA);
-    inactividad.registrarActividad(T0 + 8 * 60 * 60 * 1000);
+    // Se prueba con el mesero, que es quien tiene el plazo apretado: con el
+    // largo, cualquier resultado pasaría y la prueba no diría nada.
+    await sesion.iniciarSesion(mesero.id, PIN_MESERO);
+    inactividad.registrarActividad(LA_NOCHE);
 
-    // Y quien llega en la mañana estrena los 45 segundos completos.
-    expect(inactividad.revisar(T0 + 8 * 60 * 60 * 1000 + 44_000)).toBe(false);
+    // Quien llega en la mañana estrena sus 30 segundos completos.
+    expect(inactividad.revisar(LA_NOCHE + INACTIVIDAD_MS - 1)).toBe(false);
     expect(sesion.autenticado).toBe(true);
   });
 
@@ -122,7 +180,7 @@ describe("cuándo NO debe cerrar", () => {
 
 describe("lo que queda en la bitácora", () => {
   it("se distingue del «Salir» que pulsa una persona", () => {
-    inactividad.revisar(T0 + INACTIVIDAD_MS);
+    expect(inactividad.revisar(T0 + INACTIVIDAD_CAJA_MS)).toBe(true);
 
     const ultimo = [...sesion.eventos].reverse().find((e) => e.tipo === "sesion_cerrada");
     expect(ultimo).toBeDefined();

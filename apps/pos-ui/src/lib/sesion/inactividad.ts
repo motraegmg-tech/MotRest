@@ -9,6 +9,16 @@
  * También es lo que devuelve la marca a la pantalla: sin nadie delante, el POS
  * enseña el acceso con el logotipo de MotRest en vez de la comanda de la mesa 8.
  *
+ * ## Dos plazos, porque hay dos formas de estar quieto
+ *
+ * El personal de piso trabaja a toques: un mesero que comanda no pasa treinta
+ * segundos sin tocar la pantalla, y si la deja quieta es que se fue. Quien
+ * cierra la caja, en cambio, se pasa varios minutos con las manos en los
+ * billetes — está trabajando, y precisamente en lo que peor se interrumpe.
+ * Un solo número no puede servir para los dos casos: corto echa al que cuenta,
+ * largo deja la caja abierta a quien pase. De ahí `INACTIVIDAD_MS` y
+ * `INACTIVIDAD_CAJA_MS`.
+ *
  * ## Cómo cuenta el tiempo
  *
  * No hay un `setTimeout` que se rearme con cada movimiento del cursor: una
@@ -22,16 +32,47 @@
  * pasaron veinte minutos y cierra — un `setTimeout` habría creído que no pasó
  * nada.
  */
+import type { Accion } from "@motrest/dominio";
 import { sesion } from "./sesion.svelte";
 
 /**
  * Cuánto se aguanta sin que nadie toque la interfaz.
  *
- * Decisión de Gonzalo: 45 segundos. Es corto a propósito, porque la caja mira a
- * la calle. Las pantallas que viven solas —la de cocina— se eximen desde fuera;
- * ver `iniciar`.
+ * Decisión de Gonzalo: 30 segundos. Es corto a propósito, porque la terminal
+ * mira a la calle y el personal de piso la usa a toques constantes: un mesero
+ * que comanda no pasa treinta segundos quieto. Las pantallas que viven solas
+ * —la de cocina— se eximen desde fuera; ver `iniciar`.
  */
-export const INACTIVIDAD_MS = 45_000;
+export const INACTIVIDAD_MS = 30_000;
+
+/**
+ * El plazo largo, para quien cierra la caja.
+ *
+ * Contar el efectivo de un turno son varios minutos con las manos en los
+ * billetes y ninguna en la pantalla. Con el plazo corto, el arqueo se
+ * interrumpía justo a la mitad —y es el peor momento posible para perder la
+ * pantalla: quedan billetes contados y nada registrado.
+ */
+export const INACTIVIDAD_CAJA_MS = 7 * 60_000;
+
+/**
+ * Qué distingue a quien merece el plazo largo.
+ *
+ * Se mira el PERMISO, no el nombre del rol. Con roles fijos, un local que
+ * llamara "supervisor" a su gerente se quedaría fuera; con el permiso, el
+ * criterio lo lleva la propia matriz — y si Gonzalo le da acceso a la caja a un
+ * perfil nuevo, ese perfil hereda el plazo sin tocar este archivo.
+ *
+ * Es `caja.corte.sellar` y no `caja.sesion.abrir` a propósito: abrir la caja lo
+ * puede hacer el cajero, y abrirla es un gesto de dos segundos. El que se pasa
+ * un rato largo sin tocar la pantalla es el que la CIERRA, porque para cerrarla
+ * hay que contar. Hoy lo tienen dirección y gerencia, que es justo el grupo.
+ *
+ * IMPORTANTE: es una acción que YA EXISTE. Los permisos de cada usuario se
+ * congelan al darlo de alta, así que una acción nueva no le llegaría a nadie ya
+ * registrado y el plazo largo no lo habría tenido ni el dueño.
+ */
+const ACCION_CAJA: Accion = "caja.corte.sellar";
 
 /** Cada cuánto se compara el sello contra el reloj. */
 const LATIDO_MS = 1_000;
@@ -66,9 +107,20 @@ class VigilanciaInactividad {
    */
   private enPausa: () => boolean = () => false;
 
+  /**
+   * El plazo que le toca a quien está dentro AHORA.
+   *
+   * Se resuelve en cada latido y no al iniciar sesión: así el cambio rápido de
+   * usuario —que en la caja pasa veinte veces por turno— ajusta el plazo solo,
+   * sin que nadie tenga que rearmar nada.
+   */
+  plazoMs(): number {
+    return sesion.puedeOperar(ACCION_CAJA) ? INACTIVIDAD_CAJA_MS : INACTIVIDAD_MS;
+  }
+
   /** Milisegundos que faltan para el cierre. Cero = ya toca. */
   restante(ahora: number = Date.now()): number {
-    return Math.max(0, INACTIVIDAD_MS - (ahora - this.ultimaSenal));
+    return Math.max(0, this.plazoMs() - (ahora - this.ultimaSenal));
   }
 
   /** Alguien tocó la interfaz: el plazo vuelve a empezar. */

@@ -85,7 +85,11 @@
   $effect(() => licencia.marcarTurno(caja.activa !== undefined));
 
   /*
-   * LA TERMINAL DESATENDIDA SE CIERRA SOLA (45 s).
+   * LA TERMINAL DESATENDIDA SE CIERRA SOLA.
+   *
+   * 30 s para el personal de piso; 7 min para quien sella el corte de caja,
+   * porque contar el efectivo son minutos sin tocar la pantalla. El plazo lo
+   * resuelve la propia vigilancia mirando el permiso de quien está dentro.
    *
    * Se monta aquí, en el shell, porque es de la aplicación entera y no de
    * ningún módulo. La vigilancia no sabe nada del router: recibe una función
