@@ -994,9 +994,17 @@ class Sesion {
     return Math.max(0, MAX_INTENTOS - this.intentosAutorizacion.fallos);
   }
 
-  cerrarSesion(): void {
+  /**
+   * Cierra la sesión en curso.
+   *
+   * `motivo` solo viaja cuando NO la cerró una persona: la terminal que se
+   * queda sola se cierra sola (ver `inactividad.ts`), y la bitácora tiene que
+   * poder decirlo. Apuntarle a alguien un cierre que no hizo convierte el
+   * histórico en una acusación falsa.
+   */
+  cerrarSesion(motivo?: "inactividad"): void {
     if (!this.usuarioActual) return;
-    this.emitir("sesion_cerrada", { usuario_id: this.usuarioActual.id });
+    this.emitir("sesion_cerrada", { usuario_id: this.usuarioActual.id, motivo });
     this.usuarioActual = null;
     this.guardarSesionActiva();
   }

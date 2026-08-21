@@ -22,6 +22,17 @@ export type EventoIdentidad =
   | (EventoBase & {
       tipo: "sesion_cerrada";
       usuario_id: ID;
+      /**
+       * Por qué se cerró. Ausente = la cerró una persona desde «Salir».
+       *
+       * `inactividad` es la terminal cerrándola sola tras un rato sin que nadie
+       * la toque. Se distingue porque la bitácora es una herramienta para
+       * preguntarle a alguien qué pasó, y «Fulano cerró sesión» a las 21:40
+       * cuando Fulano no cerró nada convierte esa conversación en una acusación
+       * falsa. Además es el único dato que separa una terminal desatendida de
+       * un turno que terminó.
+       */
+      motivo?: "inactividad";
     })
   | (EventoBase & {
       tipo: "acceso_rechazado";
@@ -218,6 +229,11 @@ export function esEventoIdentidad(evento: unknown): evento is EventoIdentidad {
       );
 
     case "sesion_cerrada":
+      return (
+        esTexto(evento.usuario_id) &&
+        (evento.motivo === undefined || evento.motivo === "inactividad")
+      );
+
     case "acceso_recuperado":
       return esTexto(evento.usuario_id);
 

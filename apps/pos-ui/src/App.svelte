@@ -37,6 +37,7 @@
   import { contextoSeguro, explicacionContextoInseguro } from "./lib/entorno";
   import { arranque } from "./lib/persistencia/arranque.svelte";
   import { autorizacion } from "./lib/sesion/autorizacion.svelte";
+  import { inactividad } from "./lib/sesion/inactividad";
   import { sesion } from "./lib/sesion/sesion.svelte";
   import { sync } from "./lib/sync.svelte";
   import { actualizaciones } from "./lib/actualizaciones.svelte";
@@ -82,6 +83,23 @@
    * stores sigan sin conocerse.
    */
   $effect(() => licencia.marcarTurno(caja.activa !== undefined));
+
+  /*
+   * LA TERMINAL DESATENDIDA SE CIERRA SOLA (45 s).
+   *
+   * Se monta aquí, en el shell, porque es de la aplicación entera y no de
+   * ningún módulo. La vigilancia no sabe nada del router: recibe una función
+   * que le dice cuándo callarse, y esa decisión vive donde se conocen las rutas.
+   *
+   * LA PANTALLA DE COCINA ESTÁ EXENTA, y no es un capricho. El KDS es este mismo
+   * POS abierto en `#/cocina/tablero` sobre una tablet en modo kiosco
+   * (`apps/kds-android/preparar.mjs`): nadie la toca durante el servicio, se
+   * mira. Cerrarle la sesión cada 45 segundos dejaría a la cocina sin tablero y
+   * obligaría a teclear un PIN con las manos llenas de harina cada minuto. Ahí
+   * no hay nada que proteger —la tablet cuelga en la cocina, no mira a la
+   * calle— ni nadie a quien anunciarle la marca.
+   */
+  $effect(() => inactividad.iniciar(() => rutas.actual.modulo === "cocina"));
 </script>
 
 {#if arranque.cargando}

@@ -30,7 +30,14 @@
         return { ...base, actor: sesion.nombreDe(ev.usuario_id),
           texto: ev.cambio_rapido ? "Cambio rápido de usuario" : "Inició sesión", tono: "normal" };
       case "sesion_cerrada":
-        return { ...base, actor: sesion.nombreDe(ev.usuario_id), texto: "Cerró sesión", tono: "normal" };
+        // Se distingue el «Salir» de una persona del cierre que hace sola la
+        // terminal desatendida: si no, el histórico le apunta a alguien un
+        // cierre que no hizo.
+        return { ...base, actor: sesion.nombreDe(ev.usuario_id),
+          texto: ev.motivo === "inactividad"
+            ? "Sesión cerrada sola · terminal sin usarse"
+            : "Cerró sesión",
+          tono: "normal" };
       case "acceso_rechazado":
         return { ...base, actor: ev.usuario_id ? sesion.nombreDe(ev.usuario_id) : "Desconocido",
           texto: `Acceso rechazado (${ev.motivo.replace(/_/g, " ")})`, tono: "alerta" };
