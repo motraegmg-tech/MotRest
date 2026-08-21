@@ -9,11 +9,20 @@
    * DE QUIÉN SON LAS PROPINAS QUE SE VEN. Lo deciden los permisos, no esta
    * pantalla:
    *
-   *   rrhh.propina.ver        → las propias, y solo las propias (mesero, cajero)
+   *   rrhh.propina.ver        → las propias, MÁS el bote del equipo
    *   rrhh.propina.ver_local  → el fondo del local (gerencia, contabilidad)
    *
-   * Un mesero tiene que poder saber cuánto lleva; cuánto lleva el de al lado no
-   * es asunto suyo.
+   * ## Por qué el bote también se enseña al personal de piso
+   *
+   * La propina en un restaurante se reparte. Quien la recauda quiere saber dos
+   * cosas: cuánto entregó él y cuánto hay en el bote del que va a salir su
+   * parte — y la segunda no la podía responder hasta la prenómina del sábado.
+   * Sin ese número, el reparto se recibe a ciegas y es la primera fuente de
+   * desconfianza de un turno.
+   *
+   * Enseñar el TOTAL no es enseñar lo del compañero: es una suma en la que nadie
+   * queda identificado. Cuánto lleva el de al lado sigue sin verse, y para eso
+   * hace falta `rrhh.propina.ver_local`, que es de gerencia.
    */
   import { propinasAcumuladas } from "@motrest/dominio";
   import { mxn } from "../formato";
@@ -38,14 +47,30 @@
     return () => clearInterval(t);
   });
 
-  const acumulado = $derived(
-    propinasAcumuladas(
-      pos.todasLasComandas,
-      ahora,
-      local.horaCorte,
-      todoElLocal ? undefined : sesion.usuarioActual?.id,
-    ),
+  /** El bote entero del local: lo que entre todos se recaudó. */
+  const bote = $derived(
+    propinasAcumuladas(pos.todasLasComandas, ahora, local.horaCorte, undefined),
   );
+
+  /**
+   * Lo que recaudó quien está en sesión.
+   *
+   * A gerencia no se le calcula: no atiende mesas, así que sus «propias» serían
+   * siempre cero y la cifra solo confundiría al lado del bote.
+   */
+  const propias = $derived(
+    todoElLocal
+      ? null
+      : propinasAcumuladas(
+          pos.todasLasComandas,
+          ahora,
+          local.horaCorte,
+          sesion.usuarioActual?.id,
+        ),
+  );
+
+  /** Las cifras grandes: las suyas si atiende mesas, el bote si es gerencia. */
+  const acumulado = $derived(propias ?? bote);
 </script>
 
 {#if puedeVer}
@@ -72,6 +97,26 @@
       <span>Quincena</span>
       <b>{mxn(acumulado.quincena)}</b>
     </div>
+
+    <!--
+      EL BOTE DEL EQUIPO, para quien solo ve lo suyo.
+
+      Es de donde sale su parte al repartir, y hasta ahora solo aparecía en la
+      prenómina del sábado: el reparto se recibía a ciegas. Va separado y
+      etiquetado para que nadie confunda su cifra con la del bote.
+    -->
+    {#if propias}
+      <div class="bote">
+        <div class="cifra">
+          <span>Del equipo hoy</span>
+          <b>{mxn(bote.dia)}</b>
+        </div>
+        <div class="cifra tenue">
+          <span>Del equipo esta semana</span>
+          <b>{mxn(bote.semana)}</b>
+        </div>
+      </div>
+    {/if}
 
     <p class="pie">
       {#if acumulado.cuentasDelDia === 0}
@@ -130,6 +175,20 @@
   .cifra.tenue b {
     font-size: 0.92rem;
     font-weight: 600;
+    color: #b9c2bc;
+  }
+  /* El bote va separado por una línea: es otro número, de otra bolsa. */
+  .bote {
+    margin-top: 0.5rem;
+    padding-top: 0.5rem;
+    border-top: 1px solid rgba(255, 255, 255, 0.12);
+  }
+  .bote .cifra b {
+    font-size: 1rem;
+    color: var(--acento);
+  }
+  .bote .cifra.tenue b {
+    font-size: 0.88rem;
     color: #b9c2bc;
   }
   .pie {

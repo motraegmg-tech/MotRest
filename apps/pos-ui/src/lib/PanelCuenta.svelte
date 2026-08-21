@@ -356,6 +356,68 @@
 </script>
 
 <aside class="cuenta">
+  <!--
+    ¿DEJÓ PROPINA? — la pregunta que espera, sin bloquear el software.
+
+    Era una ventana modal centrada con velo: hasta que alguien la contestaba, la
+    caja entera quedaba muerta. Y la respuesta no depende del restaurante, sino
+    del comensal, que está terminando de decidir con la terminal en la mano. Se
+    paraba el local para esperar a una persona.
+
+    Ahora vive aquí, dentro de la cuenta, y se queda puesta hasta que alguien la
+    toque: mientras tanto se puede seguir comandando, cobrando otra mesa o
+    mirando el inventario. Es lo mismo que hace la propia mesa —esperar—, pero
+    sin secuestrar la pantalla.
+
+    Sigue siendo solo para quien cobra: es el último paso de un cobro, y a un
+    mesero le aparecería una cuenta que él no cobró y que no puede resolver.
+  -->
+  {#if pos.propinaPendiente && puedeCobrar}
+    <section class="propina-espera" aria-label="Propina pendiente">
+      <div class="cabecera-espera">
+        <h3>¿Dejó propina?</h3>
+        <span class="chip-espera">
+          Mesa {plano.nombreMesa(pos.propinaPendiente.mesa_id)}
+        </span>
+      </div>
+      <p class="pista-espera">
+        La mesa ya quedó liberada y <b>puedes seguir trabajando</b>. El ticket
+        interno se imprime cuando registres la propina o confirmes que no dejó.
+      </p>
+      <div class="campos-espera">
+        <label>
+          <span>Monto</span>
+          <input
+            type="text"
+            inputmode="decimal"
+            bind:value={propinaPosterior}
+            placeholder="0.00"
+            aria-label="Monto de propina posterior"
+          />
+        </label>
+        <label>
+          <span>Se pagó con</span>
+          <select bind:value={formaPropinaPosterior}>
+            {#each FORMAS_PAGO_MANUALES as forma (forma.valor)}
+              <option value={forma.valor}>{forma.etiqueta}</option>
+            {/each}
+          </select>
+        </label>
+      </div>
+      <button class="registrar-espera" onclick={() => resolverPropinaPosterior(false)}>
+        Registrar propina e imprimir
+      </button>
+      <!--
+        «No dejó propina» dentro de su recuadro naranja: es la otra mitad de la
+        decisión, no un enlace de descarte. Cuando iba como texto suelto se
+        buscaba durante varios segundos con el comensal delante.
+      -->
+      <button class="sin-propina" onclick={() => resolverPropinaPosterior(true)}>
+        No dejó propina
+      </button>
+    </section>
+  {/if}
+
   {#if pos.comanda && pos.comandaAbierta && t}
     <div class="ch">
       <h2>Mesa {pos.nombreMesaActiva}</h2>
@@ -944,50 +1006,6 @@
 {/if}
 
 
-<!--
-  El ticket interno espera esta respuesta para que nunca se archive sin propina.
-
-  Solo se le pregunta a quien cobra. La propina posterior es el último paso de
-  un cobro, así que a un mesero que entra después en la misma terminal le caería
-  encima un diálogo modal sobre una cuenta que él no cobró — y sin permiso para
-  resolverlo, sería un cartel que no se puede quitar.
--->
-{#if pos.propinaPendiente && puedeCobrar}
-  <div class="velo-op" role="presentation"></div>
-  <div class="op" role="dialog" aria-modal="true" aria-label="Agregar propina">
-    <h3>¿Dejó propina?</h3>
-    <p class="pista-nombre">
-      La mesa ya quedó liberada. El ticket interno se imprimirá cuando registres
-      la propina o confirmes que no dejó.
-    </p>
-    <label class="campo-modal">
-      <span>Monto</span>
-      <input
-        type="text"
-        inputmode="decimal"
-        bind:value={propinaPosterior}
-        placeholder="0.00"
-        aria-label="Monto de propina posterior"
-      />
-    </label>
-    <label class="campo-modal">
-      <span>Se pagó con</span>
-      <select bind:value={formaPropinaPosterior}>
-        {#each FORMAS_PAGO_MANUALES as forma (forma.valor)}
-          <option value={forma.valor}>{forma.etiqueta}</option>
-        {/each}
-      </select>
-    </label>
-    <button class="guardar-op" onclick={() => resolverPropinaPosterior(false)}>
-      Registrar propina e imprimir
-    </button>
-    <button class="saltar" onclick={() => resolverPropinaPosterior(true)}>
-      No dejó propina
-    </button>
-  </div>
-{/if}
-
-
 <!-- Reabrir una cuenta cobrada por error -->
 {#if reabriendo}
   <div class="velo-op" role="presentation" onclick={() => (reabriendo = false)}></div>
@@ -1033,6 +1051,105 @@
     flex-direction: column;
     padding: 1.25rem;
     overflow-y: auto;
+  }
+  /*
+   * LA PROPINA QUE ESPERA. Vive dentro de la cuenta y no encima de todo, así que
+   * tiene que llamar la atención sin secuestrarla: borde naranja y un fondo
+   * cálido bastan para que no se pase por alto entre dos comandas.
+   */
+  .propina-espera {
+    border: 1.5px solid var(--acento);
+    border-radius: var(--r-md);
+    background: var(--claro);
+    padding: 0.85rem 0.9rem;
+    margin-bottom: 1rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.55rem;
+    flex: none;
+  }
+  .cabecera-espera {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 0.5rem;
+  }
+  .cabecera-espera h3 {
+    font-family: var(--font-titulo);
+    font-size: 1rem;
+    font-weight: 700;
+  }
+  .chip-espera {
+    font-size: 0.7rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--acento);
+  }
+  .pista-espera {
+    font-size: 0.78rem;
+    line-height: 1.45;
+    color: var(--pizarra);
+  }
+  .campos-espera {
+    display: flex;
+    gap: 0.5rem;
+  }
+  .campos-espera label {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 0.2rem;
+  }
+  .campos-espera span {
+    font-size: 0.7rem;
+    font-weight: 600;
+    color: var(--gris);
+  }
+  .campos-espera input,
+  .campos-espera select {
+    padding: 0.5rem 0.6rem;
+    border: 1.5px solid var(--borde);
+    border-radius: var(--r-sm);
+    font-size: 0.9rem;
+    font-family: var(--font-cuerpo);
+    background: #fff;
+    width: 100%;
+  }
+  .campos-espera input:focus,
+  .campos-espera select:focus {
+    outline: none;
+    border-color: var(--acento);
+  }
+  .registrar-espera {
+    background: var(--acento);
+    color: #fff;
+    border-radius: var(--r-md);
+    padding: 0.6rem 1rem;
+    font-family: var(--font-titulo);
+    font-weight: 600;
+    font-size: 0.92rem;
+  }
+  /*
+   * «No dejó propina» EN SU PROPIO RECUADRO NARANJA TENUE.
+   *
+   * Es la mitad de la decisión y no un descarte: la mitad de las mesas no dejan
+   * propina. Como texto suelto se buscaba durante varios segundos con el
+   * comensal delante. En naranja tenue —no sólido— queda claro que es la
+   * alternativa, no la acción principal.
+   */
+  .sin-propina {
+    border: 1.5px solid rgba(242, 133, 58, 0.55);
+    background: rgba(242, 133, 58, 0.12);
+    color: #a2521c;
+    border-radius: var(--r-md);
+    padding: 0.55rem 1rem;
+    font-weight: 700;
+    font-size: 0.9rem;
+  }
+  .sin-propina:hover {
+    background: rgba(242, 133, 58, 0.22);
+    border-color: var(--acento);
   }
   .ch {
     display: flex;
@@ -1678,24 +1795,11 @@
     font-weight: 700;
     margin-bottom: 0.85rem;
   }
-  .campo-modal {
-    display: grid;
-    gap: 0.25rem;
-    margin-top: 0.7rem;
-    text-align: left;
-    font-size: 0.8rem;
-    color: var(--gris);
-  }
-  .campo-modal input,
-  .campo-modal select {
-    width: 100%;
-    border: 1.5px solid var(--borde);
-    border-radius: var(--r-sm);
-    padding: 0.55rem 0.65rem;
-    background: #fff;
-    color: var(--pizarra);
-    font: inherit;
-  }
+  /*
+   * `.campo-modal` se retiró con la ventana de propina: era el único diálogo que
+   * pedía monto y forma de pago. Ahora esos campos viven dentro de la cuenta
+   * (`.campos-espera`), que no bloquea el resto del software.
+   */
   .saltar {
     margin-top: 0.7rem;
     font-size: 0.8rem;

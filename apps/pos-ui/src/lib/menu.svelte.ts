@@ -64,6 +64,16 @@ export const CLAVE_MENU = "menu_local";
 export interface ResultadoMenu {
   ok: boolean;
   problemas: ProblemaMenu[];
+  /**
+   * Id de lo que se acaba de crear, cuando la operación crea algo.
+   *
+   * Existe para poder seguir trabajando sobre el producto recién dado de alta
+   * sin cerrar el formulario: guardar su receta, por ejemplo. El id lo inventa
+   * el dominio dentro de `agregarProducto`, así que sin devolverlo la única
+   * forma de encontrarlo era buscarlo por nombre — y dos productos pueden
+   * llamarse igual.
+   */
+  id?: ID;
 }
 
 const SIN_PROBLEMAS: ResultadoMenu = { ok: true, problemas: [] };
@@ -273,8 +283,13 @@ class StoreMenu {
     const problemas = validarProducto(borrador, this.datos);
     if (bloquean(problemas)) return { ok: false, problemas };
 
+    // Se anotan los ids de antes para reconocer el nuevo: quien crea el producto
+    // suele querer seguir con su receta, y para eso hace falta su id.
+    const previos = new Set(this.datos.productos.map((p) => p.id));
     this.aplicar((m) => agregarProducto(m, borrador));
-    return { ok: true, problemas };
+    const nuevo = this.datos?.productos.find((p) => !previos.has(p.id));
+
+    return { ok: true, problemas, id: nuevo?.id };
   }
 
   actualizarProducto(productoId: ID, borrador: BorradorProducto): ResultadoMenu {

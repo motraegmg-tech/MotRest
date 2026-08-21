@@ -9,14 +9,23 @@
    */
   import {
     calcularImpuesto,
+    costoDesdeInsumo,
+    formatearCantidad,
+    ingredienteNuevo,
     perfilDelProducto,
     pesos,
+    recetaNueva,
+    sumar,
     type BorradorProducto,
+    type Centavos,
+    type Ingrediente,
     type PerfilImpuesto,
     type ProblemaMenu,
+    type Receta,
   } from "@motrest/dominio";
   import { untrack } from "svelte";
   import { mxn, pct } from "../../formato";
+  import { inventario } from "../../inventario.svelte";
   import { menu } from "../../menu.svelte";
 
   interface Props {
@@ -132,6 +141,93 @@
   const errores = $derived([...problemas, ...avisos].filter((p) => p.gravedad === "error"));
   const advertencias = $derived(avisos.filter((p) => p.gravedad === "advertencia"));
 
+  // --- Insumos que consume el platillo ------------------------------------------------
+
+  /*
+   * QUÉ SE LLEVA DEL ALMACÉN CADA VEZ QUE SE VENDE, aquí mismo.
+   *
+   * Antes esto vivía en una pantalla aparte a la que se llegaba con «+ Receta»
+   * DESPUÉS de haber dado de alta el platillo. El resultado práctico era que casi
+   * ningún producto la tenía: quien captura la carta captura treinta platillos
+   * seguidos y no vuelve. Y sin ella el inventario no se mueve solo, que es lo
+   * único que hace útil llevar inventario.
+   *
+   * Al ponerlo en el alta, declarar «200 g de masa» es un renglón más del
+   * formulario, como el precio. Sigue siendo OPCIONAL (ADR-16): un platillo sin
+   * insumos se vende exactamente igual.
+   */
+  const recetaGuardada = untrack(() => (productoId ? menu.recetaDe(productoId) : null));
+  let receta = $state<Receta>(
+    recetaGuardada ?? recetaNueva(untrack(() => existente?.nombre ?? "")),
+  );
+
+  const insumosDisponibles = $derived(inventario.insumos);
+
+  /** Solo los renglones que de verdad apuntan a un insumo del almacén. */
+  const vinculados = $derived(
+    receta.ingredientes.filter((i) => i.insumo_id && i.cantidad && i.cantidad > 0),
+  );
+
+  /**
+   * Lo que cuestan los insumos declarados, al precio al que se compraron.
+   *
+   * Es una PISTA junto al costo tecleado, no un reemplazo: ADR-16 dice que el
+   * costo que manda es el que captura el administrador. Pero tenerlo al lado es
+   * lo que delata un costo que se quedó en el del año pasado.
+   */
+  const costoInsumos = $derived<Centavos>(
+    sumar(
+      ...vinculados.map(
+        (i) => costoDesdeInsumo(i, inventario.insumo(i.insumo_id!)) ?? pesos(0),
+      ),
+    ),
+  );
+
+  function agregarInsumo() {
+    receta = { ...receta, ingredientes: [...receta.ingredientes, ingredienteNuevo()] };
+  }
+
+  function quitarInsumo(id: string) {
+    receta = { ...receta, ingredientes: receta.ingredientes.filter((i) => i.id !== id) };
+  }
+
+  function cambiarIngrediente(id: string, cambios: Partial<Ingrediente>) {
+    receta = {
+      ...receta,
+      ingredientes: receta.ingredientes.map((i) => (i.id === id ? { ...i, ...cambios } : i)),
+    };
+  }
+
+  /**
+   * Al elegir el insumo se heredan su nombre y su UNIDAD BASE.
+   *
+   * La unidad no se pregunta a propósito. Si el almacén lleva la masa en gramos
+   * y aquí alguien escribiera «0.2 kg», habría que convertir — y la conversión
+   * entre sistemas distintos (gramos contra mililitros) no existe sin una
+   * densidad que el software no puede inventar. Heredándola, el descuento cuadra
+   * siempre y hay un campo menos que equivocar.
+   */
+  function elegirInsumo(id: string, insumoId: string) {
+    const insumo = inventario.insumo(insumoId);
+    cambiarIngrediente(id, {
+      insumo_id: insumoId || undefined,
+      nombre: insumo?.nombre ?? "",
+      unidad: insumo?.unidad_base,
+    });
+  }
+
+  /** La receta lista para guardar: sin renglones a medio llenar y con su costo. */
+  function recetaParaGuardar(): Receta {
+    return {
+      ...receta,
+      nombre: nombre.trim() || receta.nombre,
+      ingredientes: vinculados.map((i) => ({
+        ...i,
+        costo: costoDesdeInsumo(i, inventario.insumo(i.insumo_id!)) ?? i.costo,
+      })),
+    };
+  }
+
   /** El costo solo bloquea si el perfil puede verlo; si no, se conserva el previo. */
   function guardar() {
     const conCosto: BorradorProducto = permisos.verCostos
@@ -143,7 +239,18 @@
       : menu.crearProducto(conCosto);
 
     problemas = r.problemas;
-    if (r.ok) onCerrar();
+    if (!r.ok) return;
+
+    /*
+     * La receta se guarda DESPUÉS y contra el id definitivo. En un alta ese id
+     * no existe hasta que el producto está creado, y por eso `crearProducto` lo
+     * devuelve: sin él, los insumos que se acababan de capturar se perdían al
+     * cerrar el formulario.
+     */
+    const id = productoId ?? r.id;
+    if (id && permisos.editarRecetas) menu.guardarRecetaDe(id, recetaParaGuardar());
+
+    onCerrar();
   }
 
   async function onFotoSeleccionada(event: Event) {
@@ -325,15 +432,120 @@
     </div>
     <p class="pista">
       Es el costo <b>final</b> del platillo, no ingrediente por ingrediente. El
-      desglose por insumo es opcional y se captura en la receta. El margen y el
-      food cost se miden contra el precio <b>sin impuesto</b>: el IVA se recauda
-      para el SAT y no es ingreso del restaurante.
+      desglose por insumo se captura abajo y es opcional. El margen y el food
+      cost se miden contra el precio <b>sin impuesto</b>: el IVA se recauda para
+      el SAT y no es ingreso del restaurante.
     </p>
   {:else}
     <p class="pista oculto">
       Tu perfil no tiene acceso a los costos. Puedes editar la ficha del producto;
       su costo se conserva sin cambios.
     </p>
+  {/if}
+
+  <!--
+    INSUMOS QUE CONSUME. La parte que hace que el inventario se mueva solo.
+
+    Cada renglón dice cuánto se va del almacén por CADA unidad vendida. Al
+    mandar el platillo a cocina se descuenta, y si se cancela vuelve. Un platillo
+    sin insumos se vende igual: esto es opcional (ADR-16).
+  -->
+  {#if permisos.editarRecetas}
+    <section class="insumos">
+      <div class="cab-insumos">
+        <h3>Insumos que consume</h3>
+        <span class="opcional">opcional</span>
+      </div>
+      <p class="pista">
+        Lo que se va del almacén cada vez que se vende <b>una</b> unidad. Se
+        descuenta solo al enviar a cocina, y vuelve si el platillo se cancela.
+      </p>
+
+      {#if insumosDisponibles.length === 0}
+        <p class="sin-insumos">
+          Todavía no hay insumos dados de alta. Se capturan en
+          <b>Administración → Insumos</b>, y desde aquí se enlazan.
+        </p>
+      {:else}
+        {#each receta.ingredientes as ing (ing.id)}
+          {@const insumo = ing.insumo_id ? inventario.insumo(ing.insumo_id) : undefined}
+          <div class="fila-insumo">
+            <select
+              value={ing.insumo_id ?? ""}
+              onchange={(e) => elegirInsumo(ing.id, e.currentTarget.value)}
+              aria-label="Insumo del almacén"
+            >
+              <option value="">Elige un insumo…</option>
+              {#each insumosDisponibles as opcion (opcion.id)}
+                <option value={opcion.id}>{opcion.nombre}</option>
+              {/each}
+            </select>
+            <input
+              class="cant"
+              type="number"
+              inputmode="decimal"
+              min="0"
+              step="any"
+              value={ing.cantidad ?? ""}
+              oninput={(e) =>
+                cambiarIngrediente(ing.id, {
+                  cantidad: Number(e.currentTarget.value) || undefined,
+                })}
+              placeholder="0"
+              aria-label="Cantidad por unidad vendida"
+            />
+            <!--
+              La unidad la pone el insumo, no se teclea: capturar «0.2 kg» sobre
+              un almacén que lleva gramos obligaría a una conversión, y entre
+              sistemas distintos esa conversión no existe sin una densidad.
+            -->
+            <span class="unidad">{insumo?.unidad_base ?? "—"}</span>
+            <span class="costo-insumo">
+              {insumo && ing.cantidad
+                ? mxn(costoDesdeInsumo(ing, insumo) ?? pesos(0))
+                : "—"}
+            </span>
+            <button
+              class="quitar"
+              onclick={() => quitarInsumo(ing.id)}
+              aria-label="Quitar insumo"
+            >
+              ✕
+            </button>
+          </div>
+        {/each}
+
+        <button class="agregar-insumo" onclick={agregarInsumo}>+ Insumo</button>
+
+        {#if vinculados.length > 0}
+          <div class="resumen-insumos">
+            <span>
+              Por unidad se van:
+              {vinculados
+                .map((i) => {
+                  const u = inventario.insumo(i.insumo_id!);
+                  return u
+                    ? `${formatearCantidad(i.cantidad!, u.unidad_base)} de ${u.nombre}`
+                    : "";
+                })
+                .filter(Boolean)
+                .join(" · ")}
+            </span>
+            {#if permisos.verCostos}
+              <!--
+                El costo de los insumos, al lado del costo tecleado. No lo
+                reemplaza —ADR-16: manda el que captura el administrador— pero es
+                lo que delata un costo que se quedó en el del año pasado.
+              -->
+              <div class="cotejo">
+                <span>Suman a costo de almacén</span>
+                <b class:difiere={costoInsumos !== costo}>{mxn(costoInsumos)}</b>
+              </div>
+            {/if}
+          </div>
+        {/if}
+      {/if}
+    </section>
   {/if}
 
   <label class="interruptor">
@@ -538,6 +750,131 @@
     font-size: 0.85rem;
     font-weight: 600;
     color: var(--peligro);
+  }
+  /* --- Insumos que consume el platillo --- */
+  .insumos {
+    border-top: 1px solid var(--borde);
+    padding-top: 0.9rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+  }
+  .cab-insumos {
+    display: flex;
+    align-items: baseline;
+    gap: 0.5rem;
+  }
+  .cab-insumos h3 {
+    font-family: var(--font-titulo);
+    font-size: 1rem;
+    font-weight: 600;
+  }
+  .opcional {
+    font-size: 0.66rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--gris);
+    border: 1px solid var(--borde);
+    border-radius: var(--r-pill);
+    padding: 0.1rem 0.45rem;
+  }
+  .sin-insumos {
+    font-size: 0.82rem;
+    color: var(--gris);
+    line-height: 1.5;
+    background: var(--fondo);
+    border-radius: var(--r-sm);
+    padding: 0.7rem 0.8rem;
+  }
+  .fila-insumo {
+    display: grid;
+    grid-template-columns: 1fr 5.5rem 3rem 5rem 2rem;
+    gap: 0.4rem;
+    align-items: center;
+  }
+  .fila-insumo select,
+  .fila-insumo input {
+    padding: 0.45rem 0.55rem;
+    border: 1.5px solid var(--borde);
+    border-radius: var(--r-sm);
+    font-size: 0.86rem;
+    font-family: var(--font-cuerpo);
+    background: #fff;
+    width: 100%;
+  }
+  .fila-insumo select:focus,
+  .fila-insumo input:focus {
+    outline: none;
+    border-color: var(--acento);
+  }
+  .fila-insumo input.cant {
+    text-align: right;
+  }
+  .unidad {
+    font-size: 0.8rem;
+    font-weight: 600;
+    color: var(--gris);
+  }
+  .costo-insumo {
+    font-size: 0.82rem;
+    font-weight: 600;
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+    color: var(--pizarra);
+  }
+  .quitar {
+    color: var(--gris);
+    font-size: 0.95rem;
+    padding: 0.3rem;
+    border-radius: var(--r-sm);
+  }
+  .quitar:hover {
+    background: #fdeae8;
+    color: var(--peligro);
+  }
+  .agregar-insumo {
+    align-self: flex-start;
+    border: 1.5px dashed var(--borde);
+    border-radius: var(--r-md);
+    padding: 0.5rem 0.9rem;
+    font-size: 0.86rem;
+    font-weight: 600;
+    color: var(--gris);
+  }
+  .agregar-insumo:hover {
+    border-color: var(--acento);
+    color: var(--acento);
+  }
+  .resumen-insumos {
+    display: flex;
+    align-items: flex-end;
+    justify-content: space-between;
+    gap: 1rem;
+    flex-wrap: wrap;
+    font-size: 0.8rem;
+    color: var(--gris);
+    line-height: 1.45;
+  }
+  .cotejo {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    flex: none;
+  }
+  .cotejo span {
+    font-size: 0.68rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+  }
+  .cotejo b {
+    font-family: var(--font-titulo);
+    font-size: 1.05rem;
+    color: var(--pizarra);
+  }
+  .cotejo b.difiere {
+    color: var(--acento-2);
   }
   .botones {
     display: flex;
