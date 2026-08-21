@@ -193,6 +193,9 @@ export function cuentasCerradasEn(
     // Una mesa que se abrió por error y se liberó sin consumo NO es una cuenta.
     // Contarla metía ventas de cero pesos que hunden el ticket promedio.
     if (c.anulada) return false;
+    // Una venta cancelada tampoco: el dinero se devolvió. Dejarla dentro haría
+    // que el día siguiera presumiendo un cobro que ya salió del cajón.
+    if (c.cancelada) return false;
     if (!rango) return true;
     const ts = c.cerrada_ts ?? c.abierta_ts;
     return ts >= rango.desde && ts < rango.hasta;

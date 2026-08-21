@@ -1,0 +1,21 @@
+Tu restaurante no tiene un problema de ventas. Tiene un problema de piezas sueltas.
+
+Un punto de venta que solo cobra. La contabilidad en otro programa. La nómina en una hoja de cálculo. Y las compras por WhatsApp.
+
+Mira dónde se detiene un punto de venta, y dónde sigue MotRest.
+
+El punto de venta cuesta el platillo por receta, a grandes rasgos. MotRest lo cuesta ingrediente por ingrediente, con el precio al que de verdad compraste.
+
+El punto de venta manda tu contabilidad a otro sistema. MotRest trae las finanzas adentro: el resultado del día y la factura fiscal, sin exportar nada.
+
+El punto de venta deja a tu gente fuera. MotRest tiene checador, rol de mesas y prenómina, con las propinas ya repartidas.
+
+El punto de venta te avisa cuando algo ya se acabó. MotRest te dice qué pedir, según lo que de verdad consumiste.
+
+El punto de venta tiene permisos básicos. MotRest tiene una jerarquía: cada quien ve y autoriza lo que su puesto permite, y todo queda en bitácora.
+
+El punto de venta te da reportes a fin de mes. MotRest te los da por producto, por mesero y por hora. Hoy.
+
+El punto de venta responde cuánto vendiste. MotRest responde además cuánto ganaste, por qué, y qué debes hacer mañana.
+
+MotRest. El sistema operativo de tu restaurante. Motrae punto com.

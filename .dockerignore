@@ -1,0 +1,51 @@
+# Qué NO se sube al construir la imagen del relay.
+#
+# El contexto es el monorepo entero, y tiene que serlo: `@motrest/dominio` se
+# resuelve por `workspace:*` y pnpm necesita ver el workspace para construir el
+# grafo. Lo que sobra es todo lo que pesa y nada de lo que compila.
+#
+# REGLA AL EDITAR ESTE ARCHIVO: se puede excluir contenido de un paquete, pero
+# NUNCA su package.json. pnpm lee todos los del workspace aunque instale uno
+# solo, y si falta alguno el install falla con un error que no señala aquí.
+
+# Lo más importante: los node_modules de la máquina que construye. Traen
+# binarios compilados para Windows —esbuild, entre otros— y dentro de una imagen
+# Alpine no ejecutan. Sin esta línea, el build parece ir bien y revienta al
+# empaquetar.
+node_modules
+**/node_modules
+
+# Historia y herramientas del repositorio
+.git
+.github
+.claude
+.vscode
+
+# Salidas de compilación, que se regeneran dentro
+**/dist
+**/dist-sea
+**/build
+**/.svelte-kit
+apps/escritorio/src-tauri/target
+apps/escritorio/src-tauri/binarios
+apps/central-escritorio/src-tauri/target
+apps/central-escritorio/src-tauri/binarios
+apps/*-android/app/build
+apps/*-android/.gradle
+
+# Documentación y entregables: nada de esto entra en la imagen, y pesa
+docs
+legal
+entregables
+Documentos_de_Primer_Orden
+Clientes
+herramientas/documentos
+**/*.docx
+**/*.pdf
+README.md
+CLAUDE.md
+
+# Datos locales del propio relay. El padrón de verdad vive en el volumen del
+# servidor; meter uno de pruebas en la imagen sería empezar con un padrón falso.
+apps/relay/datos
+apps/relay/datos-ensayo

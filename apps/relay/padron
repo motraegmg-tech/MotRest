@@ -1,0 +1,18 @@
+#!/bin/sh
+# El padrón, desde dentro del servidor del relay.
+#
+#   fly ssh console --app motrest-relay
+#   padron alta suc-a1b2c3d4 "Rodizio"
+#   padron lista
+#
+# POR QUÉ ESTE ENVOLTORIO EXISTE
+#
+# `fly ssh console` entra como ROOT. Un `node /app/padron.cjs alta …` corrido así
+# escribe el padrón con dueño root, y el relay —que corre como `node`— deja de
+# poder leerlo: el restaurante que acabas de dar de alta tumbaría a todos los
+# demás en el siguiente reinicio. Esto baja al mismo usuario que el servicio,
+# así que el archivo siempre tiene un solo dueño.
+#
+# Las variables de entorno (la llave del padrón, sobre todo) las hereda de la
+# máquina, que las tiene porque son secretos de Fly.
+exec su-exec node node /app/padron.cjs "$@"

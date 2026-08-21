@@ -1,13 +1,17 @@
 /**
  * El relay: la única parte de MotRest conectada a internet.
  *
- * Hace tres cosas y ninguna más:
+ * Hace cuatro cosas y ninguna más:
  *
  *   1. Recibe los webhooks de Meta, comprueba que vengan de verdad de Meta y
  *      averigua a qué restaurante le tocan.
  *   2. Se los empuja al Hub de ESE restaurante, que está conectado hacia afuera.
  *   3. Cuando un Hub quiere mandar algo, llama a la API de Meta con las
  *      credenciales de ese local.
+ *   4. Hace de cartero de las licencias que firma Central, para que renovar sea
+ *      un clic y no una visita al restaurante. **No puede falsificar ninguna**:
+ *      van firmadas con la privada de MOTRAE y el Hub las verifica contra su
+ *      pública compilada antes de escribir nada.
  *
  * Lo que NO hace: guardar la operación. Ni una comanda, ni una venta, ni un
  * cliente. Todo eso vive en el restaurante y ahí se queda.
@@ -18,10 +22,11 @@
  *   MOTREST_META_APP_SECRET      firma de los webhooks — sin esto no arranca
  *   MOTREST_META_VERIFY_TOKEN    el que se teclea en el panel de Meta
  *   MOTREST_RELAY_LLAVE_PADRON   32 bytes en base64: cifra el padrón en reposo
- *   MOTREST_RELAY_CLAVE_ADMIN    para consultar /salud/detalle y /pulsos (opcional)
+ *   MOTREST_RELAY_CLAVE_ADMIN    para /salud/detalle, /pulsos y /licencia (opcional)
  *   MOTREST_RELAY_PUERTO         puerto de escucha (8080)
  *   MOTREST_RELAY_PADRON         dónde se guarda el padrón (./datos/…)
  *   MOTREST_RELAY_PULSOS         dónde se guardan los pulsos (junto al padrón)
+ *   MOTREST_RELAY_LICENCIAS      buzón de renovaciones sin recoger (junto al padrón)
  *
  * `MOTREST_RELAY_CLAVE_HUB` YA NO EXISTE. Era una sola clave para todos los
  * Hubs; ahora cada restaurante tiene la suya, se la da MOTRAE al darlo de alta
@@ -34,6 +39,7 @@ import { dirname, join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { WebSocketServer, type WebSocket } from "ws";
 import { Inquilinos, llaveDelPadron } from "./inquilinos.js";
+import { Licencias, MAX_LICENCIA_BYTES, pareceLicencia } from "./licencias.js";
 import { Pulsos } from "./pulsos.js";
 import {
   YaVistos,
@@ -116,7 +122,40 @@ const pulsos = new Pulsos(
   llaveDelPadron(process.env.MOTREST_RELAY_LLAVE_PADRON),
   (t) => registrar("aviso", t),
 );
+/**
+ * Las renovaciones que todavía no ha recogido su restaurante.
+ *
+ * Es lo que convierte «renovar» en un clic. El relay solo hace de cartero: la
+ * licencia va firmada por MOTRAE y el Hub la verifica contra su pública
+ * compilada, así que desde aquí no se puede falsificar ni alargar ninguna.
+ */
+const licencias = new Licencias(
+  process.env.MOTREST_RELAY_LICENCIAS ?? join(dirname(PADRON), "licencias.json"),
+  llaveDelPadron(process.env.MOTREST_RELAY_LLAVE_PADRON),
+  (t) => registrar("aviso", t),
+);
 const vistos = new YaVistos();
+
+/**
+ * Le acerca al Hub la licencia que tenga pendiente, si está conectado.
+ *
+ * No borra nada: el buzón se vacía solo cuando el Hub confirma que la instaló.
+ * Un `send()` que no revienta no significa que el otro lado la haya escrito en
+ * disco —el socket puede caerse justo en medio—, y una renovación que se da por
+ * entregada sin estarlo es un restaurante bloqueado un lunes por la mañana.
+ */
+function intentarEntregarLicencia(sucursalId: string): boolean {
+  const pendiente = licencias.de(sucursalId);
+  if (!pendiente) return false;
+
+  const enlace = inquilinos.enlaceDe(sucursalId);
+  if (!enlace) return false;
+
+  licencias.anotarIntento(sucursalId);
+  enlace.enviar({ tipo: "licencia", licencia: pendiente.licencia });
+  registrar("info", `Licencia entregada a ${sucursalId} (intento ${pendiente.intentos}).`);
+  return true;
+}
 
 /**
  * Cuántas veces ha fallado el saludo cada IP.
@@ -327,6 +366,86 @@ async function atender(peticion: IncomingMessage, respuesta: ServerResponse): Pr
     return;
   }
 
+  /*
+   * DONDE CENTRAL DEJA UNA RENOVACIÓN PARA QUE LLEGUE SOLA AL RESTAURANTE.
+   *
+   * Contra la misma clave de administración que `/pulsos`: quien pueda depositar
+   * licencias puede decidir qué local abre mañana. Y aun con esa clave no se
+   * puede fabricar ninguna — el documento va firmado con la privada de MOTRAE,
+   * que no sale de Central, y el Hub lo verifica contra su pública compilada
+   * antes de escribir nada. Lo peor que puede hacer quien robe esta clave es
+   * entregar licencias que MOTRAE ya había firmado.
+   */
+  if (url.pathname === "/licencia") {
+    const cabecera = peticion.headers.authorization ?? "";
+    if (!esClaveAdmin(cabecera.replace(/^Bearer /i, ""))) {
+      respuesta.writeHead(401);
+      respuesta.end();
+      return;
+    }
+
+    if (peticion.method === "GET") {
+      /* Qué renovaciones siguen sin recoger: lo que Central enseña como pendiente. */
+      json(200, {
+        pendientes: licencias.lista().map((p) => ({
+          sucursal_id: p.sucursal_id,
+          depositada_ts: p.depositada_ts,
+          intentos: p.intentos,
+          conectado: Boolean(inquilinos.enlaceDe(p.sucursal_id)),
+        })),
+        ts: Date.now(),
+      });
+      return;
+    }
+
+    if (peticion.method !== "POST") {
+      json(405, { error: "Usa GET o POST" });
+      return;
+    }
+
+    void (async () => {
+      let cuerpo: { sucursal_id?: unknown; licencia?: unknown };
+      try {
+        cuerpo = JSON.parse(await leerCuerpo(peticion, MAX_LICENCIA_BYTES));
+      } catch (causa) {
+        json(400, { error: `No se pudo leer la licencia: ${String(causa)}` });
+        return;
+      }
+
+      const sucursalId = typeof cuerpo.sucursal_id === "string" ? cuerpo.sucursal_id : "";
+      if (!sucursalId) {
+        json(400, { error: "Falta el sucursal_id del destinatario" });
+        return;
+      }
+      /*
+       * Tiene que estar en el padrón. Sin esto, un `sucursal_id` mal tecleado
+       * dejaría la licencia esperando para siempre a un Hub que no existe, y en
+       * Central se vería «entregada» — que es exactamente la mentira que este
+       * mecanismo no se puede permitir.
+       */
+      if (!inquilinos.de(sucursalId)) {
+        json(404, { error: `${sucursalId} no está en el padrón del relay` });
+        return;
+      }
+      if (!pareceLicencia(cuerpo.licencia, sucursalId)) {
+        json(400, { error: "Eso no es una licencia firmada para ese local" });
+        return;
+      }
+
+      licencias.depositar(sucursalId, cuerpo.licencia as Record<string, unknown>);
+      const entregada = intentarEntregarLicencia(sucursalId);
+      registrar("info", `Licencia depositada para ${sucursalId}${entregada ? "" : " (Hub no conectado)"}.`);
+
+      /*
+       * `entregada` significa «se le mandó», no «la instaló». La confirmación
+       * llega por el socket y hasta entonces sigue pendiente. Central lo dice
+       * así de claro: prometer más sería volver al problema de origen.
+       */
+      json(200, { ok: true, entregada, ts: Date.now() });
+    })();
+    return;
+  }
+
   respuesta.writeHead(404);
   respuesta.end();
 }
@@ -413,6 +532,14 @@ function alConectarHub(socket: WebSocket, peticion: IncomingMessage): void {
       cerrojo.perdonar(ip);
       registrar("info", `Hub conectado: ${encontrado.sucursal_id}`);
       socket.send(JSON.stringify({ tipo: "bienvenida", ts: Date.now() }));
+
+      /*
+       * Lo primero que recibe un Hub al conectarse es su renovación, si la
+       * tiene. Es lo que hace que renovar a un local apagado funcione igual: la
+       * licencia lo espera en el buzón y la recoge al encender por la mañana,
+       * sin que nadie tenga que acordarse de volver a mandarla.
+       */
+      intentarEntregarLicencia(encontrado.sucursal_id);
       return;
     }
 
@@ -452,6 +579,24 @@ function alConectarHub(socket: WebSocket, peticion: IncomingMessage): void {
       const anotado = pulsos.registrar(sucursalId, mensaje.pulso);
       if (anotado) {
         registrar("info", `Pulso de ${sucursalId}: MotRest ${anotado.version}`);
+      }
+      return;
+    }
+
+    /*
+     * El Hub confirma qué hizo con la licencia que se le mandó.
+     *
+     * SOLO AQUÍ SE VACÍA EL BUZÓN, y solo si dijo que sí. Si la rechazó —firma
+     * que no verifica, licencia de otro local— se queda pendiente y queda
+     * registrado el motivo: es un problema que hay que mirar, no algo que se
+     * pueda tapar borrando la entrada y dejando al local sin renovar.
+     */
+    if (mensaje.tipo === "licencia_instalada") {
+      if (mensaje.ok === true) {
+        licencias.confirmar(sucursalId);
+        registrar("info", `${sucursalId} instaló su licencia nueva.`);
+      } else {
+        registrar("error", `${sucursalId} rechazó la licencia: ${String(mensaje.error ?? "sin motivo")}`);
       }
       return;
     }

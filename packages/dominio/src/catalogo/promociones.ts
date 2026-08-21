@@ -225,9 +225,18 @@ export interface DescuentoYaRegistrado {
  * Lo que le falta por aplicar a una cuenta que YA tiene promociones registradas.
  *
  * El caso real: se aplica el 2×1, y diez minutos después la mesa pide dos
- * pizzas más. Hay que ofrecer el 2×1 sobre las nuevas sin volver a regalar las
- * primeras. Por eso se excluyen los renglones ya cubiertos y las promociones ya
- * registradas, en vez de recalcular la cuenta entera.
+ * pizzas más. Hay que ofrecer el 2×1 **otra vez** sobre las nuevas, sin volver a
+ * regalar las primeras.
+ *
+ * LO ÚNICO QUE SE EXCLUYE SON LOS RENGLONES YA CUBIERTOS, no las promociones ya
+ * usadas. Excluir la promoción entera —que es lo que se hacía— dejaba la mesa
+ * sin su 2×1 en cuanto pedía la segunda ronda: la promoción existía, los
+ * platillos eran elegibles, y el botón simplemente no volvía a salir. Quien
+ * atendía no tenía forma de saber por qué, y el comensal veía dos pizzas al
+ * mismo precio que antes había pagado una.
+ *
+ * Cubrir los renglones ya regalados basta para que nada se regale dos veces:
+ * cada aplicación se lleva los suyos y los siguientes entran limpios.
  */
 export function promocionesPendientes(
   renglones: readonly RenglonComanda[],
@@ -237,11 +246,10 @@ export function promocionesPendientes(
   ahora: number,
 ): PromocionesAplicadas {
   const cubiertos = new Set(yaRegistrados.flatMap((d) => d.renglones_cubiertos ?? []));
-  const usadas = new Set(yaRegistrados.map((d) => d.promocion_id).filter(Boolean));
 
   return aplicarPromociones(
     renglones.filter((r) => !cubiertos.has(r.id)),
-    promociones.filter((p) => !usadas.has(p.id)),
+    promociones,
     categoriaDe,
     ahora,
   );

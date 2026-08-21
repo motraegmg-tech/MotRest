@@ -30,6 +30,24 @@
   const sinRespaldo = $derived(!central.respaldoAlDia);
   const soportePendiente = $derived(central.localesConSoportePendiente);
   const relay = $derived(central.saludRelay);
+
+  /*
+   * Renovaciones que ya se firmaron y el local todavía no ha recogido.
+   *
+   * Solo molestan si llevan más de un día ahí: un local cerrado por la noche es
+   * lo normal y avisar de eso enseñaría a ignorar el aviso. Pasadas 24 horas ya
+   * no es que esté cerrado — es que su Hub no está conectando, y ése es el que
+   * va a llamar el día que se le bloquee.
+   */
+  const renovacionesAtascadas = $derived(
+    central.licenciasPendientes.filter(
+      (p) => !p.conectado && central.ahora - p.depositada_ts > 86_400_000,
+    ),
+  );
+
+  function nombreDe(sucursal_id: string): string {
+    return central.clientes.find((c) => c.id === sucursal_id)?.nombre ?? sucursal_id;
+  }
   /* Si el relay no contesta, lo caído es el relay y no los restaurantes. */
   const relayMudo = $derived(central.puedeConsultarRelay && central.errorPulsos !== "");
 
@@ -59,6 +77,25 @@
       <b>El relay no contesta.</b>
       Los restaurantes siguen operando igual: lo que se pierde es la vista, no el
       servicio. Lo de abajo puede estar viejo.
+    </div>
+  {/if}
+
+  {#if renovacionesAtascadas.length > 0}
+    <!--
+      Una renovación firmada que nadie recoge es una factura cobrada y un
+      servicio que se va a cortar igual. Es el aviso que evita la llamada.
+    -->
+    <div class="ojo">
+      <b>
+        {renovacionesAtascadas.length === 1
+          ? "Una renovación lleva más de un día sin llegar a su restaurante."
+          : `${renovacionesAtascadas.length} renovaciones llevan más de un día sin llegar a su restaurante.`}
+      </b>
+      Su Hub no se ha conectado. La recogerá sola en cuanto lo haga, pero si el
+      equipo está apagado o sin internet hay que llamarlos.
+      <span class="quienes">
+        {renovacionesAtascadas.map((p) => nombreDe(p.sucursal_id)).join(", ")}
+      </span>
     </div>
   {/if}
 

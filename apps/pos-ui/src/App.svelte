@@ -8,6 +8,7 @@
   import Sidebar from "./lib/nav/Sidebar.svelte";
   import { MODULO_POR_CLAVE, MODULOS } from "./lib/nav/modulos";
   import { rutas } from "./lib/nav/rutas.svelte";
+  import { orientacion } from "./lib/nav/orientacion.svelte";
   import Clientes from "./lib/modulos/Clientes.svelte";
   import Reservas from "./lib/modulos/clientes/Reservas.svelte";
   import Ficha360 from "./lib/modulos/clientes/Ficha360.svelte";
@@ -104,7 +105,34 @@
    * calle— ni nadie a quien anunciarle la marca.
    */
   $effect(() => inactividad.iniciar(() => rutas.actual.modulo === "cocina"));
+
+  /*
+   * La postura de la pantalla, viva: una tableta gira a media comanda.
+   * `escuchar()` devuelve la baja del listener, que es lo que `$effect` espera.
+   */
+  $effect(() => orientacion.escuchar());
+
+  /*
+   * Navegar CIERRA el menú.
+   *
+   * En vertical el menú se abre por encima del contenido. Si al elegir un módulo
+   * se quedara abierto, taparía justo la pantalla que se acaba de pedir y habría
+   * que cerrarlo a mano cada vez. Depende de las dos partes de la ruta porque
+   * moverse entre secciones del mismo módulo también es navegar.
+   */
+  $effect(() => {
+    rutas.actual.modulo;
+    rutas.actual.seccion;
+    orientacion.cerrarMenu();
+  });
+
+  /** Escape cierra el menú: es lo que hace cualquier cosa que se abre encima. */
+  function alTeclear(e: KeyboardEvent): void {
+    if (e.key === "Escape" && orientacion.menuAbierto) orientacion.cerrarMenu();
+  }
 </script>
+
+<svelte:window on:keydown={alTeclear} />
 
 {#if arranque.cargando}
   <div class="cargando">
@@ -131,8 +159,44 @@
   -->
   <AltaResponsable />
 {:else}
-<div class="app">
-  <Sidebar />
+<div class="app" class:vertical={orientacion.vertical}>
+  <!--
+    EN VERTICAL EL MENÚ SE PLIEGA.
+    De pie, un menú fijo se come la mitad del ancho útil y la comanda queda en
+    una columna donde no cabe el nombre de un platillo. Se convierte en un cajón
+    que entra por la izquierda, y el botón de las tres rayas lo llama.
+    En horizontal nada de esto se activa: el menú sigue fijo, como siempre.
+  -->
+  {#if orientacion.vertical}
+    <button
+      class="hamburguesa"
+      aria-label={orientacion.menuAbierto ? "Cerrar el menú" : "Abrir el menú"}
+      aria-expanded={orientacion.menuAbierto}
+      onclick={() => orientacion.alternarMenu()}
+    >
+      <span class="rayas" class:equis={orientacion.menuAbierto} aria-hidden="true">
+        <i></i><i></i><i></i>
+      </span>
+    </button>
+  {/if}
+
+  {#if orientacion.vertical && orientacion.menuAbierto}
+    <!--
+      El velo cierra al tocar fuera. Es un botón y no un div para que exista
+      para el teclado y para un lector de pantalla: un `div` con `onclick` es
+      invisible a las dos cosas.
+    -->
+    <button
+      class="velo"
+      aria-label="Cerrar el menú"
+      onclick={() => orientacion.cerrarMenu()}
+    ></button>
+  {/if}
+
+  <div class="carril" class:abierto={orientacion.menuAbierto}>
+    <Sidebar />
+  </div>
+
   <div class="main">
     <Header onAbrirAcceso={() => (mostrarAcceso = true)} />
 
@@ -416,6 +480,117 @@
     display: flex;
     height: 100vh;
     overflow: hidden;
+  }
+
+  /*
+   * El carril que contiene el menú. En horizontal no hace nada: es una caja
+   * transparente alrededor del sidebar de siempre.
+   */
+  .carril {
+    display: flex;
+    min-height: 0;
+  }
+
+  /* --- Modo vertical: el menú pasa a ser un cajón ------------------------- */
+
+  .app.vertical .carril {
+    position: fixed;
+    z-index: 60;
+    top: 0;
+    left: 0;
+    height: 100vh;
+    /* Fuera de la pantalla hasta que alguien lo llame. */
+    transform: translateX(-100%);
+    transition: transform 180ms ease;
+    box-shadow: var(--sombra-lg);
+  }
+  .app.vertical .carril.abierto {
+    transform: translateX(0);
+  }
+  /*
+   * `visibility` además del desplazamiento: un menú solo movido fuera de
+   * pantalla sigue siendo alcanzable con el tabulador, y se acaba tecleando a
+   * ciegas en un menú que no se ve.
+   */
+  .app.vertical .carril:not(.abierto) {
+    visibility: hidden;
+  }
+  .app.vertical .carril.abierto {
+    visibility: visible;
+  }
+
+  /* De pie, el menú se muestra completo: hay alto de sobra y ancho es lo que falta. */
+  .app.vertical :global(.sb) {
+    width: 15rem;
+    height: 100vh;
+  }
+  .app.vertical :global(.sb .foot) {
+    display: block;
+  }
+
+  .velo {
+    position: fixed;
+    inset: 0;
+    z-index: 55;
+    border: 0;
+    padding: 0;
+    background: rgba(0, 0, 0, 0.42);
+    cursor: pointer;
+  }
+
+  .hamburguesa {
+    position: fixed;
+    z-index: 65;
+    top: 0.55rem;
+    left: 0.55rem;
+    width: 2.75rem;
+    height: 2.75rem;
+    display: grid;
+    place-items: center;
+    border: 1px solid var(--linea, #e3e3e3);
+    border-radius: var(--r-md);
+    background: var(--claro, #fff);
+    box-shadow: var(--sombra-sm);
+    cursor: pointer;
+  }
+  .rayas {
+    position: relative;
+    width: 1.15rem;
+    height: 0.85rem;
+    display: block;
+  }
+  .rayas i {
+    position: absolute;
+    left: 0;
+    width: 100%;
+    height: 2px;
+    border-radius: 2px;
+    background: var(--pizarra, #333);
+    transition: transform 180ms ease, opacity 120ms ease;
+  }
+  .rayas i:nth-child(1) { top: 0; }
+  .rayas i:nth-child(2) { top: 50%; margin-top: -1px; }
+  .rayas i:nth-child(3) { bottom: 0; }
+
+  /* Abierto, las tres rayas se vuelven una equis: dice que ese botón cierra. */
+  .rayas.equis i:nth-child(1) { transform: translateY(0.4rem) rotate(45deg); }
+  .rayas.equis i:nth-child(2) { opacity: 0; }
+  .rayas.equis i:nth-child(3) { transform: translateY(-0.4rem) rotate(-45deg); }
+
+  /*
+   * Sitio para el botón: sin esto tapa el primer control de la cabecera, que en
+   * la pantalla de venta es el buscador.
+   */
+  .app.vertical :global(.encabezado),
+  .app.vertical :global(header) {
+    padding-left: 3.6rem;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .app.vertical .carril,
+    .rayas i {
+      transition: none;
+    }
   }
   .main {
     flex: 1;

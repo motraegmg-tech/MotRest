@@ -4,7 +4,7 @@
  */
 import { sumar, type Centavos } from "../comun/dinero.js";
 import type { ID } from "../comun/ids.js";
-import type { EventoComanda, FormaPago } from "./eventos.js";
+import type { Devolucion, EventoComanda, FormaPago } from "./eventos.js";
 import { estaActivo, type EstadoRenglon, type RenglonComanda } from "./renglon.js";
 
 export interface Pago {
@@ -17,6 +17,11 @@ export interface Pago {
 }
 
 export interface Descuento {
+  /**
+   * El `id` del evento que lo aplicó. Es lo que permite retirar UNO concreto
+   * cuando la cuenta lleva varios —dos rondas del mismo 2×1, por ejemplo—.
+   */
+  id: ID;
   alcance: "renglon" | "cuenta";
   renglon_id?: ID;
   modo: "porcentaje" | "monto";
@@ -60,6 +65,20 @@ export interface EstadoComanda {
    * abre, es información de operación que hoy nadie tiene.
    */
   anulada?: boolean;
+  /**
+   * true = la venta se canceló DESPUÉS de cobrada y el dinero se devolvió.
+   *
+   * No es lo mismo que `anulada`: aquí sí hubo consumo y sí hubo cobro. Los dos
+   * comparten destino en los reportes —ninguna cuenta como venta— pero se
+   * distinguen en la bitácora, que es donde importa la diferencia entre «se
+   * abrió una mesa por error» y «se deshizo un cobro de 433 pesos».
+   */
+  cancelada?: boolean;
+  /** Cuándo se canceló. La hora del cobro sigue en `cerrada_ts`. */
+  cancelada_ts?: number;
+  motivo_cancelacion?: string;
+  /** Lo que se le regresó al comensal al cancelar. */
+  devoluciones?: Devolucion[];
   /** Cuántas veces se volvió a imprimir el ticket. Ausente = ninguna. */
   reimpresiones?: number;
   /**
@@ -232,6 +251,7 @@ export function aplicarEvento(
         descuentos: [
           ...estado.descuentos,
           {
+            id: ev.id,
             alcance: ev.alcance,
             renglon_id: ev.renglon_id,
             modo: ev.modo,
@@ -242,6 +262,19 @@ export function aplicarEvento(
             renglones_cubiertos: ev.renglones_cubiertos,
           },
         ],
+      };
+
+    /*
+     * Se quita UN descuento, el que se señala por el id de su evento.
+     *
+     * Los renglones que ese descuento tenía cubiertos vuelven a quedar libres
+     * —el estado no los guarda aparte—, así que la promoción se vuelve a
+     * ofrecer sola en cuanto se retira. Es lo que se espera de deshacer.
+     */
+    case "descuento_retirado":
+      return {
+        ...estado,
+        descuentos: estado.descuentos.filter((d) => d.id !== ev.descuento_id),
       };
 
     case "cortesia_otorgada":
@@ -308,6 +341,25 @@ export function aplicarEvento(
      */
     case "orden_anulada":
       return { ...estado, cerrada: true, cerrada_ts: ev.ts, anulada: true };
+
+    /*
+     * La venta se deshace: la mesa se libera y la cuenta sale de los reportes.
+     *
+     * Se CIERRA aunque estuviera reabierta —ese es medio arreglo: una cuenta
+     * cancelada no puede seguir ocupando la mesa— pero `cerrada_ts` conserva la
+     * hora del cobro original si la hubo. Son dos hechos distintos y cada uno
+     * tiene su sello: cuándo se cobró y cuándo se deshizo.
+     */
+    case "venta_cancelada":
+      return {
+        ...estado,
+        cerrada: true,
+        cerrada_ts: estado.cerrada_ts ?? ev.ts,
+        cancelada: true,
+        cancelada_ts: ev.ts,
+        motivo_cancelacion: ev.motivo,
+        devoluciones: [...(estado.devoluciones ?? []), ...ev.devoluciones],
+      };
 
     case "ticket_reimpreso":
       // Se cuenta en la comanda para poder numerar el papel y para que el

@@ -21,8 +21,10 @@
   import { sesion } from "../sesion/sesion.svelte";
   import { sync } from "../sync.svelte";
   import Caja from "./finanzas/Caja.svelte";
+  import CortePorFechas from "./finanzas/CortePorFechas.svelte";
   import Csd from "./finanzas/Csd.svelte";
   import Resultado from "./finanzas/Resultado.svelte";
+  import TicketsCobrados from "./finanzas/TicketsCobrados.svelte";
   import VentasPorDia from "./finanzas/VentasPorDia.svelte";
 
   const puedeEditar = $derived(sesion.puedeOperar("fin.factura.emitir"));
@@ -155,10 +157,24 @@
   <VentasPorDia />
 
   <!--
+    El detalle de esas cifras, ticket por ticket, y la única pantalla desde la
+    que se puede deshacer un cobro. Va pegada a «Ventas por día» porque se llega
+    a ella desde ahí: se ve un día que no cuadra y se baja a buscar cuál fue.
+  -->
+  <TicketsCobrados />
+
+  <!--
     El corte de caja va junto al resultado: ambos se hacen al cerrar el día. El
     resultado dice si se ganó; el corte, si el efectivo del cajón cuadra.
   -->
   <Caja />
+
+  <!--
+    Y justo debajo, el mismo corte pero hacia atrás: un día pasado o varios
+    juntos. Va pegado a la caja porque se llega desde ahí — se cierra el turno,
+    el papel no sale, y hay que volver a sacarlo.
+  -->
+  <CortePorFechas />
 
   <!-- Datos fiscales del emisor -->
   <section class="tarjeta">

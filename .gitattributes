@@ -1,0 +1,10 @@
+# Los scripts que corren DENTRO del contenedor van siempre con saltos de línea
+# de Unix.
+#
+# Se clona en Windows, y con la conversión automática un `#!/bin/sh` acaba
+# terminado en CR. Linux entonces busca un intérprete llamado "/bin/sh\r", no lo
+# encuentra, y el contenedor muere con "no such file or directory" señalando un
+# archivo que está ahí delante. Es una tarde perdida por un carácter invisible.
+*.sh text eol=lf
+apps/relay/padron text eol=lf
+Dockerfile text eol=lf

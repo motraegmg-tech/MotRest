@@ -1,0 +1,110 @@
+# El relay de MotRest en Fly.io.
+#
+# Se despliega desde la RAÍZ del monorepo, que es el contexto del build:
+#
+#   fly deploy --config apps/relay/fly.toml --dockerfile apps/relay/Dockerfile .
+#
+# El runbook completo —dominio, secretos, certificado, alta de restaurantes— está
+# en docs/DESPLEGAR-EL-RELAY.md. Aquí solo se explica lo que este archivo decide.
+
+app = "motrest-relay"
+
+# Dallas. Es lo más cerca de México que llega Fly: no tiene región mexicana
+# —se comprobó con `fly platform regions` en agosto de 2026, y `qro` no existe—,
+# así que la elección real era Dallas o Los Ángeles, y Dallas queda más cerca de
+# casi todo México.
+#
+# Importa porque el enlace con cada Hub es un WebSocket abierto todo el día:
+# cada salto de más son milisegundos en cada aviso de "su mesa está lista" y una
+# ruta más larga que se puede cortar.
+primary_region = "dfw"
+
+[build]
+
+[env]
+  # El padrón y los pulsos, en el volumen. Repetido aquí a propósito aunque el
+  # Dockerfile ya lo fije: quien lea este archivo para saber qué se guarda y
+  # dónde, tiene que verlo sin abrir la imagen.
+  MOTREST_RELAY_PADRON = "/datos/restaurantes.json"
+  MOTREST_RELAY_PULSOS = "/datos/pulsos.json"
+  # Las renovaciones que un local todavía no ha recogido. En el VOLUMEN y no en
+  # la imagen: si se perdieran al redesplegar, un restaurante apagado esa noche
+  # se quedaría sin la licencia que Central ya dio por enviada.
+  MOTREST_RELAY_LICENCIAS = "/datos/licencias.json"
+  MOTREST_RELAY_PUERTO = "8080"
+
+# Los secretos NO van aquí: este archivo está en el repositorio.
+#
+#   fly secrets set MOTREST_META_APP_SECRET=… MOTREST_META_VERIFY_TOKEN=… \
+#                   MOTREST_RELAY_LLAVE_PADRON=… MOTREST_RELAY_CLAVE_ADMIN=…
+
+# El único disco que sobrevive a un despliegue. Dentro está el padrón cifrado
+# con los tokens de WhatsApp de todos los restaurantes: es lo más valioso que
+# MOTRAE tiene en internet, y por eso el relay no guarda nada más.
+[[mounts]]
+  source = "datos_relay"
+  destination = "/datos"
+
+[http_service]
+  internal_port = 8080
+
+  # Meta no acepta webhooks sin certificado, y el Hub comprueba `wss://` antes de
+  # abrir el socket: un `ws://` lo rechaza él solo.
+  force_https = true
+
+  # LAS DOS LÍNEAS QUE NO SE TOCAN.
+  #
+  # Fly apaga las máquinas ociosas para ahorrar. Aquí eso rompería el producto:
+  # los Hubs sostienen un WebSocket abierto y no hay "tráfico" que justifique
+  # mantener la máquina viva, así que Fly la apagaría con los cincuenta locales
+  # conectados. Además el padrón vive en memoria mientras corre.
+  #
+  # `auto_start` sí queda encendido: si la máquina se cae por lo que sea, que
+  # vuelva sola es mejor que esperar a que alguien lo note.
+  # 'off' y no `false`: flyctl da por obsoleto el booleano y espera
+  # 'off' | 'stop' | 'suspend'.
+  auto_stop_machines = 'off'
+  auto_start_machines = true
+  min_machines_running = 1
+
+  [http_service.concurrency]
+    # Se cuenta por CONEXIONES, no por peticiones: el tráfico real del relay son
+    # sockets abiertos —uno por restaurante— y no visitas. Con 500 caben todos
+    # los locales previsibles y sigue habiendo margen para los webhooks.
+    type = "connections"
+    soft_limit = 400
+    hard_limit = 500
+
+  # Fly reinicia la máquina si esto deja de contestar. Va contra `/salud`, que
+  # es público a propósito y no dice nada: cuántos restaurantes tiene MOTRAE y
+  # cuáles están abiertos ahora mismo se pregunta en `/salud/detalle`, con clave.
+  [[http_service.checks]]
+    grace_period = "15s"
+    interval = "30s"
+    method = "GET"
+    path = "/salud"
+    timeout = "5s"
+
+[[vm]]
+  # El relay enruta mensajes y no calcula nada. Lo que consume es memoria por
+  # socket abierto, y 512 MB sobran para los locales que caben en una máquina.
+  size = "shared-cpu-1x"
+  memory = "512mb"
+
+# UNA SOLA MÁQUINA, Y ESO NO SE CONFIGURA AQUÍ.
+#
+# El número de máquinas se fija con `fly scale count 1` y se comprueba con
+# `fly status`; este archivo no lo declara. Se escribe aquí porque es donde
+# alguien va a buscarlo el día que piense en crecer.
+#
+# La limitación no es de Fly, es del relay: los enlaces de los Hubs viven en
+# memoria, el padrón es un archivo en este volumen y el índice de mensajes ya
+# vistos —el que evita procesar dos veces un reintento de Meta— también. Dos
+# máquinas serían dos padrones que divergen y la mitad de los avisos llegando a
+# un relay donde el Hub de ese local no está conectado.
+#
+# En la práctica el volumen ya lo frena —Fly no arranca una segunda máquina sin
+# un volumen que montar—, pero eso es una consecuencia, no una garantía: crear
+# otro volumen la desbloquearía. Si algún día hacen falta dos, primero hay que
+# sacar ese estado a un sitio compartido. Subir el número no lo escala, lo rompe
+# en silencio.

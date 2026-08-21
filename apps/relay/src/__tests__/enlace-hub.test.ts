@@ -211,3 +211,128 @@ describe("la salud del relay", () => {
     expect(JSON.parse(cuerpo)).toMatchObject({ restaurantes: 2 });
   });
 });
+
+/**
+ * RENOVAR SIN QUE EL RESTAURANTERO TOQUE NADA.
+ *
+ * Esto se prueba contra el relay encendido y con un socket de verdad por la
+ * misma razón que el saludo: que el buzón sepa guardar no demuestra que la
+ * licencia llegue al Hub. Lo único que lo demuestra es depositarla por HTTP,
+ * abrir el enlace como lo haría un Hub, y ver el mensaje entrar.
+ */
+describe("la licencia llega sola al restaurante", () => {
+  function licenciaDe(sucursal: string, vence = 2_000_000) {
+    return { sucursal_id: sucursal, nombre: "Rodizio", vence_ts: vence, firma: "firma-de-motrae" };
+  }
+
+  async function depositar(cuerpo: unknown, clave = CLAVE_ADMIN) {
+    const respuesta = await fetch(`http://127.0.0.1:${relay.puerto}/licencia`, {
+      method: "POST",
+      headers: { authorization: `Bearer ${clave}`, "content-type": "application/json" },
+      body: JSON.stringify(cuerpo),
+    });
+    return { estado: respuesta.status, cuerpo: await respuesta.json().catch(() => null) };
+  }
+
+  /* Quien pueda depositar licencias decide qué local abre mañana. */
+  it("sin la clave de administración no se deposita nada", async () => {
+    const r = await depositar(
+      { sucursal_id: "suc-rodizio", licencia: licenciaDe("suc-rodizio") },
+      "clave-equivocada",
+    );
+    expect(r.estado).toBe(401);
+  });
+
+  /*
+   * Un `sucursal_id` mal tecleado dejaría la licencia esperando para siempre a
+   * un Hub que no existe, y en Central se vería «enviada». Es justo la mentira
+   * que este mecanismo no se puede permitir.
+   */
+  it("no acepta una licencia para un local que no está en el padrón", async () => {
+    const r = await depositar({
+      sucursal_id: "suc-inventada",
+      licencia: licenciaDe("suc-inventada"),
+    });
+    expect(r.estado).toBe(404);
+  });
+
+  it("no acepta un documento que no parece una licencia de ese local", async () => {
+    expect((await depositar({ sucursal_id: "suc-fonda", licencia: { hola: 1 } })).estado).toBe(400);
+    /* El cuerpo dice una sucursal y el documento otra. */
+    expect(
+      (await depositar({ sucursal_id: "suc-fonda", licencia: licenciaDe("suc-rodizio") })).estado,
+    ).toBe(400);
+  });
+
+  /* El local está apagado: la renovación se queda esperándolo. */
+  it("con el Hub desconectado la deja pendiente, no la pierde", async () => {
+    const r = await depositar({ sucursal_id: "suc-fonda", licencia: licenciaDe("suc-fonda") });
+
+    expect(r.estado).toBe(200);
+    expect(r.cuerpo).toMatchObject({ ok: true, entregada: false });
+  });
+
+  /*
+   * EL CAMINO COMPLETO: la licencia estaba esperando y el Hub la recibe nada más
+   * conectarse, sin que nadie la vuelva a mandar.
+   */
+  it("el Hub la recibe en cuanto se conecta, sin pedirla", async () => {
+    await depositar({ sucursal_id: "suc-rodizio", licencia: licenciaDe("suc-rodizio", 4_242) });
+
+    const { recibidos } = await hablar([{ tipo: "hola", credencial: credRodizio }]);
+
+    expect(tipos(recibidos)).toContain("licencia");
+    const entregada = recibidos.find((m) => m.tipo === "licencia");
+    expect((entregada?.licencia as Record<string, unknown>).vence_ts).toBe(4_242);
+  });
+
+  /*
+   * NO SE VACÍA EL BUZÓN AL MANDARLA. Un socket que se cae entre el `send` y la
+   * escritura en disco dejaría al local sin renovar y a Central diciendo que sí.
+   */
+  it("sigue pendiente hasta que el Hub confirma que la instaló", async () => {
+    await depositar({ sucursal_id: "suc-rodizio", licencia: licenciaDe("suc-rodizio", 7_777) });
+
+    /* Se conecta y se va sin confirmar: la siguiente conexión la recibe otra vez. */
+    await hablar([{ tipo: "hola", credencial: credRodizio }]);
+    const segunda = await hablar([{ tipo: "hola", credencial: credRodizio }]);
+    expect(tipos(segunda.recibidos)).toContain("licencia");
+
+    /* Ahora sí confirma, y deja de llegar. */
+    await hablar([
+      { tipo: "hola", credencial: credRodizio },
+      { tipo: "licencia_instalada", ok: true },
+    ]);
+    const despues = await hablar([{ tipo: "hola", credencial: credRodizio }]);
+    expect(tipos(despues.recibidos)).not.toContain("licencia");
+  });
+
+  /*
+   * Un Hub que la rechaza —firma que no verifica— NO vacía el buzón: es un
+   * problema que hay que mirar, no algo que se tape borrando la entrada y
+   * dejando al local sin renovar.
+   */
+  it("si el Hub la rechaza, la renovación se queda pendiente", async () => {
+    await depositar({ sucursal_id: "suc-rodizio", licencia: licenciaDe("suc-rodizio", 8_888) });
+
+    await hablar([
+      { tipo: "hola", credencial: credRodizio },
+      { tipo: "licencia_instalada", ok: false, error: "la firma no verifica" },
+    ]);
+
+    const despues = await hablar([{ tipo: "hola", credencial: credRodizio }]);
+    expect(tipos(despues.recibidos)).toContain("licencia");
+  });
+
+  it("Central puede ver qué renovaciones siguen sin recoger", async () => {
+    const respuesta = await fetch(`http://127.0.0.1:${relay.puerto}/licencia`, {
+      headers: { authorization: `Bearer ${CLAVE_ADMIN}` },
+    });
+    const cuerpo = (await respuesta.json()) as {
+      pendientes: { sucursal_id: string; conectado: boolean }[];
+    };
+
+    expect(respuesta.status).toBe(200);
+    expect(cuerpo.pendientes.map((p) => p.sucursal_id)).toContain("suc-rodizio");
+  });
+});

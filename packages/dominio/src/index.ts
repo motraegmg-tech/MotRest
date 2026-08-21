@@ -37,6 +37,7 @@ export * from "./comanda/totales.js";
 // Caja
 export * from "./caja/eventos.js";
 export * from "./caja/reducers.js";
+export * from "./caja/corte-periodo.js";
 
 // Cocina (KDS)
 export * from "./cocina/estaciones.js";

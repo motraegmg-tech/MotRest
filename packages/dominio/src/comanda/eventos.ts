@@ -62,6 +62,12 @@ export function etiquetaFormaPago(forma: FormaPago): string {
   return FORMAS_PAGO.find((f) => f.valor === forma)?.etiqueta ?? forma;
 }
 
+/** Dinero que se le regresa al comensal al cancelar una venta ya cobrada. */
+export interface Devolucion {
+  forma: FormaPago;
+  monto: Centavos;
+}
+
 export type EventoComanda =
   | (EventoBase & {
       tipo: "orden_creada";
@@ -169,6 +175,23 @@ export type EventoComanda =
        */
       promocion_id?: ID;
       renglones_cubiertos?: ID[];
+    })
+  | (EventoBase & {
+      /**
+       * Se retira un descuento ya aplicado.
+       *
+       * Hace falta porque una promoción se aplica con un toque y hasta ahora no
+       * se podía deshacer: aplicar la equivocada obligaba a cancelar la cuenta
+       * entera. Se identifica por el **id del evento que la aplicó**, y no por
+       * la promoción, porque la misma promoción puede haberse aplicado dos veces
+       * en la misma cuenta —una por ronda— y quitar «el 2×1» tendría que
+       * significar quitar uno, no los dos.
+       */
+      tipo: "descuento_retirado";
+      orden_id: ID;
+      /** El `id` del evento `descuento_aplicado` que se deshace. */
+      descuento_id: ID;
+      autorizador_id?: ID;
     })
   | (EventoBase & {
       /** La cortesía tiene semántica contable distinta al descuento. */
@@ -280,6 +303,41 @@ export type EventoComanda =
       orden_id: ID;
       motivo: string;
       autorizador_id?: ID;
+    })
+  | (EventoBase & {
+      /**
+       * Se CANCELA una venta ya cobrada: se devuelve el dinero y deja de contar.
+       *
+       * Es lo que faltaba para cerrar el círculo de `cuenta_reabierta`. Reabrir
+       * deja la cuenta viva otra vez con sus pagos dentro, y hasta aquí la única
+       * salida era volver a cobrarla. Cuando lo correcto era deshacer el cobro
+       * —se cobró la mesa equivocada, el cliente se arrepintió, el cargo salió
+       * mal— no había ninguna: cancelar los renglones dejaba la cuenta con
+       * `total = 0` y los pagos intactos, o sea **saldo negativo y la mesa
+       * ocupada para siempre**. Le pasó a la mesa 8 de Rodizio el 2026-08-15.
+       *
+       * NO borra nada, como todo en este log. El cobro ocurrió y ahí sigue; lo
+       * que se registra es que se deshizo y con qué dinero. De ahí que las
+       * `devoluciones` viajen en el evento en vez de deducirse al proyectar: el
+       * corte de caja tiene que saber cuánto efectivo SALIÓ del cajón hoy,
+       * aunque la venta se hubiera cobrado en el turno de antier.
+       *
+       * Cierra la sentada —la mesa se libera— y marca la cuenta `cancelada`,
+       * que es lo que la saca de todos los reportes. Se distingue de
+       * `orden_anulada` en que ahí no hubo consumo ni dinero; aquí hubo los dos.
+       */
+      tipo: "venta_cancelada";
+      orden_id: ID;
+      motivo: string;
+      autorizador_id?: ID;
+      /**
+       * Lo que se le devuelve al comensal, por forma de pago.
+       *
+       * Va explícito y no como «todo lo cobrado» porque el papel que firma la
+       * devolución tiene que decir cuánto salió en efectivo y cuánto se
+       * reversó por terminal: no son la misma gestión ni el mismo día.
+       */
+      devoluciones: Devolucion[];
     })
   | (EventoBase & {
       /**

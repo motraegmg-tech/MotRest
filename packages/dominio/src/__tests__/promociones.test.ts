@@ -213,7 +213,15 @@ describe("porcentaje y precio fijo", () => {
 // --- Lo que ya se aplicó --------------------------------------------------------------------
 
 describe("una cuenta que crece después de aplicar la promoción", () => {
-  it("no vuelve a regalar lo que ya se regaló", () => {
+  /*
+   * LA SEGUNDA RONDA TAMBIÉN LLEVA SU 2×1.
+   *
+   * Antes se excluía la promoción entera en cuanto se había usado una vez, así
+   * que la mesa que pedía más pizzas se quedaba sin promoción y nadie entendía
+   * por qué: la promoción existía y los platillos eran elegibles, pero el botón
+   * no volvía a salir.
+   */
+  it("vuelve a ofrecerse cuando llegan platillos elegibles nuevos", () => {
     const primeras = [renglon("pizza", 300), renglon("pizza", 200)];
     const inicial = aplicarPromociones(primeras, [DOS_POR_UNO], categoriaDe, Date.now());
     expect(inicial.total).toBe(pesos(200));
@@ -229,7 +237,43 @@ describe("una cuenta que crece después de aplicar la promoción", () => {
       conNuevas, [DOS_POR_UNO], [registrado], categoriaDe, Date.now(),
     );
 
-    // La promoción ya se usó en esta cuenta: no se ofrece de nuevo.
+    // Se ofrece otra vez, y regala la más barata DE LAS NUEVAS.
+    expect(pendiente.total).toBe(pesos(260));
+  });
+
+  it("no vuelve a regalar lo que ya se regaló", () => {
+    const primeras = [renglon("pizza", 300), renglon("pizza", 200)];
+    const inicial = aplicarPromociones(primeras, [DOS_POR_UNO], categoriaDe, Date.now());
+
+    const registrado = {
+      promocion_id: DOS_POR_UNO.id,
+      renglones_cubiertos: inicial.descuentos[0]!.renglones,
+    };
+
+    // Sin platillos nuevos no hay nada más que ofrecer: los dos que había ya
+    // están cubiertos, y volver a aplicarla regalaría la misma pizza dos veces.
+    const pendiente = promocionesPendientes(
+      primeras, [DOS_POR_UNO], [registrado], categoriaDe, Date.now(),
+    );
+    expect(pendiente.total).toBe(pesos(0));
+  });
+
+  /*
+   * Un solo platillo nuevo no completa el grupo del 2×1, así que no hay nada
+   * que regalar todavía. Ofrecerla ahí sería regalar media promoción.
+   */
+  it("un único platillo nuevo no dispara otra vez el 2×1", () => {
+    const primeras = [renglon("pizza", 300), renglon("pizza", 200)];
+    const inicial = aplicarPromociones(primeras, [DOS_POR_UNO], categoriaDe, Date.now());
+    const registrado = {
+      promocion_id: DOS_POR_UNO.id,
+      renglones_cubiertos: inicial.descuentos[0]!.renglones,
+    };
+
+    const pendiente = promocionesPendientes(
+      [...primeras, renglon("pizza", 280)],
+      [DOS_POR_UNO], [registrado], categoriaDe, Date.now(),
+    );
     expect(pendiente.total).toBe(pesos(0));
   });
 

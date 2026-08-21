@@ -162,6 +162,25 @@ describe("el almacén sigue a la comanda", () => {
   });
 });
 
+describe("cancelar una venta ya cobrada", () => {
+  it("regresa al almacén todo lo que esa cuenta se llevó", async () => {
+    const mesa = siguienteMesa();
+    pos.seleccionarMesa(mesa);
+    const ordenId = pos.abrirMesa(mesa);
+
+    const antesDeTodo = existencias();
+    await pos.agregar(platilloQueConsume());
+    await pos.enviarACocina();
+    expect(movidos(antesDeTodo, existencias()).length).toBeGreaterThan(0);
+
+    await pos.cobrarTodo("efectivo");
+    expect(await pos.cancelarVenta(ordenId, "Se cobró la mesa equivocada")).toBe(true);
+
+    expect(existencias()).toEqual(antesDeTodo);
+    expect(pos.estadoMesa(mesa)).toBe("libre");
+  });
+});
+
 describe("la utilización que se captura a mano", () => {
   it("resta del almacén, como cualquier otra salida", () => {
     const insumo = inventario.insumos[0]!;

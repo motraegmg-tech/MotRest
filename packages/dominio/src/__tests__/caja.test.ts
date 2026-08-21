@@ -187,6 +187,7 @@ describe("diferencia del arqueo", () => {
     propinasPorForma: {}, propinas: CERO,
     efectivoVentas: CERO, fondoInicial: CERO, movimientos: CERO,
     efectivoEsperado: pesos(esperado), cuentasCerradas: 0,
+    devoluciones: CERO, ventasCanceladas: 0,
   });
 
   it("cuadra cuando lo declarado iguala lo esperado", () => {

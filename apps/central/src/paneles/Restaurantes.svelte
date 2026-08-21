@@ -6,10 +6,15 @@
    * versión tiene, y sacar el archivo que se pega en el local. Por eso el botón
    * de renovar está arriba y no escondido al final — es lo que se viene a hacer.
    */
-  import { central, type CredencialesResponsableIniciales } from "../lib/central.svelte";
+  import {
+    central,
+    type CredencialesResponsableIniciales,
+    type EntregaLicencia,
+  } from "../lib/central.svelte";
   import { desde, dinero, fecha, plazo } from "../lib/formato";
   import Alta from "./Alta.svelte";
   import EditarLocal from "./EditarLocal.svelte";
+  import Vencimiento from "./Vencimiento.svelte";
   import Cobros from "./Cobros.svelte";
 
   // `let` y no `const`: es un prop enlazado y esta pantalla lo reasigna al
@@ -18,6 +23,7 @@
 
   let dandoAlta = $state(false);
   let editando = $state(false);
+  let cambiandoVencimiento = $state(false);
   let confirmandoCorte = $state(false);
   let aviso = $state("");
   let licenciaGenerada = $state("");
@@ -59,22 +65,51 @@
     sin_licencia: "Sin licencia",
   };
 
+  /**
+   * Emitir y —lo importante— hacérsela llegar al restaurante.
+   *
+   * EL ARCHIVO SOLO SE ENSEÑA SI HAY QUE PEGARLO. Cuando el relay se encarga, un
+   * bloque de JSON en pantalla no informa de nada y sí invita a pegarlo «por si
+   * acaso». Cuando el reparto falla, aparece igual que siempre: el camino manual
+   * no desaparece, se queda de red de seguridad.
+   */
   async function renovar() {
     if (!cliente) return;
     aviso = "";
+    licenciaGenerada = "";
     const r = await central.emitir(cliente.id);
     if (!r.ok) {
       aviso = r.error ?? "No se pudo emitir";
       return;
     }
-    licenciaGenerada = JSON.stringify(r.licencia, null, 2);
     if (r.credencialesResponsable) {
       accesoResponsable = {
         nombre: cliente.responsable?.nombre || cliente.contacto,
         pin: r.credencialesResponsable.pin,
       };
     }
-    aviso = `Licencia emitida. Vence el ${fecha(r.licencia!.vence_ts)}.`;
+    mostrarEntrega(r.licencia!.vence_ts, r.entrega!, r.motivoEntrega, r.licencia);
+  }
+
+  function mostrarEntrega(
+    vence_ts: number,
+    entrega: EntregaLicencia,
+    motivo?: string,
+    licencia?: unknown,
+  ) {
+    const hasta = `Vence el ${fecha(vence_ts)}.`;
+    if (entrega === "entregada") {
+      aviso = `Listo: el restaurante ya tiene su licencia. ${hasta} No hay que pegar nada.`;
+      return;
+    }
+    if (entrega === "en_espera") {
+      aviso =
+        `Licencia enviada. ${hasta} El local está apagado o sin internet: ` +
+        "la recogerá sola en cuanto encienda.";
+      return;
+    }
+    licenciaGenerada = JSON.stringify(licencia, null, 2);
+    aviso = `${hasta} No se pudo enviar sola (${motivo ?? "sin relay"}): péguela en el local.`;
   }
 
   function copiar() {
@@ -99,13 +134,21 @@
     if (!cliente) return;
     confirmandoCorte = false;
     aviso = "";
+    licenciaGenerada = "";
     const r = await central.cortarServicio(cliente.id);
     if (!r.ok) {
       aviso = r.error ?? "No se pudo emitir el corte";
       return;
     }
-    licenciaGenerada = JSON.stringify(r.licencia, null, 2);
-    aviso = "Licencia de corte emitida. Al pegarla en el local, el servicio queda suspendido.";
+
+    if (r.entrega === "entregada") {
+      aviso = "Servicio cortado: el local ya dejó de operar.";
+    } else if (r.entrega === "en_espera") {
+      aviso = "Corte enviado. El local está apagado; quedará suspendido en cuanto encienda.";
+    } else {
+      licenciaGenerada = JSON.stringify(r.licencia, null, 2);
+      aviso = `No se pudo enviar solo (${r.motivoEntrega ?? "sin relay"}): pegue este archivo en el local.`;
+    }
   }
 
   function mostrarAccesoResponsable(id: string, credenciales: CredencialesResponsableIniciales) {
@@ -191,6 +234,9 @@
         <div class="acciones-ficha">
           <button class="editar" onclick={() => (editando = true)}>Editar datos</button>
           {#if cliente.activo}
+            <button class="editar" onclick={() => (cambiandoVencimiento = true)}>
+              Cambiar vencimiento…
+            </button>
             <button class="renovar" onclick={renovar}>
               {cliente.licencia ? "Renovar licencia" : "Emitir licencia"}
             </button>
@@ -408,8 +454,9 @@
     <div class="modal-acceso" role="alertdialog" aria-modal="true" aria-labelledby="corte-titulo">
       <h2 id="corte-titulo">Cortar el servicio de {cliente.nombre}</h2>
       <p>
-        Se emitirá una licencia con <b>bloqueo inmediato</b>. En cuanto se pegue en
-        el local, MotRest deja de operar ahí: no podrán cobrar ni abrir cuentas.
+        Se emitirá una licencia <b>ya vencida y sin días de gracia</b>. En cuanto se
+        pegue en el local, MotRest deja de operar ahí: no podrán cobrar ni abrir
+        cuentas.
       </p>
       <p class="aviso-pin">
         No es un interruptor remoto. Mientras no se pegue el archivo en el
@@ -441,6 +488,18 @@
     onGuardado={(avisos) => {
       editando = false;
       aviso = ["Datos guardados.", ...avisos].join(" ");
+    }}
+  />
+{/if}
+
+{#if cambiandoVencimiento && cliente}
+  <Vencimiento
+    {cliente}
+    onCerrar={() => (cambiandoVencimiento = false)}
+    onEmitida={(licencia, vence_ts, entrega, motivo) => {
+      cambiandoVencimiento = false;
+      licenciaGenerada = "";
+      mostrarEntrega(vence_ts, entrega, motivo, JSON.parse(licencia));
     }}
   />
 {/if}

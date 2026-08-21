@@ -58,9 +58,17 @@
    */
   let elegidas = $state<Record<string, { areas: string[]; nombre: string }>>({});
 
-  /** Identidad estable de una encontrada: el dispositivo, o la dirección. */
+  /**
+   * Identidad estable de una encontrada: el dispositivo, o la dirección.
+   *
+   * Las de USB y Bluetooth se distinguen por `dispositivo` —el nombre de la cola
+   * o el puerto COM—. Meterlas en la rama de red daría `red:undefined:undefined`
+   * para todas, y entonces las áreas que se marcan a una se marcarían a todas.
+   */
   function claveDe(d: ImpresoraDetectada): string {
-    return d.origen === "usb" ? `usb:${d.dispositivo}` : `red:${d.host}:${d.puerto}`;
+    return d.origen === "red"
+      ? `red:${d.host}:${d.puerto}`
+      : `${d.origen}:${d.dispositivo ?? d.puerto_sistema}`;
   }
 
   function borrador(d: ImpresoraDetectada) {
@@ -164,13 +172,30 @@
           placeholder="Pizzas y pasta a la leña desde 1998"
         />
       </label>
-      <label class="ancho">
-        Invitación a dejar reseña <em>(va sobre el código QR)</em>
+      <label class="ancho interruptor">
         <input
-          value={local.textosTicket.invitacion_opinion}
-          oninput={(e) => local.fijarTextosTicket({ invitacion_opinion: e.currentTarget.value })}
+          type="checkbox"
+          checked={local.qrResena}
+          onchange={(e) => local.fijarQrResena(e.currentTarget.checked)}
         />
+        <span>
+          Imprimir el código QR de reseña
+          <em>
+            {local.qrResena
+              ? "Solo abre desde el wifi del restaurante."
+              : "Apagado: el ticket sale sin el código."}
+          </em>
+        </span>
       </label>
+      {#if local.qrResena}
+        <label class="ancho">
+          Invitación a dejar reseña <em>(va sobre el código QR)</em>
+          <input
+            value={local.textosTicket.invitacion_opinion}
+            oninput={(e) => local.fijarTextosTicket({ invitacion_opinion: e.currentTarget.value })}
+          />
+        </label>
+      {/if}
       <label class="ancho">
         Segundo QR <em>(opcional)</em>
         <input
@@ -205,11 +230,13 @@
       </label>
     </div>
     <div class="vista-qrs">
-      <article>
-        <b>{local.textosTicket.invitacion_opinion}</b>
-        <CodigoQr contenido="https://motrest.local/portal/#/c/VISTA-PREVIA" tamano={150} />
-        <small>El enlace real se firma para cada cuenta.</small>
-      </article>
+      {#if local.qrResena}
+        <article>
+          <b>{local.textosTicket.invitacion_opinion}</b>
+          <CodigoQr contenido="https://motrest.local/portal/#/c/VISTA-PREVIA" tamano={150} />
+          <small>El enlace real se firma para cada cuenta.</small>
+        </article>
+      {/if}
       {#if qrAdicionalValido}
         <article>
           <b>{qrAdicionalValido.leyenda}</b>
@@ -220,6 +247,14 @@
         <p class="aviso-error">El segundo enlace debe comenzar con http:// o https://.</p>
       {/if}
     </div>
+    {#if !local.qrResena}
+      <p class="ayuda">
+        El <b>QR de reseña</b> está apagado. Hoy el enlace solo abre desde el wifi
+        del restaurante, así que un comensal con datos móviles vería un error en
+        vez de la encuesta. Se podrá encender cuando el portal esté publicado en
+        internet.
+      </p>
+    {/if}
     <p class="ayuda">
       Debajo de todo siempre sale <b>MotRest by Motrae</b>. Eso no se cambia: es
       la firma de quién hizo el software, no un mensaje del restaurante.
@@ -330,7 +365,9 @@
             {@const b = borrador(d)}
             <article class="hallazgo" class:puesta={!!ya}>
               <div class="fila-hallazgo">
-                <span class="icono" aria-hidden="true">{d.origen === "usb" ? "🔌" : "📶"}</span>
+                <span class="icono" aria-hidden="true">
+                  {d.origen === "usb" ? "🔌" : d.origen === "bluetooth" ? "🅱️" : "📶"}
+                </span>
                 <span class="quien">
                   <b>{d.nombre}</b>
                   <small>{d.detalle}</small>
@@ -544,11 +581,39 @@
                 />
               {/if}
             </label>
-          {:else}
-            <p class="pendiente">
-              La conexión Bluetooth todavía no está implementada: los trabajos se
-              previsualizan pero no salen en papel. Usa red o USB.
-            </p>
+          {:else if imp.conexion === "bluetooth"}
+            <!--
+              Igual que en USB: se elige de una lista, porque acertar el puerto a
+              ciegas no es razonable. Un equipo con varios aparatos emparejados
+              tiene varios COM y todos se llaman igual en Windows; el nombre del
+              aparato es lo único que distingue la impresora de unas bocinas.
+              Sin búsqueda previa no hay lista, y queda el campo libre.
+            -->
+            <label class="ancho">
+              <span>Impresora Bluetooth</span>
+              {#if impresion.puertosBluetooth.length > 0}
+                <select
+                  value={imp.dispositivo ?? ""}
+                  onchange={(e) =>
+                    impresion.actualizar(imp.id, { dispositivo: e.currentTarget.value })}
+                >
+                  <option value="">— Elige una —</option>
+                  {#each impresion.puertosBluetooth as bt (bt.puerto)}
+                    <option value={bt.puerto}>{bt.nombre} · {bt.puerto}</option>
+                  {/each}
+                </select>
+              {:else}
+                <input
+                  value={imp.dispositivo ?? ""}
+                  oninput={(e) => impresion.actualizar(imp.id, { dispositivo: e.currentTarget.value })}
+                  placeholder="COM4"
+                />
+                <small class="pista">
+                  Pulsa «Detectar y conectar» arriba y aquí saldrán las impresoras
+                  emparejadas, con su nombre.
+                </small>
+              {/if}
+            </label>
           {/if}
           <label class="angosto">
             <span>Ancho</span>
@@ -737,6 +802,11 @@
   .quien small {
     font-size: 0.76rem;
     color: var(--gris);
+  }
+  .pista {
+    font-size: 0.76rem;
+    color: var(--gris);
+    margin-top: 0.3rem;
   }
   .ya {
     font-size: 0.76rem;
@@ -1074,6 +1144,21 @@
     font-weight: 600;
   }
   .ficha em { font-weight: 400; color: var(--gris); font-style: normal; }
+  /* El interruptor va en fila, no en columna como los campos de texto. */
+  .ficha .interruptor {
+    flex-direction: row;
+    align-items: center;
+    gap: 0.55rem;
+    cursor: pointer;
+  }
+  .ficha .interruptor input {
+    width: 1.05rem;
+    height: 1.05rem;
+    padding: 0;
+    accent-color: var(--acento);
+    cursor: pointer;
+  }
+  .ficha .interruptor em { display: block; font-size: 0.72rem; }
   .ficha input {
     font: inherit;
     font-size: 0.9rem;

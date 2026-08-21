@@ -128,6 +128,18 @@ const PERMISO_POR_EVENTO: Partial<Record<string, Accion>> = {
   descuento_aplicado: "pos.descuento.aplicar",
   cortesia_otorgada: "pos.cortesia.otorgar",
   pago_registrado: "pos.cobro.registrar",
+  /*
+   * Cancelar una venta cobrada pide el permiso de REABRIR, y es a propósito.
+   *
+   * Lo natural sería una acción propia —`fin.venta.cancelar`—, pero los permisos
+   * de cada usuario se congelan en su `usuario_creado` y solo se recalculan
+   * desde la plantilla cuando el evento vino sin lista. Un permiso nuevo, por
+   * tanto, no le llega a nadie que ya esté dado de alta: ni para ejecutarlo ni
+   * para autorizarlo. El botón habría salido a producción sin que nadie —ni el
+   * dueño— pudiera pulsarlo. Reabrir es además la puerta por la que se pasa
+   * para deshacer un cobro, así que el permiso es el correcto y no un atajo.
+   */
+  venta_cancelada: "pos.cuenta.reabrir",
   caja_cerrada: "caja.corte.sellar",
   movimiento_efectivo: "caja.retiro.registrar",
   conteo_registrado: "inv.conteo.cerrar",

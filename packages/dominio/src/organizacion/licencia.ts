@@ -455,6 +455,55 @@ export function siguienteVencimiento(
   return fecha.getTime();
 }
 
+/**
+ * Hasta dónde se puede empujar a mano un vencimiento.
+ *
+ * Dos años, y el tope no es burocracia: es contra el dedo. La fecha se teclea, y
+ * escribir 2126 en vez de 2026 regala un siglo de servicio en un documento
+ * firmado que nadie va a volver a mirar. Un error de cobro se corrige reemitiendo;
+ * éste solo se descubriría el día que alguien se pregunte por qué ese local lleva
+ * años sin pagar.
+ */
+export const MAX_ANIOS_VENCIMIENTO = 2;
+
+/**
+ * ¿Se puede emitir una licencia que venza en esta fecha?
+ *
+ * Se comprueba aquí y no en la pantalla porque quien firma es Central: una fecha
+ * que pase por aquí acaba dentro de un documento firmado por MOTRAE, y ahí ya no
+ * se corrige — solo se sustituye.
+ */
+export function vencimientoElegible(
+  vence_ts: number,
+  ahora = Date.now(),
+): { ok: true } | { ok: false; error: string } {
+  if (!Number.isFinite(vence_ts)) {
+    return { ok: false, error: "Esa no es una fecha de vencimiento válida" };
+  }
+  if (vence_ts <= ahora) {
+    /*
+     * Una fecha pasada no es «renovar hasta ayer»: es cortarle el servicio al
+     * local, y para eso hay una acción propia que además avisa de lo que hace.
+     * Dejarlo pasar por aquí convertiría un dedazo en un restaurante parado.
+     */
+    return {
+      ok: false,
+      error: "La fecha ya pasó. Para dejar sin servicio a un local use «Cortar el servicio»",
+    };
+  }
+
+  const tope = new Date(ahora);
+  tope.setFullYear(tope.getFullYear() + MAX_ANIOS_VENCIMIENTO);
+  if (vence_ts > tope.getTime()) {
+    return {
+      ok: false,
+      error: `No se puede emitir a más de ${MAX_ANIOS_VENCIMIENTO} años; revise el año que escribió`,
+    };
+  }
+
+  return { ok: true };
+}
+
 /** El stream donde el Hub guarda su licencia. */
 export function streamLicencia(sucursal_id: ID): ID {
   return `licencia:${sucursal_id}`;

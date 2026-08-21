@@ -69,6 +69,7 @@ interface Ajustes {
   ficha?: Partial<FichaDelLocal>;
   textosTicket?: Partial<TextosDelTicket>;
   qrAdicional?: Partial<QrAdicionalTicket>;
+  qrResena?: boolean;
 }
 
 class StoreLocal {
@@ -92,6 +93,25 @@ class StoreLocal {
   /** Segundo QR opcional, normalmente la ficha del restaurante en Google Maps. */
   qrAdicional = $state<QrAdicionalTicket>({ leyenda: "Danos 5 estrellas en Google Maps", url: "" });
 
+  /**
+   * ¿Se imprime el QR de reseña en el ticket del comensal?
+   *
+   * APAGADO DE FÁBRICA, y no por prudencia sino por un hecho: el enlace apunta
+   * al portal que sirve el Hub **en la red del local**. Un teléfono con datos
+   * móviles —o en cualquier otra red— no llega, y el comensal ve un error del
+   * navegador en vez de la encuesta. En la caja es peor todavía: el Hub se
+   * anuncia a sí mismo como `localhost`, así que el código sale apuntando al
+   * propio teléfono de quien lo escanea y no abre nunca.
+   *
+   * Un QR que no abre no es neutro: gasta papel, y quien lo escanea y no obtiene
+   * nada no vuelve a escanear el siguiente.
+   *
+   * Se enciende cuando el portal viva en el relay y el enlace funcione desde
+   * cualquier red. Entonces esto pasa a ser una preferencia del restaurante y no
+   * un interruptor de seguridad.
+   */
+  qrResena = $state(false);
+
   private almacen: Almacen | null = null;
 
   async hidratar(almacen: Almacen): Promise<void> {
@@ -110,6 +130,9 @@ class StoreLocal {
     if (guardados?.qrAdicional) {
       this.qrAdicional = { ...this.qrAdicional, ...guardados.qrAdicional };
     }
+    // Se comprueba el tipo y no la verdad del valor: con `if (guardados?.qrResena)`
+    // un `false` guardado a propósito se leería como «no hay nada guardado».
+    if (typeof guardados?.qrResena === "boolean") this.qrResena = guardados.qrResena;
   }
 
   /**
@@ -145,6 +168,12 @@ class StoreLocal {
     this.guardar();
   }
 
+  /** Enciende o apaga el QR de reseña del ticket. */
+  fijarQrResena(activo: boolean): void {
+    this.qrResena = activo;
+    this.guardar();
+  }
+
   /** Solo se imprime una URL web explícita; otros esquemas no llegan al papel. */
   get qrAdicionalParaTicket(): QrAdicionalTicket | null {
     try {
@@ -164,6 +193,7 @@ class StoreLocal {
         ficha: { ...this.ficha },
         textosTicket: { ...this.textosTicket },
         qrAdicional: { ...this.qrAdicional },
+        qrResena: this.qrResena,
       })
       .catch((causa) => {
         console.error("No se pudieron guardar los ajustes del local", causa);

@@ -26,6 +26,69 @@ export interface ResultadoImpresionUsb {
 }
 
 /**
+ * Estados de Windows en los que entregar el trabajo NO saca papel.
+ *
+ * ## Por qué esta lista existe y por qué es una lista negra
+ *
+ * El spooler acepta trabajos para una impresora que no va a imprimir y los
+ * guarda en cola. Antes aquí solo se rechazaba `Offline`, y en Rodizio la cola
+ * de la impresora de cocina estaba en `Error`: no coincidía, el trabajo se
+ * entregaba, el spooler lo aceptaba y MotRest cantaba «impreso». Se acumularon
+ * 20 comandas detenidas —la más vieja de cuatro días antes— y nadie se enteró
+ * hasta revisar el spooler a mano el 20-ago-2026.
+ *
+ * Se enumera lo que NO imprime en vez de exigir `Normal` a propósito: una
+ * impresora ocupada, calentando o a media página sí va a imprimir, y rechazarla
+ * por un estado pasajero dejaría a una cocina sin comanda.
+ *
+ * **Los nombres tienen que existir en el enum `PrinterStatus` de `Get-Printer`.**
+ * Una clave mal escrita no da error: simplemente no coincide, y devuelve el
+ * fallo silencioso que esto viene a cerrar. `transporte-usb.test.ts` los
+ * contrasta uno a uno contra `[Enum]::GetNames` del propio Windows. Ojo con
+ * `UserIntervention`, que no se llama `UserInterventionRequired`.
+ */
+export const ESTADOS_DETENIDOS: Readonly<Record<string, string>> = {
+  Offline: "esta fuera de linea",
+  ServerOffline: "tiene su servidor de impresion fuera de linea",
+  Error: "esta en error",
+  Paused: "esta en pausa: los trabajos se acumulan sin salir",
+  PaperOut: "se quedo sin papel",
+  PaperJam: "tiene el papel atascado",
+  PaperProblem: "tiene un problema de papel",
+  DoorOpen: "tiene la tapa abierta",
+  NotAvailable: "no esta disponible",
+  NoToner: "se quedo sin toner",
+  OutOfMemory: "se quedo sin memoria",
+  OutputBinFull: "tiene la bandeja de salida llena",
+  PagePunt: "descarto la pagina sin imprimirla",
+  UserIntervention: "necesita que alguien la atienda",
+  PendingDeletion: "se esta eliminando del sistema",
+  DriverUpdateNeeded: "necesita que se actualice su controlador",
+};
+
+/**
+ * La lista de arriba, escrita como tabla hash de PowerShell.
+ *
+ * Es la ÚNICA interpolación que se hace en el puente, y por eso va comprobada:
+ * son constantes de este archivo, nunca nada que venga del POS. Si alguna
+ * trajera una comilla o un salto de línea rompería el guion, así que se rechaza
+ * al construirlo —en el arranque, no un viernes a las once de la noche.
+ */
+function tablaDeEstadosDetenidos(): string {
+  return Object.entries(ESTADOS_DETENIDOS)
+    .map(([estado, motivo]) => {
+      if (!/^[A-Za-z]+$/.test(estado)) {
+        throw new Error(`Estado de impresora no válido para el puente: ${estado}`);
+      }
+      if (/['\r\n]/.test(motivo)) {
+        throw new Error(`El motivo de «${estado}» no puede llevar comillas ni saltos de línea`);
+      }
+      return `      '${estado}' = '${motivo}'`;
+    })
+    .join("\n");
+}
+
+/**
  * El puente a `winspool.drv`, incrustado en el binario.
  *
  * Va aquí dentro y no en un `.ps1` junto al ejecutable a propósito: un archivo
@@ -107,11 +170,30 @@ public static class RawSpooler {
   # Se avisa de una impresora desconectada ANTES de entregar el trabajo. El
   # spooler acepta trabajos para una impresora apagada y los guarda en cola; sin
   # esta comprobacion el POS daria por impresa una comanda que nadie recogio.
+  #
+  # POR QUE NO BASTA CON MIRAR "Offline". Durante meses aqui solo se rechazaba
+  # ese estado, y en Rodizio la cola de la impresora de cocina estaba en "Error":
+  # no coincidia, asi que el trabajo se entregaba, el spooler lo aceptaba, y
+  # MotRest cantaba "impreso". Se acumularon 20 comandas sin salir en la cola —la
+  # mas vieja de cuatro dias antes— y nadie se entero hasta que se reviso el
+  # spooler a mano. Es exactamente el fallo que este bloque existia para evitar,
+  # pasando por el unico hueco que le quedaba.
+  #
+  # Se enumeran los estados en los que NO va a salir papel en vez de exigir
+  # "Normal": una impresora ocupada, calentando o a medio trabajo si va a
+  # imprimir, y rechazarla ahi seria dejar sin comanda a una cocina por un estado
+  # pasajero.
   if (Get-Command Get-Printer -ErrorAction SilentlyContinue) {
     $info = $null
     try { $info = Get-Printer -Name $impresora -ErrorAction Stop } catch { $info = $null }
     if ($null -eq $info) { throw "No existe una impresora llamada '$impresora' en este equipo" }
-    if ($info.PrinterStatus -eq "Offline") { throw "La impresora esta fuera de linea" }
+    $estado = [string]$info.PrinterStatus
+    $detenida = @{
+__ESTADOS_DETENIDOS__
+    }
+    if ($detenida.ContainsKey($estado)) {
+      throw "La impresora '$impresora' $($detenida[$estado]): Windows la reporta como '$estado'"
+    }
   }
 
   $base64 = [Console]::In.ReadToEnd()
@@ -129,7 +211,8 @@ public static class RawSpooler {
 
 /** PowerShell espera el guion en UTF-16LE y base64 para `-EncodedCommand`. */
 function comandoCodificado(): string {
-  return Buffer.from(PUENTE_WINSPOOL, "utf16le").toString("base64");
+  const guion = PUENTE_WINSPOOL.replace("__ESTADOS_DETENIDOS__", tablaDeEstadosDetenidos());
+  return Buffer.from(guion, "utf16le").toString("base64");
 }
 
 /**

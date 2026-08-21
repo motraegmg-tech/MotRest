@@ -1,2 +1,7 @@
 datos/
 datos-ensayo/
+
+# Los bundles que produce `pnpm --filter @motrest/relay empaquetar`. Se generan
+# dentro de la imagen en cada despliegue; una copia versionada solo sirve para
+# que algún día se despliegue una vieja.
+dist/

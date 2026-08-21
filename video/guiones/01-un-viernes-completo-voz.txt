@@ -1,0 +1,25 @@
+¿Cuánto ganaste ayer?
+
+No cuánto vendiste. Cuánto ganaste.
+
+Si para responder eso tienes que abrir tres programas y una libreta, no tienes un sistema. Tienes piezas sueltas.
+
+Esto es MotRest. Un viernes completo, de la mesa al estado de resultados.
+
+El servicio empieza donde siempre: en la mesa. Mesa cuatro, cuatro comensales.
+
+Media hawaiana, media pepperoni. Aquí es donde la mayoría de los sistemas se rinden y terminan cobrando la pizza más cara. MotRest no cuesta a ojo: cuesta cada mitad, ingrediente por ingrediente.
+
+Se envía a cocina. La cocina ya lo sabe, con el reloj corriendo y un semáforo por platillo. Nadie tiene que gritar una comanda.
+
+Y mira lo que ocurrió al mismo tiempo, sin que nadie capturara nada. La harina, el queso y el pepperoni ya se descontaron del almacén. El inventario no se actualiza en la noche. Se actualiza en el momento.
+
+Se cobra. El ticket sale con un código, y el comensal se factura solo desde su teléfono, sin pedirle sus datos a nadie.
+
+Al cierre, el corte de caja no se cuadra a mano: se sella contra el efectivo que de verdad está en el cajón. Y queda escrito quién hizo qué, a qué hora.
+
+Y aquí está la pregunta del principio, respondida. No cuánto vendiste. Cuánto ganaste, y por qué.
+
+Un solo sistema. Una sola base de datos. MotRest, el sistema operativo de tu restaurante.
+
+Empieza por conocer tu operación. Motrae punto com.

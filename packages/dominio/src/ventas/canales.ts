@@ -133,7 +133,10 @@ export function ventasPorCanal(
   const comisionDelCanal = new Map(config.map((c) => [c.canal, c.comision]));
 
   for (const c of comandas) {
-    if (!c.cerrada) continue;
+    // Ni las que se abrieron por error ni las que se cobraron y se deshicieron:
+    // el agregador no deposita una venta cancelada, y contarla dejaría un
+    // «por cobrar» que nunca va a llegar.
+    if (!c.cerrada || c.anulada || c.cancelada) continue;
 
     const canal = (c.canal ?? "salon") as CanalVenta;
     const previo: ResumenCanal = porCanal.get(canal) ?? {
@@ -192,7 +195,7 @@ export function porCobrarDeAgregadores(
   const porId = new Map(config.map((c) => [c.canal, c]));
 
   for (const c of comandas) {
-    if (!c.cerrada || !esAgregador(c.canal)) continue;
+    if (!c.cerrada || c.anulada || c.cancelada || !esAgregador(c.canal)) continue;
     // Lo ya conciliado no se sigue debiendo.
     if (c.depositado) continue;
 

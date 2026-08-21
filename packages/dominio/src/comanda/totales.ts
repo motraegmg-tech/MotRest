@@ -32,7 +32,10 @@ export interface TotalesComanda {
   /** Margen bruto como fracción (0..1), sobre el subtotal. */
   margen: number;
   propina: Centavos;
+  /** Lo cobrado que sigue en poder del negocio: pagos − devoluciones. */
   pagado: Centavos;
+  /** Lo que se le regresó al comensal al cancelar la venta. */
+  devuelto: Centavos;
   /** Lo que falta por cobrar (total + propina − pagado). */
   saldo: Centavos;
   /** Cambio a devolver cuando se recibió más efectivo del debido. */
@@ -134,10 +137,21 @@ export function totalesComanda(estado: EstadoComanda): TotalesComanda {
 
   const total = sumar(subtotal, iva, ieps);
   const propina = estado.propina;
-  const pagado = sumar(...estado.pagos.map((p) => p.monto));
   const aCobrar = sumar(total, propina);
 
-  const recibido = sumar(...estado.pagos.map((p) => p.recibido ?? p.monto));
+  /*
+   * Lo devuelto SE RESTA de lo pagado, y ahí está el arreglo del saldo negativo.
+   *
+   * Una venta cancelada conserva sus pagos —ocurrieron— pero el dinero ya no lo
+   * tiene el negocio. Sin restarlo, una cuenta cobrada y luego cancelada
+   * quedaba en «pagado 433, total 0, saldo −433»: una deuda del restaurante con
+   * un comensal que ya se fue con su dinero. Con la resta, la cuenta cancelada
+   * cierra en cero, que es la verdad.
+   */
+  const devuelto = sumar(...(estado.devoluciones ?? []).map((d) => d.monto));
+  const pagado = restar(sumar(...estado.pagos.map((p) => p.monto)), devuelto);
+
+  const recibido = restar(sumar(...estado.pagos.map((p) => p.recibido ?? p.monto)), devuelto);
   const cambio = recibido > aCobrar ? restar(recibido, aCobrar) : CERO;
 
   return {
@@ -154,7 +168,10 @@ export function totalesComanda(estado: EstadoComanda): TotalesComanda {
     margen: subtotal > 0 ? (subtotal - costo) / subtotal : 0,
     propina,
     pagado,
-    saldo: restar(aCobrar, pagado),
+    devuelto,
+    // Una venta cancelada no debe nada: el consumo se deshizo junto con el
+    // cobro, así que el saldo es cero y no el importe que se dejó de cobrar.
+    saldo: estado.cancelada ? CERO : restar(aCobrar, pagado),
     cambio,
   };
 }

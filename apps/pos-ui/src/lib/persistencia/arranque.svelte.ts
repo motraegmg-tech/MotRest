@@ -77,6 +77,7 @@ const TIPOS_COMANDA = new Set([
   "cuenta_cerrada",
   "cuenta_reabierta",
   "orden_anulada",
+  "venta_cancelada",
   "ticket_reimpreso",
 ]);
 

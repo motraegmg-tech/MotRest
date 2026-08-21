@@ -131,6 +131,11 @@
             ev.modo === "porcentaje" ? `${Math.round(ev.valor * 100)} %` : mxn(deCentavos(ev.valor))
           } (${ev.motivo})${ev.autorizador_id ? ` · autorizó ${sesion.nombreDe(ev.autorizador_id)}` : ""}`,
           tono: "alerta" };
+      // Retirar un descuento SUBE la cuenta, así que no es una alerta: es la
+      // corrección de una promoción aplicada por error. Queda registrada igual,
+      // porque quitar y volver a poner descuentos es un patrón que conviene ver.
+      case "descuento_retirado":
+        return { ...base, texto: "Retiró un descuento", tono: "acento" };
       case "cortesia_otorgada":
         return { ...base,
           texto: `Otorgó una cortesía (${ev.motivo})${ev.autorizador_id ? ` · autorizó ${sesion.nombreDe(ev.autorizador_id)}` : ""}`,
@@ -160,6 +165,17 @@
           tono: ev.forma === "socio" ? "alerta" : "acento" };
       case "cuenta_cerrada":
         return { ...base, texto: "Cerró la cuenta", tono: "acento" };
+      /*
+       * La alerta más fuerte que puede tener este registro: es dinero saliendo
+       * del cajón por una venta que ya se había cobrado. Lleva el importe
+       * devuelto en el propio renglón para que se vea sin abrir nada más.
+       */
+      case "venta_cancelada": {
+        const devuelto = ev.devoluciones.reduce((n, d) => n + d.monto, 0);
+        return { ...base,
+          texto: `Canceló una venta cobrada${devuelto > 0 ? ` y devolvió ${mxn(deCentavos(devuelto))}` : ""} · ${ev.motivo}${ev.autorizador_id ? ` · autorizó ${sesion.nombreDe(ev.autorizador_id)}` : ""}`,
+          tono: "alerta" };
+      }
       // Una mesa que se abrió y se soltó sin consumo. No es una venta y no sale
       // en ningún reporte, así que este renglón es el único sitio donde consta.
       case "orden_anulada":

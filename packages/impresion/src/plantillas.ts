@@ -35,6 +35,11 @@ function fechaHora(ts: number): string {
   }).format(new Date(ts));
 }
 
+/** Solo el día, para los encabezados de un corte de varios días. */
+function soloFecha(ts: number): string {
+  return new Intl.DateTimeFormat("es-MX", { dateStyle: "short" }).format(new Date(ts));
+}
+
 // --- Comanda de cocina --------------------------------------------------------------
 
 export interface RenglonComanda {
@@ -584,6 +589,190 @@ export function corteCaja(datos: DatosCorte, columnas: AnchoPapel = 42): Ticket 
   t.linea(datos.sello, { alineacion: "centro" });
   t.salto();
   t.linea("Firma: ____________________");
+  t.salto();
+  t.linea(FIRMA_MOTRAE, centrado);
+
+  return t.cortar();
+}
+
+// --- Corte de varios turnos -----------------------------------------------------------
+
+export interface RenglonFormaPago {
+  forma: string;
+  monto: Centavos;
+}
+
+export interface RenglonTurno {
+  folio: string;
+  cajero: string;
+  abierta_ts: number;
+  cerrada: boolean;
+  total_vendido: Centavos;
+  diferencia?: Centavos;
+}
+
+export interface RenglonMovimiento {
+  ts: number;
+  concepto: string;
+  /** Negativo = salió del cajón. */
+  monto: Centavos;
+}
+
+export interface RenglonGasto {
+  nombre: string;
+  monto: Centavos;
+}
+
+export interface DatosCortePeriodo {
+  local: string;
+  /** Quién lo mandó imprimir, y cuándo. Un informe no se firma como un arqueo. */
+  solicitante: string;
+  emitido_ts: number;
+  desde: number;
+  hasta: number;
+
+  turnos: RenglonTurno[];
+  turnos_abiertos: number;
+
+  fondo_inicial: Centavos;
+  cobrado: RenglonFormaPago[];
+  total_cobrado: Centavos;
+  total_vendido: Centavos;
+  propinas: Centavos;
+
+  movimientos: RenglonMovimiento[];
+  total_movimientos: Centavos;
+
+  gastos: RenglonGasto[];
+  total_gastos: Centavos;
+
+  cuentas_cerradas: number;
+  efectivo_ventas: Centavos;
+  efectivo_esperado: Centavos;
+  declarado: Centavos;
+  diferencia: Centavos;
+}
+
+/**
+ * Corte de un período: un día pasado, o los últimos tres.
+ *
+ * ## Por qué NO lleva sello, y sí lleva un aviso
+ *
+ * El corte de un turno se firma: es un arqueo, el acto de contar el cajón
+ * delante de alguien. Este papel es otra cosa —un informe que se puede volver a
+ * sacar cuantas veces haga falta— y sellarlo daría a entender que sustituye al
+ * arqueo. Lo que sí lleva es el folio de cada turno que resume, para poder ir a
+ * buscar el corte original firmado.
+ *
+ * Si dentro del rango hay un turno TODAVÍA ABIERTO, el papel lo dice en grande:
+ * sus cifras aún se mueven, y un informe que aparente ser definitivo cuando no
+ * lo es se acaba archivando como si lo fuera.
+ */
+export function cortePeriodo(datos: DatosCortePeriodo, columnas: AnchoPapel = 42): Ticket {
+  const t = new Ticket(columnas);
+  const centrado: { alineacion: Alineacion } = { alineacion: "centro" };
+  const unDia = soloFecha(datos.desde) === soloFecha(datos.hasta - 1);
+
+  t.linea("CORTE DE CAJA", { ...centrado, negrita: true, doble_alto: true });
+  t.linea(datos.local, centrado);
+  t.linea(
+    unDia
+      ? soloFecha(datos.desde)
+      : `${soloFecha(datos.desde)} a ${soloFecha(datos.hasta - 1)}`,
+    { ...centrado, negrita: true },
+  );
+  t.separador("=");
+
+  t.columnasDobles("Turnos incluidos", String(datos.turnos.length));
+  t.columnasDobles("Transacciones", String(datos.cuentas_cerradas));
+  t.columnasDobles("Emitido", fechaHora(datos.emitido_ts));
+  t.columnasDobles("Lo pidio", datos.solicitante);
+
+  if (datos.turnos_abiertos > 0) {
+    t.separador();
+    t.linea("** INFORME PROVISIONAL **", { ...centrado, negrita: true });
+    t.linea(
+      datos.turnos_abiertos === 1
+        ? "Hay un turno sin cerrar: sus cifras aun cambian."
+        : `Hay ${datos.turnos_abiertos} turnos sin cerrar: sus cifras aun cambian.`,
+      centrado,
+    );
+  }
+
+  t.separador();
+  t.linea("INGRESOS POR FORMA DE PAGO", { negrita: true });
+  for (const renglon of datos.cobrado) {
+    t.columnasDobles(renglon.forma, mxn(renglon.monto));
+  }
+  t.columnasDobles("Total recibido", mxn(datos.total_cobrado), { negrita: true });
+  if (datos.propinas > 0) {
+    // La propina es del mesero: se muestra para que la resta se vea, no para
+    // esconderla. Sin este renglon el "total vendido" parece un error de suma.
+    t.columnasDobles("  menos propinas", `-${mxn(datos.propinas)}`);
+  }
+  t.columnasDobles("VENTA DEL NEGOCIO", mxn(datos.total_vendido), {
+    negrita: true,
+    doble_alto: true,
+  });
+
+  if (datos.gastos.length > 0) {
+    t.separador();
+    t.linea("GASTOS DEL PERIODO", { negrita: true });
+    for (const gasto of datos.gastos) {
+      t.columnasDobles(gasto.nombre, mxn(gasto.monto));
+    }
+    t.columnasDobles("Total gastos", `-${mxn(datos.total_gastos)}`, { negrita: true });
+    t.separador();
+    t.columnasDobles("VENTA MENOS GASTOS", mxn((datos.total_vendido - datos.total_gastos) as Centavos), {
+      negrita: true,
+      doble_alto: true,
+    });
+  }
+
+  t.separador();
+  t.linea("EFECTIVO", { negrita: true });
+  t.columnasDobles("Fondos iniciales", mxn(datos.fondo_inicial));
+  t.columnasDobles("Recibido en efectivo", mxn(datos.efectivo_ventas));
+
+  if (datos.movimientos.length > 0) {
+    for (const mov of datos.movimientos) {
+      // El concepto entero: un retiro sin concepto legible no sirve de nada al
+      // revisar el mes.
+      t.columnasDobles(`  ${mov.concepto}`.slice(0, columnas - 12), mxn(mov.monto));
+    }
+    t.columnasDobles("Entradas y retiros", mxn(datos.total_movimientos));
+  }
+
+  t.columnasDobles("Esperado en cajon", mxn(datos.efectivo_esperado), { negrita: true });
+  t.columnasDobles("Declarado", mxn(datos.declarado));
+
+  const etiqueta =
+    datos.diferencia === 0 ? "Cuadra" : datos.diferencia > 0 ? "Sobrante" : "Faltante";
+  t.columnasDobles(etiqueta, mxn(Math.abs(datos.diferencia) as Centavos), {
+    negrita: true,
+    doble_alto: datos.diferencia !== 0,
+  });
+
+  if (datos.turnos.length > 0) {
+    t.separador();
+    t.linea("TURNOS RESUMIDOS", { negrita: true });
+    for (const turno of datos.turnos) {
+      t.columnasDobles(
+        `${turno.folio} ${soloFecha(turno.abierta_ts)}`,
+        mxn(turno.total_vendido),
+      );
+      const estado = turno.cerrada
+        ? turno.diferencia === undefined || turno.diferencia === 0
+          ? "cuadro"
+          : `${turno.diferencia > 0 ? "sobrante" : "faltante"} ${mxn(Math.abs(turno.diferencia) as Centavos)}`
+        : "SIN CERRAR";
+      t.linea(`   ${turno.cajero} · ${estado}`);
+    }
+  }
+
+  t.separador("=");
+  t.linea("Informe, no sustituye el arqueo firmado", centrado);
+  t.linea("de cada turno.", centrado);
   t.salto();
   t.linea(FIRMA_MOTRAE, centrado);
 

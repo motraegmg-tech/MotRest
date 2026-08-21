@@ -71,3 +71,12 @@ entregables/**/*.apk
 Codigo rescate.txt
 codigo-rescate*.txt
 *rescate*.txt
+
+# Video promocional: material pesado y generado (los guiones y el codigo SI van al repo)
+video/tomas/*
+!video/tomas/README.md
+video/**/node_modules/
+video/**/out/
+video/**/*.wav
+video/**/*.mp3
+video/**/*.mp4

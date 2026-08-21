@@ -31,6 +31,7 @@ import {
   type Usuario,
 } from "../identidad/roles.js";
 import { esEventoIdentidad, esTipoEventoIdentidad } from "../identidad/eventos.js";
+import type { Accion } from "../identidad/acciones.js";
 
 function usuario(rol_id: RolId, extra: Partial<Usuario> = {}): Usuario {
   return {
@@ -448,5 +449,75 @@ describe("propinas: quién ve las suyas y quién las del local", () => {
     expect(puedeVer(usuario("chef"), "rrhh.propina.ver")).toBe(false);
     expect(puedeVer(usuario("comensal"), "rrhh.propina.ver")).toBe(false);
     expect(puedeVer(usuario("comensal"), "rrhh.propina.ver_local")).toBe(false);
+  });
+});
+
+/*
+ * EL CANDADO DE LOS PERMISOS CONGELADOS.
+ *
+ * `usuario_creado` materializa la lista de permisos en el propio evento, así que
+ * una acción nueva en el catálogo NO le llega a nadie ya dado de alta. Al crear
+ * personal, la plantilla del rol sí la incluye — y el Hub rechazaba el alta con
+ * «intentó otorgar permisos que no posee».
+ *
+ * Medido en Rodizio el 21-ago-2026: el Hub conocía UN solo usuario y las
+ * tabletas del local, que se sincronizan de él, mostraban uno. Cada alta de
+ * personal llevaba semanas rebotando en silencio.
+ */
+describe("permisos congelados al dar de alta", () => {
+  /** Un propietario de los de antes: le falta una acción que hoy sí existe. */
+  function propietarioAntiguo(sinAccion: Accion): Usuario {
+    return usuario("propietario", {
+      permisos: permisosDePlantilla("propietario").filter((p) => p.accion !== sinAccion),
+    });
+  }
+
+  it("el propietario otorga según su ROL, no según la lista con la que se creó", () => {
+    const viejo = propietarioAntiguo("caja.arqueo.ver");
+    // Sin el arreglo esto era `false` y tumbaba el alta entera.
+    expect(puedeOtorgar(viejo, { accion: "caja.arqueo.ver", nivel: "ver" })).toBe(true);
+  });
+
+  it("así vuelve a poder dar de alta a un mesero con la plantilla de hoy", () => {
+    const viejo = propietarioAntiguo("caja.arqueo.ver");
+    expect(permisosNoOtorgables(viejo, permisosDePlantilla("mesero"))).toEqual([]);
+  });
+
+  /*
+   * LO QUE NO PUEDE PASAR. El arreglo se acota al rango más alto: por debajo, una
+   * diferencia entre lo guardado y la plantilla puede ser una decisión deliberada
+   * del superior —a este gerente no le doy cancelaciones— y hay que respetarla.
+   */
+  it("a un gerente recortado NO se le devuelve lo que le quitaron", () => {
+    const recortado = usuario("gerente", {
+      permisos: permisosDePlantilla("gerente").filter(
+        (p) => p.accion !== "pos.item.cancelar_enviado",
+      ),
+    });
+    expect(puedeOtorgar(recortado, { accion: "pos.item.cancelar_enviado", nivel: "operar" })).toBe(false);
+  });
+
+  it("tampoco a un mesero", () => {
+    const recortado = usuario("mesero", {
+      permisos: permisosDePlantilla("mesero").filter((p) => p.accion !== "pos.item.agregar"),
+    });
+    expect(puedeOtorgar(recortado, { accion: "pos.item.agregar", nivel: "operar" })).toBe(false);
+  });
+
+  it("y el propietario sigue sin poder otorgar lo que su plantilla NO concede", () => {
+    // No es una barra libre: es su plantilla, no todo el catálogo.
+    const plantilla = permisosDePlantilla("propietario");
+    const ajena = TODAS_LAS_ACCIONES.find((a) => !plantilla.some((p) => p.accion === a));
+    if (ajena) {
+      expect(puedeOtorgar(usuario("propietario"), { accion: ajena, nivel: "operar" })).toBe(false);
+    }
+  });
+
+  it("no puede subir el nivel por encima del de su propia plantilla", () => {
+    const soloVer = permisosDePlantilla("propietario").find((p) => p.nivel === "ver");
+    if (soloVer) {
+      const viejo = propietarioAntiguo(soloVer.accion);
+      expect(puedeOtorgar(viejo, { accion: soloVer.accion, nivel: "autorizar" })).toBe(false);
+    }
   });
 });

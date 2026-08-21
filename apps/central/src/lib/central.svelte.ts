@@ -33,6 +33,7 @@ import {
   situacionDeCliente,
   totalPagadoPor,
   uuidv7,
+  vencimientoElegible,
   PUESTO_RESPONSABLE,
   USUARIO_RESPONSABLE_ID,
   type Centavos,
@@ -177,9 +178,39 @@ type ResultadoAlta =
       cliente?: undefined;
       credencialesResponsable?: undefined;
     };
+/**
+ * Cómo le llegó la licencia al restaurante.
+ *
+ * Se distingue «entregada» de «instalada» a propósito, y la diferencia no es
+ * quisquillosa: el relay confirma que se la mandó al Hub, pero quien la escribe
+ * en disco es el Hub. Decir «listo» cuando solo se ha depositado sería repetir
+ * el problema de origen, con el agravante de que ahora nadie iría a comprobarlo.
+ */
+export type EntregaLicencia =
+  /** El relay se la pasó al Hub, que estaba conectado. */
+  | "entregada"
+  /** El local está apagado o sin internet: la recogerá al conectarse. */
+  | "en_espera"
+  /** No hay relay configurado, o falló: toca pegarla a mano. */
+  | "a_mano";
+
 type ResultadoConLicencia =
-  | { ok: true; licencia: Licencia; credencialesResponsable?: CredencialesResponsableIniciales }
-  | { ok: false; error: string; licencia?: undefined; credencialesResponsable?: undefined };
+  | {
+      ok: true;
+      licencia: Licencia;
+      entrega: EntregaLicencia;
+      /** Por qué no se pudo entregar sola, cuando `entrega` es `a_mano`. */
+      motivoEntrega?: string;
+      credencialesResponsable?: CredencialesResponsableIniciales;
+    }
+  | {
+      ok: false;
+      error: string;
+      licencia?: undefined;
+      entrega?: undefined;
+      motivoEntrega?: undefined;
+      credencialesResponsable?: undefined;
+    };
 type ResultadoConManifiesto =
   | { ok: true; manifiesto: VersionDisponible }
   | { ok: false; error: string; manifiesto?: undefined };
@@ -358,6 +389,10 @@ export class StoreCentral {
   );
   /** El parte del propio relay. `null` = todavía no se le ha preguntado. */
   saludRelay = $state<SaludRelay | null>(null);
+  /** Renovaciones depositadas que su restaurante todavía no ha recogido. */
+  licenciasPendientes = $state<
+    { sucursal_id: string; depositada_ts: number; conectado: boolean }[]
+  >([]);
   /** Solo públicas, repo y hash de soporte: nunca una privada. */
   secretos = $state<Secretos>(vistaDe(vacio()));
   estadoSecretos = $state<EstadoSecretos>("cargando");
@@ -815,9 +850,24 @@ export class StoreCentral {
 
   // --- Licencias y publicaciones --------------------------------------------------------
 
+  /**
+   * Firma una licencia para un local.
+   *
+   * `vence_ts` deja elegir la fecha en vez de calcularla. Sirve para lo que se
+   * negocia por teléfono —«te doy hasta el viernes», «alineamos tu cobro al día
+   * 1»— y para corregir un vencimiento que se torció. Sin él, la única fecha
+   * posible era «un mes más desde la anterior», y cualquier acuerdo distinto se
+   * quedaba en un apunte que no llegaba al sistema.
+   */
   async emitir(
     id: string,
-    opciones: { meses?: number; bloqueo_inmediato?: boolean } = {},
+    opciones: {
+      vence_ts?: number;
+      gracia_dias?: number;
+      bloqueo_inmediato?: boolean;
+      /** true = la fecha pasada es intencionada (es un corte, no un dedazo). */
+      corte?: boolean;
+    } = {},
   ): Promise<ResultadoConLicencia> {
     const privada = this.protegidos.licencias?.privada;
     if (!privada) {
@@ -850,11 +900,19 @@ export class StoreCentral {
       return { ok: false, error: "No se pudo preparar el acceso del responsable" };
     }
 
-    const vence_ts = siguienteVencimiento(
-      cliente.licencia?.vence_ts ?? null,
-      cliente.plan,
-      Date.now(),
-    );
+    /*
+     * La fecha elegida se comprueba aunque venga de nuestra propia pantalla: lo
+     * que salga de aquí va dentro de un documento firmado por MOTRAE, y ahí ya
+     * no se corrige, solo se sustituye.
+     */
+    if (opciones.vence_ts !== undefined && !opciones.corte) {
+      const elegible = vencimientoElegible(opciones.vence_ts, Date.now());
+      if (!elegible.ok) return { ok: false, error: elegible.error };
+    }
+
+    const vence_ts =
+      opciones.vence_ts ??
+      siguienteVencimiento(cliente.licencia?.vence_ts ?? null, cliente.plan, Date.now());
 
     const licencia = await emitirLicencia(
       {
@@ -862,7 +920,7 @@ export class StoreCentral {
         nombre: cliente.nombre,
         plan: cliente.plan,
         vence_ts,
-        gracia_dias: 3,
+        gracia_dias: opciones.gracia_dias ?? 3,
         emitida_ts: Date.now(),
         ...(this.protegidos.soporte ? { soporte: this.protegidos.soporte } : {}),
         responsable: { ...responsable, credencial: protegido.credencial },
@@ -922,23 +980,130 @@ export class StoreCentral {
       licencia: licenciaParaCartera(licencia),
       emisiones: [...(cliente.emisiones ?? []), emision],
     });
-    return { ok: true, licencia, ...(credencialesResponsable ? { credencialesResponsable } : {}) };
+
+    /*
+     * Y se la mandamos al restaurante, que es de lo que se trata.
+     *
+     * Si esto falla NO se deshace la emisión: la licencia está firmada y es
+     * válida, y lo único que se pierde es el reparto automático. Se devuelve
+     * `a_mano` con el motivo para que la pantalla enseñe el archivo a copiar,
+     * que es exactamente como se hacía antes. Degradar a lo de siempre es
+     * aceptable; perder una licencia ya firmada, no.
+     */
+    const entrega = await this.entregarLicencia(id, licencia);
+
+    return {
+      ok: true,
+      licencia,
+      entrega: entrega.entrega,
+      ...(entrega.motivo ? { motivoEntrega: entrega.motivo } : {}),
+      ...(credencialesResponsable ? { credencialesResponsable } : {}),
+    };
   }
 
   /**
-   * Corta el servicio de un local AHORA, sin esperar a que venza.
+   * Deja la licencia en el relay para que el Hub del local la recoja.
    *
-   * Esto ya se podía firmar —`emitir` acepta `bloqueo_inmediato` desde siempre—
-   * pero no había ningún botón que lo pidiera, así que en la práctica no existía:
-   * la única forma de cortarle a alguien era esperar semanas a que la licencia
-   * venciera sola.
+   * ESTO ES LO QUE QUITA EL JSON DE LA CAJA DEL RESTAURANTERO. Antes la única
+   * puerta de entrada era `POST /licencia` en el Hub, que solo acepta peticiones
+   * del propio equipo: cada renovación de cada local exigía estar ahí o entrar
+   * por remoto. Con treinta clientes eso deja de ser una molestia y pasa a ser
+   * el cuello de botella de la empresa.
+   *
+   * El relay no puede falsificar nada: la licencia va firmada con la privada de
+   * MOTRAE, que no sale de esta máquina, y el Hub la verifica contra su pública
+   * compilada antes de escribirla. Es un cartero, no una autoridad.
+   */
+  async entregarLicencia(
+    sucursal_id: string,
+    licencia: Licencia,
+  ): Promise<{ entrega: EntregaLicencia; motivo?: string }> {
+    const url = this.protegidos.relay_url;
+    const clave = this.protegidos.relay_clave_admin;
+    if (!url || !clave) {
+      return { entrega: "a_mano", motivo: "No hay relay configurado (ver Llaves)" };
+    }
+
+    try {
+      const respuesta = await fetch(new URL("/licencia", url), {
+        method: "POST",
+        headers: { authorization: `Bearer ${clave}`, "content-type": "application/json" },
+        body: JSON.stringify({ sucursal_id, licencia }),
+        signal: AbortSignal.timeout(15_000),
+      });
+
+      if (!respuesta.ok) {
+        const detalle = (await respuesta.json().catch(() => null)) as { error?: string } | null;
+        return {
+          entrega: "a_mano",
+          motivo: detalle?.error ?? `El relay respondió ${respuesta.status}`,
+        };
+      }
+
+      const datos = (await respuesta.json()) as { entregada?: boolean };
+      return { entrega: datos.entregada ? "entregada" : "en_espera" };
+    } catch (causa) {
+      return { entrega: "a_mano", motivo: `No se pudo hablar con el relay: ${String(causa)}` };
+    }
+  }
+
+  /**
+   * Renovaciones depositadas que el restaurante todavía no ha recogido.
+   *
+   * Una que lleva días aquí es un local apagado, sin internet o con el Hub
+   * caído — y es exactamente el que va a llamar el día que se le bloquee.
+   */
+  async traerLicenciasPendientes(): Promise<
+    | { ok: true; pendientes: { sucursal_id: string; depositada_ts: number; conectado: boolean }[] }
+    | { ok: false; error: string }
+  > {
+    const url = this.protegidos.relay_url;
+    const clave = this.protegidos.relay_clave_admin;
+    if (!url || !clave) return { ok: false, error: "No hay relay configurado" };
+
+    try {
+      const respuesta = await fetch(new URL("/licencia", url), {
+        headers: { authorization: `Bearer ${clave}` },
+        signal: AbortSignal.timeout(10_000),
+      });
+      if (!respuesta.ok) return { ok: false, error: `El relay respondió ${respuesta.status}` };
+
+      const datos = (await respuesta.json()) as {
+        pendientes?: { sucursal_id: string; depositada_ts: number; conectado: boolean }[];
+      };
+      this.licenciasPendientes = datos.pendientes ?? [];
+      return { ok: true, pendientes: this.licenciasPendientes };
+    } catch (causa) {
+      return { ok: false, error: `No se pudo hablar con el relay: ${String(causa)}` };
+    }
+  }
+
+  /**
+   * Corta el servicio de un local: emite una licencia YA vencida.
+   *
+   * HACEN FALTA LAS TRES COSAS, y con menos esto no corta nada:
+   *
+   *   - `vence_ts` en el pasado. Es lo único que de verdad vence la licencia.
+   *     `bloqueo_inmediato` por sí solo NO corta: lo único que decide es si, una
+   *     vez agotada la gracia, se bloquea sin esperar a que cierre el turno
+   *     abierto. Emitir con él y con la fecha calculada normal alarga la licencia
+   *     un mes — lo contrario exacto de lo que dice el botón.
+   *   - `gracia_dias: 0`. Con los tres de siempre, «cortar» dejaría al local
+   *     operando tres días más.
+   *   - `bloqueo_inmediato`. Para que no espere al cierre del turno.
    *
    * Devuelve la licencia igual que una renovación: para que surta efecto hay que
    * pegarla en el local, exactamente como cualquier otra. No es un interruptor
    * remoto, y es importante no venderlo como tal.
    */
-  async cortarServicio(id: string): Promise<ResultadoConLicencia> {
-    return this.emitir(id, { bloqueo_inmediato: true });
+  async cortarServicio(id: string, ahora = Date.now()): Promise<ResultadoConLicencia> {
+    return this.emitir(id, {
+      /* Un segundo atrás: ya vencida en cuanto el Hub la lea. */
+      vence_ts: ahora - 1_000,
+      gracia_dias: 0,
+      bloqueo_inmediato: true,
+      corte: true,
+    });
   }
 
   async firmarActualizacion(
@@ -1240,6 +1405,8 @@ export class StoreCentral {
     if (!this.puedeConsultarRelay || this.consultandoPulsos) return;
     await this.traerPulsos();
     await this.traerSaludRelay();
+    /* Una renovación que lleva días sin recoger es el local que va a llamar. */
+    await this.traerLicenciasPendientes();
   }
 
   /**

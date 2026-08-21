@@ -7,8 +7,14 @@
  * RAW— sin gastar papel. Donde esa impresora no exista, esas pruebas se saltan
  * solas en vez de fallar por el entorno.
  */
+import { spawn } from "node:child_process";
 import { describe, expect, it } from "vitest";
-import { enviarAUsb, esDispositivoValido, impresorasDelSistema } from "../impresion/transporte-usb.js";
+import {
+  ESTADOS_DETENIDOS,
+  enviarAUsb,
+  esDispositivoValido,
+  impresorasDelSistema,
+} from "../impresion/transporte-usb.js";
 
 const EN_WINDOWS = process.platform === "win32";
 const TICKET = new Uint8Array([0x1b, 0x40, 0x48, 0x6f, 0x6c, 0x61, 0x0a, 0x1d, 0x56, 0x00]);
@@ -109,5 +115,66 @@ describe.runIf(!EN_WINDOWS)("fuera de Windows", () => {
     const r = await enviarAUsb("Cualquiera", TICKET);
     expect(r.ok).toBe(false);
     expect(r.error).toContain("solo está disponible en Windows");
+  });
+});
+
+/*
+ * LA PRUEBA QUE IMPIDE QUE VUELVA LO DE RODIZIO.
+ *
+ * La comprobación previa al envío compara el estado de la impresora contra una
+ * lista de nombres. Una clave mal escrita NO da error: no coincide con nada, la
+ * impresora rota pasa el filtro y el POS vuelve a cantar «impreso» sobre una
+ * comanda que se queda en la cola. Fue así como 20 comandas se perdieron durante
+ * cuatro días sin un solo aviso.
+ *
+ * Por eso los nombres no se revisan a ojo: se contrastan contra el enum del
+ * Windows que está corriendo la prueba.
+ */
+describe.runIf(EN_WINDOWS)("los estados que detienen un envío", () => {
+  /** Los nombres que ESTE Windows reconoce como `PrinterStatus`. */
+  function nombresDelEnum(): Promise<string[]> {
+    const guion =
+      "$ProgressPreference='SilentlyContinue';" +
+      "$t=(Get-Printer|Select-Object -First 1).PrinterStatus.GetType();" +
+      "[Console]::Out.Write(([Enum]::GetNames($t)) -join ',')";
+    return new Promise((resolver) => {
+      const hijo = spawn(
+        "powershell.exe",
+        [
+          "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass",
+          "-EncodedCommand", Buffer.from(guion, "utf16le").toString("base64"),
+        ],
+        { windowsHide: true },
+      );
+      let salida = "";
+      hijo.stdout.on("data", (t: Buffer) => { salida += t.toString("utf8"); });
+      hijo.on("error", () => resolver([]));
+      hijo.on("close", () => resolver(salida.trim().split(",").filter(Boolean)));
+    });
+  }
+
+  it("todos existen en el enum PrinterStatus de este Windows", async ({ skip }) => {
+    const validos = await nombresDelEnum();
+    // Sin impresoras dadas de alta no hay enum del que tirar: es un límite del
+    // entorno, no un fallo del código.
+    if (validos.length === 0) skip();
+
+    const inventados = Object.keys(ESTADOS_DETENIDOS).filter((e) => !validos.includes(e));
+    expect(inventados, `Windows no conoce estos estados: ${inventados.join(", ")}`).toEqual([]);
+  }, ESPERA_SPOOLER_MS);
+
+  it("incluye los que dejaron las comandas dentro de la cola", () => {
+    // `Error` es el que faltaba en Rodizio; `Offline` era el único que había.
+    expect(ESTADOS_DETENIDOS).toHaveProperty("Error");
+    expect(ESTADOS_DETENIDOS).toHaveProperty("Offline");
+    // Una cola en pausa acepta todo y no imprime nada: el mismo fallo con otro
+    // nombre.
+    expect(ESTADOS_DETENIDOS).toHaveProperty("Paused");
+  });
+
+  it("no rechaza estados pasajeros: una cocina no se queda sin comanda por eso", () => {
+    for (const pasajero of ["Normal", "Printing", "Busy", "Waiting", "Processing", "WarmingUp", "TonerLow"]) {
+      expect(Object.keys(ESTADOS_DETENIDOS)).not.toContain(pasajero);
+    }
   });
 });

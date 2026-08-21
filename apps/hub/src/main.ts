@@ -41,6 +41,7 @@ import type {
   EventoBase,
   EventoMensajeria,
   EventoOpinion,
+  Licencia,
   MemoriaDeCanal,
   PulsoCliente,
   TerminalReportada,
@@ -52,6 +53,7 @@ import {
   debeInstalar,
   enHorarioDeServicio,
   estadoInicial,
+  hayNovedad,
   hayTurnoAbierto,
   marcarInstalada,
   pideBaja,
@@ -104,6 +106,7 @@ import {
   impresorasDelSistema,
   instalarImpresoraEnPuerto,
 } from "./impresion/transporte-usb.js";
+import { enviarABluetooth } from "./impresion/transporte-bluetooth.js";
 import { buscarImpresoras } from "./impresion/buscador.js";
 import { exportarRespaldo, leerRespaldo } from "./respaldo-portatil.js";
 import { enMegas, evaluarCrecimiento } from "./crecimiento.js";
@@ -1723,6 +1726,16 @@ async function atenderImpresion(
       return;
     }
 
+    if (datos.modo === "bluetooth") {
+      if (typeof datos.dispositivo !== "string") {
+        json(400, { error: "Falta el puerto COM para la impresora Bluetooth" });
+        return;
+      }
+      const resultado = await enviarABluetooth(datos.dispositivo, bytes);
+      json(resultado.ok ? 200 : 502, resultado);
+      return;
+    }
+
     if (typeof datos.host !== "string" || typeof datos.puerto !== "number") {
       json(400, { error: "Faltan host o puerto" });
       return;
@@ -2159,6 +2172,31 @@ function difundirLicencia(): void {
 }
 
 /**
+ * Instala una licencia que llegó por el relay, sin que nadie la pegue.
+ *
+ * ES EL MISMO CAMINO QUE EL DE PEGARLA A MANO, a propósito: `instalar()`
+ * comprueba la firma contra la pública de MOTRAE compilada en este binario y
+ * rechaza cualquier documento que no sea de ESTE local. Que la licencia venga
+ * del relay no le da ni un permiso más que venir del portapapeles de la caja —
+ * un relay comprometido no puede fabricar una licencia ni alargar la de nadie.
+ *
+ * Al terminar se difunde a las terminales: si estaban bloqueadas por falta de
+ * pago, se desbloquean solas en el momento. Ése es el punto de todo esto —el
+ * restaurantero no se entera de que hubo una renovación, simplemente sigue
+ * trabajando.
+ */
+async function instalarLicenciaDeMotrae(recibida: unknown): Promise<{ ok: boolean; error?: string }> {
+  if (!licencia) return { ok: false, error: "El gestor de licencia todavía no está listo" };
+  if (!recibida || typeof recibida !== "object") {
+    return { ok: false, error: "Lo que llegó no es una licencia" };
+  }
+
+  const resultado = await licencia.instalar(recibida as Licencia);
+  if (resultado.ok) difundirLicencia();
+  return resultado;
+}
+
+/**
  * Busca versiones nuevas, avisa a las terminales y —cuando el restaurante lo
  * pide y el momento es seguro— instala.
  *
@@ -2391,6 +2429,33 @@ async function evaluarActualizacion(ahora = Date.now()): Promise<void> {
   const version = estadoActualizacion.disponible;
   if (!version || !debeInstalar(estadoActualizacion, ahora)) return;
 
+  /*
+   * UNA ACTUALIZACIÓN PENDIENTE PUEDE HABER ENVEJECIDO. INSTALARLA SERÍA
+   * REVERTIR EL LOCAL.
+   *
+   * El aplazamiento por turno de caja abierto dura lo que dure el servicio —
+   * horas—, y en ese hueco el equipo puede haberse actualizado por otra vía:
+   * un instalador puesto a mano por soporte, que es como se despliegan hoy los
+   * arreglos urgentes. Al cerrar la caja, esto descargaba obedientemente la
+   * versión vieja que quedó anotada y la instalaba encima, borrando el arreglo
+   * por el que alguien había ido hasta el local.
+   *
+   * Pasó de verdad: Rodizio tenía anotada la 1.3.0 esperando el cierre de turno
+   * mientras corría ya la 1.3.2. El canal sí compara versiones al aceptar un
+   * manifiesto (`evaluarManifiesto`), pero lo ya guardado nunca se volvía a
+   * mirar.
+   */
+  if (!hayNovedad(VERSION, version.version)) {
+    registrar(
+      "info",
+      `La actualización pendiente (${version.version}) ya no es nueva: aquí corre ${VERSION}. Se descarta.`,
+    );
+    estadoActualizacion = marcarInstalada(estadoActualizacion, VERSION);
+    versionDisponible = null;
+    await guardarEstadoActualizacion();
+    return;
+  }
+
   const veredicto = puedeInstalarse(turnoDeCajaAbierto(), enHorarioDeServicio(ahora));
   if (!veredicto.puede) {
     /*
@@ -2561,6 +2626,7 @@ async function conectarAlRelay(): Promise<void> {
       reportarPulso();
     },
     alLlegarMensaje: (mensaje) => atenderMensajeDelComensal(mensaje),
+    alLlegarLicencia: (recibida) => instalarLicenciaDeMotrae(recibida),
   });
 
   avisos = new Avisos(

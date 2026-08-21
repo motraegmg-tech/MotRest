@@ -526,6 +526,10 @@
         Las promociones se ofrecen, no se cobran solas. Que alguien de la casa
         confirme es lo que evita descubrir en el corte que una promoción mal
         configurada estuvo regalando producto toda la noche.
+
+        Se ofrecen SIEMPRE que haya platillos elegibles sin cubrir, aunque esa
+        misma promoción ya se haya aplicado antes en esta cuenta: la mesa que
+        pide una segunda ronda de pizzas tiene su 2×1 igual que la primera.
       -->
       {#each promos as promo (promo.promocion_id)}
         <button class="promo" onclick={() => pos.aplicarPromocion(promo)}>
@@ -534,6 +538,28 @@
           <span class="importe">−{mxn(promo.importe)}</span>
           <span class="cta">Aplicar</span>
         </button>
+      {/each}
+
+      <!--
+        LAS QUE YA ESTÁN PUESTAS, cada una con su botón de quitar.
+
+        Una por aplicación y no una por promoción: si el 2×1 se aplicó en las dos
+        rondas, aparecen las dos y se retira la que sobra. Sin esta lista, poner
+        la promoción equivocada obligaba a cancelar la cuenta entera.
+      -->
+      {#each pos.promocionesAplicadas as puesta (puesta.id)}
+        <div class="promo-puesta">
+          <span class="etiqueta">Aplicada</span>
+          <span class="nombre">{puesta.nombre}</span>
+          <span class="importe">−{mxn(puesta.importe)}</span>
+          <button
+            class="quitar-promo"
+            onclick={() => pos.retirarPromocion(puesta.id)}
+            aria-label="Quitar {puesta.nombre}"
+          >
+            Quitar
+          </button>
+        </div>
       {/each}
 
       <div class="tot">
@@ -1347,6 +1373,52 @@
   .promo .cta {
     font-size: 0.72rem;
     color: var(--gris);
+  }
+  /*
+   * La aplicada se distingue de la ofrecida: borde sólido en vez de punteado.
+   * El punteado dice «esto se puede tomar»; el sólido, «esto ya está puesto».
+   * Con el mismo aspecto, el mesero volvía a pulsar la que ya había aplicado.
+   */
+  .promo-puesta {
+    margin-top: 0.7rem;
+    width: 100%;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.55rem 0.7rem;
+    border: 1px solid var(--acento);
+    border-radius: 10px;
+    background: color-mix(in srgb, var(--acento) 12%, transparent);
+    font-size: 0.88rem;
+  }
+  .promo-puesta .etiqueta {
+    font-size: 0.68rem;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--acento);
+    font-weight: 700;
+  }
+  .promo-puesta .nombre {
+    flex: 1;
+    color: var(--pizarra);
+  }
+  .promo-puesta .importe {
+    font-weight: 700;
+    color: var(--acento);
+  }
+  .quitar-promo {
+    padding: 0.25rem 0.6rem;
+    border: 1px solid var(--borde);
+    border-radius: var(--r-pill);
+    background: #fff;
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: var(--gris);
+    cursor: pointer;
+  }
+  .quitar-promo:hover {
+    color: var(--peligro);
+    border-color: var(--peligro);
   }
   .tot {
     margin-top: 0.8rem;

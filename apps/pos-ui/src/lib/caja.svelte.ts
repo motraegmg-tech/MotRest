@@ -14,20 +14,26 @@ import {
   FabricaEventos,
   calcularCorte,
   compararEventos,
+  consolidarCortes,
   diferenciaArqueo,
+  egresosEn,
   proyectarSesiones,
   sesionAbierta,
+  turnoEnRango,
   uuidv7,
   type Centavos,
   type CorteCaja,
+  type CortePeriodo,
   type EstadoCaja,
   type EventoCaja,
   type EventoComanda,
   type ID,
   type MotivoMovimientoCaja,
   type ResumenCorte,
+  type VentasPorForma,
 } from "@motrest/dominio";
-import type { CifrasCorte, DatosCorte } from "@motrest/impresion";
+import type { CifrasCorte, DatosCorte, DatosCortePeriodo } from "@motrest/impresion";
+import { egresos } from "./egresos.svelte";
 import type { Almacen } from "@motrest/protocolo-sync";
 import { impresion } from "./impresion.svelte";
 import { pos } from "./pos.svelte";
@@ -98,6 +104,82 @@ class StoreCaja {
     const sesion = this.activa;
     if (!sesion) return null;
     return calcularCorte(sesion, this.eventosDelTurno(sesion));
+  }
+
+  // --- Corte de un período ---------------------------------------------------------------
+
+  /**
+   * El corte de un rango de fechas: un día pasado, o los últimos tres.
+   *
+   * Recalcula cada turno desde el registro en vez de leer el `resumen` congelado
+   * del cierre, y es a propósito: el resumen sellado no guarda el desglose por
+   * forma de pago ni los movimientos, que es justo lo que se viene a consultar.
+   * Las cifras que sí están en ambos coinciden — la aritmética es la misma
+   * función— y el arqueo (`declarado`, `diferencia`) sí sale del cierre firmado.
+   */
+  cortePorRango(desde: number, hasta: number): CortePeriodo {
+    const turnos = this.sesiones
+      .filter((s) => turnoEnRango(s, desde, hasta))
+      .map((sesion) => ({ sesion, corte: calcularCorte(sesion, this.eventosDelTurno(sesion)) }));
+
+    return consolidarCortes(turnos, egresosEn(egresos.registros, { desde, hasta }), {
+      desde,
+      hasta,
+    });
+  }
+
+  /**
+   * Arma el papel de un corte de período y lo manda a la impresora de caja.
+   *
+   * El nombre del cajero se resuelve aquí y no en el dominio: el dominio guarda
+   * identificadores, y un papel con `usr-019ff411…` en vez de «Marisol» no le
+   * sirve a nadie.
+   */
+  imprimirRango(
+    desde: number,
+    hasta: number,
+    solicitante: string,
+    nombreDe: (cajeroId: ID) => string,
+  ): CortePeriodo {
+    const p = this.cortePorRango(desde, hasta);
+
+    const datos: DatosCortePeriodo = {
+      local: local.fichaParaTicket(licencia.licencia?.nombre ?? cabecera.sucursal).nombre,
+      solicitante,
+      emitido_ts: Date.now(),
+      desde: p.desde,
+      hasta: p.hasta,
+      turnos: p.turnos.map((t) => ({
+        folio: t.folio,
+        cajero: nombreDe(t.cajero_id),
+        abierta_ts: t.abierta_ts,
+        cerrada: t.cerrada,
+        total_vendido: t.total_vendido,
+        diferencia: t.diferencia,
+      })),
+      turnos_abiertos: p.turnos_abiertos,
+      fondo_inicial: p.fondo_inicial,
+      cobrado: this.formasImpresas(p.cobrado_por_forma),
+      total_cobrado: p.total_cobrado,
+      total_vendido: p.total_vendido,
+      propinas: p.propinas,
+      movimientos: p.movimientos.map((m) => ({
+        ts: m.ts,
+        concepto: m.concepto,
+        monto: m.monto,
+      })),
+      total_movimientos: p.total_movimientos,
+      gastos: p.gastos.map((g) => ({ nombre: g.nombre, monto: g.monto })),
+      total_gastos: p.total_gastos,
+      cuentas_cerradas: p.cuentas_cerradas,
+      efectivo_ventas: p.efectivo_ventas,
+      efectivo_esperado: p.efectivo_esperado,
+      declarado: p.declarado,
+      diferencia: p.diferencia,
+    };
+
+    impresion.cortePorFechas(datos);
+    return p;
   }
 
   // --- Operaciones ----------------------------------------------------------------------
@@ -238,7 +320,12 @@ class StoreCaja {
    * propina viene en los renglones de abajo del ticket.
    */
   private ventasImpresas(corte: CorteCaja): DatosCorte["ventas"] {
-    return Object.entries(corte.cobrado)
+    return this.formasImpresas(corte.cobrado);
+  }
+
+  /** Un desglose por forma de pago, con etiquetas legibles y sin los ceros. */
+  private formasImpresas(porForma: VentasPorForma): DatosCorte["ventas"] {
+    return Object.entries(porForma)
       .filter(([, monto]) => (monto ?? 0) > 0)
       .map(([forma, monto]) => ({ forma: this.etiquetaForma(forma), monto: monto as Centavos }));
   }

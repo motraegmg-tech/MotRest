@@ -179,6 +179,15 @@ export interface CorteCaja {
   efectivoEsperado: Centavos;
   /** Cuentas cerradas en el turno. */
   cuentasCerradas: number;
+  /**
+   * Lo devuelto por ventas canceladas en el turno, y cuántas fueron.
+   *
+   * Se muestra aparte en el arqueo: quien cuenta el cajón necesita ver por qué
+   * el esperado bajó, y una devolución es justo la clase de movimiento que hay
+   * que poder explicar delante de un dueño.
+   */
+  devoluciones: Centavos;
+  ventasCanceladas: number;
 }
 
 /** Lo cobrado y lo propinado de una cuenta, para poder separarlos después. */
@@ -205,6 +214,8 @@ export function calcularCorte(
   let efectivoVentas = CERO;
   let propinas = CERO;
   let cuentasCerradas = 0;
+  let devoluciones = CERO;
+  let ventasCanceladas = 0;
 
   for (const ev of eventosComanda) {
     if (ev.tipo === "pago_registrado") {
@@ -222,6 +233,41 @@ export function calcularCorte(
       propinas = sumar(propinas, ev.monto);
     } else if (ev.tipo === "cuenta_cerrada") {
       cuentasCerradas += 1;
+    } else if (ev.tipo === "venta_cancelada") {
+      /*
+       * EL DINERO SALE DEL CAJÓN EL DÍA QUE SE DEVUELVE, no el día que se cobró.
+       *
+       * Por eso se resta aquí, en el turno donde ocurre la cancelación, en vez
+       * de descontar la venta de su turno original: quien cuenta los billetes
+       * esta noche va a encontrar 433 pesos menos, y el esperado tiene que
+       * decirlo. Si el cobro fue en este mismo turno, el pago ya se sumó arriba
+       * y la resta lo deja en cero, que es lo correcto.
+       *
+       * La propina va DENTRO de las devoluciones —se cobró junto con la cuenta
+       * y se devolvió junto con ella—, así que no se descuenta aparte.
+       */
+      ventasCanceladas += 1;
+      for (const devolucion of ev.devoluciones) {
+        acumular(cobrado, devolucion.forma, (-devolucion.monto) as Centavos);
+        totalCobrado = restar(totalCobrado, devolucion.monto);
+        devoluciones = sumar(devoluciones, devolucion.monto);
+        if (devolucion.forma === "efectivo") {
+          efectivoVentas = restar(efectivoVentas, devolucion.monto);
+        }
+      }
+
+      /*
+       * La cuenta desaparece del turno: ni suma cuenta cerrada ni entra al
+       * prorrateo de propinas. Solo si su cierre fue en ESTE turno —si el cobro
+       * es de antes, aquí no hay nada que descontar y la resta de arriba ya
+       * dejó el efectivo como debe.
+       */
+      const cuenta = cuentas.get(ev.orden_id);
+      if (cuenta) {
+        cuentas.delete(ev.orden_id);
+        propinas = restar(propinas, cuenta.propina);
+        cuentasCerradas = Math.max(0, cuentasCerradas - 1);
+      }
     }
   }
 
@@ -273,6 +319,8 @@ export function calcularCorte(
     movimientos,
     efectivoEsperado: sumar(caja.fondo_inicial, efectivoVentas, movimientos),
     cuentasCerradas,
+    devoluciones,
+    ventasCanceladas,
   };
 }
 

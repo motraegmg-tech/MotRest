@@ -132,6 +132,21 @@
           <b class:resta={corte.movimientos < 0}>{mxn(corte.movimientos)}</b>
         </div>
       {/if}
+      <!--
+        Las devoluciones se enseñan con su propio renglón y no escondidas dentro
+        del «cobrado». Quien cuenta el cajón va a encontrar menos dinero del que
+        dicen las ventas del día, y esta línea es la que se lo explica antes de
+        que empiece a buscar un faltante que no existe.
+      -->
+      {#if corte.devoluciones > 0}
+        <div>
+          <span>
+            Devuelto por {corte.ventasCanceladas}
+            {corte.ventasCanceladas === 1 ? "venta cancelada" : "ventas canceladas"}
+          </span>
+          <b class="resta">−{mxn(corte.devoluciones)}</b>
+        </div>
+      {/if}
       <div class="destacado">
         <span>Efectivo esperado en el cajón</span>
         <b>{mxn(corte.efectivoEsperado)}</b>

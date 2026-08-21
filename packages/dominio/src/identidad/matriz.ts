@@ -14,6 +14,7 @@ import type { Accion } from "./acciones.js";
 import { definicionAccion } from "./acciones.js";
 import {
   LISTA_ROLES,
+  permisosDePlantilla,
   rangoDe,
   type Nivel,
   type Permiso,
@@ -195,6 +196,45 @@ export function rolesAsignablesPor(actor: Usuario): RolId[] {
 }
 
 /**
+ * El permiso con el que `actor` OTORGA, que no siempre es el que tiene guardado.
+ *
+ * ## El candado que esto abre
+ *
+ * `usuario_creado` materializa la lista de permisos dentro del propio evento. Una
+ * acción nueva en el catálogo no le llega a nadie ya dado de alta — y ahí empieza
+ * el problema, porque al crear un usuario la plantilla del rol SÍ la incluye:
+ *
+ *   1. El propietario se dio de alta con las 55 acciones que existían entonces.
+ *   2. Una versión nueva añade acciones al catálogo. Él sigue con 55.
+ *   3. Da de alta a un mesero; la plantilla del rol trae las 58 de hoy.
+ *   4. El Hub: «intentó otorgar permisos que no posee». RECHAZADO.
+ *
+ * Y no se puede salir desde dentro: nadie puede concederse lo que no tiene, ni
+ * siquiera el dueño. Medido en Rodizio el 21-ago-2026 — el Hub conocía a UN solo
+ * usuario, y las tabletas del local, que se sincronizan de él, mostraban uno.
+ * Cada alta de personal llevaba semanas rebotando en silencio.
+ *
+ * ## Por qué SOLO el propietario
+ *
+ * Es el rango más alto del restaurante: por definición tiene todo lo de su
+ * plantilla, y nadie por encima que se lo pudiera haber recortado a propósito.
+ * Para cualquier otro rol, una diferencia entre lo guardado y la plantilla SÍ
+ * puede ser una decisión deliberada de su superior —a este gerente no le doy
+ * cancelaciones— y respetarla es justo el sentido de la lista guardada.
+ *
+ * Esto NO abre ninguna escalada: `rolesAsignablesPor` sigue impidiendo crear a
+ * un igual o a un superior, y el propietario ya podía otorgar todo lo que su
+ * plantilla concede. Lo único que cambia es que deja de castigársele por haberse
+ * dado de alta antes de que existiera una acción.
+ */
+function permisoParaOtorgar(actor: Usuario, accion: Accion): Permiso | undefined {
+  const guardado = permisoDe(actor, accion);
+  if (guardado) return guardado;
+  if (rangoDe(actor.rol_id) < rangoDe("propietario")) return undefined;
+  return permisosDePlantilla(actor.rol_id).find((p) => p.accion === accion);
+}
+
+/**
  * ¿`actor` puede otorgar este permiso?
  *
  * Solo se concede lo que uno mismo tiene, y nunca a un nivel superior al propio.
@@ -202,12 +242,12 @@ export function rolesAsignablesPor(actor: Usuario): RolId[] {
  * y entrando con esa cuenta.
  */
 export function puedeOtorgar(actor: Usuario, permiso: Permiso): boolean {
-  const propio = nivelDe(actor, permiso.accion);
+  const propio = permisoParaOtorgar(actor, permiso.accion);
   if (!propio) return false;
-  if (ORDEN_NIVEL[permiso.nivel] > ORDEN_NIVEL[propio]) return false;
+  if (ORDEN_NIVEL[permiso.nivel] > ORDEN_NIVEL[propio.nivel]) return false;
 
   // Un límite propio no se puede superar al delegarlo.
-  const limitePropio = permisoDe(actor, permiso.accion)?.limite;
+  const limitePropio = propio.limite;
   if (limitePropio !== undefined) {
     if (permiso.limite === undefined) return false;
     if (permiso.limite > limitePropio) return false;

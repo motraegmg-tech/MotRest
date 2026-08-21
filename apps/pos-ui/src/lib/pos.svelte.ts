@@ -241,6 +241,66 @@ class TiendaPOS {
     this.flash(`${descuento.nombre} aplicada`);
   }
 
+  /**
+   * Las promociones YA aplicadas a esta cuenta, para poder quitarlas.
+   *
+   * Se listan una por aplicación y no una por promoción: la misma promoción
+   * puede haberse aplicado dos veces —una por ronda de la mesa— y quien quiere
+   * deshacer la segunda no puede llevarse la primera por delante.
+   */
+  get promocionesAplicadas(): {
+    id: ID;
+    nombre: string;
+    importe: Centavos;
+    renglones: number;
+  }[] {
+    const c = this.comanda;
+    if (!c || c.cerrada) return [];
+
+    return c.descuentos
+      .filter((d) => d.promocion_id !== undefined)
+      .map((d) => ({
+        id: d.id,
+        // El nombre vivo del catálogo, con el del momento en que se aplicó como
+        // respaldo: una promoción puede haberse renombrado —o borrado— después.
+        nombre:
+          menu.promociones.find((p) => p.id === d.promocion_id)?.nombre ??
+          d.motivo.replace(/^Promoción:\s*/, ""),
+        importe: d.valor as Centavos,
+        renglones: d.renglones_cubiertos?.length ?? 0,
+      }));
+  }
+
+  /**
+   * Quita una promoción ya aplicada.
+   *
+   * **No pide autorización, y es deliberado** — la misma razón que retirar una
+   * cortesía: quitar un descuento SUBE la cuenta, así que no hay forma de sacar
+   * dinero del negocio con esto. Exigir la firma de un gerente solo dejaría la
+   * mesa con un descuento equivocado puesto mientras alguien va a buscarlo.
+   * Queda en la bitácora quién lo hizo, que es lo que importa aquí.
+   *
+   * Al retirarla, sus renglones vuelven a quedar libres y la promoción se
+   * vuelve a ofrecer sola: deshacer no puede dejar la cuenta en un estado del
+   * que no se pueda salir.
+   */
+  retirarPromocion(descuentoId: ID): void {
+    const orden_id = this.ordenActiva(this.mesaActiva);
+    const quitada = this.promocionesAplicadas.find((p) => p.id === descuentoId);
+    if (!orden_id || !quitada) return;
+
+    this.sincronizarActor();
+    this.emitir(
+      this.mesaActiva,
+      fabrica.crear("descuento_retirado", orden_id, {
+        orden_id,
+        descuento_id: descuentoId,
+        autorizador_id: sesion.usuarioActual?.id,
+      }),
+    );
+    this.flash(`${quitada.nombre} retirada`);
+  }
+
   get totales(): TotalesComanda | null {
     const c = this.comanda;
     return c ? totalesComanda(c) : null;
@@ -929,6 +989,111 @@ class TiendaPOS {
       }),
     );
     this.flash("Cuenta reabierta · los pagos anteriores siguen registrados");
+    return true;
+  }
+
+  // --- Tickets cobrados y su cancelación ------------------------------------------
+
+  /**
+   * Los últimos tickets cobrados del local, del más reciente al más viejo.
+   *
+   * ENTRA TODO LO QUE LLEVA DINERO, esté cerrado o no, y esa es la decisión que
+   * importa. Filtrar por `cerrada` habría dejado fuera justo los tickets rotos:
+   * una cuenta que se cobró, se reabrió para corregirla y se quedó a medias
+   * sigue teniendo el cobro dentro y la mesa ocupada, y es la que hay que poder
+   * encontrar. Las canceladas también se listan —marcadas— porque el dueño
+   * necesita ver qué se deshizo, no que desaparezca del historial.
+   *
+   * Fuera quedan las sentadas anuladas: se abrieron por error y no hubo cobro.
+   */
+  get ticketsCobrados(): EstadoComanda[] {
+    return this.todasLasComandas
+      .filter((c) => !c.anulada && (c.pagos.length > 0 || c.cerrada))
+      .sort((a, b) => (b.cerrada_ts ?? b.abierta_ts) - (a.cerrada_ts ?? a.abierta_ts));
+  }
+
+  /**
+   * Cancela una venta ya cobrada: devuelve el dinero y libera la mesa.
+   *
+   * Es la salida que faltaba. Hasta ahora un cobro equivocado solo se podía
+   * reabrir, y quien reabría y cancelaba los renglones dejaba la cuenta en
+   * «pagado 433, total 0»: saldo negativo, mesa ocupada y ninguna pantalla
+   * desde la que arreglarlo. Le pasó a la mesa 8 de Rodizio.
+   *
+   * NO borra el cobro —el log solo agrega— sino que registra la devolución.
+   * Por eso pide la misma autorización que reabrir: sacar dinero de una caja
+   * con dos toques tiene que llevar la firma de alguien y quedar en la bitácora.
+   */
+  async cancelarVenta(ordenId: ID, motivo: string): Promise<boolean> {
+    const mesaId = this.mesaDeOrden(ordenId);
+    if (!mesaId) return false;
+
+    const comanda = this.sentadasDe(mesaId, this.logs[mesaId] ?? []).find(
+      (c) => c.orden_id === ordenId,
+    );
+    if (!comanda) return false;
+
+    if (comanda.cancelada) {
+      this.flash("Esta venta ya estaba cancelada");
+      return false;
+    }
+    if (comanda.anulada) return false;
+
+    const limpio = motivo.trim();
+    if (limpio.length < 3) {
+      this.flash("Escribe por qué se cancela la venta");
+      return false;
+    }
+
+    const permiso = await autorizacion.solicitar(
+      "pos.cuenta.reabrir",
+      undefined,
+      `cancelar la venta de la mesa ${plano.nombreMesa(comanda.mesa_id)}`,
+    );
+    if (!permiso.ok) return false;
+
+    /*
+     * Se devuelve EXACTAMENTE lo cobrado, forma por forma. Los pagos ya traen
+     * la propina dentro —el comensal pagó cuenta y propina de un golpe—, así
+     * que no hay nada que sumarles: reconstruir la devolución a partir de los
+     * totales habría dejado descuadres de centavos en el dinero que sale del
+     * cajón.
+     */
+    const devoluciones = comanda.pagos.map((p) => ({ forma: p.forma, monto: p.monto }));
+    const devuelto = sumar(...devoluciones.map((d) => d.monto));
+
+    this.sincronizarActor();
+    const cancelacion = fabrica.crear("venta_cancelada", ordenId, {
+      orden_id: ordenId,
+      motivo: limpio,
+      autorizador_id: permiso.autorizador_id ?? sesion.usuarioActual?.id,
+      devoluciones,
+    });
+    this.emitir(mesaId, cancelacion);
+
+    /*
+     * Si la venta deja de contar, su consumo también: lo que se preparó para
+     * esa cuenta vuelve al almacén. Van solo los renglones VIVOS porque los que
+     * se cancelaron uno por uno ya devolvieron lo suyo al cancelarse.
+     */
+    inventario.devolverPorCancelacion(
+      renglonesActivos(comanda),
+      cancelacion.id,
+      sesion.usuarioActual?.id,
+    );
+
+    // La ventana de propina posterior de esa cuenta deja de tener sentido: no
+    // hay cobro al que agregarle nada.
+    if (this.propinaPendiente?.orden_id === ordenId) {
+      this.propinaPendiente = null;
+      this.guardarPropinaPendiente();
+    }
+
+    this.flash(
+      devuelto > 0
+        ? `Venta cancelada · devolver ${(devuelto / 100).toFixed(2)}`
+        : "Venta cancelada",
+    );
     return true;
   }
 

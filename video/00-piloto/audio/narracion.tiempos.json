@@ -1,0 +1,43 @@
+{
+  "audio": "narracion.wav",
+  "muestreo": 24000,
+  "duracion": 46.096,
+  "bloques": [
+    {
+      "id": "b1",
+      "texto": "¿Cuánto ganaste ayer?",
+      "inicio": 0,
+      "fin": 1.811
+    },
+    {
+      "id": "b2",
+      "texto": "No cuánto vendiste. Cuánto ganaste.",
+      "inicio": 2.361,
+      "fin": 6.852
+    },
+    {
+      "id": "b3",
+      "texto": "Si para responder eso tienes que abrir tres programas y una libreta, no tienes un sistema. Tienes piezas sueltas.",
+      "inicio": 7.402,
+      "fin": 17.413
+    },
+    {
+      "id": "b4",
+      "texto": "MotRest reúne tu restaurante entero en un solo lugar: venta, cocina, inventario, compras, finanzas, personal, clientes e inteligencia.",
+      "inicio": 17.963,
+      "fin": 30.934
+    },
+    {
+      "id": "b5",
+      "texto": "Un solo sistema. Una sola base de datos.",
+      "inicio": 31.484,
+      "fin": 38.215
+    },
+    {
+      "id": "b6",
+      "texto": "MotRest. El sistema operativo de tu restaurante. Motrae punto com.",
+      "inicio": 38.765,
+      "fin": 46.096
+    }
+  ]
+}

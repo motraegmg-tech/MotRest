@@ -24,6 +24,7 @@ import {
   TransporteSimulado,
   comandaCocina,
   corteCaja,
+  cortePeriodo,
   impresoraPara,
   precuenta,
   pruebaCodigosQr,
@@ -34,6 +35,7 @@ import {
   type CifrasCorte,
   type DatosComanda,
   type DatosCorte,
+  type DatosCortePeriodo,
   type DatosPrecuenta,
   type DatosTicket,
   type DatosTicketInterno,
@@ -80,6 +82,8 @@ class TransporteHub implements Transporte {
     // el canal con el cable. Necesita el nombre exacto con el que está dada de
     // alta en el sistema.
     if (impresora.conexion === "usb") return !!impresora.dispositivo;
+    // Bluetooth: el Hub envía RAW al puerto COM asignado por Windows
+    if (impresora.conexion === "bluetooth") return !!impresora.dispositivo;
     return false;
   }
 
@@ -110,7 +114,6 @@ class TransporteHub implements Transporte {
   }
 }
 
-/** Bytes a base64, por trozos para no reventar la pila con tickets largos. */
 function aBase64(datos: Uint8Array): string {
   let binario = "";
   const trozo = 0x8000;
@@ -128,11 +131,17 @@ export interface ImpresoraDelSistema {
 
 /** Una impresora que el Hub encontró sola. Ver `hub/src/impresion/buscador.ts`. */
 export interface ImpresoraDetectada {
-  origen: "usb" | "red";
+  /*
+   * Los mismos valores que `TipoConexion`, a propósito: así adoptar una
+   * detectada es copiar el origen, sin una tabla de traducción en medio que se
+   * quede corta cuando aparezca la siguiente forma de conectar una impresora.
+   */
+  origen: "usb" | "red" | "bluetooth";
   nombre: string;
   detalle: string;
   host?: string;
   puerto?: number;
+  /** USB: el nombre exacto de la cola de Windows. Bluetooth: el puerto, `COM5`. */
   dispositivo?: string;
   /** true = no imprime en papel (PDF, XPS, fax). Se agrupa aparte. */
   virtual?: boolean;
@@ -195,6 +204,22 @@ class StoreImpresion {
   errorBusqueda = $state("");
   /** El puerto que se está dando de alta ahora mismo, o "" si ninguno. */
   instalando = $state("");
+
+  /**
+   * Los puertos Bluetooth de la última búsqueda, para elegirlos de una lista.
+   *
+   * Sale de `deteccion` en vez de una consulta propia: el Hub ya los devuelve
+   * junto con las demás. Mientras nadie haya buscado esto viene vacío y la ficha
+   * cae al campo libre, igual que hace la de USB cuando no hay lista.
+   *
+   * Teclear el puerto a mano es justo lo que hay que evitar: en la caja de
+   * Rodizio hay cuatro puertos COM de Bluetooth y solo uno es la impresora.
+   */
+  get puertosBluetooth(): { puerto: string; nombre: string }[] {
+    return (this.deteccion?.impresoras ?? [])
+      .filter((d) => d.origen === "bluetooth" && !!d.dispositivo)
+      .map((d) => ({ puerto: d.dispositivo as string, nombre: d.nombre }));
+  }
 
   private almacen: Almacen | null = null;
   private transporte = new TransporteSimulado();
@@ -310,11 +335,11 @@ class StoreImpresion {
   /** ¿Esta impresora encontrada ya está dada de alta en MotRest? */
   yaConfigurada(detectada: ImpresoraDetectada): Impresora | undefined {
     return this.impresoras.find((i) =>
-      detectada.origen === "usb"
-        ? i.conexion === "usb" && i.dispositivo === detectada.dispositivo
-        : i.conexion === "red" &&
+      detectada.origen === "red"
+        ? i.conexion === "red" &&
           i.host === detectada.host &&
-          (i.puerto ?? 9100) === (detectada.puerto ?? 9100),
+          (i.puerto ?? 9100) === (detectada.puerto ?? 9100)
+        : i.conexion === detectada.origen && i.dispositivo === detectada.dispositivo,
     );
   }
 
@@ -329,13 +354,13 @@ class StoreImpresion {
   adoptar(detectada: ImpresoraDetectada, areas: readonly ID[], nombre?: string): ID {
     const comun: Partial<Impresora> = {
       nombre: (nombre ?? detectada.nombre).trim() || detectada.nombre,
-      conexion: detectada.origen === "usb" ? "usb" : "red",
+      conexion: detectada.origen,
       ancho: detectada.ancho,
       areas: [...areas],
       activa: true,
-      ...(detectada.origen === "usb"
-        ? { dispositivo: detectada.dispositivo }
-        : { host: detectada.host, puerto: detectada.puerto ?? 9100 }),
+      ...(detectada.origen === "red"
+        ? { host: detectada.host, puerto: detectada.puerto ?? 9100 }
+        : { dispositivo: detectada.dispositivo }),
     };
 
     const existente = this.yaConfigurada(detectada);
@@ -371,15 +396,15 @@ class StoreImpresion {
     const efimera: Impresora = {
       id: `imp-prueba-${uuidv7()}`,
       nombre: detectada.nombre,
-      conexion: detectada.origen === "usb" ? "usb" : "red",
+      conexion: detectada.origen,
       ancho: detectada.ancho,
       areas: [],
       corta: true,
       cajon: false,
       activa: true,
-      ...(detectada.origen === "usb"
-        ? { dispositivo: detectada.dispositivo }
-        : { host: detectada.host, puerto: detectada.puerto ?? 9100 }),
+      ...(detectada.origen === "red"
+        ? { host: detectada.host, puerto: detectada.puerto ?? 9100 }
+        : { dispositivo: detectada.dispositivo }),
     };
 
     const ticket = comandaCocina(
@@ -577,6 +602,22 @@ class StoreImpresion {
     this.vistaPrevia = { titulo: `Corte ${datos.folio}`, texto: ticket.aTexto() };
     if (impresora) this.encolar(impresora, "corte", ticket, datos.folio);
     return sello;
+  }
+
+  /**
+   * Corte de un período: un día pasado, o los últimos tres.
+   *
+   * No sella. El sello es del arqueo del turno —el acto de contar el cajón— y
+   * este papel es un informe que se puede volver a sacar cuantas veces haga
+   * falta. Sellarlo daría a entender que sustituye a la firma del cajero.
+   */
+  cortePorFechas(datos: DatosCortePeriodo): void {
+    const impresora = impresoraPara(this.impresoras, "caja");
+    const ticket = cortePeriodo(datos, impresora?.ancho ?? 42);
+    const titulo = `Corte ${new Date(datos.desde).toLocaleDateString("es-MX")}`;
+
+    this.vistaPrevia = { titulo, texto: ticket.aTexto() };
+    if (impresora) this.encolar(impresora, "corte", ticket, titulo);
   }
 
   /** Página de prueba, para verificar que una impresora responde. */

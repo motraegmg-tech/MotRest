@@ -18,6 +18,8 @@ import {
   siguienteVencimiento,
   situacionDe,
   verificarLicencia,
+  vencimientoElegible,
+  MAX_ANIOS_VENCIMIENTO,
   type Licencia,
 } from "../organizacion/licencia.js";
 
@@ -278,5 +280,94 @@ describe("comprobar sin internet", () => {
     const guardada = JSON.parse(JSON.stringify(await licencia(30))) as Licencia;
     expect(await verificarLicencia(guardada, SUC, MOTRAE.publica)).toBe(true);
     expect(situacionDe(guardada, true, AHORA).opera).toBe(true);
+  });
+});
+
+describe("elegir a mano la fecha de vencimiento", () => {
+  const DIA = 86_400_000;
+
+  it("acepta una fecha futura razonable", () => {
+    expect(vencimientoElegible(AHORA + 5 * DIA, AHORA).ok).toBe(true);
+  });
+
+  /*
+   * EL TOPE ES CONTRA EL DEDO. La fecha se teclea, y escribir 2126 en vez de
+   * 2026 regala un siglo de servicio dentro de un documento firmado que nadie
+   * va a volver a mirar.
+   */
+  it("no deja emitir más allá del tope de años", () => {
+    const pasado = new Date(AHORA);
+    pasado.setFullYear(pasado.getFullYear() + MAX_ANIOS_VENCIMIENTO + 1);
+
+    const r = vencimientoElegible(pasado.getTime(), AHORA);
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.error).toContain("años");
+  });
+
+  it("justo dentro del tope sí entra", () => {
+    const limite = new Date(AHORA);
+    limite.setFullYear(limite.getFullYear() + MAX_ANIOS_VENCIMIENTO);
+    expect(vencimientoElegible(limite.getTime() - DIA, AHORA).ok).toBe(true);
+  });
+
+  /*
+   * Una fecha pasada no es «renovar hasta ayer»: deja el local parado. Hay una
+   * acción propia para eso y avisa de lo que hace.
+   */
+  it("una fecha ya pasada manda a cortar el servicio", () => {
+    const r = vencimientoElegible(AHORA - DIA, AHORA);
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.error).toContain("Cortar el servicio");
+  });
+
+  it("rechaza lo que ni siquiera es una fecha", () => {
+    expect(vencimientoElegible(Number.NaN, AHORA).ok).toBe(false);
+    expect(vencimientoElegible(Number.POSITIVE_INFINITY, AHORA).ok).toBe(false);
+  });
+});
+
+describe("una licencia ya vencida corta el servicio", () => {
+  /*
+   * Es lo que emite «Cortar el servicio». `bloqueo_inmediato` por sí solo no
+   * vence nada: solo evita esperar al cierre del turno. Sin fecha pasada Y sin
+   * gracia, el local seguiría operando.
+   */
+  it("vencida y sin gracia queda bloqueada al momento", async () => {
+    const cortada = await emitirLicencia(
+      {
+        sucursal_id: SUC,
+        nombre: "Rodizio",
+        plan: "mensual",
+        vence_ts: AHORA - 1_000,
+        gracia_dias: 0,
+        emitida_ts: AHORA,
+        bloqueo_inmediato: true,
+      },
+      MOTRAE.privada,
+    );
+
+    const situacion = situacionDe(cortada, true, AHORA);
+    expect(situacion.estado).toBe("bloqueada");
+    expect(situacion.opera).toBe(false);
+    /* Ni siquiera con un turno abierto se difiere: para eso va el bloqueo inmediato. */
+    expect(momentoDeBloquear(situacion, true, cortada)).toBe("ahora");
+  });
+
+  /* Con los tres días de siempre, «cortar» dejaría al local operando tres días más. */
+  it("con la gracia por defecto NO cortaría: seguiría operando", async () => {
+    const floja = await emitirLicencia(
+      {
+        sucursal_id: SUC,
+        nombre: "Rodizio",
+        plan: "mensual",
+        vence_ts: AHORA - 1_000,
+        gracia_dias: GRACIA_POR_DEFECTO,
+        emitida_ts: AHORA,
+        bloqueo_inmediato: true,
+      },
+      MOTRAE.privada,
+    );
+
+    expect(situacionDe(floja, true, AHORA).opera).toBe(true);
   });
 });

@@ -287,20 +287,230 @@ describe("el cobro por resultado", () => {
   });
 });
 
+describe("la licencia se le manda sola al restaurante", () => {
+  async function conRelay() {
+    await central.guardarConfiguracion({
+      repositorio: "r",
+      relay_url: "https://relay.test",
+      relay_clave_admin: "secreto123",
+    });
+    return (await alta()).cliente!.id;
+  }
+
+  /*
+   * ES EL PUNTO DE TODO ESTO. Antes, cada renovación de cada local exigía que
+   * alguien estuviera en esa caja pegando un JSON. Un restaurantero operando su
+   * punto de venta a base de pegar código es un fallo de producto.
+   */
+  it("al renovar, la deposita en el relay y avisa de que llegó", async () => {
+    const id = await conRelay();
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({ ok: true, entregada: true }),
+    });
+
+    const r = await central.emitir(id);
+
+    expect(r.ok).toBe(true);
+    expect(r.entrega).toBe("entregada");
+    expect(global.fetch).toHaveBeenCalledWith(
+      new URL("https://relay.test/licencia"),
+      expect.objectContaining({
+        method: "POST",
+        headers: expect.objectContaining({ authorization: "Bearer secreto123" }),
+      }),
+    );
+  });
+
+  /* Lo que viaja es la licencia firmada entera, con su firma: el relay no firma nada. */
+  it("manda el documento firmado y su destinatario", async () => {
+    const id = await conRelay();
+    let enviado: { sucursal_id?: string; licencia?: { firma?: string } } = {};
+    global.fetch = vi.fn().mockImplementation((_url, opciones) => {
+      enviado = JSON.parse(String(opciones.body));
+      return Promise.resolve({ ok: true, status: 200, json: async () => ({ entregada: true }) });
+    });
+
+    const r = await central.emitir(id);
+
+    expect(enviado.sucursal_id).toBe(id);
+    expect(enviado.licencia?.firma).toBe(r.licencia!.firma);
+  });
+
+  /* El local está apagado: la recogerá al encender, y hay que decirlo así. */
+  it("con el local desconectado dice que queda en espera, no que llegó", async () => {
+    const id = await conRelay();
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({ ok: true, entregada: false }),
+    });
+
+    expect((await central.emitir(id)).entrega).toBe("en_espera");
+  });
+
+  /*
+   * Si el reparto falla NO se pierde la licencia: está firmada y es válida. Se
+   * degrada al camino de siempre —copiar y pegar— y se dice por qué.
+   */
+  it("si el relay no responde, la licencia sigue siendo válida y se pega a mano", async () => {
+    const id = await conRelay();
+    global.fetch = vi.fn().mockRejectedValue(new Error("sin red"));
+
+    const r = await central.emitir(id);
+
+    expect(r.ok).toBe(true);
+    expect(r.entrega).toBe("a_mano");
+    expect(r.motivoEntrega).toContain("relay");
+    expect(await verificarLicencia(r.licencia!, id, central.secretos.licencias!.publica)).toBe(true);
+    /* Y quedó guardada en la cartera igual que cualquier otra. */
+    expect(central.clientes.find((c) => c.id === id)!.licencia).not.toBeNull();
+  });
+
+  it("sin relay configurado se comporta como siempre", async () => {
+    const id = (await alta()).cliente!.id;
+    const r = await central.emitir(id);
+
+    expect(r.entrega).toBe("a_mano");
+    expect(r.motivoEntrega).toContain("relay");
+  });
+
+  it("un rechazo del relay explica el motivo en vez de tragárselo", async () => {
+    const id = await conRelay();
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 404,
+      json: async () => ({ error: "suc-rodizio-centro no está en el padrón del relay" }),
+    });
+
+    const r = await central.emitir(id);
+
+    expect(r.entrega).toBe("a_mano");
+    expect(r.motivoEntrega).toContain("padrón");
+  });
+
+  it("cortar el servicio también viaja solo", async () => {
+    const id = await conRelay();
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({ ok: true, entregada: true }),
+    });
+
+    const r = await central.cortarServicio(id);
+
+    expect(r.entrega).toBe("entregada");
+    expect(r.licencia!.vence_ts).toBeLessThan(Date.now());
+  });
+
+  it("trae del relay las renovaciones que nadie ha recogido", async () => {
+    await conRelay();
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        pendientes: [{ sucursal_id: "suc-rodizio-centro", depositada_ts: 10, conectado: false }],
+      }),
+    });
+
+    const r = await central.traerLicenciasPendientes();
+
+    expect(r.ok).toBe(true);
+    expect(central.licenciasPendientes).toHaveLength(1);
+  });
+});
+
+describe("elegir la fecha de vencimiento", () => {
+  /*
+   * Lo que se negocia por teléfono: «te doy hasta el viernes», «alineamos tu
+   * cobro al día 1». Antes la única fecha posible era «un mes más», así que
+   * cualquier acuerdo distinto se quedaba en un apunte fuera del sistema.
+   */
+  it("emite hasta la fecha que se le pide, no la calculada", async () => {
+    const id = (await alta()).cliente!.id;
+    const viernes = Date.now() + 5 * 86_400_000;
+
+    const r = await central.emitir(id, { vence_ts: viernes });
+
+    expect(r.ok).toBe(true);
+    expect(r.licencia!.vence_ts).toBe(viernes);
+    expect(await verificarLicencia(r.licencia!, id, central.secretos.licencias!.publica)).toBe(true);
+  });
+
+  it("sin fecha sigue calculando el mes como siempre", async () => {
+    const id = (await alta()).cliente!.id;
+    const r = await central.emitir(id);
+
+    const dias = (r.licencia!.vence_ts - Date.now()) / 86_400_000;
+    expect(dias).toBeGreaterThan(27);
+  });
+
+  /*
+   * La fecha acaba dentro de un documento firmado por MOTRAE, donde ya no se
+   * corrige. Un 2126 por 2026 regalaría un siglo de servicio en silencio.
+   */
+  it("rechaza un año disparatado en vez de firmarlo", async () => {
+    const id = (await alta()).cliente!.id;
+    const dentroDeUnSiglo = new Date();
+    dentroDeUnSiglo.setFullYear(dentroDeUnSiglo.getFullYear() + 100);
+
+    const r = await central.emitir(id, { vence_ts: dentroDeUnSiglo.getTime() });
+
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.error).toContain("años");
+  });
+
+  it("una fecha ya pasada manda a la acción de cortar, no emite", async () => {
+    const id = (await alta()).cliente!.id;
+
+    const r = await central.emitir(id, { vence_ts: Date.now() - 86_400_000 });
+
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.error).toContain("Cortar el servicio");
+  });
+
+  it("la fecha elegida queda en el historial de emisiones", async () => {
+    const id = (await alta()).cliente!.id;
+    const viernes = Date.now() + 5 * 86_400_000;
+    await central.emitir(id, { vence_ts: viernes });
+
+    expect(central.clientes.find((c) => c.id === id)!.emisiones!.at(-1)!.vence_ts).toBe(viernes);
+  });
+});
+
 describe("cortar el servicio", () => {
   /*
-   * `emitir` aceptaba `bloqueo_inmediato` desde siempre y ningún botón lo pedía:
-   * en la práctica la única forma de cortarle a alguien era esperar semanas a
-   * que su licencia venciera sola.
+   * REGRESIÓN. `bloqueo_inmediato` NO vence una licencia: solo decide si, agotada
+   * la gracia, se bloquea sin esperar a que cierre el turno abierto. Cortar
+   * emitiendo con la fecha calculada normal alargaba la licencia un mes — lo
+   * contrario exacto de lo que dice el botón.
    */
-  it("emite una licencia que bloquea el local de inmediato", async () => {
+  it("deja la licencia vencida, no la alarga un mes", async () => {
     const id = (await alta()).cliente!.id;
-    await central.emitir(id);
+    const antes = (await central.emitir(id)).licencia!;
 
     const r = await central.cortarServicio(id);
 
     expect(r.ok).toBe(true);
+    expect(r.licencia!.vence_ts).toBeLessThan(Date.now());
+    expect(r.licencia!.vence_ts).toBeLessThan(antes.vence_ts);
+  });
+
+  /* Con los tres días de siempre, «cortar» dejaría al local operando tres días más. */
+  it("no le deja días de gracia", async () => {
+    const id = (await alta()).cliente!.id;
+    const r = await central.cortarServicio(id);
+
+    expect(r.licencia!.gracia_dias).toBe(0);
     expect(r.licencia!.bloqueo_inmediato).toBe(true);
+  });
+
+  /* El Hub tiene que poder comprobar la firma: un corte sin firma válida no bloquea. */
+  it("sale firmada y verificable en su local", async () => {
+    const id = (await alta()).cliente!.id;
+    const r = await central.cortarServicio(id);
+
     expect(await verificarLicencia(r.licencia!, id, central.secretos.licencias!.publica)).toBe(true);
   });
 

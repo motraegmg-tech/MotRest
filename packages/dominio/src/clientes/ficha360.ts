@@ -134,6 +134,10 @@ export function fichaDe(identidad: string, fuentes: FuentesFicha): Ficha360 {
   const suyas = fuentes.comandas.filter(
     (c) =>
       c.cerrada &&
+      // Una visita que se cobró y se canceló no es una visita: contarla le
+      // inventaría al cliente un consumo que terminó devuelto.
+      !c.anulada &&
+      !c.cancelada &&
       identidadDe({
         cliente_id: c.cliente_id,
         telefono: c.telefono,

@@ -11,6 +11,7 @@
  */
 import { codigoDeCuenta } from "@motrest/dominio";
 import { derivarSecretoPortal } from "@motrest/protocolo-sync";
+import { local } from "./local.svelte";
 import { sync } from "./sync.svelte";
 
 class StorePortal {
@@ -43,8 +44,18 @@ class StorePortal {
     }
   }
 
-  /** El enlace completo de una cuenta, listo para el QR o para el ticket. */
+  /**
+   * El enlace completo de una cuenta, listo para el QR o para el ticket.
+   *
+   * Devuelve `null` cuando el restaurante tiene apagado el QR de reseña. La
+   * decisión se toma AQUÍ, en el único sitio que produce el enlace, y no en
+   * quien imprime: mientras solo haya un productor no pueden existir dos
+   * criterios que se contradigan, y el día que otro papel quiera el enlace lo
+   * hereda ya resuelto.
+   */
   async enlaceDeCuenta(ordenId: string): Promise<string | null> {
+    if (!local.qrResena) return null;
+
     const secreto = await this.obtenerSecreto();
     if (!secreto) return null;
     return `${this.base}/portal/#/c/${await codigoDeCuenta(ordenId, secreto)}`;

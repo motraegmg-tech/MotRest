@@ -48,6 +48,76 @@ describe("cuenta sin rebajas", () => {
   });
 });
 
+describe("retirar un descuento", () => {
+  /*
+   * Deshacer tiene que dejar la cuenta EXACTAMENTE como estaba. Aplicar la
+   * promoción equivocada obligaba antes a cancelar la cuenta entera.
+   */
+  it("devuelve la cuenta al total que tenía antes", () => {
+    const { f, orden_id, eventos } = cuentaBase();
+    const sinNada = totalesComanda(proyectarComanda(eventos));
+
+    const aplicado = f.crear("descuento_aplicado", orden_id, {
+      orden_id, alcance: "cuenta", modo: "porcentaje", valor: 0.1, motivo: "Promoción",
+    });
+    const conDescuento = totalesComanda(proyectarComanda([...eventos, aplicado]));
+    expect(conDescuento.total).toBe(pesos(313.2));
+
+    const t = totalesComanda(
+      proyectarComanda([
+        ...eventos,
+        aplicado,
+        f.crear("descuento_retirado", orden_id, {
+          orden_id, descuento_id: aplicado.id,
+        }),
+      ]),
+    );
+    expect(t.descuentos).toBe(CERO);
+    expect(t.total).toBe(sinNada.total);
+  });
+
+  /*
+   * Se retira UNO, por el id de su evento. La misma promoción puede haberse
+   * aplicado dos veces —una por ronda— y quitar la segunda no puede llevarse
+   * la primera por delante.
+   */
+  it("solo quita el descuento señalado, no los demás", () => {
+    const { f, orden_id, eventos } = cuentaBase();
+    const primero = f.crear("descuento_aplicado", orden_id, {
+      orden_id, alcance: "cuenta", modo: "monto", valor: pesos(50),
+      motivo: "Promoción: 2x1", promocion_id: "promo-1",
+    });
+    const segundo = f.crear("descuento_aplicado", orden_id, {
+      orden_id, alcance: "cuenta", modo: "monto", valor: pesos(30),
+      motivo: "Promoción: 2x1", promocion_id: "promo-1",
+    });
+
+    const c = proyectarComanda([
+      ...eventos,
+      primero,
+      segundo,
+      f.crear("descuento_retirado", orden_id, { orden_id, descuento_id: segundo.id }),
+    ]);
+
+    expect(c.descuentos).toHaveLength(1);
+    expect(c.descuentos[0]!.id).toBe(primero.id);
+    expect(totalesComanda(c).descuentos).toBe(pesos(50));
+  });
+
+  it("retirar uno que no existe no cambia nada", () => {
+    const { f, orden_id, eventos } = cuentaBase();
+    const aplicado = f.crear("descuento_aplicado", orden_id, {
+      orden_id, alcance: "cuenta", modo: "monto", valor: pesos(50), motivo: "Promoción",
+    });
+    const c = proyectarComanda([
+      ...eventos,
+      aplicado,
+      f.crear("descuento_retirado", orden_id, { orden_id, descuento_id: "no-existe" }),
+    ]);
+    expect(c.descuentos).toHaveLength(1);
+  });
+});
+
 describe("descuentos", () => {
   it("un descuento de cuenta rebaja la base antes del IVA", () => {
     const { f, orden_id, eventos } = cuentaBase();

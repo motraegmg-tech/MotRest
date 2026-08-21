@@ -95,6 +95,14 @@ de MotRest, no con diapositivas — con diapositivas lo rechazan.
 
 ### A.4 · Publicar el relay
 
+> **Los pasos exactos están en [DESPLEGAR-EL-RELAY.md](DESPLEGAR-EL-RELAY.md)**:
+> dominio, Fly.io, secretos, certificado y respaldo, en orden y con los comandos.
+> Aquí queda solo lo que hay que entender antes de correrlos.
+>
+> **Y no espera a Meta.** El relay también recoge el pulso de cada local —qué
+> versión corre, cuándo dio señales— y eso funciona el primer día, sin ninguna
+> aprobación. Conviene publicarlo mientras la revisión de A.3 avanza.
+
 El relay es la única parte de MotRest conectada a internet. Necesita:
 
 1. **Un dominio con HTTPS válido.** Meta no acepta webhooks sin certificado, y

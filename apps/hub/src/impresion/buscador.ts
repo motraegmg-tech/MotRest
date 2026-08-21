@@ -31,6 +31,7 @@
  */
 import { Socket } from "node:net";
 import { networkInterfaces } from "node:os";
+import { puertosBluetooth } from "./transporte-bluetooth.js";
 import {
   impresorasDelSistema,
   puertosSinCola,
@@ -38,8 +39,8 @@ import {
 } from "./transporte-usb.js";
 
 export interface ImpresoraDetectada {
-  /** Cómo llegaría el papel: por el cable USB del equipo, o por la red. */
-  origen: "usb" | "red";
+  /** Cómo llegaría el papel: por el cable USB del equipo, por la red, o por el aire. */
+  origen: "usb" | "red" | "bluetooth";
   /** Cómo se le llama en pantalla. */
   nombre: string;
   /** Frase corta que ayuda a reconocerla físicamente. */
@@ -47,7 +48,10 @@ export interface ImpresoraDetectada {
   /** Solo red. */
   host?: string;
   puerto?: number;
-  /** Solo USB: el nombre EXACTO de la cola de Windows. */
+  /**
+   * Solo USB: el nombre EXACTO de la cola de Windows.
+   * Solo Bluetooth: el puerto COM, `COM5`.
+   */
   dispositivo?: string;
   /**
    * true = no es una impresora de papel (PDF, XPS, fax…).
@@ -281,8 +285,34 @@ export async function buscarImpresoras(
     ancho: anchoProbable(p.descripcion),
   }));
 
+  /*
+   * Las emparejadas por Bluetooth, con su puerto COM ya resuelto.
+   *
+   * Se listan aunque NO tengan cola en Windows —y de hecho es mejor que no la
+   * tengan—: MotRest les habla por el puerto directamente. Una cola sobre un
+   * puerto Bluetooth es justo lo que dejó 20 comandas atascadas en Rodizio,
+   * porque el spooler no se recupera cuando la impresora se duerme.
+   */
+  const porBluetooth: ImpresoraDetectada[] = (await puertosBluetooth()).map((p) => ({
+    origen: "bluetooth" as const,
+    nombre: p.nombre,
+    dispositivo: p.puerto,
+    detalle: p.es_impresora
+      ? `Impresora emparejada por Bluetooth (${p.puerto})`
+      : `Emparejado por Bluetooth en ${p.puerto} · no se anuncia como impresora`,
+    ancho: anchoProbable(p.nombre),
+    // Unos audífonos emparejados también ofrecen puerto serie. No se esconden
+    // —una térmica barata puede declararse mal— pero se agrupan al final, que es
+    // lo que la pantalla ya hace con lo que no imprime en papel.
+    ...(p.es_impresora ? {} : { virtual: true }),
+  }));
+
   if (opciones.conRed === false) {
-    return { impresoras: ordenar([...delSistema, ...sinCola]), redes: [], sin_red: true };
+    return {
+      impresoras: ordenar([...delSistema, ...sinCola, ...porBluetooth]),
+      redes: [],
+      sin_red: true,
+    };
   }
 
   const redes = redesLocales();
@@ -302,8 +332,19 @@ export async function buscarImpresoras(
     }
   }
 
+  /*
+   * `sinCola` y `porBluetooth` van aquí TAMBIÉN, y no solo en la salida corta de
+   * arriba.
+   *
+   * Faltaban: con el barrido de red activado —que es como entra la pantalla de
+   * «Detectar y conectar»— una impresora enchufada a la que Windows no le creó
+   * la cola desaparecía de la lista. O sea que el caso para el que se escribió
+   * `puertosSinCola` solo se veía por el camino que la pantalla no usa, y desde
+   * fuera seguía pareciendo que MotRest no encontraba una impresora que estaba
+   * ahí, encendida y conectada.
+   */
   return {
-    impresoras: ordenar([...delSistema, ...porRed]),
+    impresoras: ordenar([...delSistema, ...sinCola, ...porBluetooth, ...porRed]),
     redes,
     sin_red: redes.length === 0,
   };

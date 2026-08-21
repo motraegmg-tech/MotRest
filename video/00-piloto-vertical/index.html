@@ -1,0 +1,848 @@
+<!doctype html>
+<html lang="es" data-resolution="portrait">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=1080, height=1920" />
+    <title>MotRest — Piloto vertical</title>
+    <script src="https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js"></script>
+    <style>
+      /* ------------------------------------------------------------------
+         MotRest — piloto vertical (9:16) para redes. 34 s a 1.5x.
+         Marca según ../frame.md: naranja #F2853A dominante, verde para lo
+         que suma, rojo para alertas. Colores literales, sin var().
+
+         Diferencias con la versión 16:9:
+           · sin tipografía fantasma de fondo (la textura la ponen el grano,
+             los resplandores, los filos y las reglas);
+           · todo el contenido vive por encima de los 1 380 px, porque la
+             banda de subtítulos ocupa el tercio inferior;
+           · el folio sube a la esquina superior derecha.
+         ------------------------------------------------------------------ */
+      @font-face {
+        font-family: "Space Grotesk";
+        src: url("fonts/space-grotesk-latin-500-normal.woff2") format("woff2");
+        font-weight: 500;
+        font-display: block;
+      }
+      @font-face {
+        font-family: "Space Grotesk";
+        src: url("fonts/space-grotesk-latin-700-normal.woff2") format("woff2");
+        font-weight: 700;
+        font-display: block;
+      }
+      @font-face {
+        font-family: "Inter";
+        src: url("fonts/inter-latin-400-normal.woff2") format("woff2");
+        font-weight: 400;
+        font-display: block;
+      }
+      @font-face {
+        font-family: "Inter";
+        src: url("fonts/inter-latin-600-normal.woff2") format("woff2");
+        font-weight: 600;
+        font-display: block;
+      }
+
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+      }
+      html,
+      body {
+        width: 1080px;
+        height: 1920px;
+        overflow: hidden;
+        background: #14181a;
+      }
+      body {
+        font-family: "Inter", "Segoe UI", sans-serif;
+        color: #ffffff;
+      }
+
+      /* La escena es el clip; todo lo visible cuelga de .capa, que es lo que
+         animan las transiciones. Tocar el contenedor del clip deja estados
+         colgados al buscar en la línea de tiempo. */
+      .escena {
+        position: absolute;
+        inset: 0;
+        width: 1080px;
+        height: 1920px;
+        overflow: hidden;
+        background: transparent;
+      }
+      .capa {
+        position: absolute;
+        inset: 0;
+        width: 1080px;
+        height: 1920px;
+        overflow: hidden;
+        background: #14181a;
+      }
+
+      /* --- Texturas de fondo -------------------------------------------- */
+      .glow {
+        position: absolute;
+        border-radius: 50%;
+        pointer-events: none;
+      }
+      .grano {
+        position: absolute;
+        inset: 0;
+        opacity: 0.16;
+        pointer-events: none;
+        background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='180' height='180'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3' stitchTiles='stitch'/></filter><rect width='180' height='180' filter='url(%23n)' opacity='0.5'/></svg>");
+      }
+      .filo {
+        position: absolute;
+        background: linear-gradient(135deg, #f2853a 0%, #e0392b 100%);
+        pointer-events: none;
+      }
+      /* Regla de ancho completo con un tramo naranja a la izquierda. Sustituye
+         a la tipografía fantasma como elemento estructural de fondo. */
+      .regla {
+        position: absolute;
+        left: 80px;
+        width: 920px;
+        height: 2px;
+        background: #31404a;
+        transform-origin: left center;
+      }
+      .regla::before {
+        content: "";
+        position: absolute;
+        left: 0;
+        top: 0;
+        width: 150px;
+        height: 2px;
+        background: #f2853a;
+      }
+
+      /* --- Piezas comunes ------------------------------------------------ */
+      .cejilla {
+        position: absolute;
+        left: 80px;
+        top: 186px;
+        display: flex;
+        align-items: center;
+        gap: 14px;
+        font-size: 24px;
+        font-weight: 600;
+        letter-spacing: 0.18em;
+        text-transform: uppercase;
+        color: #a8b3b9;
+      }
+      .punto {
+        width: 12px;
+        height: 12px;
+        border-radius: 50%;
+        background: #f2853a;
+        flex: none;
+      }
+      /* En vertical el folio sube: abajo manda el subtítulo. Y lleva chapa
+         propia porque en la escena 1 cae sobre el filo naranja: gris sobre
+         naranja saturado da 1.78:1, ilegible. La chapa lo devuelve a 7:1 y
+         encima parece lo que es, una marca de registro. */
+      .folio {
+        position: absolute;
+        right: 80px;
+        top: 178px;
+        padding: 6px 14px;
+        border-radius: 6px;
+        background: #14181a;
+        font-size: 24px;
+        letter-spacing: 0.22em;
+        color: #9aa6ac;
+        font-variant-numeric: tabular-nums;
+      }
+      .barra-lateral {
+        position: absolute;
+        left: 80px;
+        width: 6px;
+        background: #f2853a;
+        transform-origin: top center;
+      }
+      .titular {
+        font-family: "Space Grotesk", sans-serif;
+        font-weight: 700;
+        letter-spacing: -0.03em;
+        line-height: 0.99;
+      }
+      .marca-agua {
+        position: absolute;
+        left: 80px;
+        top: 1300px;
+        font-size: 22px;
+        letter-spacing: 0.22em;
+        text-transform: uppercase;
+        color: #8a969c;
+      }
+
+      /* --- Escena 1 · gancho --------------------------------------------- */
+      #s1-glow {
+        right: -300px;
+        top: 40px;
+        width: 900px;
+        height: 900px;
+        background: radial-gradient(circle, rgba(242, 133, 58, 0.32) 0%, rgba(242, 133, 58, 0) 68%);
+      }
+      #s1-filo {
+        right: -170px;
+        top: -170px;
+        width: 520px;
+        height: 520px;
+        transform: rotate(45deg);
+        opacity: 0.85;
+      }
+      #s1-regla {
+        top: 286px;
+      }
+      #s1-regla-2 {
+        top: 1240px;
+      }
+      #s1-barra {
+        top: 380px;
+        height: 560px;
+      }
+      #s1-t1 {
+        position: absolute;
+        left: 140px;
+        top: 386px;
+        font-size: 112px;
+        color: #ffffff;
+        max-width: 840px;
+      }
+      #s1-t2 {
+        position: absolute;
+        left: 140px;
+        top: 790px;
+        font-family: "Space Grotesk", sans-serif;
+        font-weight: 500;
+        font-size: 58px;
+        letter-spacing: -0.02em;
+        color: #a8b3b9;
+      }
+      #s1-t3 {
+        position: absolute;
+        left: 140px;
+        top: 878px;
+        font-size: 86px;
+        color: #ffffff;
+      }
+      #s1-t3 em {
+        font-style: normal;
+        color: #f2853a;
+      }
+      #s1-subrayado {
+        position: absolute;
+        left: 140px;
+        top: 992px;
+        width: 380px;
+        height: 8px;
+        background: #f2853a;
+        transform-origin: left center;
+      }
+
+      /* --- Escena 2 · piezas sueltas -------------------------------------- */
+      #s2-glow {
+        left: 140px;
+        top: 700px;
+        width: 800px;
+        height: 800px;
+        background: radial-gradient(circle, rgba(224, 57, 43, 0.18) 0%, rgba(224, 57, 43, 0) 70%);
+      }
+      #s2-regla {
+        top: 286px;
+      }
+      #s2-titular {
+        position: absolute;
+        left: 80px;
+        top: 336px;
+        font-size: 72px;
+        color: #ffffff;
+        max-width: 880px;
+      }
+      #s2-titular em {
+        font-style: normal;
+        color: #f2853a;
+      }
+      #s2-pie {
+        position: absolute;
+        left: 80px;
+        top: 620px;
+        width: 860px;
+        font-size: 28px;
+        line-height: 1.5;
+        color: #a8b3b9;
+      }
+      .pieza {
+        position: absolute;
+        width: 430px;
+        padding: 26px 30px;
+        border-radius: 16px;
+        background: #202a30;
+        border: 2px solid #38474f;
+      }
+      .pieza-rotulo {
+        font-size: 18px;
+        letter-spacing: 0.18em;
+        text-transform: uppercase;
+        color: #f2853a;
+        margin-bottom: 12px;
+      }
+      .pieza-nombre {
+        font-family: "Space Grotesk", sans-serif;
+        font-weight: 500;
+        font-size: 36px;
+        color: #ffffff;
+        line-height: 1.1;
+      }
+      .pieza-nota {
+        margin-top: 10px;
+        font-size: 22px;
+        color: #a8b3b9;
+      }
+      #p1 {
+        left: 70px;
+        top: 776px;
+        transform: rotate(-3deg);
+      }
+      #p2 {
+        left: 560px;
+        top: 902px;
+        transform: rotate(2.5deg);
+      }
+      #p3 {
+        left: 100px;
+        top: 1036px;
+        transform: rotate(1.8deg);
+      }
+      #p4 {
+        left: 540px;
+        top: 1176px;
+        transform: rotate(-2.2deg);
+      }
+      .hilo {
+        position: absolute;
+        height: 0;
+        border-top: 3px dashed #4b5b63;
+        transform-origin: left center;
+      }
+      #h1 {
+        left: 508px;
+        top: 862px;
+        width: 78px;
+        transform: rotate(32deg);
+      }
+      #h2 {
+        left: 540px;
+        top: 1010px;
+        width: 96px;
+        transform: rotate(148deg);
+      }
+      #h3 {
+        left: 528px;
+        top: 1152px;
+        width: 84px;
+        transform: rotate(28deg);
+      }
+
+      /* --- Escena 3 · un solo sistema -------------------------------------- */
+      #s3-glow {
+        right: -240px;
+        top: 520px;
+        width: 900px;
+        height: 900px;
+        background: radial-gradient(circle, rgba(242, 133, 58, 0.24) 0%, rgba(242, 133, 58, 0) 68%);
+      }
+      #s3-regla {
+        top: 286px;
+      }
+      #s3-barra {
+        top: 330px;
+        height: 240px;
+      }
+      #s3-titular {
+        position: absolute;
+        left: 140px;
+        top: 330px;
+        font-size: 78px;
+        color: #ffffff;
+        max-width: 800px;
+      }
+      #s3-sub {
+        position: absolute;
+        left: 140px;
+        top: 548px;
+        width: 840px;
+        font-size: 28px;
+        line-height: 1.5;
+        color: #a8b3b9;
+      }
+      #s3-rejilla {
+        position: absolute;
+        left: 70px;
+        top: 706px;
+        display: grid;
+        grid-template-columns: repeat(3, 300px);
+        grid-auto-rows: 165px;
+        gap: 20px;
+      }
+      .modulo {
+        border-radius: 16px;
+        background: #202a30;
+        border: 2px solid #3b4b53;
+        padding: 22px 22px 20px;
+        display: flex;
+        flex-direction: column;
+        justify-content: space-between;
+      }
+      .modulo-num {
+        font-family: "Space Grotesk", sans-serif;
+        font-weight: 700;
+        font-size: 24px;
+        color: #f2853a;
+        letter-spacing: 0.06em;
+      }
+      .modulo-nom {
+        font-family: "Space Grotesk", sans-serif;
+        font-weight: 500;
+        font-size: 30px;
+        color: #ffffff;
+        line-height: 1.08;
+      }
+      #s3-base {
+        position: absolute;
+        left: 70px;
+        top: 1272px;
+        width: 940px;
+        height: 6px;
+        background: #f2853a;
+        transform-origin: left center;
+      }
+      #s3-base-rotulo {
+        position: absolute;
+        left: 70px;
+        top: 1300px;
+        font-size: 22px;
+        letter-spacing: 0.18em;
+        text-transform: uppercase;
+        color: #f2853a;
+      }
+
+      /* --- Escena 4 · cierre ------------------------------------------------ */
+      #s4-glow {
+        left: 50%;
+        top: 760px;
+        width: 1100px;
+        height: 1100px;
+        margin-left: -550px;
+        margin-top: -550px;
+        background: radial-gradient(circle, rgba(242, 133, 58, 0.26) 0%, rgba(242, 133, 58, 0) 66%);
+      }
+      #s4-filo {
+        left: -170px;
+        top: -170px;
+        width: 500px;
+        height: 500px;
+        transform: rotate(45deg);
+        opacity: 0.8;
+      }
+      #s4-marca {
+        position: absolute;
+        left: 0;
+        right: 0;
+        top: 546px;
+        text-align: center;
+        font-size: 140px;
+        color: #ffffff;
+      }
+      #s4-marca em {
+        font-style: normal;
+        color: #f2853a;
+      }
+      #s4-linea {
+        position: absolute;
+        left: 50%;
+        top: 726px;
+        width: 360px;
+        margin-left: -180px;
+        height: 6px;
+        background: #f2853a;
+        transform-origin: center center;
+      }
+      #s4-lema {
+        position: absolute;
+        left: 0;
+        right: 0;
+        top: 786px;
+        text-align: center;
+        font-family: "Space Grotesk", sans-serif;
+        font-weight: 500;
+        font-size: 46px;
+        letter-spacing: -0.01em;
+        color: #ffffff;
+      }
+      #s4-contacto {
+        position: absolute;
+        left: 0;
+        right: 0;
+        top: 960px;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 20px;
+        font-size: 30px;
+        color: #a8b3b9;
+      }
+      #s4-contacto span {
+        display: flex;
+        align-items: center;
+        gap: 16px;
+      }
+      #s4-pie {
+        position: absolute;
+        left: 0;
+        right: 0;
+        top: 1284px;
+        text-align: center;
+        font-size: 22px;
+        letter-spacing: 0.24em;
+        text-transform: uppercase;
+        color: #8a969c;
+      }
+
+      /* --- Subtítulos ------------------------------------------------------
+         En vertical no son un adorno: la mayoría lo verá sin sonido. Ocupan la
+         banda inferior, por encima de los controles de las apps. */
+      #subtitulos {
+        position: absolute;
+        left: 0;
+        right: 0;
+        bottom: 300px;
+        z-index: 20;
+        text-align: center;
+        pointer-events: none;
+      }
+      .subtitulo {
+        display: inline-block;
+        max-width: 920px;
+        padding: 18px 30px;
+        border-radius: 14px;
+        background: #1d262b;
+        border-bottom: 5px solid #f2853a;
+        font-family: "Inter", sans-serif;
+        font-weight: 600;
+        font-size: 52px;
+        line-height: 1.24;
+        color: #ffffff;
+        letter-spacing: -0.005em;
+      }
+    </style>
+  </head>
+  <body>
+    <div
+      id="root"
+      data-composition-id="main"
+      data-start="0"
+      data-duration="34"
+      data-width="1080"
+      data-height="1920"
+    >
+      <!-- ============ ESCENA 1 · GANCHO ============ -->
+      <div id="s1" class="clip escena" data-start="0" data-duration="5.35" data-track-index="1" style="z-index: 1">
+        <div id="s1-in" class="capa">
+          <div id="s1-glow" class="glow"></div>
+          <div id="s1-filo" class="filo"></div>
+          <div id="s1-cejilla" class="cejilla"><span class="punto"></span>MotRest · ERP restaurantero</div>
+          <div class="folio">01 — 04</div>
+          <div id="s1-regla" class="regla"></div>
+          <div id="s1-barra" class="barra-lateral"></div>
+          <div id="s1-t1" class="titular">¿Cuánto ganaste ayer?</div>
+          <div id="s1-t2">No cuánto vendiste.</div>
+          <div id="s1-t3" class="titular">Cuánto <em>ganaste</em>.</div>
+          <div id="s1-subrayado"></div>
+          <div id="s1-regla-2" class="regla"></div>
+          <div id="s1-meta" class="marca-agua">MOTRAE · Xalapa, Veracruz</div>
+          <div class="grano"></div>
+        </div>
+      </div>
+
+      <!-- ============ ESCENA 2 · PIEZAS SUELTAS ============ -->
+      <div id="s2" class="clip escena" data-start="4.95" data-duration="8.8" data-track-index="2" style="z-index: 2">
+        <div id="s2-in" class="capa" style="opacity: 0">
+          <div id="s2-glow" class="glow"></div>
+          <div id="s2-cejilla" class="cejilla"><span class="punto"></span>El problema real</div>
+          <div class="folio">02 — 04</div>
+          <div id="s2-regla" class="regla"></div>
+          <div id="s2-titular" class="titular">No tienes un sistema. Tienes <em>piezas sueltas</em>.</div>
+          <div id="s2-pie">Tres programas, una hoja de cálculo y una libreta. Ninguno se habla con el otro.</div>
+
+          <div id="h1" class="hilo"></div>
+          <div id="h2" class="hilo"></div>
+          <div id="h3" class="hilo"></div>
+
+          <div id="p1" class="pieza" data-layout-allow-overlap>
+            <div class="pieza-rotulo">Programa 1</div>
+            <div class="pieza-nombre">Punto de venta</div>
+            <div class="pieza-nota">Solo cobra</div>
+          </div>
+          <div id="p2" class="pieza" data-layout-allow-overlap>
+            <div class="pieza-rotulo">Programa 2</div>
+            <div class="pieza-nombre">Contabilidad</div>
+            <div class="pieza-nota">Aparte, y tarde</div>
+          </div>
+          <div id="p3" class="pieza" data-layout-allow-overlap>
+            <div class="pieza-rotulo">Hoja de cálculo</div>
+            <div class="pieza-nombre">Nómina</div>
+            <div class="pieza-nota">A mano, cada semana</div>
+          </div>
+          <div id="p4" class="pieza" data-layout-allow-overlap>
+            <div class="pieza-rotulo">Mensajes</div>
+            <div class="pieza-nombre">Compras</div>
+            <div class="pieza-nota">Por WhatsApp</div>
+          </div>
+          <div class="grano"></div>
+        </div>
+      </div>
+
+      <!-- ============ ESCENA 3 · UN SOLO SISTEMA ============ -->
+      <div id="s3" class="clip escena" data-start="13.3" data-duration="15.2" data-track-index="3" style="z-index: 3">
+        <div id="s3-in" class="capa" style="opacity: 0">
+          <div id="s3-glow" class="glow"></div>
+          <div id="s3-cejilla" class="cejilla"><span class="punto"></span>Nueve módulos, una base</div>
+          <div class="folio">03 — 04</div>
+          <div id="s3-regla" class="regla"></div>
+          <div id="s3-barra" class="barra-lateral"></div>
+          <div id="s3-titular" class="titular">Un solo sistema.</div>
+          <div id="s3-sub">
+            Venta, cocina, inventario, compras, finanzas, personal, clientes e inteligencia.
+            Todos se hablan entre sí.
+          </div>
+
+          <div id="s3-rejilla">
+            <div class="modulo"><div class="modulo-num">M1</div><div class="modulo-nom">Venta</div></div>
+            <div class="modulo"><div class="modulo-num">M2</div><div class="modulo-nom">Cocina</div></div>
+            <div class="modulo"><div class="modulo-num">M3</div><div class="modulo-nom">Inventario</div></div>
+            <div class="modulo"><div class="modulo-num">M4</div><div class="modulo-nom">Compras</div></div>
+            <div class="modulo"><div class="modulo-num">M5</div><div class="modulo-nom">Finanzas</div></div>
+            <div class="modulo"><div class="modulo-num">M6</div><div class="modulo-nom">Personal</div></div>
+            <div class="modulo"><div class="modulo-num">M7</div><div class="modulo-nom">Clientes</div></div>
+            <div class="modulo"><div class="modulo-num">M8</div><div class="modulo-nom">Inteligencia</div></div>
+            <div class="modulo"><div class="modulo-num">M9</div><div class="modulo-nom">Administra</div></div>
+          </div>
+          <div id="s3-base"></div>
+          <div id="s3-base-rotulo">Una sola base de datos</div>
+          <div class="grano"></div>
+        </div>
+      </div>
+
+      <!-- ============ ESCENA 4 · CIERRE ============ -->
+      <div id="s4" class="clip escena" data-start="28.05" data-duration="5.95" data-track-index="4" style="z-index: 4">
+        <div id="s4-in" class="capa" style="opacity: 0">
+          <div id="s4-glow" class="glow"></div>
+          <div id="s4-filo" class="filo"></div>
+          <div id="s4-marca" class="titular">Mot<em>Rest</em></div>
+          <div id="s4-linea"></div>
+          <div id="s4-lema">El sistema operativo de tu restaurante</div>
+          <div id="s4-contacto">
+            <span><span class="punto"></span>www.motrae.com</span>
+            <span><span class="punto"></span>228 353 6911</span>
+            <span><span class="punto"></span>Xalapa, Veracruz</span>
+          </div>
+          <div id="s4-pie">MOTRAE · Innovation already in motion</div>
+          <div class="grano"></div>
+        </div>
+      </div>
+
+      <!-- ============ AUDIO ============ -->
+      <audio
+        id="voz"
+        class="clip"
+        data-start="0"
+        data-duration="33.03"
+        data-track-index="5"
+        src="audio/narracion.wav"
+        data-volume="0.92"
+      ></audio>
+      <audio
+        id="mus1"
+        class="clip"
+        data-start="0"
+        data-duration="5"
+        data-media-start="0"
+        data-track-index="6"
+        src="audio/musica-a.mp3"
+        data-volume="0.32"
+      ></audio>
+      <audio
+        id="mus2"
+        class="clip"
+        data-start="5"
+        data-duration="23.1"
+        data-media-start="5"
+        data-track-index="6"
+        src="audio/musica-a.mp3"
+        data-volume="0.11"
+      ></audio>
+      <audio
+        id="mus3"
+        class="clip"
+        data-start="28.1"
+        data-duration="5.9"
+        data-media-start="28.1"
+        data-track-index="6"
+        src="audio/musica-a.mp3"
+        data-volume="0.26"
+      ></audio>
+
+      <!-- Subtítulos · generados con herramientas/subtitulos.mjs -->
+      <div id="subtitulos">
+        <div id="st1" class="clip subtitulo" data-start="0.00" data-duration="1.49" data-track-index="7">¿Cuánto ganaste ayer?</div>
+        <div id="st2" class="clip subtitulo" data-start="1.86" data-duration="1.73" data-track-index="7">No cuánto vendiste.</div>
+        <div id="st3" class="clip subtitulo" data-start="3.59" data-duration="1.36" data-track-index="7">Cuánto ganaste.</div>
+        <div id="st4" class="clip subtitulo" data-start="5.32" data-duration="4.90" data-track-index="7">Si para responder eso tienes que abrir tres programas y una libreta,</div>
+        <div id="st5" class="clip subtitulo" data-start="10.22" data-duration="1.51" data-track-index="7">no tienes un sistema.</div>
+        <div id="st6" class="clip subtitulo" data-start="11.73" data-duration="1.59" data-track-index="7">Tienes piezas sueltas.</div>
+        <div id="st7" class="clip subtitulo" data-start="13.69" data-duration="5.40" data-track-index="7">MotRest reúne tu restaurante entero en un solo lugar: venta, cocina,</div>
+        <div id="st8" class="clip subtitulo" data-start="19.09" data-duration="5.16" data-track-index="7">inventario, compras, finanzas, personal, clientes e inteligencia.</div>
+        <div id="st9" class="clip subtitulo" data-start="24.61" data-duration="1.41" data-track-index="7">Un solo sistema.</div>
+        <div id="st10" class="clip subtitulo" data-start="26.02" data-duration="2.03" data-track-index="7">Una sola base de datos.</div>
+        <div id="st11" class="clip subtitulo" data-start="28.42" data-duration="0.58" data-track-index="7">MotRest.</div>
+        <div id="st12" class="clip subtitulo" data-start="29.00" data-duration="2.81" data-track-index="7">El sistema operativo de tu restaurante.</div>
+        <div id="st13" class="clip subtitulo" data-start="31.81" data-duration="1.23" data-track-index="7">Motrae punto com.</div>
+      </div>
+    </div>
+
+    <script>
+      window.__timelines = window.__timelines || {};
+      const tl = gsap.timeline({ paused: true });
+
+      /* ------------------------------------------------------------------
+         MAPA DE TIEMPOS
+         Cuadrado contra audio/narracion.tiempos.json — voz Orus, acelerada a
+         1.5x, 33.03 s:
+
+           b1  0.00 –  1.49   ¿Cuánto ganaste ayer?          -> escena 1
+           b2  1.86 –  4.95   No cuánto vendiste…            -> escena 1
+           b3  5.32 – 13.32   Si para responder eso…         -> escena 2
+           b4 13.69 – 24.25   MotRest reúne tu restaurante…  -> escena 3
+           b5 24.61 – 28.05   Un solo sistema…               -> escena 3
+           b6 28.42 – 33.03   MotRest. El sistema operativo… -> escena 4
+
+         Cada transición arranca en el silencio ENTRE bloques. A 1.5x los
+         tiempos son cortos: las entradas duran la mitad que en 16:9.
+         ------------------------------------------------------------------ */
+      const T = {
+        s2: 5.0, // silencio entre b2 y b3
+        s3: 13.37, // silencio entre b3 y b4
+        s4: 28.1, // silencio entre b5 y b6
+        fin: 34.0,
+      };
+
+      /* ============ ESCENA 1 · gancho (0 – 5.35) ============ */
+      tl.from("#s1-glow", { scale: 0.75, opacity: 0, duration: 0.9, ease: "power2.out" }, 0.1);
+      tl.from("#s1-cejilla", { y: -24, opacity: 0, duration: 0.4, ease: "power3.out" }, 0.15);
+      tl.from("#s1-regla", { scaleX: 0, duration: 0.5, ease: "expo.out" }, 0.2);
+      tl.from("#s1-barra", { scaleY: 0, duration: 0.45, ease: "expo.out" }, 0.2);
+      tl.from("#s1-t1", { y: 56, opacity: 0, duration: 0.6, ease: "expo.out" }, 0.25);
+      tl.from("#s1-filo", { scale: 0.45, opacity: 0, duration: 0.7, ease: "power2.out" }, 0.35);
+      tl.from("#s1-regla-2", { scaleX: 0, duration: 0.5, ease: "power2.out" }, 0.55);
+      tl.from("#s1-meta", { opacity: 0, duration: 0.5, ease: "sine.out" }, 0.6);
+      // Respiración del resplandor: 2 x 2.0 s desde 1.0 = termina en 5.0.
+      tl.to("#s1-glow", { scale: 1.06, duration: 2.0, ease: "sine.inOut", yoyo: true, repeat: 1 }, 1.0);
+      tl.from("#s1-t2", { y: 30, opacity: 0, duration: 0.4, ease: "power2.out" }, 1.85); // con b2
+      tl.from("#s1-t3", { y: 36, opacity: 0, duration: 0.45, ease: "back.out(1.4)" }, 3.3); // "Cuánto ganaste."
+      tl.from("#s1-subrayado", { scaleX: 0, duration: 0.45, ease: "expo.out" }, 3.6);
+
+      /* ============ Transición 1 · direccional ============ */
+      tl.to("#s1-in", { xPercent: -9, opacity: 0, duration: 0.33, ease: "power2.inOut" }, T.s2);
+      tl.set("#s1-in", { opacity: 0 }, T.s2 + 0.33);
+      tl.fromTo(
+        "#s2-in",
+        { xPercent: 11, opacity: 0 },
+        { xPercent: 0, opacity: 1, duration: 0.33, ease: "power2.inOut" },
+        T.s2,
+      );
+
+      /* ============ ESCENA 2 · piezas sueltas (4.95 – 13.75) ============ */
+      tl.from("#s2-glow", { scale: 0.8, opacity: 0, duration: 0.9, ease: "power2.out" }, T.s2 + 0.2);
+      tl.from("#s2-cejilla", { x: -30, opacity: 0, duration: 0.4, ease: "power3.out" }, T.s2 + 0.25);
+      tl.from("#s2-regla", { scaleX: 0, duration: 0.45, ease: "expo.out" }, T.s2 + 0.3);
+      tl.from("#s2-titular", { y: 40, opacity: 0, duration: 0.5, ease: "expo.out" }, T.s2 + 0.35);
+      tl.from("#s2-pie", { y: 22, opacity: 0, duration: 0.4, ease: "power2.out" }, T.s2 + 0.6);
+      // Las cuatro piezas caen mientras la voz las enumera. Cada una por un
+      // lado distinto: son fragmentos, no una lista.
+      tl.from("#p1", { x: 90, y: -44, opacity: 0, rotation: 8, duration: 0.4, ease: "back.out(1.2)" }, T.s2 + 1.1);
+      tl.from("#p2", { x: 110, opacity: 0, rotation: -6, duration: 0.4, ease: "power4.out" }, T.s2 + 1.7);
+      tl.from("#p3", { x: -80, y: 30, opacity: 0, rotation: 5, duration: 0.4, ease: "back.out(1.1)" }, T.s2 + 2.3);
+      tl.from("#p4", { y: 80, opacity: 0, rotation: -7, duration: 0.4, ease: "power3.out" }, T.s2 + 2.9);
+      tl.from("#h1", { scaleX: 0, opacity: 0, duration: 0.3, ease: "power2.out" }, T.s2 + 3.6);
+      tl.from("#h2", { scaleX: 0, opacity: 0, duration: 0.3, ease: "power2.out" }, T.s2 + 3.75);
+      tl.from("#h3", { scaleX: 0, opacity: 0, duration: 0.3, ease: "power2.out" }, T.s2 + 3.9);
+      // Nunca se asientan del todo, mientras la voz remata.
+      tl.to("#p1", { y: -12, duration: 1.6, ease: "sine.inOut", yoyo: true, repeat: 1 }, T.s2 + 4.6);
+      tl.to("#p4", { y: 10, duration: 1.5, ease: "sine.inOut", yoyo: true, repeat: 1 }, T.s2 + 4.9);
+
+      /* ============ Transición 2 · el acento: las piezas se resuelven ============ */
+      tl.to("#s2-in", { scale: 1.12, opacity: 0, filter: "blur(14px)", duration: 0.3, ease: "power3.in" }, T.s3);
+      tl.set("#s2-in", { opacity: 0 }, T.s3 + 0.3);
+      tl.fromTo(
+        "#s3-in",
+        { scale: 0.94, opacity: 0 },
+        { scale: 1, opacity: 1, duration: 0.37, ease: "power3.out" },
+        T.s3,
+      );
+
+      /* ============ ESCENA 3 · un solo sistema (13.3 – 28.5) ============ */
+      tl.from("#s3-glow", { scale: 0.72, opacity: 0, duration: 1.0, ease: "power2.out" }, T.s3 + 0.2);
+      tl.from("#s3-cejilla", { y: -22, opacity: 0, duration: 0.4, ease: "power3.out" }, T.s3 + 0.3);
+      tl.from("#s3-regla", { scaleX: 0, duration: 0.45, ease: "expo.out" }, T.s3 + 0.32);
+      tl.from("#s3-barra", { scaleY: 0, duration: 0.45, ease: "expo.out" }, T.s3 + 0.35);
+      tl.from("#s3-titular", { x: -36, opacity: 0, duration: 0.55, ease: "expo.out" }, T.s3 + 0.4);
+      tl.from("#s3-sub", { y: 24, opacity: 0, duration: 0.45, ease: "power2.out" }, T.s3 + 0.65);
+      // Un módulo por área nombrada: la voz enumera ocho entre 15.3 y 24.0 s y
+      // la rejilla se ensambla a ese paso. El escalonado ES la narración.
+      tl.from(
+        "#s3-rejilla .modulo",
+        { scale: 0.84, opacity: 0, y: 24, duration: 0.35, ease: "back.out(1.5)", stagger: 0.97 },
+        T.s3 + 1.9,
+      );
+      // Ya montados, los nueve laten juntos: dejan de ser nueve cosas.
+      tl.to(
+        "#s3-rejilla .modulo",
+        { scale: 1.03, duration: 0.35, ease: "sine.inOut", yoyo: true, repeat: 1, stagger: 0.05 },
+        T.s3 + 10.5,
+      );
+      // La regla naranja aterriza con "Una sola base de datos" (~26.3 s).
+      tl.from("#s3-base", { scaleX: 0, duration: 0.6, ease: "expo.out" }, T.s3 + 13.0);
+      tl.from("#s3-base-rotulo", { opacity: 0, y: 12, duration: 0.35, ease: "power2.out" }, T.s3 + 13.35);
+      tl.to("#s3-glow", { scale: 1.05, duration: 2.6, ease: "sine.inOut", yoyo: true, repeat: 1 }, T.s3 + 2.5);
+      tl.to("#s3-glow", { scale: 1.04, duration: 1.8, ease: "sine.inOut", yoyo: true, repeat: 1 }, T.s3 + 11.5);
+
+      /* ============ Transición 3 · suave, para exhalar ============ */
+      tl.to("#s3-in", { opacity: 0, filter: "blur(10px)", duration: 0.4, ease: "sine.inOut" }, T.s4);
+      tl.set("#s3-in", { opacity: 0 }, T.s4 + 0.4);
+      tl.fromTo(
+        "#s4-in",
+        { opacity: 0, scale: 1.03 },
+        { opacity: 1, scale: 1, duration: 0.4, ease: "sine.inOut" },
+        T.s4,
+      );
+
+      /* ============ ESCENA 4 · cierre (28.05 – 34.0) ============ */
+      tl.from("#s4-marca", { y: 32, opacity: 0, duration: 0.6, ease: "expo.out" }, T.s4 + 0.25);
+      tl.from("#s4-filo", { scale: 0.5, opacity: 0, duration: 0.75, ease: "power2.out" }, T.s4 + 0.35);
+      tl.from("#s4-linea", { scaleX: 0, duration: 0.45, ease: "expo.out" }, T.s4 + 0.6);
+      tl.from("#s4-lema", { y: 20, opacity: 0, duration: 0.45, ease: "power3.out" }, T.s4 + 0.7);
+      tl.from("#s4-contacto span", { y: 16, opacity: 0, duration: 0.35, ease: "power2.out", stagger: 0.08 }, T.s4 + 0.95);
+      tl.from("#s4-pie", { opacity: 0, duration: 0.5, ease: "sine.out" }, T.s4 + 1.3);
+      tl.to("#s4-glow", { scale: 1.07, duration: 1.8, ease: "sine.inOut", yoyo: true, repeat: 1 }, T.s4 + 0.8);
+      // Única salida permitida: la escena final, después de que calla la voz.
+      tl.to("#s4-in", { opacity: 0, duration: 0.7, ease: "sine.in" }, T.fin - 0.7);
+      tl.set("#s4-in", { opacity: 0 }, T.fin);
+
+      window.__timelines["main"] = tl;
+    </script>
+  </body>
+</html>

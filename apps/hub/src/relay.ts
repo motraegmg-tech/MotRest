@@ -36,6 +36,15 @@ export interface OpcionesRelay {
   /** Credenciales de WhatsApp de ESTE restaurante, si ya las tiene. */
   credenciales?: { phone_number_id: string; token: string; nombre: string };
   alLlegarMensaje: (mensaje: MensajeDelComensal) => void;
+  /**
+   * Llega una licencia nueva de MOTRAE, sin que nadie la pegue en la caja.
+   *
+   * QUIEN DECIDE SI VALE ES EL HUB, no el relay. Lo que llega por aquí es un
+   * documento firmado que se verifica contra la pública de MOTRAE compilada en
+   * este binario, exactamente igual que si se hubiera pegado a mano. El relay
+   * es un cartero: puede no entregar, pero no puede falsificar.
+   */
+  alLlegarLicencia?: (licencia: unknown) => Promise<{ ok: boolean; error?: string }>;
   alConectar?: () => void;
   registrar: (nivel: "info" | "aviso" | "error", texto: string) => void;
 }
@@ -147,6 +156,44 @@ export class EnlaceRelayWs {
 
       if (mensaje.tipo === "mensaje_entrante" && mensaje.mensaje) {
         this.opciones.alLlegarMensaje(mensaje.mensaje as MensajeDelComensal);
+        return;
+      }
+
+      /*
+       * MOTRAE renovó: la licencia llega sola y el restaurante no toca nada.
+       *
+       * SIEMPRE SE CONTESTA, salga bien o mal. El relay guarda la licencia hasta
+       * que este Hub confirma que la instaló; si nos callamos porque falló, se
+       * quedaría pendiente para siempre reintentando en cada conexión, y nadie
+       * sabría por qué. La respuesta con el motivo es lo que convierte un fallo
+       * silencioso en una línea en el registro de MOTRAE.
+       */
+      if (mensaje.tipo === "licencia") {
+        void (async () => {
+          let resultado: { ok: boolean; error?: string };
+          try {
+            resultado = (await this.opciones.alLlegarLicencia?.(mensaje.licencia)) ?? {
+              ok: false,
+              error: "Este Hub no sabe recibir licencias por el relay",
+            };
+          } catch (causa) {
+            resultado = { ok: false, error: String(causa) };
+          }
+
+          this.opciones.registrar(
+            resultado.ok ? "info" : "error",
+            resultado.ok
+              ? "MOTRAE renovó la licencia de este local."
+              : `Llegó una licencia de MOTRAE que no se pudo instalar: ${resultado.error ?? ""}`,
+          );
+          socket.send(
+            JSON.stringify({
+              tipo: "licencia_instalada",
+              ok: resultado.ok,
+              ...(resultado.error ? { error: resultado.error } : {}),
+            }),
+          );
+        })();
         return;
       }
 

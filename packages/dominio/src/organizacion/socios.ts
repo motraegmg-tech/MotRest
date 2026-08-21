@@ -256,8 +256,9 @@ export function mesDe(ts: number): { desde: number; hasta: number } {
  * Lo que este socio lleva consumido contra su bolsa en el periodo.
  *
  * Se suma de los PAGOS con forma `socio`, que es el registro de lo que de verdad
- * se le cargó. Las cuentas anuladas no cuentan —no hubo consumo— y las abiertas
- * tampoco: lo que sigue en la mesa todavía puede cambiar.
+ * se le cargó. Las cuentas anuladas no cuentan —no hubo consumo—, las canceladas
+ * tampoco —el cargo se deshizo y el socio recupera su bolsa— y las abiertas
+ * menos: lo que sigue en la mesa todavía puede cambiar.
  */
 export function consumidoPorSocio(
   comandas: readonly EstadoComanda[],
@@ -266,7 +267,7 @@ export function consumidoPorSocio(
 ): Centavos {
   let total = CERO;
   for (const c of comandas) {
-    if (!c.cerrada || c.anulada) continue;
+    if (!c.cerrada || c.anulada || c.cancelada) continue;
     const ts = c.cerrada_ts ?? c.abierta_ts;
     if (ts < rango.desde || ts >= rango.hasta) continue;
     for (const pago of c.pagos) {
