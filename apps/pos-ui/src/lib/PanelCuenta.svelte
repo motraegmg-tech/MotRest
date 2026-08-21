@@ -158,6 +158,50 @@
   /** ¿Este perfil puede confirmar que el platillo llegó a la mesa? */
   const puedeEntregar = $derived(sesion.puedeVer("pos.item.entregar"));
 
+  /*
+   * QUIÉN VE EL DINERO.
+   *
+   * El cobro y todo lo que cuelga de él —propina, descuentos, cortesías, el
+   * consumo de socio— dejan de aparecerle a quien no puede hacerlo. Antes se
+   * mostraban a todo el mundo y el permiso se comprobaba al pulsar: el mesero
+   * veía «Cobrar», lo tocaba, y le salía un teclado pidiendo la firma de un
+   * superior. Enseñar una puerta cerrada no protege nada y sí invita a probarla;
+   * además llenaba la barra de botones que ese perfil no iba a usar nunca.
+   *
+   * Se pregunta por PERMISO y no por rol: la matriz ya dice quién cobra
+   * —dirección, gerencia y cajero— y así un perfil que Gonzalo cree mañana con
+   * acceso a la caja hereda los botones sin tocar este archivo.
+   *
+   * `puedeOperar` es el atajo correcto y no `puedeVer`: devuelve falso tanto
+   * para quien no tiene el permiso como para quien solo podría hacerlo CON
+   * autorización de un superior. Justo esos dos son los que no deben verlo.
+   */
+  const puedeCobrar = $derived(sesion.puedeOperar("pos.cobro.registrar"));
+  const puedeDescontar = $derived(sesion.puedeOperar("pos.descuento.aplicar"));
+  const puedeCortesia = $derived(sesion.puedeOperar("pos.cortesia.otorgar"));
+  const puedeSocio = $derived(sesion.puedeOperar("pos.socio.consumir"));
+  const puedeFacturar = $derived(sesion.puedeOperar("fin.factura.emitir"));
+
+  /** Si no queda ni un grupo, la barra entera sobra: sin esto quedaba vacía. */
+  const hayExtras = $derived(
+    puedeFacturar ||
+      puedeCobrar ||
+      puedeDescontar ||
+      puedeCortesia ||
+      (puedeSocio && socios.activos.length > 0),
+  );
+
+  /*
+   * La caja cambia de manos veinte veces por turno con el conmutador rápido. Si
+   * el cajero deja abierto el panel de cobro y entra un mesero, ese panel
+   * seguiría en pantalla con el importe puesto: la vista es del componente, no
+   * de la sesión. Al perder el permiso se vuelve a la cuenta.
+   */
+  $effect(() => {
+    if (paso.vista === "cobro" && !puedeCobrar) fijar({ vista: "cuenta" });
+    else if (paso.vista === "socio" && !puedeSocio) fijar({ vista: "cuenta" });
+  });
+
   async function entregar(renglonId: string) {
     const ordenId = pos.comanda?.orden_id;
     if (!ordenId) return;
@@ -337,7 +381,13 @@
       {sesion.nombreDe(pos.comanda.mesero_id)} · abierta {hora(pos.comanda.abierta_ts)}
     </div>
 
-    {#if paso.vista === "cuenta"}
+    <!--
+      La vista de la cuenta es también la RED: si alguien se queda sin el
+      permiso con el panel de cobro abierto —el conmutador rápido de la caja
+      pasa veinte veces por turno—, cae aquí en vez de dejar el hueco en blanco
+      del fotograma que tarda el efecto en devolverlo.
+    -->
+    {#if paso.vista === "cuenta" || (paso.vista === "cobro" && !puedeCobrar) || (paso.vista === "socio" && !puedeSocio)}
       <div class="items">
         {#if pos.renglones.length === 0}
           <p class="sin-consumo">
@@ -447,56 +497,80 @@
         {/if}
       </div>
 
-      <div class="extras" class:oculto={!pos.hayCuenta}>
-        {#if sesion.puedeOperar("fin.factura.emitir")}
-          <span class="grupo">
-            Factura
-            <button class="mini" onclick={() => (facturando = true)}>Emitir CFDI</button>
-          </span>
-        {/if}
-        <span class="grupo">
-          Propina
-          {#each [0.1, 0.15, 0.2] as pct (pct)}
-            <button class="mini" onclick={() => pos.propinaPorcentaje(pct)}>
-              {Math.round(pct * 100)}%
-            </button>
-          {/each}
-          {#if t.propina > 0}
-            <button class="mini" onclick={() => pos.propinaPorcentaje(0)}>Quitar</button>
+      <!--
+        La barra del dinero. Cada grupo aparece solo si quien está dentro puede
+        hacerlo, y la barra entera desaparece si no queda ninguno: al mesero le
+        sobra la fila completa.
+      -->
+      {#if hayExtras}
+        <div class="extras" class:oculto={!pos.hayCuenta}>
+          {#if puedeFacturar}
+            <span class="grupo">
+              Factura
+              <button class="mini" onclick={() => (facturando = true)}>Emitir CFDI</button>
+            </span>
           {/if}
-        </span>
-        <span class="grupo">
-          <button class="mini" onclick={() => pos.aplicarDescuento(0.1, "Descuento de cortesía")}>
-            −10%
-          </button>
           <!--
-            INTERRUPTOR: pulsarlo otra vez retira la cortesía.
-
-            Se pulsaba por error y la única salida era cancelar la cuenta
-            entera. Que quede encendido mientras está puesta es además lo que
-            hace evidente que la mesa está regalada.
+            La propina va con el cobro y no aparte: se fija sobre la cuenta que
+            se está por cobrar, y quien no cobra no tiene por qué tocarla. Lo que
+            el mesero SÍ conserva es ver cuánto lleva ganado, que vive en su
+            propio módulo con `rrhh.propina.ver`.
           -->
-          <button
-            class="mini"
-            class:on={cortesiaPuesta}
-            aria-pressed={cortesiaPuesta}
-            onclick={() => pos.alternarCortesia(undefined, "Cortesía de la casa")}
-          >
-            {cortesiaPuesta ? "Cortesía ✓ · quitar" : "Cortesía"}
-          </button>
-        </span>
-        <!--
-          Cortesía por socio: se cobra contra la bolsa mensual del socio. La
-          venta NO se toca —el socio consumió— y por eso sigue completa en
-          finanzas y en inteligencia; lo que cambia es de dónde salió el dinero.
-        -->
-        {#if socios.activos.length > 0}
-          <span class="grupo">
-            Socios
-            <button class="mini" onclick={abrirSocio}>Cortesía por socio</button>
-          </span>
-        {/if}
-      </div>
+          {#if puedeCobrar}
+            <span class="grupo">
+              Propina
+              {#each [0.1, 0.15, 0.2] as pct (pct)}
+                <button class="mini" onclick={() => pos.propinaPorcentaje(pct)}>
+                  {Math.round(pct * 100)}%
+                </button>
+              {/each}
+              {#if t.propina > 0}
+                <button class="mini" onclick={() => pos.propinaPorcentaje(0)}>Quitar</button>
+              {/if}
+            </span>
+          {/if}
+          {#if puedeDescontar || puedeCortesia}
+            <span class="grupo">
+              {#if puedeDescontar}
+                <button
+                  class="mini"
+                  onclick={() => pos.aplicarDescuento(0.1, "Descuento de cortesía")}
+                >
+                  −10%
+                </button>
+              {/if}
+              <!--
+                INTERRUPTOR: pulsarlo otra vez retira la cortesía.
+
+                Se pulsaba por error y la única salida era cancelar la cuenta
+                entera. Que quede encendido mientras está puesta es además lo que
+                hace evidente que la mesa está regalada.
+              -->
+              {#if puedeCortesia}
+                <button
+                  class="mini"
+                  class:on={cortesiaPuesta}
+                  aria-pressed={cortesiaPuesta}
+                  onclick={() => pos.alternarCortesia(undefined, "Cortesía de la casa")}
+                >
+                  {cortesiaPuesta ? "Cortesía ✓ · quitar" : "Cortesía"}
+                </button>
+              {/if}
+            </span>
+          {/if}
+          <!--
+            Cortesía por socio: se cobra contra la bolsa mensual del socio. La
+            venta NO se toca —el socio consumió— y por eso sigue completa en
+            finanzas y en inteligencia; lo que cambia es de dónde salió el dinero.
+          -->
+          {#if puedeSocio && socios.activos.length > 0}
+            <span class="grupo">
+              Socios
+              <button class="mini" onclick={abrirSocio}>Cortesía por socio</button>
+            </span>
+          {/if}
+        </div>
+      {/if}
 
       <div class="btns">
         <button
@@ -520,13 +594,20 @@
         >
           Imprimir cuenta
         </button>
-        <button
-          class="b2 cobrar"
-          disabled={!pos.hayCuenta}
-          onclick={() => fijar({ vista: "cobro" })}
-        >
-          Cobrar {mxn(t.saldo)}
-        </button>
+        <!--
+          El cobro solo para quien cobra. El mesero se queda con lo suyo —abrir,
+          capturar, enviar a cocina e imprimir la cuenta—, que es hasta donde
+          llega su trabajo: el dinero se toca en la caja.
+        -->
+        {#if puedeCobrar}
+          <button
+            class="b2 cobrar"
+            disabled={!pos.hayCuenta}
+            onclick={() => fijar({ vista: "cobro" })}
+          >
+            Cobrar {mxn(t.saldo)}
+          </button>
+        {/if}
         <!--
           LIBERAR LA MESA, aquí y no solo en el plano.
 
@@ -863,8 +944,15 @@
 {/if}
 
 
-<!-- El ticket interno espera esta respuesta para que nunca se archive sin propina. -->
-{#if pos.propinaPendiente}
+<!--
+  El ticket interno espera esta respuesta para que nunca se archive sin propina.
+
+  Solo se le pregunta a quien cobra. La propina posterior es el último paso de
+  un cobro, así que a un mesero que entra después en la misma terminal le caería
+  encima un diálogo modal sobre una cuenta que él no cobró — y sin permiso para
+  resolverlo, sería un cartel que no se puede quitar.
+-->
+{#if pos.propinaPendiente && puedeCobrar}
   <div class="velo-op" role="presentation"></div>
   <div class="op" role="dialog" aria-modal="true" aria-label="Agregar propina">
     <h3>¿Dejó propina?</h3>

@@ -15,7 +15,14 @@
  * menú tiene tres entradas; este dice CUÁLES y por qué.
  */
 import { describe, expect, it } from "vitest";
-import { permisosDePlantilla, puedeVer, type RolId, type Usuario } from "@motrest/dominio";
+import {
+  permisosDePlantilla,
+  puedeOperar,
+  puedeVer,
+  type Accion,
+  type RolId,
+  type Usuario,
+} from "@motrest/dominio";
 import { MODULOS } from "../nav/modulos";
 
 function usuarioCon(rol_id: RolId): Usuario {
@@ -85,5 +92,87 @@ describe("sin nadie en sesión", () => {
     const nadie = null;
     const visibles = MODULOS.filter((m) => (nadie ? puedeVer(nadie, m.permiso) : false));
     expect(visibles).toHaveLength(0);
+  });
+});
+
+/*
+ * LOS BOTONES DEL DINERO, dentro de la cuenta.
+ *
+ * `PanelCuenta.svelte` decide con `puedeOperar` si enseña cobrar, propina,
+ * descuentos, cortesías y consumo de socio. Antes se enseñaban a todo el mundo y
+ * el permiso se comprobaba al pulsar: el mesero veía «Cobrar», lo tocaba y le
+ * salía un teclado pidiendo la firma de un superior.
+ *
+ * Se prueba la REGLA, no el componente. `puedeOperar` es el mismo atajo que usa
+ * la pantalla, así que esto falla el día que alguien le dé el cobro al personal
+ * de piso para resolver otra cosa — que es exactamente cuando hay que enterarse.
+ */
+const BOTONES_DEL_DINERO: Accion[] = [
+  "pos.cobro.registrar",
+  "pos.descuento.aplicar",
+  "pos.cortesia.otorgar",
+  "pos.socio.consumir",
+];
+
+function operables(rol_id: RolId, acciones: Accion[]): Accion[] {
+  const usuario = usuarioCon(rol_id);
+  return acciones.filter((accion) => puedeOperar(usuario, accion));
+}
+
+describe("quién ve el cobro y lo que cuelga de él", () => {
+  it("al mesero no le aparece ninguno: el dinero se toca en la caja", () => {
+    expect(operables("mesero", BOTONES_DEL_DINERO)).toEqual([]);
+  });
+
+  /*
+   * El chef es el otro perfil de piso —la barra y la cocina cuelgan de ahí— y
+   * tampoco cobra. Se comprueba aparte porque su plantilla es distinta y podría
+   * ganar permisos de POS sin que nadie mirara la cuenta.
+   */
+  it("al chef tampoco", () => {
+    expect(operables("chef", BOTONES_DEL_DINERO)).toEqual([]);
+  });
+
+  it("el cajero cobra y carga a socios, pero no regala", () => {
+    const suyos = operables("cajero", BOTONES_DEL_DINERO);
+    expect(suyos).toContain("pos.cobro.registrar");
+    expect(suyos).toContain("pos.socio.consumir");
+    // Descuentos y cortesías siguen pidiendo la firma de un superior: quien
+    // maneja el cajón no puede además decidir a quién se le rebaja la cuenta.
+    expect(suyos).not.toContain("pos.descuento.aplicar");
+    expect(suyos).not.toContain("pos.cortesia.otorgar");
+  });
+
+  it("el gerente y la dirección los tienen todos", () => {
+    expect(operables("gerente", BOTONES_DEL_DINERO)).toEqual(BOTONES_DEL_DINERO);
+    expect(operables("propietario", BOTONES_DEL_DINERO)).toEqual(BOTONES_DEL_DINERO);
+  });
+
+  /*
+   * El límite del gerente es del 20 %. El botón de la cuenta aplica un 10 %, así
+   * que le sale directo; pedirle autorización a sí mismo sería absurdo. Se fija
+   * porque el día que alguien baje ese límite por debajo del 10 %, el botón
+   * desaparecería de la pantalla del gerente sin que nadie lo relacionara.
+   */
+  it("al gerente el −10 % de la cuenta le entra dentro de su límite", () => {
+    const gerente = usuarioCon("gerente");
+    expect(puedeOperar(gerente, "pos.descuento.aplicar", { porcentaje: 0.1 })).toBe(true);
+  });
+
+  /*
+   * Imprimir la cuenta NO es cobrar. El comensal la pide en la mesa y quien
+   * atiende se la lleva: si esto se hubiera escondido junto con el cobro, el
+   * mesero habría tenido que ir por el cajero para entregar un papel.
+   */
+  it("pero el mesero conserva lo suyo: abrir, capturar, enviar y entregar", () => {
+    const mesero = usuarioCon("mesero");
+    for (const accion of [
+      "pos.orden.abrir",
+      "pos.item.agregar",
+      "pos.item.enviar_cocina",
+      "pos.item.entregar",
+    ] as Accion[]) {
+      expect(puedeOperar(mesero, accion), accion).toBe(true);
+    }
   });
 });
