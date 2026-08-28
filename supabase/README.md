@@ -78,6 +78,35 @@ inventario se reconstruye campo a campo en vez de copiarse, porque un token de
 emparejamiento ahí dentro es la credencial con la que cualquiera sincroniza
 contra el Hub de ese local.
 
+## El ensayo contra la nube de verdad
+
+Lo anterior comprueba el esquema. Esto comprueba **que la nube hace lo que
+creemos**, usando la clase `EnlaceSupabase` tal cual la usa el Hub: inicia
+sesión de verdad, abre Realtime de verdad, y mira qué llega y qué no.
+
+```powershell
+# 1 · montar los dos locales de ensayo (supabase/ensayo-nube.sql)
+# 2 · correrlo:
+$env:MOTREST_NUBE_URL="https://ixttslqbbwqfcqjmttyg.supabase.co"
+$env:MOTREST_NUBE_PUBLICABLE="sb_publishable_…"
+$env:MOTREST_ENSAYO_CREDENCIAL="credencial-de-ensayo-01-no-sirve-fuera"
+$env:MOTREST_ENSAYO_CREDENCIAL_VECINA="credencial-de-ensayo-02-no-sirve-fuera"
+corepack pnpm@9.15.0 --filter @motrest/hub ensayo:nube
+# 3 · desmontar (el final de ensayo-nube.sql)
+```
+
+Los pasos de Realtime necesitan que alguien inserte la fila desde fuera —Meta y
+Central, en la vida real—; el guion imprime el SQL y espera. Si nadie lo hace,
+esos renglones salen como **PENDIENTE** y no como **ok**: no haber comprobado
+algo no es lo mismo que haberlo comprobado bien.
+
+**Ya se ganó el sueldo.** Destapó que las renovaciones a partir de la segunda no
+llegaban: `licencias_pendientes` tiene la sucursal como clave primaria, así que
+la primera es un `INSERT` y todas las demás son `UPDATE` — y la suscripción solo
+escuchaba `INSERT`. El local habría recibido su primera renovación al instante y
+las siguientes solo al reconectar el Hub, que en un local encendido son semanas.
+Ninguna prueba con dobles lo habría visto.
+
 ## Documentos relacionados
 
 - [ADR-26 · La actualización remota que de verdad actualiza](../docs/adr/ADR-26-actualizacion-remota.md)

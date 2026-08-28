@@ -14,7 +14,8 @@
     "lint": "tsc --noEmit -p tsconfig.json",
     "test": "vitest run",
     "ensayo": "tsx ensayo/viernes.ts",
-    "ensayo:portal": "tsx ensayo/portal.ts"
+    "ensayo:portal": "tsx ensayo/portal.ts",
+    "ensayo:nube": "tsx ensayo/nube.ts"
   },
   "dependencies": {
     "@motrest/dominio": "workspace:*",

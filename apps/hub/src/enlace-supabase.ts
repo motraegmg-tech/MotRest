@@ -192,9 +192,22 @@ export class EnlaceSupabase implements EnlaceConMotrae {
         { event: "INSERT", schema: "public", table: "mensajes_entrantes", filter: suyo },
         (carga) => void this.atenderMensaje(carga.new as Record<string, unknown>),
       )
+      /*
+       * INSERT **Y** UPDATE, y esto no es por si acaso.
+       *
+       * `licencias_pendientes` tiene la sucursal como clave primaria: hay una
+       * sola fila por restaurante, para siempre. Así que la PRIMERA renovación
+       * de un local es un INSERT y **todas las siguientes son UPDATE**.
+       *
+       * Escuchando solo INSERT, un restaurante recibía su primera renovación al
+       * instante y las demás únicamente al reconectar el Hub — que en un local
+       * encendido son semanas. Y el fallo sería intermitente, porque cualquier
+       * reinicio lo tapaba. Lo destapó el ensayo contra la nube de verdad
+       * (ensayo/nube.ts); ninguna prueba con dobles lo habría visto.
+       */
       .on(
         "postgres_changes",
-        { event: "INSERT", schema: "public", table: "licencias_pendientes", filter: suyo },
+        { event: "*", schema: "public", table: "licencias_pendientes", filter: suyo },
         (carga) => void this.atenderLicencia(carga.new as Record<string, unknown>),
       )
       .subscribe((estado) => {
@@ -273,6 +286,17 @@ export class EnlaceSupabase implements EnlaceConMotrae {
    * convierte un fallo silencioso en una línea en el registro de MOTRAE.
    */
   private async atenderLicencia(fila: Record<string, unknown>): Promise<void> {
+    /*
+     * Una ya confirmada no se vuelve a instalar.
+     *
+     * Hace falta porque ahora se escuchan también los UPDATE, y el propio Hub
+     * hace uno al confirmar: sin esta guarda, su confirmación le llegaría de
+     * vuelta como una licencia nueva y se quedaría dando vueltas contra la
+     * nube, instalando lo mismo una y otra vez.
+     */
+    if (fila.confirmada_ts) return;
+    if (!fila.licencia) return;
+
     let resultado: { ok: boolean; error?: string };
     try {
       resultado = (await this.opciones.alLlegarLicencia?.(fila.licencia)) ?? {
