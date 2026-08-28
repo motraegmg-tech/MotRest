@@ -27,6 +27,7 @@
    */
   import {
     etiquetaFormaPago,
+    mesasDeComanda,
     totalesComanda,
     type Centavos,
     type EstadoComanda,
@@ -65,7 +66,10 @@
       return {
         comanda: c,
         folio: c.orden_id.slice(-8).toUpperCase(),
-        mesa: plano.nombreMesa(c.mesa_id),
+        // La cuenta de un grupo grande ocupa varias mesas y aquí se nombra
+        // igual que en el salón y en el ticket impreso: quien viene a cancelar
+        // una venta la busca por el nombre que tiene delante, en papel.
+        mesa: plano.etiquetaMesas(mesasDeComanda(c)),
         mesero: sesion.nombreDe(c.mesero_id),
         cuando: c.cerrada_ts ?? c.abierta_ts,
         total: t.total,

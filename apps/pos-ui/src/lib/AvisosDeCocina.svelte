@@ -7,7 +7,7 @@
    * el botón de la derecha da el platillo por entregado sin moverse de donde se
    * está, que es lo que se hace nueve de cada diez veces.
    */
-  import { renglonesActivos } from "@motrest/dominio";
+  import { mesasDeComanda, renglonesActivos } from "@motrest/dominio";
   import { asignaciones } from "./asignaciones.svelte";
   import { avisosCocina } from "./avisos-cocina.svelte";
   import { plano } from "./plano.svelte";
@@ -58,7 +58,11 @@
         renglon_id: renglon.id,
         orden_id: comanda.orden_id,
         mesa_id: comanda.mesa_id,
-        mesa: plano.nombreMesa(comanda.mesa_id),
+        // Una cuenta puede ocupar varias mesas: el aviso dice las que sean, con
+        // la misma etiqueta que el encabezado y el ticket. Enviar a alguien a la
+        // «mesa 3» cuando el grupo está sentado en la 3 y la 4 es hacerle dar
+        // una vuelta de más con el plato en la mano.
+        mesa: plano.etiquetaMesas(mesasDeComanda(comanda)),
         descripcion: renglon.descripcion,
         cantidad: renglon.cantidad,
         ts: Date.now(),

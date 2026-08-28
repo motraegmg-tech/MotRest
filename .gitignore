@@ -72,6 +72,18 @@ Codigo rescate.txt
 codigo-rescate*.txt
 *rescate*.txt
 
+# El cuaderno de llaves del dueño.
+#
+# Las reglas por EXTENSIÓN de arriba no lo cubren: es un `.docx`, o sea un ZIP
+# con texto dentro, indistinguible para Git de cualquier otro documento. Se
+# coló al índice una vez en un `git add -A` y viajó a GitHub; con la carpeta
+# compartida con un tercero, eso equivale a entregar las llaves de la cartera.
+# Por nombre, entonces, y en cualquier carpeta.
+LLAVES.docx
+**/LLAVES.docx
+llaves*.docx
+LLAVES*.txt
+
 # Video promocional: material pesado y generado (los guiones y el codigo SI van al repo)
 video/tomas/*
 !video/tomas/README.md

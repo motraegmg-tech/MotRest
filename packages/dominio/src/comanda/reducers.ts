@@ -42,7 +42,10 @@ export interface Cortesia {
 /** Proyección del estado de una comanda. Sin `personas` (decisión de Gonzalo). */
 export interface EstadoComanda {
   orden_id: ID;
+  /** Mesa principal. Con mesas juntadas, la que da nombre a la cuenta. */
   mesa_id: ID;
+  /** Las demás mesas que ocupa la cuenta. Ausente = una sola mesa. */
+  mesas_unidas?: ID[];
   /** Empleado que abrió la mesa (viene del sobre del evento). */
   mesero_id: ID;
   abierta_ts: number;
@@ -147,6 +150,7 @@ export function aplicarEvento(
     return {
       orden_id: ev.orden_id,
       mesa_id: ev.mesa_id,
+      mesas_unidas: ev.mesas_unidas?.length ? ev.mesas_unidas : undefined,
       mesero_id: ev.empleado_id,
       abierta_ts: ev.abierta_ts,
       canal: ev.canal,
@@ -506,6 +510,16 @@ export function mesasConCuentaDuplicada(comandas: readonly EstadoComanda[]): ID[
   }
 
   return [...abiertasPorMesa.entries()].filter(([, cuantas]) => cuantas > 1).map(([mesa]) => mesa);
+}
+
+/**
+ * Todas las mesas que ocupa una cuenta: la principal primero.
+ *
+ * Se pregunta siempre por aquí y nunca leyendo `mesas_unidas` a pelo, para que
+ * una cuenta de una sola mesa y una de tres se traten igual en toda la app.
+ */
+export function mesasDeComanda(estado: EstadoComanda): ID[] {
+  return [estado.mesa_id, ...(estado.mesas_unidas ?? [])];
 }
 
 export function agruparPorMesa(

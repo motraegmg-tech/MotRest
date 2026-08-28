@@ -150,15 +150,23 @@
   type Vista = "checador" | "prenomina" | "mesas";
 
   /*
-   * La pestaña también entra por la URL (`#/personal/mesas`).
+   * La pestaña entra por la URL (`#/personal/mesas`) y sale por la URL.
    *
-   * Lo necesita el enlace «Cambiar rol de mesas» que hay al pie de cada mesa en
-   * Venta: llevar al módulo pero no a la pestaña deja al usuario a medio camino.
+   * Entra porque lo necesita el enlace «Cambiar rol de mesas» que hay al pie de
+   * cada mesa en Venta: llevar al módulo pero no a la pestaña deja al usuario a
+   * medio camino.
+   *
+   * Y sale porque la sincronización tiene que ir en los dos sentidos. Antes
+   * había además un estado local que ganaba sobre la sección, así que tocar una
+   * pestaña cambiaba la pantalla pero dejaba la URL diciendo otra cosa: el botón
+   * de atrás no devolvía a la pestaña anterior, y recargar o compartir la
+   * dirección abría una pantalla distinta de la que se estaba mirando. Con la
+   * ruta como única fuente, lo que se ve y lo que dice la barra no pueden
+   * discrepar.
    */
   const seccion = $derived(rutas.actual.seccion);
-  let elegida = $state<Vista | null>(null);
   const vista = $derived<Vista>(
-    elegida ?? (seccion === "mesas" || seccion === "prenomina" ? (seccion as Vista) : "checador"),
+    seccion === "mesas" || seccion === "prenomina" ? (seccion as Vista) : "checador",
   );
 
   const puedeNomina = $derived(sesion.puedeOperar("rrhh.empleado.editar"));
@@ -255,19 +263,19 @@
     <div>
       <h1>Personal</h1>
       <p class="sub">
-        Checador de asistencia. Cada checada es un hecho: no se edita, se corrige
-        dejando rastro de quién la autorizó.
+        Asistencia del equipo. Cada registro es un hecho: no se edita, se corrige
+        dejando rastro de quién lo autorizó.
       </p>
     </div>
     <div class="pestanas">
-      <button class:on={vista === "checador"} onclick={() => (elegida = "checador")}>
-        Checador
+      <button class:on={vista === "checador"} onclick={() => rutas.ir("personal", "checador")}>
+        Asistencia
       </button>
-      <button class:on={vista === "mesas"} onclick={() => (elegida = "mesas")}>
+      <button class:on={vista === "mesas"} onclick={() => rutas.ir("personal", "mesas")}>
         Rol de mesas
       </button>
       {#if puedeNomina}
-        <button class:on={vista === "prenomina"} onclick={() => (elegida = "prenomina")}>
+        <button class:on={vista === "prenomina"} onclick={() => rutas.ir("personal", "prenomina")}>
           Prenómina
         </button>
       {/if}
@@ -340,9 +348,9 @@
         <p class="aviso-raya" role="alert">
           {raya.faltas}
           {raya.faltas === 1 ? "falta descontada" : "faltas descontadas"} por
-          {mxn(raya.total_descuentos)} en total. Revisa que no sea una checada
-          olvidada antes de pagar: se descuenta el día programado en el que nadie
-          registró entrada.
+          {mxn(raya.total_descuentos)} en total. Revisa que no sea un registro de
+          asistencia olvidado antes de pagar: se descuenta el día programado en el
+          que nadie registró entrada.
         </p>
       {/if}
 
@@ -350,8 +358,8 @@
         <p class="aviso-raya" role="alert">
           {raya.turnos_abiertos}
           {raya.turnos_abiertos === 1 ? "persona tiene" : "personas tienen"} un turno
-          sin checar salida: sus horas se miden hasta ahora y están infladas.
-          Corrige la checada antes de pagar.
+          sin registrar salida: sus horas se miden hasta ahora y están infladas.
+          Corrige el registro antes de pagar.
         </p>
       {/if}
       {#if raya.sin_tarifa > 0}
@@ -559,7 +567,7 @@
   <div class="columnas">
     <!-- Checador -->
     <section class="tarjeta checador">
-      <h2>Checar</h2>
+      <h2>Marcar asistencia</h2>
       {#if !seleccionado}
         <p class="pista">Elige tu nombre y teclea tu PIN.</p>
         <div class="personas">
@@ -588,7 +596,7 @@
           onkeydown={(e) => e.key === "Enter" && checar()}
         />
         <p class="pista-teclado">
-          Marca tu PIN con el teclado o con los botones · Enter para checar
+          Marca tu PIN con el teclado o con los botones · Enter para registrar
         </p>
 
         <div class="teclado">
@@ -632,11 +640,11 @@
                 {#if r.dentro}
                   <span class="chip dentro">Dentro</span>
                 {:else if r.turnoAbierto}
-                  <span class="chip abierto">Sin checar salida</span>
+                  <span class="chip abierto">Sin registrar salida</span>
                 {:else if r.turnos > 0}
                   <span class="chip">Fuera</span>
                 {:else}
-                  <span class="chip tenue">Sin checar</span>
+                  <span class="chip tenue">Sin registro</span>
                 {/if}
               </td>
               <td class="num">{r.turnos}</td>
@@ -650,7 +658,7 @@
       </table>
       {#if puedeAjustar}
         <p class="pista">
-          Una checada olvidada se corrige agregando la que falta, con tu
+          Un registro olvidado se corrige agregando el que falta, con tu
           autorización y su motivo. El registro original nunca se borra.
         </p>
       {/if}
@@ -677,14 +685,14 @@
   {/snippet}
 
   <section class="tarjeta">
-    <h2>Últimas checadas</h2>
+    <h2>Últimos registros de asistencia</h2>
     {#if !asistencia.hayRegistro}
-      <p class="vacio">Todavía nadie ha checado en este dispositivo.</p>
+      <p class="vacio">Todavía nadie ha marcado asistencia en este dispositivo.</p>
     {:else}
       {@render listaChecadas(asistencia.recientes.slice(0, TOPE_CHECADAS))}
       {#if asistencia.recientes.length > TOPE_CHECADAS}
         <button class="ver-todo" onclick={() => (verChecadas = true)}>
-          Ver más ({asistencia.recientes.length - TOPE_CHECADAS} checadas más)
+          Ver más ({asistencia.recientes.length - TOPE_CHECADAS} registros más)
         </button>
       {/if}
     {/if}
@@ -692,7 +700,7 @@
 
   {#if verChecadas}
     <VentanaAmplia
-      titulo="Checadas"
+      titulo="Registros de asistencia"
       subtitulo="{asistencia.recientes.length} registros en este dispositivo, del más reciente al más antiguo"
       onCerrar={() => (verChecadas = false)}
     >

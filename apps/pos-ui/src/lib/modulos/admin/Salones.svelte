@@ -5,8 +5,22 @@
    * Cada restaurante dibuja aquí sus espacios reales: crea áreas, ajusta la
    * retícula y coloca las mesas arrastrándolas, para que el plano de la pantalla
    * corresponda al del piso.
+   *
+   * NADA DE `prompt()` NI `confirm()` DEL NAVEGADOR. Esta pantalla se usa en la
+   * tableta y en el kiosco de la caja, donde el diálogo del sistema sale con
+   * tipografía ajena, sin teclado numérico y —en la ventana de escritorio— a
+   * veces no sale. Renombrar y borrar piden un diálogo propio, que además puede
+   * decir en qué se está metiendo uno antes de aceptar.
    */
-  import { describirProblema, type FormaMesa, type Mesa } from "@motrest/dominio";
+  import {
+    LIMITES_MESA,
+    cabeEnArea,
+    capacidadDe,
+    describirProblema,
+    haySolape,
+    type FormaMesa,
+    type Mesa,
+  } from "@motrest/dominio";
   import { rutas } from "../../nav/rutas.svelte";
   import { plano } from "../../plano.svelte";
   import { sesion } from "../../sesion/sesion.svelte";
@@ -21,11 +35,79 @@
   // Arrastre
   let arrastrando = $state<string | null>(null);
   let lienzo = $state<HTMLElement | null>(null);
+  /**
+   * La sombra que sigue al dedo mientras se arrastra.
+   *
+   * Sin ella, un movimiento inválido —fuera de la retícula o encima de otra
+   * mesa— simplemente no pasaba nada, y parecía que la pantalla se había
+   * trabado. Con la sombra en rojo se ve POR QUÉ no se puede soltar ahí.
+   */
+  let celdaDestino = $state<{
+    columna: number;
+    fila: number;
+    ancho: number;
+    alto: number;
+    valida: boolean;
+  } | null>(null);
 
   const mesaSeleccionada = $derived(seleccionada ? plano.mesa(seleccionada) : undefined);
 
-  function avisar(r: { ok: boolean; error?: string }) {
+  // --- Diálogos propios ------------------------------------------------------------
+
+  type Dialogo =
+    | { tipo: "renombrar_area"; id: string; valor: string }
+    | { tipo: "renombrar_mesa"; id: string; valor: string }
+    | { tipo: "capacidad"; id: string; valor: string }
+    | { tipo: "eliminar_area"; id: string; nombre: string }
+    | { tipo: "eliminar_mesa"; id: string; nombre: string };
+
+  let dialogo = $state<Dialogo | null>(null);
+
+  function cerrarDialogo() {
+    dialogo = null;
+  }
+
+  function confirmarDialogo() {
+    if (!dialogo) return;
+    switch (dialogo.tipo) {
+      case "renombrar_area":
+        if (!avisar(plano.renombrarArea(dialogo.id, dialogo.valor))) return;
+        break;
+      case "renombrar_mesa":
+        if (!avisar(plano.renombrarMesa(dialogo.id, dialogo.valor))) return;
+        break;
+      case "capacidad": {
+        const texto = dialogo.valor.trim();
+        const valor = texto === "" ? null : Number(texto);
+        if (!avisar(plano.cambiarCapacidad(dialogo.id, valor))) return;
+        break;
+      }
+      case "eliminar_area":
+        if (!avisar(plano.eliminarArea(dialogo.id))) return;
+        break;
+      case "eliminar_mesa": {
+        const id = dialogo.id;
+        if (!avisar(plano.eliminarMesa(id))) return;
+        if (seleccionada === id) seleccionada = null;
+        break;
+      }
+    }
+    cerrarDialogo();
+  }
+
+  /** Escape cierra, Enter acepta: en la caja se teclea, no se apunta. */
+  function teclasDelDialogo(evento: KeyboardEvent) {
+    if (!dialogo) return;
+    if (evento.key === "Escape") cerrarDialogo();
+    if (evento.key === "Enter" && dialogo.tipo !== "eliminar_area" && dialogo.tipo !== "eliminar_mesa") {
+      confirmarDialogo();
+    }
+  }
+
+  /** Publica el error de una operación. Devuelve si salió bien, para encadenar. */
+  function avisar(r: { ok: boolean; error?: string }): boolean {
     error = r.ok ? "" : (r.error ?? "");
+    return r.ok;
   }
 
   /** Traduce la posición del puntero a una celda de la retícula. */
@@ -49,21 +131,36 @@
     if (!arrastrando) return;
     const mesa = plano.mesa(arrastrando);
     const celda = celdaDesdePuntero(evento);
-    if (!mesa || !celda) return;
+    const area = plano.area;
+    if (!mesa || !celda || !area) {
+      celdaDestino = null;
+      return;
+    }
 
     // Se ancla por el centro para que la mesa siga al dedo con naturalidad.
     const columna = Math.max(0, celda.columna - Math.floor(mesa.ancho / 2));
     const fila = Math.max(0, celda.fila - Math.floor(mesa.alto / 2));
+
+    const tentativa: Mesa = { ...mesa, columna, fila };
+    celdaDestino = {
+      columna,
+      fila,
+      ancho: mesa.ancho,
+      alto: mesa.alto,
+      valida: cabeEnArea(tentativa, area) && !haySolape(tentativa, plano.mesas),
+    };
+
     if (columna === mesa.columna && fila === mesa.fila) return;
 
     const r = plano.moverMesa(mesa.id, columna, fila);
-    // Durante el arrastre no se grita: solo se ignora el movimiento inválido.
+    // Durante el arrastre no se grita: la sombra roja ya lo está diciendo.
     if (!r.ok) return;
     error = "";
   }
 
   function soltarArrastre() {
     arrastrando = null;
+    celdaDestino = null;
   }
 
   function crearArea() {
@@ -131,10 +228,16 @@
       <div class="herramientas">
         <span class="grupo">
           <b>{area.nombre}</b>
-          <button class="mini" onclick={() => avisar(plano.renombrarArea(area.id, prompt("Nombre del área", area.nombre) ?? area.nombre))}>
+          <button
+            class="mini"
+            onclick={() => (dialogo = { tipo: "renombrar_area", id: area.id, valor: area.nombre })}
+          >
             Renombrar
           </button>
-          <button class="mini peligro" onclick={() => avisar(plano.eliminarArea(area.id))}>
+          <button
+            class="mini peligro"
+            onclick={() => (dialogo = { tipo: "eliminar_area", id: area.id, nombre: area.nombre })}
+          >
             Eliminar área
           </button>
         </span>
@@ -172,6 +275,21 @@
       onpointerup={soltarArrastre}
       onpointercancel={soltarArrastre}
     >
+      <!--
+        La sombra del destino. Va DEBAJO de las mesas (z-index) para que no tape
+        la que se está moviendo, y solo existe mientras dura el arrastre.
+      -->
+      {#if celdaDestino}
+        {@const d = celdaDestino}
+        <div
+          class="sombra"
+          class:invalida={!d.valida}
+          style="grid-column: {d.columna + 1} / span {d.ancho};
+                 grid-row: {d.fila + 1} / span {d.alto}"
+          aria-hidden="true"
+        ></div>
+      {/if}
+
       {#each plano.mesas as mesa (mesa.id)}
         <button
           class="mesa {mesa.forma}"
@@ -181,8 +299,15 @@
                  grid-row: {mesa.fila + 1} / span {mesa.alto}"
           onpointerdown={(e) => iniciarArrastre(e, mesa)}
           onclick={() => (seleccionada = mesa.id)}
+          title="Mesa {mesa.nombre} · {capacidadDe(mesa)} comensales"
         >
-          {mesa.nombre}
+          <span class="rotulo">{mesa.nombre}</span>
+          <!--
+            La capacidad se pinta en la mesa, no solo en el inspector: colocar el
+            plano es justo el momento en que uno se da cuenta de que la de la
+            esquina es de dos y la del ventanal de seis.
+          -->
+          <small class="plazas">{capacidadDe(mesa)}p</small>
         </button>
       {/each}
     </div>
@@ -193,9 +318,51 @@
       <div class="detalle">
         <span class="grupo">
           <b>Mesa {m.nombre}</b>
-          <button class="mini" onclick={() => avisar(plano.renombrarMesa(m.id, prompt("Identificador de la mesa", m.nombre) ?? m.nombre))}>
+          <button
+            class="mini"
+            onclick={() => (dialogo = { tipo: "renombrar_mesa", id: m.id, valor: m.nombre })}
+          >
             Renombrar
           </button>
+        </span>
+
+        <!--
+          CUÁNTA GENTE CABE. Es el dato con el que se sienta a una reserva y con
+          el que el sistema propone juntar mesas; sin él, «somos diez» se
+          contesta a ojo. Se puede dejar en automático: entonces se estima del
+          tamaño en la retícula, y el rótulo lo dice para que nadie crea que es
+          un número que alguien midió.
+        -->
+        <span class="grupo">
+          Comensales
+          <button
+            class="mini"
+            onclick={() => avisar(plano.cambiarCapacidad(m.id, capacidadDe(m) - 1))}
+            aria-label="Un comensal menos"
+          >
+            −
+          </button>
+          <span class="valor">{capacidadDe(m)}</span>
+          <button
+            class="mini"
+            onclick={() => avisar(plano.cambiarCapacidad(m.id, capacidadDe(m) + 1))}
+            aria-label="Un comensal más"
+          >
+            +
+          </button>
+          <button
+            class="mini"
+            onclick={() => (dialogo = { tipo: "capacidad", id: m.id, valor: String(capacidadDe(m)) })}
+          >
+            Fijar…
+          </button>
+          {#if m.capacidad === undefined}
+            <em class="estimada">estimada del tamaño</em>
+          {:else}
+            <button class="mini" onclick={() => avisar(plano.cambiarCapacidad(m.id, null))}>
+              Volver a automático
+            </button>
+          {/if}
         </span>
 
         <span class="grupo">
@@ -224,7 +391,7 @@
 
         <button
           class="mini peligro"
-          onclick={() => { avisar(plano.eliminarMesa(m.id)); seleccionada = null; }}
+          onclick={() => (dialogo = { tipo: "eliminar_mesa", id: m.id, nombre: m.nombre })}
         >
           Quitar mesa
         </button>
@@ -249,6 +416,63 @@
     </div>
   {/if}
 </div>
+
+<svelte:window onkeydown={teclasDelDialogo} />
+
+<!--
+  Los diálogos de esta pantalla. Uno solo a la vez, y siempre con el nombre de
+  lo que se va a tocar escrito dentro: «¿Eliminar?» a secas es como se borra el
+  área equivocada.
+-->
+{#if dialogo}
+  {@const d = dialogo}
+  <div class="velo" role="presentation" onclick={cerrarDialogo}></div>
+  <div class="dialogo" role="dialog" aria-modal="true" aria-label="Editar el plano">
+    {#if d.tipo === "renombrar_area" || d.tipo === "renombrar_mesa"}
+      <h2>{d.tipo === "renombrar_area" ? "Nombre del área" : "Identificador de la mesa"}</h2>
+      <p class="ayuda">
+        {d.tipo === "renombrar_area"
+          ? "Como lo llama el personal: Terraza, Salón, Barra."
+          : "Es lo que se pinta en la mesa y sale en el ticket: 1, 12, Barra 3."}
+      </p>
+      <!-- svelte-ignore a11y_autofocus -->
+      <input class="campo" bind:value={d.valor} autofocus />
+    {:else if d.tipo === "capacidad"}
+      <h2>Comensales en la mesa {plano.nombreMesa(d.id)}</h2>
+      <p class="ayuda">
+        De {LIMITES_MESA.capacidadMin} a {LIMITES_MESA.capacidadMax}. Déjalo vacío
+        para que se estime del tamaño de la mesa.
+      </p>
+      <!-- svelte-ignore a11y_autofocus -->
+      <input class="campo" type="number" inputmode="numeric" bind:value={d.valor} autofocus />
+    {:else if d.tipo === "eliminar_area"}
+      <h2>¿Eliminar el área «{d.nombre}»?</h2>
+      <p class="ayuda">
+        El área tiene que estar vacía. Las mesas que hubiera dentro se quitan
+        antes, una por una: no se borran de golpe.
+      </p>
+    {:else}
+      <h2>¿Quitar la mesa {d.nombre}?</h2>
+      <p class="ayuda">
+        Deja de existir en el plano. Lo que ya se cobró en ella sigue en los
+        reportes: quitar una mesa no borra su historia.
+      </p>
+    {/if}
+
+    {#if error}<p class="error" role="alert">{error}</p>{/if}
+
+    <div class="botones">
+      <button class="secundario" onclick={cerrarDialogo}>Cancelar</button>
+      <button
+        class="principal"
+        class:peligro={d.tipo === "eliminar_area" || d.tipo === "eliminar_mesa"}
+        onclick={confirmarDialogo}
+      >
+        {d.tipo === "eliminar_area" || d.tipo === "eliminar_mesa" ? "Sí, quitar" : "Guardar"}
+      </button>
+    </div>
+  </div>
+{/if}
 
 <style>
   .seccion {
@@ -405,16 +629,48 @@
     touch-action: none;
     min-height: 18rem;
   }
+  /*
+   * La sombra del destino durante el arrastre. Naranja cuando se puede soltar,
+   * roja cuando no: los dos colores de la marca, usados con su significado.
+   */
+  .sombra {
+    z-index: 0;
+    border-radius: var(--r-sm);
+    border: 2px dashed var(--acento);
+    background: rgba(242, 133, 58, 0.14);
+    pointer-events: none;
+  }
+  .sombra.invalida {
+    border-color: var(--peligro);
+    background: rgba(224, 57, 43, 0.14);
+  }
   .mesa {
+    z-index: 1;
     display: flex;
+    flex-direction: column;
     align-items: center;
     justify-content: center;
+    gap: 0.05rem;
     border: 2px solid var(--acento);
     background: var(--claro);
     color: var(--pizarra);
     font-family: var(--font-titulo);
     font-size: 1rem;
     font-weight: 700;
+  }
+  .mesa .rotulo {
+    line-height: 1;
+  }
+  .mesa .plazas {
+    font-family: var(--font-cuerpo);
+    font-size: 0.6rem;
+    font-weight: 600;
+    line-height: 1;
+    color: var(--acento);
+  }
+  .estimada {
+    font-size: 0.75rem;
+    color: var(--gris);
   }
   .lienzo.editable .mesa {
     cursor: grab;
@@ -466,5 +722,92 @@
   .problemas li::before {
     content: "· ";
     color: var(--acento);
+  }
+
+  /* --- Diálogos propios ------------------------------------------------------
+   *
+   * La tarjeta blanca sobre velo oscuro es lo que trajo la revisión de Alejandro
+   * y se queda: se lee mejor que el diálogo del navegador y funciona igual en la
+   * tableta. Lo que cambia son los colores — nada de paletas prestadas: el botón
+   * que confirma va en NARANJA MOTRAE y el que destruye en el rojo de la marca.
+   */
+  .velo {
+    position: fixed;
+    inset: 0;
+    z-index: 60;
+    background: rgba(20, 24, 26, 0.55);
+  }
+  .dialogo {
+    position: fixed;
+    z-index: 61;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    width: min(26rem, calc(100vw - 2rem));
+    display: flex;
+    flex-direction: column;
+    gap: 0.6rem;
+    padding: 1.25rem;
+    border-radius: var(--r-lg);
+    background: var(--blanco);
+    box-shadow: var(--sombra-lg);
+  }
+  .dialogo h2 {
+    font-family: var(--font-titulo);
+    font-size: 1.1rem;
+    font-weight: 700;
+    color: var(--pizarra);
+  }
+  .dialogo .ayuda {
+    font-size: 0.85rem;
+    color: var(--gris);
+  }
+  .campo {
+    border: 1.5px solid var(--borde);
+    border-radius: var(--r-sm);
+    padding: 0.6rem 0.7rem;
+    font-family: var(--font-cuerpo);
+    font-size: 1rem;
+    color: var(--pizarra);
+  }
+  .campo:focus {
+    outline: none;
+    border-color: var(--acento);
+    box-shadow: 0 0 0 3px rgba(242, 133, 58, 0.2);
+  }
+  .botones {
+    display: flex;
+    justify-content: flex-end;
+    gap: 0.5rem;
+    margin-top: 0.25rem;
+  }
+  .botones button {
+    border-radius: var(--r-sm);
+    padding: 0.55rem 1rem;
+    font-family: var(--font-titulo);
+    font-size: 0.9rem;
+    font-weight: 600;
+    cursor: pointer;
+  }
+  .secundario {
+    border: 1.5px solid var(--borde);
+    background: var(--blanco);
+    color: var(--gris);
+  }
+  .secundario:hover {
+    border-color: var(--pizarra);
+    color: var(--pizarra);
+  }
+  .principal {
+    border: 1.5px solid var(--acento);
+    background: var(--acento);
+    color: var(--blanco);
+  }
+  .principal:hover {
+    box-shadow: var(--sombra-md);
+  }
+  .principal.peligro {
+    border-color: var(--peligro);
+    background: var(--peligro);
   }
 </style>

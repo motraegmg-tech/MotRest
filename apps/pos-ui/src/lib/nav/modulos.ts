@@ -154,7 +154,7 @@ export const MODULOS: EntradaModulo[] = [
     permiso: "rrhh.checada.registrar",
     operativo: true,
     secciones: [
-      { clave: "checador", titulo: "Checador", permiso: "rrhh.checada.registrar" },
+      { clave: "checador", titulo: "Asistencia", permiso: "rrhh.checada.registrar" },
       // El rol de mesas lo CONSULTA cualquiera que atienda —saber si una mesa es
       // tuya no es información reservada—; editarlo pide administrar personal.
       { clave: "mesas", titulo: "Rol de mesas", permiso: "rrhh.checada.registrar" },

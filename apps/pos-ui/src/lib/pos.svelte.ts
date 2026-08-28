@@ -14,7 +14,9 @@ import {
   etiquetaFormaPago,
   importeRenglon,
   pesos,
+  MAX_MESAS_UNIDAS,
   mesasConCuentaDuplicada,
+  mesasDeComanda,
   proyectarSentadas,
   ultimaSentada,
   promocionesPendientes,
@@ -94,7 +96,14 @@ class TiendaPOS {
     this.logs = agruparPorMesa(eventos);
 
     const conCuenta = plano.todasLasMesas.find((m) => this.estadoMesa(m.id) !== "libre");
-    this.mesaActiva = conCuenta?.id ?? plano.todasLasMesas[0]?.id ?? "";
+    /*
+     * `mesaPrincipalDe` importa aquí: si la primera mesa ocupada resulta ser una
+     * juntada a otra, su log está vacío y la caja arrancaría enseñando una
+     * cuenta que no existe.
+     */
+    this.mesaActiva = conCuenta
+      ? this.mesaPrincipalDe(conCuenta.id)
+      : (plano.todasLasMesas[0]?.id ?? "");
 
     const area = plano.areaDeMesa(this.mesaActiva);
     if (area) plano.areaActiva = area.id;
@@ -342,8 +351,20 @@ class TiendaPOS {
     return c ? renglonesPendientes(c) : [];
   }
 
+  /** Las mesas que ocupa la cuenta activa. Una sola, salvo que estén juntadas. */
+  get mesasDeLaCuentaActiva(): ID[] {
+    const c = this.comanda;
+    return c && !c.cerrada ? mesasDeComanda(c) : [this.mesaActiva];
+  }
+
+  /**
+   * Cómo se llama la mesa activa: "7", o "3 + 4" si la cuenta ocupa dos.
+   *
+   * Sale de aquí el rótulo del encabezado, el del ticket y el de cada aviso, y
+   * por eso los tres dicen lo mismo.
+   */
   get nombreMesaActiva(): string {
-    return plano.nombreMesa(this.mesaActiva);
+    return plano.etiquetaMesas(this.mesasDeLaCuentaActiva);
   }
 
   // --- Estado del salón ---------------------------------------------------------
@@ -361,8 +382,37 @@ class TiendaPOS {
     return ultimaSentada(this.logs[mesaId] ?? []);
   }
 
+  /**
+   * Mesas juntadas → la mesa que lleva su cuenta.
+   *
+   * Una unión no duplica la cuenta: la mesa 4 unida a la 3 no tiene log propio,
+   * apunta al de la 3. Este índice es lo que hace que tocarla, verla ocupada y
+   * liberarla al cobrar funcionen solos, sin que ninguna pantalla tenga que
+   * saber que hay una unión de por medio.
+   *
+   * Solo mira cuentas ABIERTAS: al cerrarse, las mesas se sueltan.
+   */
+  private unionesAbiertas = $derived.by(() => {
+    const lleva = new Map<ID, ID>();
+    for (const c of this.todasLasComandas) {
+      if (c.cerrada || !c.mesas_unidas?.length) continue;
+      for (const unida of c.mesas_unidas) lleva.set(unida, c.mesa_id);
+    }
+    return lleva;
+  });
+
+  /** La mesa que lleva la cuenta de esta: ella misma, salvo que esté juntada. */
+  mesaPrincipalDe(mesaId: ID): ID {
+    return this.unionesAbiertas.get(mesaId) ?? mesaId;
+  }
+
+  /** true = esta mesa está juntada a la cuenta de otra. */
+  estaUnida(mesaId: ID): boolean {
+    return this.unionesAbiertas.has(mesaId);
+  }
+
   estadoMesa(mesaId: ID): EstadoMesa {
-    const c = ultimaSentada(this.logs[mesaId] ?? []);
+    const c = ultimaSentada(this.logs[this.mesaPrincipalDe(mesaId)] ?? []);
     if (!c || c.cerrada) return "libre";
     return tieneEnviados(c) ? "cuenta" : "ocupada";
   }
@@ -528,8 +578,14 @@ class TiendaPOS {
    * del mesero, no un efecto secundario de tocarla: puede estar consultándola.
    */
   seleccionarMesa(mesaId: ID): void {
-    this.mesaActiva = mesaId;
-    const area = plano.areaDeMesa(mesaId);
+    /*
+     * Tocar una mesa juntada abre la cuenta que la lleva, no una vacía suya.
+     * Son la misma cuenta: el mesero tocó la 4 porque el grupo de la 3+4 le
+     * pidió algo, y esperar que adivine cuál de las dos «es» la cuenta sería
+     * pedirle que conozca la implementación.
+     */
+    this.mesaActiva = this.mesaPrincipalDe(mesaId);
+    const area = plano.areaDeMesa(this.mesaActiva);
     if (area) plano.areaActiva = area.id;
   }
 
@@ -593,7 +649,15 @@ class TiendaPOS {
     this.flash(`Mesa ${mesa} libre`);
   }
 
-  abrirMesa(mesaId: ID): ID {
+  /**
+   * Abre la cuenta de una mesa. Con `mesasUnidas`, UNA cuenta para varias mesas.
+   *
+   * Las mesas juntadas no reciben log propio: quedan apuntadas dentro del
+   * `orden_creada` de la principal. Abrir una cuenta por mesa —que es como
+   * estaba antes de la 1.3.5— dejaba al grupo de diez con dos o tres tickets
+   * distintos y a la cocina mandando la misma comanda por partes.
+   */
+  abrirMesa(mesaId: ID, mesasUnidas: readonly ID[] = []): ID {
     /*
      * Si la mesa YA está en servicio, se devuelve su cuenta. Abrir otra dejaba
      * la primera huérfana: lo que ya habían pedido desaparecía de la pantalla y
@@ -602,6 +666,10 @@ class TiendaPOS {
     const enCurso = this.ordenActiva(mesaId);
     if (enCurso) return enCurso;
 
+    const unidas = [...new Set(mesasUnidas)].filter(
+      (id) => id !== mesaId && this.estadoMesa(id) === "libre",
+    );
+
     const orden_id = uuidv7();
     this.emitir(
       mesaId,
@@ -609,9 +677,44 @@ class TiendaPOS {
         orden_id,
         mesa_id: mesaId,
         abierta_ts: Date.now(),
+        ...(unidas.length > 0 ? { mesas_unidas: unidas } : {}),
       }),
     );
     return orden_id;
+  }
+
+  /**
+   * Pone en servicio la mesa activa JUNTO CON otras: llegó un grupo grande.
+   *
+   * Se comprueba aquí, y no en la pantalla, que todas estén libres: entre que
+   * el mesero abre el selector y confirma, otra terminal pudo sentar a alguien.
+   */
+  async juntarMesas(otras: readonly ID[]): Promise<void> {
+    const principal = this.mesaActiva;
+    if (this.estadoMesa(principal) !== "libre") {
+      this.flash("Esta mesa ya está en servicio");
+      return;
+    }
+
+    const elegidas = [...new Set(otras)].filter((id) => id !== principal);
+    if (elegidas.length === 0) return;
+    if (elegidas.length + 1 > MAX_MESAS_UNIDAS) {
+      this.flash(`Se pueden juntar hasta ${MAX_MESAS_UNIDAS} mesas en una cuenta`);
+      return;
+    }
+
+    const ocupada = elegidas.find((id) => this.estadoMesa(id) !== "libre");
+    if (ocupada) {
+      this.flash(`La mesa ${plano.nombreMesa(ocupada)} acaba de ocuparse`);
+      return;
+    }
+
+    const permiso = await autorizacion.solicitar("pos.orden.abrir");
+    if (!permiso.ok) return;
+
+    this.sincronizarActor();
+    this.abrirMesa(principal, elegidas);
+    this.flash(`Mesas ${this.nombreMesaActiva} en servicio · una sola cuenta`);
   }
 
   private asegurarOrden(): ID {
@@ -1048,7 +1151,7 @@ class TiendaPOS {
     const permiso = await autorizacion.solicitar(
       "pos.cuenta.reabrir",
       undefined,
-      `cancelar la venta de la mesa ${plano.nombreMesa(comanda.mesa_id)}`,
+      `cancelar la venta de la mesa ${plano.etiquetaMesas(mesasDeComanda(comanda))}`,
     );
     if (!permiso.ok) return false;
 
@@ -1402,7 +1505,7 @@ class TiendaPOS {
           : []),
         ...(local.qrAdicionalParaTicket ? [local.qrAdicionalParaTicket] : []),
       ],
-      mesa: plano.nombreMesa(comanda.mesa_id),
+      mesa: plano.etiquetaMesas(mesasDeComanda(comanda)),
       mesero: sesion.nombreDe(comanda.mesero_id),
       propina: t.propina,
       pagos: comanda.pagos.map((p) => ({
@@ -1473,7 +1576,7 @@ class TiendaPOS {
       ...comunes,
       folio: comanda.orden_id.slice(-8).toUpperCase(),
       ts: Date.now(),
-      mesa: plano.nombreMesa(comanda.mesa_id),
+      mesa: plano.etiquetaMesas(mesasDeComanda(comanda)),
       mesero: sesion.nombreDe(comanda.mesero_id),
       propina: t.propina,
       pagos: comanda.pagos.map((p) => ({

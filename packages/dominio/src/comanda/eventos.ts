@@ -8,8 +8,11 @@
  * genera un `orden_id` NUEVO (UUIDv7) — antes se reusaba `"cmd-" + mesa`, lo que
  * mezclaba clientes distintos en un mismo stream.
  *
- * La mesa NO guarda número de comensales (decisión de Gonzalo): solo su
- * identificador y lo que se ordenó.
+ * Desde la 1.3.5 la mesa del catálogo SÍ guarda cuánta gente cabe (ver
+ * `catalogo/areas.ts`), pero la comanda sigue sin guardar cuántos comensales
+ * llegaron: eso cambia en el momento —se suman dos, se va uno— y un dato que
+ * cambia no es un hecho. Lo que sí queda escrito es QUÉ MESAS ocupa la cuenta,
+ * porque eso sí es un hecho del servicio.
  */
 import type { Centavos } from "../comun/dinero.js";
 import type { ID } from "../comun/ids.js";
@@ -72,8 +75,21 @@ export type EventoComanda =
   | (EventoBase & {
       tipo: "orden_creada";
       orden_id: ID;
+      /** La mesa PRINCIPAL: la que da nombre a la cuenta y guarda su log. */
       mesa_id: ID;
       abierta_ts: number;
+      /**
+       * Las demás mesas que ocupa esta cuenta, si el grupo no cupo en una.
+       *
+       * Ausente = una sola mesa, que es el caso normal y el que escribieron
+       * todos los eventos anteriores a la 1.3.5.
+       *
+       * UNA UNIÓN ES UNA SOLA CUENTA. No son dos comandas que se cobran juntas:
+       * es una comanda que ocupa dos mesas. El log sigue viviendo en el stream
+       * de la principal —lo que mantiene intactos el ticket, la cocina y los
+       * reportes— y las otras mesas quedan ocupadas por referencia a ella.
+       */
+      mesas_unidas?: ID[];
       /**
        * Por dónde entró la venta. Ausente = salón, que es el caso normal y el
        * que ya escribieron todos los eventos anteriores a esto.

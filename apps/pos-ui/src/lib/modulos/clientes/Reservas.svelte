@@ -6,7 +6,14 @@
    * perder gente en la entrada cabe aquí: quién viene, quién se retrasó, qué
    * mesa hay, y cuánto decirle a quien acaba de llegar sin reserva.
    */
-  import { franjaDe, type Reserva } from "@motrest/dominio";
+  import {
+    acomodosParaGrupo,
+    franjaDe,
+    mesasDeComanda,
+    type ID,
+    type OpcionDeAcomodo,
+    type Reserva,
+  } from "@motrest/dominio";
   import { hora } from "../../formato";
   import { plano } from "../../plano.svelte";
   import { pos } from "../../pos.svelte";
@@ -33,6 +40,80 @@
 
   let aviso = $state("");
 
+  // --- Dónde sentar a cada grupo ---
+
+  /*
+   * Un acomodo viaja por el <select> como el JSON de sus mesas: ["m3","m4"].
+   *
+   * No como "m3+m4". El id compuesto obligaba a partirlo del otro lado y a
+   * confiar en que ningún id llevara un "+", y de ahí salían las tres cuentas
+   * separadas para un mismo grupo. El JSON se resuelve sin adivinar.
+   */
+  function claveDe(opcion: OpcionDeAcomodo): string {
+    return JSON.stringify(opcion.mesas);
+  }
+
+  function mesasDeClave(clave: string): ID[] {
+    return clave ? (JSON.parse(clave) as ID[]) : [];
+  }
+
+  /** "Mesa 7 · 6 comensales" o "Juntar 3 + 4 · 8 comensales". */
+  function etiquetaAcomodo(opcion: OpcionDeAcomodo): string {
+    const mesas = plano.etiquetaMesas(opcion.mesas);
+    const donde = opcion.unida ? `Juntar ${mesas}` : `Mesa ${mesas}`;
+    const caben = `${opcion.capacidad} ${opcion.capacidad === 1 ? "comensal" : "comensales"}`;
+    return opcion.sobran > 0 ? `${donde} · ${caben} (sobran ${opcion.sobran})` : `${donde} · ${caben}`;
+  }
+
+  function sinDonde(personas: number): string {
+    return `No hay dónde sentar a ${personas} ${personas === 1 ? "persona" : "personas"}`;
+  }
+
+  /**
+   * Cómo se llama la mesa de una reserva que ya está sentada.
+   *
+   * La reserva guarda solo la principal, pero si el grupo ocupa una unión hay
+   * que decirlo entero: mandar al mesero a "la mesa 3" cuando el grupo está en
+   * la 3 y la 4 es mandarlo a media mesa.
+   */
+  function mesaDeReserva(mesaId: ID): string {
+    const cuenta = pos.comandaDeMesa(mesaId);
+    return plano.etiquetaMesas(cuenta && !cuenta.cerrada ? mesasDeComanda(cuenta) : [mesaId]);
+  }
+
+  /*
+   * Los acomodos se calculan AQUÍ, una vez por tamaño de grupo, y nunca dentro
+   * de un {#each}. Armar combinaciones de mesas por fila y en cada tic del
+   * reloj es lo que arrastraba la tableta del anfitrión un viernes.
+   */
+  const acomodosParaSentar = $derived.by(() => {
+    const porTamano = new Map<number, OpcionDeAcomodo[]>();
+    const grupos = [
+      ...puerta.retrasadas.map((r) => r.personas),
+      ...puerta.esperando.map((r) => r.personas),
+      ...reservas.espera.map((e) => e.personas),
+    ];
+    for (const personas of grupos) {
+      if (!porTamano.has(personas)) porTamano.set(personas, acomodosParaGrupo(libres, personas));
+    }
+    return porTamano;
+  });
+
+  /*
+   * Para confirmar una solicitud se miran TODAS las mesas, no solo las libres:
+   * la reserva es para dentro de tres días y el salón de esta noche no dice
+   * nada de lo que estará libre entonces.
+   */
+  const acomodosParaConfirmar = $derived.by(() => {
+    const porTamano = new Map<number, OpcionDeAcomodo[]>();
+    for (const r of reservas.solicitadas) {
+      if (!porTamano.has(r.personas)) {
+        porTamano.set(r.personas, acomodosParaGrupo(plano.todasLasMesas, r.personas));
+      }
+    }
+    return porTamano;
+  });
+
   // --- Alta de reserva ---
   let abrirAlta = $state(false);
   let nombre = $state("");
@@ -41,12 +122,26 @@
   let personas = $state("2");
   let fecha = $state(new Date().toISOString().slice(0, 10));
   let horaTexto = $state("21:00");
-  let mesaId = $state("");
+  /** El acomodo elegido, serializado. Vacío = sin mesa asignada. */
+  let acomodoAlta = $state("");
 
+  const comensalesAlta = $derived(Math.max(1, Number(personas) || 1));
+  const acomodosAlta = $derived(acomodosParaGrupo(plano.todasLasMesas, comensalesAlta));
+  const mesasAlta = $derived(mesasDeClave(acomodoAlta));
   const paraTs = $derived(new Date(`${fecha}T${horaTexto || "00:00"}`).getTime());
+
+  /*
+   * Al cambiar el número de personas, el acomodo elegido puede desaparecer de
+   * la lista. Se suelta en cuanto pasa: un desplegable que se ve en blanco
+   * pero guarda una mesa por dentro aparta la mesa equivocada.
+   */
+  $effect(() => {
+    if (acomodoAlta && !acomodosAlta.some((o) => claveDe(o) === acomodoAlta)) acomodoAlta = "";
+  });
+
   /* Se avisa del choque MIENTRAS se captura, no al guardar. */
   const choques = $derived(
-    mesaId && Number.isFinite(paraTs) ? reservas.choques(mesaId, paraTs) : [],
+    mesasAlta[0] && Number.isFinite(paraTs) ? reservas.choques(mesasAlta[0], paraTs) : [],
   );
   const plantones = $derived(reservas.plantonesDe(telefono.trim() || undefined));
 
@@ -57,7 +152,8 @@
       correo: correoCliente,
       personas: Number(personas) || 0,
       para_ts: paraTs,
-      mesa_id: mesaId || undefined,
+      /* La reserva aparta la principal; la unión se arma al sentarlos. */
+      mesa_id: mesasAlta[0],
     });
     aviso = r.ok ? "" : (r.error ?? "");
     if (r.ok) {
@@ -68,17 +164,23 @@
     }
   }
 
-  async function sentar(reserva: Reserva, mesa: string) {
-    if (!mesa) return;
-    const r = await reservas.sentar(reserva.id, mesa);
+  async function sentar(reserva: Reserva, clave: string) {
+    if (!clave) return;
+    const r = await reservas.sentar(reserva.id, mesasDeClave(clave));
     aviso = r.ok ? "" : (r.error ?? "");
+  }
+
+  async function sentarDeEspera(esperaId: ID, clave: string) {
+    if (!clave) return;
+    await reservas.sentarDeEspera(esperaId, mesasDeClave(clave));
   }
 
   function confirmar(reserva: Reserva, valor: string) {
     if (!valor) return;
     // "sin-mesa" acepta la reserva sin comprometer una mesa concreta: es lo
     // normal cuando todavía falta una semana y el salón puede cambiar.
-    const r = reservas.confirmar(reserva.id, valor === "sin-mesa" ? undefined : valor);
+    const mesas = valor === "sin-mesa" ? [] : mesasDeClave(valor);
+    const r = reservas.confirmar(reserva.id, mesas[0]);
     aviso = r.ok ? "" : (r.error ?? "");
   }
 
@@ -170,11 +272,15 @@
         </label>
         <label>
           <span>Mesa</span>
-          <select bind:value={mesaId}>
+          <select bind:value={acomodoAlta}>
             <option value="">Sin mesa asignada</option>
-            {#each plano.todasLasMesas as m (m.id)}
-              <option value={m.id}>{m.nombre}</option>
-            {/each}
+            {#if acomodosAlta.length === 0}
+              <option value="" disabled>{sinDonde(comensalesAlta)}</option>
+            {:else}
+              {#each acomodosAlta as opcion (claveDe(opcion))}
+                <option value={claveDe(opcion)}>{etiquetaAcomodo(opcion)}</option>
+              {/each}
+            {/if}
           </select>
         </label>
       </div>
@@ -222,6 +328,7 @@
       </p>
 
       {#each reservas.solicitadas as r (r.id)}
+        {@const opciones = acomodosParaConfirmar.get(r.personas) ?? []}
         <article class="reserva pedida">
           <div class="datos">
             <b>{r.nombre}</b>
@@ -236,7 +343,13 @@
             <select onchange={(e) => confirmar(r, e.currentTarget.value)}>
               <option value="">Confirmar en…</option>
               <option value="sin-mesa">Sin asignar mesa</option>
-              {#each plano.todasLasMesas as m (m.id)}<option value={m.id}>{m.nombre}</option>{/each}
+              {#if opciones.length === 0}
+                <option value="" disabled>{sinDonde(r.personas)}</option>
+              {:else}
+                {#each opciones as opcion (claveDe(opcion))}
+                  <option value={claveDe(opcion)}>{etiquetaAcomodo(opcion)}</option>
+                {/each}
+              {/if}
             </select>
             <button class="mini x" onclick={() => cancelar(r)}>Rechazar</button>
           {/if}
@@ -253,6 +366,7 @@
       {#if puerta.retrasadas.length > 0}
         <h3 class="alerta">Se retrasaron</h3>
         {#each puerta.retrasadas as r (r.id)}
+          {@const opciones = acomodosParaSentar.get(r.personas) ?? []}
           <article class="reserva tarde">
             <div class="datos">
               <b>{r.nombre}</b>
@@ -265,7 +379,13 @@
             {#if puedeEditar}
               <select onchange={(e) => sentar(r, e.currentTarget.value)}>
                 <option value="">Sentar en…</option>
-                {#each libres as m (m.id)}<option value={m.id}>{m.nombre}</option>{/each}
+                {#if opciones.length === 0}
+                  <option value="" disabled>{sinDonde(r.personas)}</option>
+                {:else}
+                  {#each opciones as opcion (claveDe(opcion))}
+                    <option value={claveDe(opcion)}>{etiquetaAcomodo(opcion)}</option>
+                  {/each}
+                {/if}
               </select>
               <!--
                 Nadie se marca plantado solo: el reloj no sabe que vienen
@@ -282,19 +402,26 @@
         <p class="vacio">Sin reservas por llegar.</p>
       {:else}
         {#each puerta.esperando as r (r.id)}
+          {@const opciones = acomodosParaSentar.get(r.personas) ?? []}
           <article class="reserva">
             <div class="datos">
               <b>{r.nombre}</b>
               <span>
                 {hora(r.para_ts)}–{hora(franjaDe(r).hasta)} · {r.personas}
                 {r.personas === 1 ? "persona" : "personas"}
-                {#if r.mesa_id} · mesa {plano.nombreMesa(r.mesa_id)}{/if}
+                {#if r.mesa_id} · mesa {mesaDeReserva(r.mesa_id)}{/if}
               </span>
             </div>
             {#if puedeEditar}
               <select onchange={(e) => sentar(r, e.currentTarget.value)}>
                 <option value="">Sentar en…</option>
-                {#each libres as m (m.id)}<option value={m.id}>{m.nombre}</option>{/each}
+                {#if opciones.length === 0}
+                  <option value="" disabled>{sinDonde(r.personas)}</option>
+                {:else}
+                  {#each opciones as opcion (claveDe(opcion))}
+                    <option value={claveDe(opcion)}>{etiquetaAcomodo(opcion)}</option>
+                  {/each}
+                {/if}
               </select>
               <button class="mini x" onclick={() => cancelar(r)}>Cancelar</button>
             {/if}
@@ -342,6 +469,7 @@
         <p class="vacio">Nadie esperando.</p>
       {:else}
         {#each reservas.espera as e, i (e.id)}
+          {@const opciones = acomodosParaSentar.get(e.personas) ?? []}
           <article class="reserva">
             <div class="datos">
               <b>{i + 1}. {e.nombre}</b>
@@ -352,9 +480,15 @@
               </span>
             </div>
             {#if puedeEditar}
-              <select onchange={(e2) => reservas.sentarDeEspera(e.id, e2.currentTarget.value)}>
+              <select onchange={(e2) => sentarDeEspera(e.id, e2.currentTarget.value)}>
                 <option value="">Sentar en…</option>
-                {#each libres as m (m.id)}<option value={m.id}>{m.nombre}</option>{/each}
+                {#if opciones.length === 0}
+                  <option value="" disabled>{sinDonde(e.personas)}</option>
+                {:else}
+                  {#each opciones as opcion (claveDe(opcion))}
+                    <option value={claveDe(opcion)}>{etiquetaAcomodo(opcion)}</option>
+                  {/each}
+                {/if}
               </select>
               <button class="mini x" onclick={() => reservas.quitarDeEspera(e.id)}>Se fue</button>
             {/if}

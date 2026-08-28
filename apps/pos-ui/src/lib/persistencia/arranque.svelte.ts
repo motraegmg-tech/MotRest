@@ -214,6 +214,30 @@ class Arranque {
       sesion.marcarTerminalPrincipal(esLaCaja() || !sync.configurado);
 
       const guardados = await almacen.eventos.leerTodos();
+      const ordenados = [...guardados].sort(compararEventos);
+
+      /*
+       * LA IDENTIDAD SE REHIDRATA SIEMPRE, incluso con el log vacío.
+       *
+       * Estaba dentro del `else`, y ese detalle dejaba a una terminal que espera
+       * al Hub operando contra la SEMILLA compilada en el programa en vez de
+       * contra lo que hay en su disco: ni leía las credenciales guardadas ni
+       * aplicaba las cuentas de la licencia. En una compilación de desarrollo el
+       * síntoma era una pantalla de acceso ofreciendo a «Gonzalo DJA», «Marco» y
+       * «Lucía» —los usuarios de juguete— en lugar de la cuenta que el
+       * restaurante creó, y con sus PIN de fábrica funcionando.
+       *
+       * Peor: `conectarAlmacen` guarda los secretos justo después, así que ese
+       * mapa de credenciales de juguete se escribía ENCIMA del que tenía el
+       * equipo. El PIN elegido por el local no «no se guardaba»: se borraba.
+       *
+       * Con el log vacío la lista sale vacía, que es la respuesta correcta —y la
+       * pantalla ya lo explica: «esta terminal todavía no ha recibido el personal».
+       *
+       * No basta con excluir las familias conocidas: un tipo nuevo o malformado
+       * jamás debe llegar al reducer de identidad.
+       */
+      await sesion.hidratar(ordenados.filter(esEventoIdentidad), almacen);
 
       if (guardados.length === 0) {
         // Una terminal que se une a un local existente NO inventa su propio
@@ -226,16 +250,11 @@ class Arranque {
           await this.sembrar();
         }
       } else {
-        const ordenados = [...guardados].sort(compararEventos);
         const comanda = ordenados.filter((e) =>
           TIPOS_COMANDA.has((e as EventoComanda).tipo),
         ) as EventoComanda[];
-        // No basta con excluir las familias conocidas: un tipo nuevo o
-        // malformado jamás debe llegar al reducer de identidad.
-        const identidad = ordenados.filter(esEventoIdentidad);
 
         pos.hidratar(comanda);
-        await sesion.hidratar(identidad, almacen);
         await fiscal.hidratar(
           ordenados.filter((e) => TIPOS_FISCALES.has((e as EventoFiscal).tipo)) as EventoFiscal[],
           almacen,
@@ -295,7 +314,7 @@ class Arranque {
       // Migración idempotente: una instalación que ya tenía operación pero
       // todavía no registraba usuarios deja por fin la semilla que el Hub
       // necesita. Una terminal nueva que espera datos del Hub no siembra.
-      if (!this.esperandoHub) await sesion.sembrarUsuariosIniciales(almacen);
+      if (!this.esperandoHub) await this.sembrarUsuarios(almacen);
 
       // A partir de aquí, cada evento emitido se persiste.
       pos.conectarAlmacen(almacen);
@@ -372,8 +391,10 @@ class Arranque {
       pos.hidratar([]);
     }
 
-    await sesion.hidratar([], almacen);
-    await sesion.sembrarUsuariosIniciales(almacen);
+    // La identidad ya se rehidrató al arrancar, con el log completo delante.
+    // Volver a hacerlo aquí con una lista vacía la borraría: es justo lo que
+    // pasaba al estrenar un local desde una terminal ya emparejada.
+    await this.sembrarUsuarios(almacen);
     await fiscal.hidratar([], almacen);
     inventario.hidratar([]);
     egresos.hidratar([]);
@@ -384,6 +405,25 @@ class Arranque {
     opiniones.hidratar([]);
     reservas.hidratar([]);
     socios.hidratar([]);
+  }
+
+  /**
+   * Escribe la semilla de usuarios, si es que en esta terminal procede.
+   *
+   * **Nunca en una terminal enlazada con un Hub**, y esa es la corrección: los
+   * usuarios de juguete de la compilación de desarrollo —«Gonzalo DJA», «Marco»
+   * y «Lucía», con PIN escritos en el código fuente— se estaban emitiendo como
+   * `usuario_creado` en el log del local y viajando al Hub, donde quedaban
+   * grabados como personal de verdad. Un programador que arranca `dev:pos`
+   * contra el Hub del restaurante le mete tres cuentas que ya no salen solas.
+   *
+   * Un POS suelto en isla sí los sigue teniendo: es el escenario para el que
+   * existen, probar sin dar de alta a nadie, y ahí no contaminan a ningún local.
+   * En producción la semilla está vacía, así que esto no cambia nada.
+   */
+  private async sembrarUsuarios(almacen: Almacen): Promise<void> {
+    if (sync.configurado) return;
+    await sesion.sembrarUsuariosIniciales(almacen);
   }
 
   /**
@@ -399,6 +439,19 @@ class Arranque {
     // Ya llegó la operación del local: la terminal deja de estar en blanco.
     this.esperandoHub = false;
     const ordenados = [...eventos].sort(compararEventos);
+
+    /*
+     * EL PERSONAL DEL LOCAL, LO PRIMERO.
+     *
+     * Faltaba, y era la otra mitad del defecto: una terminal recién enlazada
+     * guardaba en su disco los `usuario_creado` que le mandaba el Hub pero no se
+     * los daba a nadie, así que la pantalla de acceso seguía enseñando la lista
+     * con la que había arrancado hasta que se cerrara y volviera a abrir la
+     * aplicación. Va antes que la operación porque las comandas se atribuyen a
+     * un empleado y conviene que ese empleado ya exista al pintarlas.
+     */
+    const identidad = ordenados.filter(esEventoIdentidad);
+    if (identidad.length > 0) sesion.integrar(identidad);
 
     const comanda = ordenados.filter((e) =>
       TIPOS_COMANDA.has((e as EventoComanda).tipo),
@@ -469,6 +522,18 @@ class Arranque {
     this.esperandoHub = false;
 
     await this.sembrar();
+    /*
+     * Y ESTA TERMINAL PUEDE DAR DE ALTA AL RESPONSABLE.
+     *
+     * La regla general —una tablet emparejada no crea propietarios— protege al
+     * negocio de quien tome la tablet del salón. Aquí no hay negocio que
+     * proteger: el Hub acaba de decir que no tiene ni un evento, así que este
+     * local no ha abierto nunca y alguien tiene que crear la primera cuenta.
+     * Sin esto, una terminal enlazada a un Hub estrenado se quedaba sin
+     * usuarios, sin alta y sin salida: «esta terminal todavía no ha recibido el
+     * personal del restaurante» para siempre.
+     */
+    sesion.marcarTerminalPrincipal(true);
     this.cargarAlmacenInicial();
     // Lo sembrado sale hacia el Hub como cualquier otra operación.
     sync.empujar();

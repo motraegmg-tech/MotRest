@@ -6,9 +6,11 @@
  * replicará con CRUD/LWW comparando `version` y `updated_at`.
  */
 import {
+  LIMITES_MESA,
   LIMITES_RETICULA,
   areaDe,
   cabeEnArea,
+  capacidadDe,
   haySolape,
   idCorto,
   mesaDe,
@@ -124,6 +126,25 @@ class StorePlano {
 
   nombreMesa(mesaId: ID): string {
     return this.mesa(mesaId)?.nombre ?? "—";
+  }
+
+  /**
+   * Cómo se llama una cuenta que ocupa varias mesas: "3 + 4".
+   *
+   * Va por aquí y no concatenado en cada pantalla para que el ticket, la
+   * cocina, el encabezado y el corte digan exactamente lo mismo. Una cuenta que
+   * en la pantalla es «3 + 4» y en el papel es «3» es una discusión con el
+   * comensal esperando a ocurrir.
+   */
+  etiquetaMesas(mesaIds: readonly ID[]): string {
+    if (mesaIds.length === 0) return "—";
+    return mesaIds.map((id) => this.nombreMesa(id)).join(" + ");
+  }
+
+  /** Cuántos comensales caben, con la fórmula única del dominio. */
+  capacidadMesa(mesaId: ID): number {
+    const mesa = this.mesa(mesaId);
+    return mesa ? capacidadDe(mesa) : 0;
   }
 
   areaDeMesa(mesaId: ID): Area | undefined {
@@ -285,6 +306,38 @@ class StorePlano {
     this.aplicar((p) => ({
       ...p,
       mesas: p.mesas.map((m) => (m.id === mesaId ? nueva : m)),
+    }));
+    return { ok: true };
+  }
+
+  /**
+   * Fija cuántos comensales caben en una mesa.
+   *
+   * Se guarda el número tal cual lo dice el restaurante, acotado a los límites
+   * del dominio. Pasar `null` borra el dato y devuelve la mesa a la estimación
+   * por tamaño, que es lo correcto cuando alguien se arrepiente: dejar un número
+   * viejo «pegado» sería peor que no tenerlo.
+   */
+  cambiarCapacidad(mesaId: ID, capacidad: number | null): Resultado {
+    const mesa = mesaDe(this.datos, mesaId);
+    if (!mesa) return { ok: false, error: "Mesa no encontrada" };
+
+    let valor: number | undefined;
+    if (capacidad !== null) {
+      const entero = Math.round(capacidad);
+      if (!Number.isFinite(entero)) return { ok: false, error: "Escribe un número" };
+      if (entero < LIMITES_MESA.capacidadMin || entero > LIMITES_MESA.capacidadMax) {
+        return {
+          ok: false,
+          error: `La capacidad va de ${LIMITES_MESA.capacidadMin} a ${LIMITES_MESA.capacidadMax} comensales`,
+        };
+      }
+      valor = entero;
+    }
+
+    this.aplicar((p) => ({
+      ...p,
+      mesas: p.mesas.map((m) => (m.id === mesaId ? { ...m, capacidad: valor } : m)),
     }));
     return { ok: true };
   }

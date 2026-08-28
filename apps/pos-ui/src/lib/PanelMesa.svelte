@@ -7,6 +7,8 @@
    * aparece cuando de verdad se va a ordenar.
    */
   import {
+    MAX_MESAS_UNIDAS,
+    capacidadDe,
     desglosarConTasas,
     importeRenglon,
     nombreDia,
@@ -44,12 +46,58 @@
   );
   /** Solo quien administra personal tiene por qué ver el camino a la tabla. */
   const puedeEditarRol = $derived(sesion.puedeVer("rrhh.empleado.editar"));
+
+  // --- Juntar mesas -------------------------------------------------------------
+
+  /*
+   * LLEGARON DIEZ Y LA MESA ES DE CUATRO.
+   *
+   * Hasta la 1.3.4 esto se resolvía abriendo dos cuentas y cobrando dos veces al
+   * mismo grupo, o cargándolo todo a una mesa y dejando la otra «libre» con
+   * gente sentada. Ahora es UNA cuenta que ocupa varias mesas: la cocina recibe
+   * una comanda, el ticket sale uno, y al cobrar se sueltan todas juntas.
+   */
+  let juntando = $state(false);
+  let elegidas = $state<string[]>([]);
+
+  /** Candidatas: libres, de la misma área y que no sean la de aquí. */
+  const juntables = $derived(
+    plano.mesas.filter((m) => m.id !== pos.mesaActiva && pos.estadoMesa(m.id) === "libre"),
+  );
+
+  const capacidadJunta = $derived(
+    plano.capacidadMesa(pos.mesaActiva) +
+      elegidas.reduce((suma, id) => suma + plano.capacidadMesa(id), 0),
+  );
+
+  /** Cuántas más se pueden marcar sin pasarse del tope de mesas por cuenta. */
+  const quedanPorMarcar = $derived(MAX_MESAS_UNIDAS - 1 - elegidas.length);
+
+  function alternar(mesaId: string) {
+    elegidas = elegidas.includes(mesaId)
+      ? elegidas.filter((id) => id !== mesaId)
+      : quedanPorMarcar > 0
+        ? [...elegidas, mesaId]
+        : elegidas;
+  }
+
+  function cancelarJuntar() {
+    juntando = false;
+    elegidas = [];
+  }
+
+  async function confirmarJuntar() {
+    await pos.juntarMesas(elegidas);
+    cancelarJuntar();
+  }
 </script>
 
 <section class="panel">
   <div class="cabecera">
     <div class="identidad">
-      <span class="rotulo">Mesa</span>
+      <!-- «Mesas» en plural cuando la cuenta ocupa varias: es una sola cuenta,
+           pero el mesero tiene que ver de un vistazo que atiende dos muebles. -->
+      <span class="rotulo">{pos.mesasDeLaCuentaActiva.length > 1 ? "Mesas" : "Mesa"}</span>
       <span class="numero">{pos.nombreMesaActiva}</span>
       {#if area}<span class="area">{area.nombre}</span>{/if}
     </div>
@@ -75,11 +123,63 @@
 
   {#if estado === "libre"}
     <div class="centro">
-      <p class="mensaje">Esta mesa está libre.</p>
-      <p class="ayuda">Cuando lleguen los comensales, ponla en servicio para abrir su cuenta.</p>
-      <button class="principal" onclick={() => pos.ponerEnServicio()}>
-        Llegaron comensales · poner en servicio
-      </button>
+      {#if juntando}
+        <p class="mensaje">¿Con qué mesas se junta?</p>
+        <p class="ayuda">
+          Se abrirá <b>una sola cuenta</b> para todas: un ticket, una comanda a
+          cocina y un cobro. Al cerrarla se liberan juntas.
+        </p>
+
+        {#if juntables.length === 0}
+          <p class="ayuda">No hay ninguna otra mesa libre en {area?.nombre ?? "esta área"}.</p>
+        {:else}
+          <div class="juntables">
+            {#each juntables as m (m.id)}
+              {@const marcada = elegidas.includes(m.id)}
+              <button
+                class="juntable"
+                class:on={marcada}
+                disabled={!marcada && quedanPorMarcar === 0}
+                onclick={() => alternar(m.id)}
+              >
+                <b>{m.nombre}</b>
+                <small>{capacidadDe(m)} pers.</small>
+              </button>
+            {/each}
+          </div>
+
+          <p class="capacidad">
+            {#if elegidas.length === 0}
+              Marca al menos una mesa. Se pueden juntar hasta {MAX_MESAS_UNIDAS}.
+            {:else}
+              Mesa {pos.nombreMesaActiva} + {elegidas.length}
+              {elegidas.length === 1 ? "mesa" : "mesas"} ·
+              <b>{capacidadJunta} comensales</b>
+            {/if}
+          </p>
+        {/if}
+
+        <div class="dos-botones">
+          <button class="secundario" onclick={cancelarJuntar}>Cancelar</button>
+          <button class="principal" disabled={elegidas.length === 0} onclick={confirmarJuntar}>
+            Juntar y poner en servicio
+          </button>
+        </div>
+      {:else}
+        <p class="mensaje">Esta mesa está libre.</p>
+        <p class="ayuda">
+          Cuando lleguen los comensales, ponla en servicio para abrir su cuenta.
+          Caben <b>{plano.capacidadMesa(pos.mesaActiva)}</b>.
+        </p>
+        <button class="principal" onclick={() => pos.ponerEnServicio()}>
+          Llegaron comensales · poner en servicio
+        </button>
+        {#if juntables.length > 0}
+          <button class="secundario" onclick={() => (juntando = true)}>
+            Son más de {plano.capacidadMesa(pos.mesaActiva)} · juntar mesas
+          </button>
+        {/if}
+      {/if}
     </div>
   {:else if pos.comanda}
     <div class="resumen">
@@ -382,6 +482,81 @@
   }
   .principal:hover {
     filter: brightness(1.05);
+  }
+  .principal:disabled {
+    background: var(--borde);
+    color: var(--gris);
+    box-shadow: none;
+    cursor: not-allowed;
+  }
+
+  /* --- Juntar mesas ------------------------------------------------------- */
+
+  .secundario {
+    border: 1.5px solid var(--borde);
+    border-radius: var(--r-md);
+    background: var(--blanco);
+    padding: 0.6rem 1.1rem;
+    font-family: var(--font-titulo);
+    font-size: 0.9rem;
+    font-weight: 600;
+    color: var(--gris);
+    cursor: pointer;
+  }
+  .secundario:hover {
+    border-color: var(--acento);
+    color: var(--acento);
+  }
+  .dos-botones {
+    display: flex;
+    gap: 0.5rem;
+    align-items: center;
+  }
+  .juntables {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 0.4rem;
+    max-width: 26rem;
+  }
+  .juntable {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.1rem;
+    min-width: 3.6rem;
+    border: 1.5px solid var(--borde);
+    border-radius: var(--r-md);
+    background: var(--blanco);
+    padding: 0.45rem 0.6rem;
+    cursor: pointer;
+  }
+  .juntable b {
+    font-family: var(--font-titulo);
+    font-size: 1rem;
+    color: var(--pizarra);
+  }
+  .juntable small {
+    font-size: 0.66rem;
+    color: var(--gris);
+  }
+  .juntable.on {
+    border-color: var(--acento);
+    background: var(--claro);
+  }
+  .juntable.on b {
+    color: var(--acento);
+  }
+  .juntable:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+  }
+  .capacidad {
+    font-size: 0.88rem;
+    color: var(--gris);
+  }
+  .capacidad b {
+    color: var(--acento);
   }
   .recordatorio {
     font-size: 0.82rem;

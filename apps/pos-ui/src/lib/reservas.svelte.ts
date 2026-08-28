@@ -148,22 +148,35 @@ class StoreReservas {
    * Las dos cosas van juntas a propósito. Sentar en la agenda y abrir la mesa
    * por separado es como se llega al viernes con reservas "pendientes" que ya
    * están comiendo.
+   *
+   * `mesas` viene de un acomodo del dominio: una sola mesa, o varias que se
+   * juntan. La primera lleva la cuenta y las demás quedan colgadas de ella —
+   * UNA cuenta para todo el grupo. Abrir una por mesa dejaba al grupo de diez
+   * con tres tickets y a la cocina mandando la comanda por partes.
    */
-  async sentar(reservaId: ID, mesaId: ID): Promise<{ ok: boolean; error?: string }> {
+  async sentar(reservaId: ID, mesas: readonly ID[]): Promise<{ ok: boolean; error?: string }> {
     const reserva = this.reservas.find((r) => r.id === reservaId);
     if (!reserva) return { ok: false, error: "Esa reserva ya no existe" };
     if (reserva.estado !== "apartada") {
       return { ok: false, error: "Esa reserva ya no está en pie" };
     }
 
-    pos.seleccionarMesa(mesaId);
-    const ordenId = pos.abrirMesa(mesaId);
+    const [principal, ...resto] = mesas;
+    if (!principal) return { ok: false, error: "Elige en qué mesa se sientan" };
+
+    pos.seleccionarMesa(principal);
+    const ordenId = pos.abrirMesa(principal, resto);
     await pos.identificar(reserva.nombre, reserva.telefono, reserva.cliente_id);
 
+    /*
+     * En el log de reservas se apunta la principal y nada más. La unión ya
+     * quedó escrita en el `orden_creada`, que es donde vive: duplicarla aquí
+     * daría dos verdades que se pueden contradecir si el mesero mueve al grupo.
+     */
     this.emitir(
       this.fabrica.crear("reserva_sentada", streamReservas(SUCURSAL_ID), {
         reserva_id: reservaId,
-        mesa_id: mesaId,
+        mesa_id: principal,
         orden_id: ordenId,
       }),
     );
@@ -258,13 +271,22 @@ class StoreReservas {
     this.espera = this.espera.filter((e) => e.id !== id);
   }
 
-  /** Sienta a quien esperaba y lo saca de la lista. */
-  async sentarDeEspera(id: ID, mesaId: ID): Promise<void> {
+  /**
+   * Sienta a quien esperaba y lo saca de la lista.
+   *
+   * Igual que en las reservas: `mesas` es un acomodo, la primera lleva la
+   * cuenta y las demás se le unen. Quien esperó de pie con seis personas se
+   * sienta en dos mesas juntas, pero paga una sola vez.
+   */
+  async sentarDeEspera(id: ID, mesas: readonly ID[]): Promise<void> {
     const quien = this.espera.find((e) => e.id === id);
     if (!quien) return;
 
-    pos.seleccionarMesa(mesaId);
-    pos.abrirMesa(mesaId);
+    const [principal, ...resto] = mesas;
+    if (!principal) return;
+
+    pos.seleccionarMesa(principal);
+    pos.abrirMesa(principal, resto);
     await pos.identificar(quien.nombre, quien.telefono);
     this.quitarDeEspera(id);
   }

@@ -6,7 +6,7 @@
  * que la cocina ve.
  */
 import type { ID } from "../comun/ids.js";
-import type { EstadoComanda } from "../comanda/reducers.js";
+import { mesasDeComanda, type EstadoComanda } from "../comanda/reducers.js";
 import { minutosEnCocina, type RenglonComanda } from "../comanda/renglon.js";
 import { semaforoDe, semaforoPeor, type EstacionKds, type Semaforo } from "./estaciones.js";
 
@@ -32,6 +32,15 @@ export interface RenglonKds {
 export interface TicketKds {
   orden_id: ID;
   mesa_id: ID;
+  /**
+   * Todas las mesas de la cuenta, la principal primero.
+   *
+   * Un grupo grande ocupa varias mesas con UNA sola cuenta, y quien lleva el
+   * plato necesita saberlo: mandarlo a la «mesa 3» cuando el grupo está en la 3
+   * y la 4 es una vuelta de más con la comida en la mano. Siempre trae al menos
+   * una: en una cuenta normal es la mesa de siempre.
+   */
+  mesas: ID[];
   /**
    * A nombre de quién va, si es un pedido para llevar.
    *
@@ -106,6 +115,7 @@ export function proyectarTablero(
     tickets.push({
       orden_id: comanda.orden_id,
       mesa_id: comanda.mesa_id,
+      mesas: mesasDeComanda(comanda),
       a_nombre_de: comanda.a_nombre_de,
       mesero_id: comanda.mesero_id,
       enviado_ts,

@@ -111,7 +111,10 @@
               {#if ticket.a_nombre_de}
                 {ticket.a_nombre_de}
               {:else}
-                Mesa {plano.nombreMesa(ticket.mesa_id)}
+                <!-- Las mesas EN PLURAL cuando el grupo ocupa varias: quien
+                     lleva el plato tiene que saber a dónde va. -->
+                {ticket.mesas.length > 1 ? "Mesas" : "Mesa"}
+                {plano.etiquetaMesas(ticket.mesas)}
               {/if}
             </span>
             <span class="tiempo">{minutos(ticket.minutos)}</span>

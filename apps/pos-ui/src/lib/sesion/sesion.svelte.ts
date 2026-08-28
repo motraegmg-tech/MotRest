@@ -9,6 +9,7 @@ import {
   FabricaEventos,
   MAX_INTENTOS,
   ROLES,
+  compararEventos,
   crearCredencial,
   etiquetaAccion,
   evaluar,
@@ -119,6 +120,14 @@ class Sesion {
 
   /** Credenciales por usuario. No es estado reactivo: no se muestra jamás. */
   private credenciales = new Map<ID, Credencial[]>();
+  /**
+   * Cuentas que monta la licencia y NO viven en el event log.
+   *
+   * Hoy es el acceso de soporte de MOTRAE. Se apunta para poder conservarlas al
+   * reproyectar la identidad con lo que llega del Hub: una proyección del log
+   * jamás las devuelve, así que sin esta lista desaparecerían solas.
+   */
+  private montadasPorLicencia = new Set<ID>();
   /** Qué provisión firmada ya se aplicó al responsable de este local. */
   private provisionesResponsable = $state<Record<ID, { provision_id: string; debe_cambiar_credencial: boolean }>>({});
   /** Hash del código de rescate. El código en claro nunca se guarda. */
@@ -167,6 +176,45 @@ class Sesion {
   // --- Persistencia -------------------------------------------------------------
 
   /**
+   * Sobre qué usuarios se reproyecta el log. En producción, sobre ninguno.
+   *
+   * La semilla es la lista de juguete de la compilación de desarrollo. Sirve
+   * para probar sin dar de alta a nadie, y **solo** en ese caso: en cuanto hay
+   * un local de verdad detrás, tiene que desaparecer de la pantalla. Se cae por
+   * dos motivos distintos y los dos importan:
+   *
+   *  - **El local ya tiene identidad propia.** Hay un `usuario_creado` en el
+   *    log, así que el personal del restaurante existe y la semilla solo puede
+   *    estorbar —conviviendo con él en la lista de acceso, o peor: el reducer
+   *    IGNORA un `usuario_creado` cuyo id ya está en la base, y como el
+   *    responsable reutiliza el id de la semilla (`usr-gonzalo`), su alta se
+   *    descartaba al reproyectar y la cuenta volvía a llamarse «Gonzalo DJA».
+   *
+   *  - **El personal lo manda un Hub.** Una terminal enlazada no inventa a nadie:
+   *    espera a recibir la plantilla del local. Enseñar mientras tanto a Marco y
+   *    a Lucía —con sus PIN escritos en el código fuente— es ofrecer una puerta
+   *    de entrada que el restaurante no abrió.
+   */
+  private semillaAplicable(eventos: readonly EventoIdentidad[]): Usuario[] {
+    if (!this.terminalPrincipal) return [];
+    if (eventos.some((evento) => evento.tipo === "usuario_creado")) return [];
+    return USUARIOS_SEMILLA.map((sembrado) => ({ ...sembrado.usuario }));
+  }
+
+  /**
+   * Tira los PIN de fábrica de los usuarios de juguete que ya no se enseñan.
+   *
+   * Se compara contra la lista proyectada y NO contra la semilla a secas: el
+   * responsable del restaurante hereda el id del propietario sembrado, así que
+   * borrar por id sin mirar quién está vivo le quitaría al local su propio PIN.
+   */
+  private olvidarCredencialesDeSemilla(): void {
+    for (const { usuario } of USUARIOS_SEMILLA) {
+      if (!this.usuarios.some((u) => u.id === usuario.id)) this.credenciales.delete(usuario.id);
+    }
+  }
+
+  /**
    * Rehidrata identidad desde el event log y el almacén local:
    *  - usuarios y bloqueos, proyectados desde los eventos sobre la semilla;
    *  - credenciales e intentos, que NO van al log porque son secretos;
@@ -174,17 +222,24 @@ class Sesion {
    */
   async hidratar(eventos: readonly EventoIdentidad[], almacen: Almacen): Promise<void> {
     this.eventos = [...eventos];
+    /*
+     * El almacén se adopta AQUÍ y no solo en `conectarAlmacen`.
+     *
+     * Rehidratar puede emitir —el usuario por defecto de la demostración abre
+     * sesión— y hasta ahora esos eventos salían con `this.almacen` todavía en
+     * null: se perdían y, de paso, encendían el cartel de «este equipo no está
+     * guardando los cambios» sin que nada estuviera roto.
+     */
+    this.almacen = almacen;
 
-    const proyeccion = proyectarIdentidad(
-      USUARIOS_SEMILLA.map((s) => s.usuario),
-      eventos,
-    );
+    const proyeccion = proyectarIdentidad(this.semillaAplicable(eventos), eventos);
     this.usuarios = proyeccion.usuarios;
 
     const guardadas = await almacen.estado.cargar<Record<ID, Credencial[]>>(CLAVES.credenciales);
     if (guardadas) {
       this.credenciales = new Map(Object.entries(guardadas));
     }
+    this.olvidarCredencialesDeSemilla();
     /* El soporte se deriva de la licencia actual; nunca sobrevive por su cuenta. */
     this.credenciales.delete(USUARIO_SOPORTE_ID);
 
@@ -260,6 +315,66 @@ class Sesion {
     void this.guardarSecretos();
     void this.olvidarSesionEnDisco(almacen);
     this.guardarSesionActiva();
+  }
+
+  /**
+   * Integra el personal que llega del Hub o de otra terminal.
+   *
+   * Es el equivalente de `pos.integrar` para la identidad, y faltaba: los
+   * `usuario_creado` que mandaba el Hub se guardaban en el disco de la terminal
+   * y ahí se quedaban. La pantalla de acceso seguía enseñando la lista con la
+   * que había arrancado —en desarrollo, los usuarios de juguete— hasta que
+   * alguien cerraba y volvía a abrir la aplicación. Una tablet recién enlazada
+   * tenía que reiniciarse para ver a su propio personal.
+   *
+   * Los eventos ya vienen guardados por el cliente de sincronización; aquí solo
+   * se reproyecta. Es idempotente: reaplicar lo que ya se tenía no cambia nada,
+   * porque la proyección es una función pura del log (ADR-02).
+   */
+  integrar(eventos: readonly EventoIdentidad[]): void {
+    const conocidos = new Set(this.eventos.map((evento) => evento.id));
+    const nuevos = eventos.filter((evento) => !conocidos.has(evento.id));
+    if (nuevos.length === 0) return;
+
+    this.eventos = [...this.eventos, ...nuevos].sort(compararEventos);
+    const proyeccion = proyectarIdentidad(this.semillaAplicable(this.eventos), this.eventos);
+
+    /*
+     * El acceso de soporte de MOTRAE no sale de la proyección: lo monta la
+     * licencia y no vive en el log. Sin conservarlo aparte, la primera tanda de
+     * eventos que llegara del Hub lo borraría de la pantalla de acceso.
+     */
+    const fueraDelLog = this.usuarios.filter(
+      (u) =>
+        this.montadasPorLicencia.has(u.id) &&
+        !proyeccion.usuarios.some((proyectado) => proyectado.id === u.id),
+    );
+    this.usuarios = [...proyeccion.usuarios, ...fueraDelLog];
+    this.olvidarCredencialesDeSemilla();
+
+    for (const id of proyeccion.bloqueados) {
+      if ((this.intentos[id]?.fallos ?? 0) < MAX_INTENTOS) {
+        this.intentos = {
+          ...this.intentos,
+          [id]: { fallos: MAX_INTENTOS, ultimo_fallo_ts: Date.now() },
+        };
+      }
+    }
+
+    /*
+     * Quien esté en sesión se refresca contra la lista nueva.
+     *
+     * Si desde otra terminal le cambiaron los permisos, tienen que valer aquí
+     * sin reiniciar; y si le dieron de baja o lo desactivaron, la sesión se
+     * cierra. No se emite `sesion_cerrada`: no la cerró él, y apuntarle en la
+     * bitácora un cierre que no hizo es exactamente lo que se evita en
+     * `cerrarSesion`.
+     */
+    if (this.usuarioActual) {
+      const vigente = this.usuarioDe(this.usuarioActual.id);
+      this.usuarioActual = vigente?.activo ? vigente : null;
+      this.guardarSesionActiva();
+    }
   }
 
   /**
@@ -657,6 +772,7 @@ class Sesion {
       if (!this.usuarios.some((u) => u.id === USUARIO_SOPORTE_ID)) {
         this.usuarios = [...this.usuarios, usuarioSoporte(sucursal)];
       }
+      this.montadasPorLicencia.add(USUARIO_SOPORTE_ID);
       this.credenciales.set(USUARIO_SOPORTE_ID, [credencial]);
     } catch {
       // Sin Hub local, sin soporte. La caja abre igual.
@@ -726,6 +842,9 @@ class Sesion {
 
     const aplicadoAntes = !provisionNueva;
     const usuario = cuenta.usuario;
+    // Mientras el responsable no se dé de alta, su cuenta solo existe en la
+    // licencia: sin apuntarla, la primera tanda del Hub la borraría de la lista.
+    this.montadasPorLicencia.add(usuario.id);
     if (this.usuarios.some((u) => u.id === usuario.id)) {
       this.usuarios = this.usuarios.map((u) => (u.id === usuario.id ? usuario : u));
     } else {
