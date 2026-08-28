@@ -27,6 +27,33 @@ export interface OrigenActualizaciones {
   llaveDeFirma: string;
   /** Token de GitHub. Solo hace falta si el repositorio es privado. */
   token?: string;
+  /**
+   * De dónde sale el manifiesto cuando este local ya habla con la nube.
+   *
+   * Si está, se usa en vez de GitHub. Lo que cambia es SOLO el origen: la firma
+   * Ed25519 se verifica igual, el anillo se aplica igual, la memoria
+   * anti-reversión funciona igual y el SHA-256 se comprueba las mismas tres
+   * veces. Supabase no se vuelve parte de confianza, igual que GitHub nunca lo
+   * fue — un manifiesto sin la firma de MOTRAE se ignora venga de donde venga.
+   *
+   * La consulta se INYECTA en vez de hacerse aquí para no meter el SDK de
+   * Supabase en este archivo: quien ya tiene sesión abierta con la nube es el
+   * enlace del Hub, y el canal de actualizaciones viaja por ella.
+   */
+  nube?: OrigenEnLaNube;
+}
+
+export interface OrigenEnLaNube {
+  /**
+   * El host de Storage del que se permite descargar el instalador.
+   *
+   * Es una lista blanca, igual que `HOSTS_GITHUB`: un manifiesto firmado dice
+   * qué versión instalar, no autoriza a bajarse un ejecutable de cualquier
+   * sitio que aparezca en su campo `url`.
+   */
+  host: string;
+  /** El manifiesto firmado que le toca a ESTE local, o null si no hay. */
+  manifiesto: () => Promise<unknown | null>;
 }
 
 /** El asset del release que lleva el manifiesto firmado. */
@@ -66,11 +93,14 @@ interface ReleaseGitHub {
 type Registrar = (nivel: "info" | "aviso" | "error", texto: string) => void;
 type GuardarMemoria = (memoria: MemoriaDeCanal) => Promise<void> | void;
 
-function urlGitHubSegura(texto: string): URL | null {
+function urlSegura(texto: string, hostDeLaNube?: string): URL | null {
   try {
     const url = new URL(texto);
-    if (url.protocol !== "https:" || !HOSTS_GITHUB.has(url.hostname.toLowerCase())) return null;
-    return url;
+    if (url.protocol !== "https:") return null;
+    const host = url.hostname.toLowerCase();
+    if (HOSTS_GITHUB.has(host)) return url;
+    if (hostDeLaNube && host === hostDeLaNube.toLowerCase()) return url;
+    return null;
   } catch {
     return null;
   }
@@ -126,10 +156,15 @@ export class Actualizaciones {
   ) {}
 
   private cabeceras(url: URL): Record<string, string> {
+    const host = url.hostname.toLowerCase();
+    // A Storage no se le manda nada de GitHub: ni el `accept` de su API, ni por
+    // supuesto el token. La URL firmada ya lleva su propia autorización dentro.
+    if (!HOSTS_GITHUB.has(host)) return { "user-agent": "MotRest-Hub" };
+
     return {
       accept: "application/vnd.github+json",
       "user-agent": "MotRest-Hub",
-      ...(this.origen.token && HOSTS_GITHUB_CON_TOKEN.has(url.hostname.toLowerCase())
+      ...(this.origen.token && HOSTS_GITHUB_CON_TOKEN.has(host)
         ? { authorization: `Bearer ${this.origen.token}` }
         : {}),
     };
@@ -143,8 +178,9 @@ export class Actualizaciones {
    * cabeceras recién calculadas. Así un `Location` malicioso nunca ve el token.
    */
   private async pedir(texto: string): Promise<Response> {
-    const inicial = urlGitHubSegura(texto);
-    if (!inicial) throw new Error("La URL no usa HTTPS en un host permitido de GitHub");
+    const permitido = this.origen.nube?.host;
+    const inicial = urlSegura(texto, permitido);
+    if (!inicial) throw new Error("La URL no usa HTTPS en un host permitido");
     let url: URL = inicial;
 
     for (let salto = 0; salto < 5; salto++) {
@@ -156,10 +192,10 @@ export class Actualizaciones {
 
       const destino: string | null = respuesta.headers.get("location");
       const siguiente: URL | null = destino
-        ? urlGitHubSegura(new URL(destino, url).toString())
+        ? urlSegura(new URL(destino, url).toString(), permitido)
         : null;
       if (!siguiente) {
-        throw new Error("GitHub redirigió la descarga fuera de HTTPS/GitHub");
+        throw new Error("La descarga se redirigió fuera de los hosts permitidos");
       }
       url = siguiente;
     }
@@ -188,13 +224,27 @@ export class Actualizaciones {
     }
   }
 
-  /** ¿Hay algo nuevo publicado y firmado por MOTRAE? */
-  async buscar(ahora = Date.now()): Promise<VersionDisponible | null> {
-    if (!REPOSITORIO_VALIDO.test(this.origen.repositorio)) {
-      this.registrar("error", "El repositorio de actualizaciones no tiene el formato dueño/repositorio");
-      return null;
+  /**
+   * El manifiesto crudo, venga de donde venga. Todavía sin verificar nada.
+   *
+   * Devolver `null` significa «hoy no hay nada que mirar», y es la respuesta
+   * normal la mayoría de los días.
+   */
+  private async traerManifiesto(): Promise<unknown | null> {
+    if (this.origen.nube) {
+      try {
+        return await this.origen.nube.manifiesto();
+      } catch (causa) {
+        // Sin internet, o la nube caída. En un restaurante es normal y no
+        // merece un renglón por cada intento.
+        void causa;
+        return null;
+      }
     }
+    return await this.manifiestoDeGitHub();
+  }
 
+  private async manifiestoDeGitHub(): Promise<unknown | null> {
     let release: ReleaseGitHub;
     try {
       const [dueno, repositorio] = this.origen.repositorio.split("/");
@@ -222,18 +272,33 @@ export class Actualizaciones {
       return null;
     }
 
-    let manifiesto: unknown;
     try {
       const respuesta = await this.pedir(asset.browser_download_url);
       if (!respuesta.ok) return null;
-      manifiesto = await respuesta.json();
+      return await respuesta.json();
     } catch (causa) {
       this.registrar("error", `No se pudo obtener un manifiesto seguro: ${String(causa)}`);
       return null;
     }
+  }
+
+  /** ¿Hay algo nuevo publicado y firmado por MOTRAE? */
+  async buscar(ahora = Date.now()): Promise<VersionDisponible | null> {
+    /*
+     * El repositorio solo tiene que valer si el carril es el de GitHub. Un local
+     * ya migrado a la nube no lo usa para nada, y exigírselo lo dejaría sin
+     * actualizaciones por una configuración que ya no le hace falta.
+     */
+    if (!this.origen.nube && !REPOSITORIO_VALIDO.test(this.origen.repositorio)) {
+      this.registrar("error", "El repositorio de actualizaciones no tiene el formato dueño/repositorio");
+      return null;
+    }
+
+    const manifiesto = await this.traerManifiesto();
+    if (manifiesto === null) return null;
 
     if (!esManifiesto(manifiesto)) {
-      this.registrar("error", "El release trae un manifiesto con formato inválido. Se ignora.");
+      this.registrar("error", "Llegó un manifiesto con formato inválido. Se ignora.");
       return null;
     }
 

@@ -221,7 +221,7 @@ describe("bajar el instalador", () => {
     const llamar = vi.fn() as unknown as typeof fetch;
 
     await expect(hub(llamar, "1.4.0", [], {}, "token-privado").actualizaciones.descargar(version))
-      .rejects.toThrow(/HTTPS en un host permitido de GitHub/);
+      .rejects.toThrow(/HTTPS en un host permitido/);
     expect(llamar).not.toHaveBeenCalled();
   });
 

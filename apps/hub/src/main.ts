@@ -84,6 +84,7 @@ import * as autoarranque from "./autoarranque.js";
 import { GestorLicencia } from "./licencia.js";
 import { Actualizaciones, CADA_MS as ACTUALIZAR_CADA_MS } from "./actualizaciones.js";
 import {
+  LLAVE_PUBLICABLE_NUBE,
   LLAVE_PUBLICA_ACTUALIZACIONES,
   LLAVE_PUBLICA_LICENCIAS,
   REPOSITORIO_ACTUALIZACIONES,
@@ -92,7 +93,12 @@ import { registrarPedido, type PlatilloDeKiosco } from "./kiosco.js";
 import { registrarOpinion, solicitarReserva, verCuenta } from "./portal.js";
 import { Avisos, avisoReservaConfirmada } from "./avisos.js";
 import { Correo } from "./correo.js";
-import { EnlaceRelayWs, type MensajeDelComensal } from "./relay.js";
+import {
+  EnlaceRelayWs,
+  type EnlaceConMotrae,
+  type MensajeDelComensal,
+} from "./relay.js";
+import { EnlaceSupabase, pareceNubeSupabase } from "./enlace-supabase.js";
 import { carpetaCertificados, certificadoTls, type CertificadoTls } from "./certificado.js";
 import { anunciarEnLaRed } from "./descubrimiento.js";
 import { Sellador, carpetaDelCsd } from "./fiscal/sellador.js";
@@ -188,8 +194,14 @@ let arranqueAutomatico: autoarranque.EstadoAutoarranque = { soportado: false, ac
  */
 let secretoPortal = "";
 
-/** El enlace con el relay y la cola de avisos. Nulos si el local no usa WhatsApp. */
-let enlaceRelay: EnlaceRelayWs | null = null;
+/**
+ * El enlace con MOTRAE y la cola de avisos. Nulos si el local todavía no lo tiene.
+ *
+ * El tipo es la interfaz y no la clase a propósito: durante la migración hay dos
+ * transportes vivos —el relay de Fly y la nube de Supabase— y el resto del Hub
+ * no tiene por qué enterarse de cuál le tocó a este local.
+ */
+let enlaceRelay: EnlaceConMotrae | null = null;
 let avisos: Avisos | null = null;
 
 /**
@@ -2226,7 +2238,19 @@ async function prepararActualizaciones(): Promise<void> {
     difundirActualizacion();
   }
 
-  if (!repositorio || !LLAVE_PUBLICA_ACTUALIZACIONES) {
+  /*
+   * DE DÓNDE SALE EL MANIFIESTO: de la nube si este local ya está en ella, y de
+   * GitHub si todavía no.
+   *
+   * Se decide por la dirección de su licencia, la misma que elige el transporte
+   * del enlace. Así un local migra las dos cosas a la vez y no queda a medias
+   * —hablando con la nube pero mirando los releases de GitHub—, que sería un
+   * estado difícil de ver desde fuera y fácil de dejarse puesto.
+   */
+  const urlDeLaNube = process.env.MOTREST_RELAY_URL ?? licencia?.enlaceRelay?.url ?? "";
+  const enLaNube = Boolean(urlDeLaNube) && pareceNubeSupabase(urlDeLaNube);
+
+  if ((!repositorio && !enLaNube) || !LLAVE_PUBLICA_ACTUALIZACIONES) {
     // Un local sin canal de actualización es un caso normal —se actualiza a
     // mano— y no un error que haya que gritar en cada arranque.
     registrar("info", `MotRest ${VERSION}. Sin canal de actualizaciones configurado.`);
@@ -2241,6 +2265,23 @@ async function prepararActualizaciones(): Promise<void> {
       repositorio,
       llaveDeFirma: LLAVE_PUBLICA_ACTUALIZACIONES,
       token: process.env.MOTREST_ACTUALIZACIONES_TOKEN,
+      /*
+       * La consulta se resuelve al llamarla y no ahora: cuando arranca esto, el
+       * enlace con la nube puede no estar establecido todavía. Si no lo está,
+       * devuelve null y el Hub vuelve a mirar en la siguiente ronda —dentro de
+       * doce horas, o al reconectar.
+       */
+      ...(enLaNube
+        ? {
+            nube: {
+              host: new URL(urlDeLaNube).hostname,
+              manifiesto: async () =>
+                enlaceRelay instanceof EnlaceSupabase
+                  ? await enlaceRelay.manifiestoDeMiVersion()
+                  : null,
+            },
+          }
+        : {}),
     },
     VERSION,
     registrar,
@@ -2606,7 +2647,7 @@ async function conectarAlRelay(): Promise<void> {
     return;
   }
 
-  enlaceRelay = new EnlaceRelayWs({
+  const comunes = {
     url,
     clave,
     sucursal_id: sucursalDelLocal(),
@@ -2625,9 +2666,36 @@ async function conectarAlRelay(): Promise<void> {
       // momento útil: justo después de una actualización, el Hub reconecta.
       reportarPulso();
     },
-    alLlegarMensaje: (mensaje) => atenderMensajeDelComensal(mensaje),
-    alLlegarLicencia: (recibida) => instalarLicenciaDeMotrae(recibida),
-  });
+    alLlegarMensaje: (mensaje: MensajeDelComensal) => atenderMensajeDelComensal(mensaje),
+    alLlegarLicencia: (recibida: unknown) => instalarLicenciaDeMotrae(recibida),
+  };
+
+  /*
+   * QUÉ TRANSPORTE LE TOCA A ESTE LOCAL, Y POR QUÉ SE DECIDE AQUÍ.
+   *
+   * Durante la migración conviven los dos: el relay de Fly (`wss://`) y la nube
+   * de Supabase (`https://`). Se elige por la forma de la dirección y no por una
+   * bandera de configuración, porque una bandera es algo más que hay que
+   * acordarse de poner en cada local — y lo que no se pone, no está.
+   *
+   * Un Hub que solo hablara el idioma nuevo dejaría fuera a todo local que
+   * todavía no haya recibido su licencia reemitida. Por eso esta versión tiene
+   * que salir ANTES de mover a nadie: primero la flota entiende los dos, después
+   * se cambian las direcciones.
+   */
+  if (pareceNubeSupabase(url)) {
+    if (!LLAVE_PUBLICABLE_NUBE) {
+      registrar(
+        "error",
+        "Este local apunta a la nube de MotRest pero el Hub se empaquetó sin la llave publicable. " +
+          "No reportará su pulso ni recibirá renovaciones: hay que reempaquetar con MOTREST_NUBE_PUBLICABLE.",
+      );
+      return;
+    }
+    enlaceRelay = new EnlaceSupabase({ ...comunes, llavePublicable: LLAVE_PUBLICABLE_NUBE });
+  } else {
+    enlaceRelay = new EnlaceRelayWs(comunes);
+  }
 
   avisos = new Avisos(
     enlaceRelay,

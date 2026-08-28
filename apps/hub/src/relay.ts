@@ -22,6 +22,27 @@ export interface MensajeDelComensal {
   ts: number;
 }
 
+/**
+ * Lo que el Hub necesita de un enlace con MOTRAE, sea cual sea el transporte.
+ *
+ * Existe porque durante la migración hay dos vivos —el relay de Fly y la nube de
+ * Supabase— y el resto del Hub no tiene por qué saber cuál le tocó a este local.
+ * Que ambas clases la implementen es lo que hace que el compilador avise si una
+ * se queda atrás: dos transportes que divergen en silencio serían un local que
+ * deja de reportar sin que nadie se entere.
+ *
+ * Cuando Fly se apague, esta interfaz se queda. Dice qué le pedimos a la nube, y
+ * eso no depende de quién la aloje.
+ */
+export interface EnlaceConMotrae {
+  conectado(): boolean;
+  conectar(): void;
+  enviar(aviso: Aviso): void;
+  reportarPulso(pulso: Record<string, unknown>): void;
+  publicarCredenciales(cred: { phone_number_id: string; token: string; nombre: string }): void;
+  desconectar(): void;
+}
+
 export interface OpcionesRelay {
   url: string;
   /**
@@ -86,7 +107,7 @@ export function direccionUsable(url: string): { ok: true } | { ok: false; motivo
   };
 }
 
-export class EnlaceRelayWs {
+export class EnlaceRelayWs implements EnlaceConMotrae {
   private socket: WebSocket | null = null;
   private intentos = 0;
   private temporizador: ReturnType<typeof setTimeout> | null = null;
