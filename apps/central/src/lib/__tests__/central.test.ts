@@ -1148,3 +1148,51 @@ describe("publicar una version en la nube", () => {
     expect(rutas.some((r) => r.includes("/asignaciones"))).toBe(false);
   });
 });
+
+describe("subir el instalador a la nube", () => {
+  beforeEach(async () => {
+    await central.guardarConfiguracion({
+      repositorio: "motrae/motrest",
+      nube_url: "https://ejemplo.supabase.co",
+      nube_servicio: "llave",
+    });
+  });
+
+  it("lo nombra por la VERSION, no por el archivo que se eligio", async () => {
+    let destino = "";
+    global.fetch = vi.fn(async (u: unknown) => {
+      destino = String(u);
+      return { ok: true, text: async () => "" } as Response;
+    }) as unknown as typeof fetch;
+
+    const r = await central.subirInstalador("1.4.0", new Uint8Array([1, 2, 3]));
+
+    /*
+     * De ese nombre depende la politica de Storage -- un local solo baja el de
+     * la version que tiene asignada. Si viniera del disco de quien publica, un
+     * archivo llamado distinto dejaria el instalador inalcanzable para todos.
+     */
+    expect(destino).toContain("/storage/v1/object/instaladores/1.4.0.exe");
+    expect(r.ok && r.url).toContain("1.4.0.exe");
+  });
+
+  it("no sube nada si la version no tiene forma x.y.z", async () => {
+    const llamado = vi.fn();
+    global.fetch = llamado as unknown as typeof fetch;
+
+    const r = await central.subirInstalador("la-de-ayer", new Uint8Array([1]));
+
+    expect(r.ok).toBe(false);
+    expect(llamado).not.toHaveBeenCalled();
+  });
+
+  it("no sube nada sin la nube configurada", async () => {
+    await central.guardarConfiguracion({ repositorio: "motrae/motrest" });
+    const solo = crearCentralParaPruebas();
+    await solo.generarPares();
+    await solo.guardarConfiguracion({ repositorio: "motrae/motrest" });
+
+    const r = await solo.subirInstalador("1.4.0", new Uint8Array([1]));
+    expect(r.ok).toBe(false);
+  });
+});

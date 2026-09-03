@@ -1236,6 +1236,67 @@ export class StoreCentral {
    * el anillo por porcentaje no podía dar: el manifiesto era un archivo público
    * de GitHub y la cartera de MOTRAE no podía estar ahí.
    */
+  /**
+   * Sube el instalador a Storage y devuelve la URL que irá en el manifiesto.
+   *
+   * ESTO FALTABA, y el hueco no se veía: `publicarEnLaNube` dejaba la fila en
+   * `versiones` sin que el `.exe` estuviera en ninguna parte. El manifiesto
+   * quedaba firmado y correcto apuntando a un archivo inexistente, así que el
+   * local encontraba la versión, verificaba la firma, y fallaba al descargar
+   * con un 400. Todo verde en el panel y el canal roto.
+   *
+   * Se sube ANTES de firmar porque la huella del manifiesto tiene que ser la
+   * del archivo que de verdad se va a servir.
+   */
+  async subirInstalador(
+    version: string,
+    contenido: ArrayBuffer | Uint8Array,
+  ): Promise<{ ok: true; url: string } | { ok: false; error: string }> {
+    const url = this.protegidos.nube_url?.trim().replace(/[/]+$/, "") ?? "";
+    const servicio = this.protegidos.nube_servicio?.trim() ?? "";
+    if (!url || !servicio) {
+      return { ok: false, error: "Falta configurar la nube en Llaves (URL y llave de servicio)" };
+    }
+    if (!esUrlDeNubeSegura(url)) {
+      return { ok: false, error: "La URL de la nube tiene que ser https://" };
+    }
+    if (!/^[0-9]+[.][0-9]+[.][0-9]+$/.test(version)) {
+      return { ok: false, error: `«${version}» no es una versión con forma x.y.z` };
+    }
+
+    /*
+     * El nombre del objeto es «<versión>.exe» y no el del archivo que se
+     * eligió. De ese nombre depende la política de Storage —un local solo baja
+     * el de la versión que tiene asignada—, así que si viniera del disco de
+     * quien publica, un archivo llamado distinto dejaría el instalador
+     * inalcanzable para todos.
+     */
+    const destinoObjeto = `${url}/storage/v1/object/instaladores/${version}.exe`;
+
+    try {
+      const subida = await fetch(destinoObjeto, {
+        method: "POST",
+        headers: {
+          apikey: servicio,
+          authorization: `Bearer ${servicio}`,
+          "content-type": "application/octet-stream",
+          // Volver a publicar una versión reemplaza su archivo. Sin esto, un
+          // segundo intento tras un fallo a medias daría «ya existe» y habría
+          // que ir a borrarlo a mano al panel de Supabase.
+          "x-upsert": "true",
+        },
+        body: contenido as BodyInit,
+      });
+
+      if (!subida.ok) {
+        return { ok: false, error: `No se pudo subir el instalador: ${await subida.text()}` };
+      }
+      return { ok: true, url: destinoObjeto };
+    } catch (causa) {
+      return { ok: false, error: `No se pudo subir el instalador: ${String(causa)}` };
+    }
+  }
+
   async publicarEnLaNube(
     manifiesto: VersionDisponible,
     destino: { canal: "estable" | "beta"; sucursales?: string[] },
