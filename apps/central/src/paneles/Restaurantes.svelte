@@ -68,7 +68,7 @@
   /**
    * Emitir y —lo importante— hacérsela llegar al restaurante.
    *
-   * EL ARCHIVO SOLO SE ENSEÑA SI HAY QUE PEGARLO. Cuando el relay se encarga, un
+   * EL ARCHIVO SOLO SE ENSEÑA SI HAY QUE PEGARLO. Cuando la nube se encarga, un
    * bloque de JSON en pantalla no informa de nada y sí invita a pegarlo «por si
    * acaso». Cuando el reparto falla, aparece igual que siempre: el camino manual
    * no desaparece, se queda de red de seguridad.
@@ -109,7 +109,7 @@
       return;
     }
     licenciaGenerada = JSON.stringify(licencia, null, 2);
-    aviso = `${hasta} No se pudo enviar sola (${motivo ?? "sin relay"}): péguela en el local.`;
+    aviso = `${hasta} No se pudo enviar sola (${motivo ?? "sin nube"}): péguela en el local.`;
   }
 
   function copiar() {
@@ -147,7 +147,7 @@
       aviso = "Corte enviado. El local está apagado; quedará suspendido en cuanto encienda.";
     } else {
       licenciaGenerada = JSON.stringify(r.licencia, null, 2);
-      aviso = `No se pudo enviar solo (${r.motivoEntrega ?? "sin relay"}): pegue este archivo en el local.`;
+      aviso = `No se pudo enviar solo (${r.motivoEntrega ?? "sin nube"}): pegue este archivo en el local.`;
     }
   }
 
@@ -187,11 +187,11 @@
     {#if central.puedeConsultarNube}
       <p class="sondeo" class:mal={central.errorPulsos !== ""}>
         {#if central.errorPulsos}
-          Sin contacto con el relay: {central.errorPulsos}
+          Sin contacto con la nube: {central.errorPulsos}
         {:else if central.ultimaConsultaPulsos}
           Estado al día · consultado {desde(central.ultimaConsultaPulsos, central.ahora)}
         {:else}
-          Consultando el relay…
+          Consultando la nube…
         {/if}
       </p>
     {/if}

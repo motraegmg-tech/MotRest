@@ -369,7 +369,7 @@
       </label>
     </div>
     <button class="primario" disabled={!puedeEditarSecretos} onclick={guardar}>
-      Guardar canal, relay y nube
+      Guardar canal y nube
     </button>
   {/if}
 

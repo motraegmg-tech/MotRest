@@ -1455,27 +1455,14 @@ export class StoreCentral {
 
   async guardarConfiguracion(cambios: {
     repositorio: string;
-    relay_url?: string;
-    relay_clave_admin?: string;
     nube_url?: string;
     nube_servicio?: string;
   }): Promise<Resultado> {
-    const url = cambios.relay_url?.trim() ?? this.protegidos.nube_url ?? "";
     /*
-     * Solo `https://`. Por aquí viaja la clave de administración del relay —la
-     * que abre el estado de toda la cartera— y en claro se la lleva cualquier
-     * salto del camino. Un `http://` en la configuración es siempre una prueba
-     * que se quedó puesta.
-     */
-    if (url && !/^https:\/\//i.test(url)) {
-      return { ok: false, error: "La dirección del relay tiene que ser https://" };
-    }
-
-    /*
-     * La misma regla para la nube, y por el mismo motivo con el volumen subido:
-     * lo que viaja por aquí es la llave de SERVICIO, que se salta todas las
-     * políticas RLS. En claro, quien esté en el camino se lleva el padrón entero
-     * de MOTRAE y la capacidad de repartir licencias.
+     * Solo `https://`. Lo que viaja por aquí es la llave de SERVICIO, que se
+     * salta todas las políticas RLS: en claro, quien esté en el camino se lleva
+     * el padrón entero de MOTRAE y la capacidad de repartir licencias. Un
+     * `http://` en la configuración es siempre una prueba que se quedó puesta.
      */
     const nube = cambios.nube_url?.trim() ?? this.protegidos.nube_url ?? "";
     if (nube && !/^https:[/][/]/i.test(nube)) {
@@ -1485,10 +1472,6 @@ export class StoreCentral {
     return this.reemplazarProtegidos({
       ...this.protegidos,
       repositorio: cambios.repositorio.trim(),
-      ...(cambios.relay_url !== undefined ? { relay_url: url } : {}),
-      ...(cambios.relay_clave_admin !== undefined
-        ? { relay_clave_admin: cambios.relay_clave_admin.trim() }
-        : {}),
       ...(cambios.nube_url !== undefined ? { nube_url: nube } : {}),
       ...(cambios.nube_servicio !== undefined
         ? { nube_servicio: cambios.nube_servicio.trim() }
@@ -1496,19 +1479,19 @@ export class StoreCentral {
     });
   }
 
-  /** ¿Se puede preguntar al relay cómo están los locales? */
+  /** ¿Se puede preguntar a la nube cómo están los locales? */
   get puedeConsultarNube(): boolean {
     return Boolean(this.protegidos.nube_url && this.protegidos.nube_servicio);
   }
 
   /**
-   * Guarda la clave con la que UN local se identifica ante el relay.
+   * Guarda la credencial con la que UN local se identifica ante la nube.
    *
    * Vacía = se borra, y ese local dejará de llevar el enlace en sus próximas
    * licencias. No se devuelve nunca: la interfaz solo puede saber si está puesta
    * o no, igual que con los PINes de los responsables.
    */
-  async fijarClaveRelay(sucursalId: string, clave: string): Promise<Resultado> {
+  async fijarCredencialNube(sucursalId: string, clave: string): Promise<Resultado> {
     if (!this.clientes.some((c) => c.id === sucursalId)) {
       return { ok: false, error: "No existe ese local" };
     }
@@ -1556,11 +1539,11 @@ export class StoreCentral {
   /**
    * ¿Este local ya lleva el enlace con MOTRAE en sus licencias?
    *
-   * Las DOS mitades: la dirección del relay, que es de MOTRAE y vale para todos,
+   * Las DOS mitades: la dirección de la nube, que es de MOTRAE y vale para todos,
    * y la clave de este restaurante. Sin las dos, su Hub no reporta y aparecerá
    * en «Hoy» como que no lo vemos.
    */
-  tieneEnlaceRelay(sucursalId: string): boolean {
+  tieneEnlaceNube(sucursalId: string): boolean {
     return Boolean(this.protegidos.nube_url && this.protegidos.claves_nube?.[sucursalId]);
   }
 
@@ -1651,10 +1634,10 @@ export class StoreCentral {
   }
 
   /**
-   * Cada cuánto Central le vuelve a preguntar al relay cómo está la cartera.
+   * Cada cuánto Central le vuelve a preguntar a la nube cómo está la cartera.
    *
    * Diez minutos y no uno: el Hub reporta una vez al día, así que preguntar más
-   * seguido no adelanta nada y solo hace ruido contra el relay. Y diez y no una
+   * seguido no adelanta nada y solo hace ruido contra la nube. Y diez y no una
    * hora porque el momento en que esto importa es justo después de publicar una
    * actualización, mirando la pantalla a ver si el canario ya subió de versión.
    */
@@ -1682,13 +1665,13 @@ export class StoreCentral {
   }
 
   /**
-   * Cómo está el propio relay.
+   * Cómo está la propia nube.
    *
    * Es la única pieza de MOTRAE conectada a internet y hasta ahora Central no la
-   * miraba: si el relay se caía, lo que se veía aquí era «todos los locales
+   * miraba: si la nube se cae, lo que se veía aquí era «todos los locales
    * llevan horas sin reportar», que se lee como una avería masiva en los
    * restaurantes cuando en realidad todos están vendiendo tan tranquilos. Saber
-   * que el caído es el relay cambia por completo a quién hay que llamar.
+   * que la caída es la nube cambia por completo a quién hay que llamar.
    */
   async traerSaludNube(): Promise<{ ok: true } | { ok: false; error: string }> {
     const url = this.protegidos.nube_url?.trim().replace(/[/]+$/, "") ?? "";
