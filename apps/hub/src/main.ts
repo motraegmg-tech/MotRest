@@ -2279,6 +2279,10 @@ async function prepararActualizaciones(): Promise<void> {
                 enlaceRelay instanceof EnlaceSupabase
                   ? await enlaceRelay.manifiestoDeMiVersion()
                   : null,
+              firmarDescarga: async (url) =>
+                enlaceRelay instanceof EnlaceSupabase
+                  ? await enlaceRelay.firmarDescarga(url)
+                  : url,
             },
           }
         : {}),

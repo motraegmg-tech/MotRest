@@ -54,6 +54,22 @@ export interface OrigenEnLaNube {
   host: string;
   /** El manifiesto firmado que le toca a ESTE local, o null si no hay. */
   manifiesto: () => Promise<unknown | null>;
+  /**
+   * Convierte la ruta del manifiesto en una URL que de verdad se puede bajar.
+   *
+   * EL BUCKET DE INSTALADORES ES PRIVADO, y tiene que serlo: un ejecutable de
+   * MOTRAE colgado en abierto es un binario que cualquiera estudia, y sobre
+   * todo un sitio al que apuntar a un local si algún día se logra colar una
+   * URL. Así que hace falta autorización para bajarlo.
+   *
+   * Y NO PUEDE IR FIRMADA DENTRO DEL MANIFIESTO. Una URL firmada caduca; el
+   * manifiesto es inmutable y va firmado con la privada de MOTRAE. Juntarlos
+   * significaría que una versión publicada deja de poder instalarse a los
+   * pocos minutos — y el síntoma sería una actualización que un local ve pero
+   * nunca consigue bajar. Por eso el manifiesto guarda la ruta estable y la
+   * firma se pide AQUÍ, con la sesión del propio Hub, justo antes de bajar.
+   */
+  firmarDescarga?: (url: string) => Promise<string>;
 }
 
 /** El asset del release que lleva el manifiesto firmado. */
@@ -361,7 +377,15 @@ export class Actualizaciones {
     const destino = join(carpeta, "MotRest_setup.exe");
 
     try {
-      const respuesta = await this.pedir(version.url);
+      /*
+       * La firma se pide justo ahora y para este archivo, no antes. Lo que
+       * viene del manifiesto es una ruta; lo que se baja es una URL con
+       * permiso y con caducidad corta.
+       */
+      const desde = this.origen.nube?.firmarDescarga
+        ? await this.origen.nube.firmarDescarga(version.url)
+        : version.url;
+      const respuesta = await this.pedir(desde);
       if (!respuesta.ok) {
         throw new Error(`No se pudo descargar el instalador (${respuesta.status})`);
       }

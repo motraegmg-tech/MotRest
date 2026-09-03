@@ -128,6 +128,23 @@ function canalDe(
           const { data } = await cliente.from("versiones").select("manifiesto").maybeSingle();
           return data?.manifiesto ?? null;
         },
+        /*
+         * Igual que lo hace el Hub: el bucket es privado, el manifiesto guarda
+         * la ruta, y el permiso se pide con la sesión del local justo antes de
+         * bajar. Quién puede firmar qué archivo lo decide RLS sobre el objeto.
+         */
+        firmarDescarga: async (url: string) => {
+          const marca = "/storage/v1/object/";
+          const i = url.indexOf(marca);
+          if (i < 0) return url;
+          const resto = url.slice(i + marca.length);
+          const corte = resto.indexOf("/");
+          if (corte < 0) return url;
+          const { data } = await cliente.storage
+            .from(resto.slice(0, corte))
+            .createSignedUrl(resto.slice(corte + 1), 300);
+          return data?.signedUrl ?? url;
+        },
       },
     },
     INSTALADA,

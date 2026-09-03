@@ -354,6 +354,48 @@ export class EnlaceSupabase implements EnlaceConMotrae {
     return data?.manifiesto ?? null;
   }
 
+  /**
+   * Una URL con permiso para bajar ESTE instalador, válida un rato.
+   *
+   * El bucket es privado y tiene que serlo. La autorización no puede viajar
+   * dentro del manifiesto —que es inmutable y va firmado—, así que se pide
+   * aquí, con la sesión de este Hub, justo antes de bajar.
+   *
+   * Quién puede pedirla lo decide RLS sobre el objeto: un local solo firma el
+   * archivo de la versión que tiene asignada. Pedir el de otro devuelve
+   * error, no un enlace.
+   *
+   * Si algo falla se devuelve la URL original en vez de reventar: que la
+   * descarga falle después con un 400 es más fácil de leer en la bitácora que
+   * una excepción a mitad del canal.
+   */
+  async firmarDescarga(url: string): Promise<string> {
+    if (!this.dentro || !this.cliente) return url;
+
+    const marca = "/storage/v1/object/";
+    const i = url.indexOf(marca);
+    if (i < 0) return url;
+
+    // De "…/object/instaladores/1.3.6.exe" salen el bucket y la ruta dentro.
+    const resto = url.slice(i + marca.length).replace(/^(public|authenticated)[/]/, "");
+    const corte = resto.indexOf("/");
+    if (corte < 0) return url;
+    const bucket = resto.slice(0, corte);
+    const ruta = resto.slice(corte + 1);
+
+    // Cinco minutos: lo que tarda una descarga de 26 MB en un restaurante con
+    // internet malo, y no más. Un enlace que dura horas es un enlace que se
+    // reenvía.
+    const { data, error } = await this.cliente.storage.from(bucket).createSignedUrl(ruta, 300);
+    if (error || !data?.signedUrl) {
+      this.opciones.registrar(
+        "aviso",
+        `No se pudo firmar la descarga de ${ruta}: ${error?.message ?? "sin motivo"}`,
+      );
+      return url;
+    }
+    return data.signedUrl;
+  }
   /** Le pide a la nube que mande un aviso. Las reglas ya se comprobaron antes. */
   enviar(aviso: Aviso): void {
     if (!this.dentro || !this.cliente) return;
