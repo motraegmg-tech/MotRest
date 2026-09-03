@@ -9,6 +9,8 @@
   let repositorio = $state(central.secretos.repositorio);
   let relayUrl = $state(central.secretos.relay_url ?? "");
   let relayClaveAdmin = $state("");
+  let nubeUrl = $state(central.secretos.nube_url ?? "");
+  let nubeServicio = $state("");
   let repositorioCargado = "";
   let guardado = $state("");
   let error = $state("");
@@ -48,11 +50,19 @@
 
   async function guardar() {
     error = "";
-    const cambios: { repositorio: string; relay_url?: string; relay_clave_admin?: string } = {
+    const cambios: {
+      repositorio: string;
+      relay_url?: string;
+      relay_clave_admin?: string;
+      nube_url?: string;
+      nube_servicio?: string;
+    } = {
       repositorio,
     };
     if (relayUrl.trim()) cambios.relay_url = relayUrl.trim();
     if (relayClaveAdmin.trim()) cambios.relay_clave_admin = relayClaveAdmin.trim();
+    if (nubeUrl.trim()) cambios.nube_url = nubeUrl.trim();
+    if (nubeServicio.trim()) cambios.nube_servicio = nubeServicio.trim();
     const resultado = await central.guardarConfiguracion(cambios);
     if (!resultado.ok) {
       error = resultado.error;
@@ -359,8 +369,27 @@
         />
       </label>
     </div>
+    <div class="dos">
+      <label>
+        URL de la nube (Supabase)
+        <input bind:value={nubeUrl} spellcheck="false" placeholder="https://xxxx.supabase.co" />
+      </label>
+      <label>
+        Llave de servicio de la nube
+        <input
+          type="password"
+          bind:value={nubeServicio}
+          placeholder={central.secretos.nube_url ? "Guardada (escriba para cambiar)" : ""}
+        />
+        <small>
+          Se salta todas las políticas: quien la tenga lee el padrón entero y
+          reparte licencias. No puede <b>firmar</b> ninguna — para eso hace falta
+          la privada, que no sale de aquí.
+        </small>
+      </label>
+    </div>
     <button class="primario" disabled={!puedeEditarSecretos} onclick={guardar}>
-      Guardar canal y relay
+      Guardar canal, relay y nube
     </button>
   {/if}
 

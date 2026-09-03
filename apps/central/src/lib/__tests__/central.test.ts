@@ -1059,3 +1059,92 @@ describe("traerPulsos", () => {
     expect(central.consultandoPulsos).toBe(false);
   });
 });
+
+describe("publicar una version en la nube", () => {
+  it("la llave de servicio NUNCA sale en la vista publica de secretos", async () => {
+    await central.guardarConfiguracion({
+      repositorio: "motrae/motrest",
+      nube_url: "https://ejemplo.supabase.co",
+      nube_servicio: "llave-de-servicio-que-se-salta-todo",
+    });
+
+    /*
+     * `central.secretos` se lee sin desproteger nada, y esta llave se salta
+     * TODAS las políticas RLS: quien la tenga lee el padrón entero de MOTRAE.
+     * La dirección sí puede verse —la interfaz necesita saber si ya hay algo
+     * configurado—, la llave no.
+     */
+    expect(central.secretos.nube_url).toBe("https://ejemplo.supabase.co");
+    expect(JSON.stringify(central.secretos)).not.toContain("llave-de-servicio");
+  });
+
+  it("no acepta una nube en http, que dejaria la llave en claro", async () => {
+    const resultado = await central.guardarConfiguracion({
+      repositorio: "motrae/motrest",
+      nube_url: "http://ejemplo.supabase.co",
+    });
+    expect(resultado.ok).toBe(false);
+  });
+
+  it("manda el manifiesto TAL CUAL, no reconstruido desde columnas", async () => {
+    await central.guardarConfiguracion({
+      repositorio: "motrae/motrest",
+      nube_url: "https://ejemplo.supabase.co",
+      nube_servicio: "llave",
+    });
+
+    const cuerpos: string[] = [];
+    global.fetch = vi.fn(async (_u: unknown, opciones: { body?: string } = {}) => {
+      cuerpos.push(String(opciones.body));
+      return { ok: true, text: async () => "" } as Response;
+    }) as unknown as typeof fetch;
+
+    const manifiesto = {
+      version: "1.4.0",
+      notas: "Los cortes salen mas rapido.",
+      url: "https://ejemplo.supabase.co/storage/v1/object/instaladores/1.4.0.exe",
+      sha256: "a".repeat(64),
+      publicado_ts: 1_786_048_000_000,
+      firma: "la-firma-de-motrae",
+    };
+
+    const resultado = await central.publicarEnLaNube(manifiesto, { canal: "beta" });
+    expect(resultado.ok).toBe(true);
+
+    /*
+     * La firma cubre el JSON canónico entero. Si la nube guardara columnas y el
+     * Hub rearmara el documento, cualquier diferencia de forma lo invalidaría —
+     * y el síntoma sería "una firma que no es de MOTRAE" en cada local, con el
+     * canal parado y sin causa aparente.
+     */
+    const enviado = JSON.parse(cuerpos[0]!);
+    expect(enviado.manifiesto).toEqual(manifiesto);
+  });
+
+  it("sin locales elegidos publica la version pero no se la ofrece a nadie", async () => {
+    await central.guardarConfiguracion({
+      repositorio: "motrae/motrest",
+      nube_url: "https://ejemplo.supabase.co",
+      nube_servicio: "llave",
+    });
+
+    const rutas: string[] = [];
+    global.fetch = vi.fn(async (u: unknown) => {
+      rutas.push(String(u));
+      return { ok: true, text: async () => "" } as Response;
+    }) as unknown as typeof fetch;
+
+    await central.publicarEnLaNube(
+      {
+        version: "1.4.0", notas: "n", url: "https://x.supabase.co/a.exe",
+        sha256: "b".repeat(64), publicado_ts: 1, firma: "f",
+      },
+      { canal: "estable" },
+    );
+
+    // Publicar y asignar son dos decisiones. Juntarlas es como se acaba mandando
+    // una version a toda la flota por un clic de mas.
+    expect(rutas.some((r) => r.includes("/versiones"))).toBe(true);
+    expect(rutas.some((r) => r.includes("/asignaciones"))).toBe(false);
+  });
+});

@@ -17,6 +17,7 @@
    *      firmar no se enciende. No es burocracia: es la diferencia entre un
    *      despliegue y una apuesta.
    */
+  import type { VersionDisponible } from "@motrest/dominio";
   import { central } from "../lib/central.svelte";
   import { desde } from "../lib/formato";
 
@@ -45,6 +46,14 @@
   let obligatoria = $state(false);
   let versionMinima = $state("");
   let manifiesto = $state("");
+  /** El documento recién firmado, para poder mandarlo a la nube tal cual. */
+  let firmado = $state<VersionDisponible | null>(null);
+  let canal = $state<"estable" | "beta">("estable");
+  /** A qué locales se les ofrece. Vacío = se publica sin ofrecérsela a nadie. */
+  let elegidos = $state<string[]>([]);
+  let publicando = $state(false);
+  let publicado = $state("");
+  let errorNube = $state("");
   let error = $state("");
   let firmando = $state(false);
   let previa = $state("http://localhost:5173/");
@@ -99,6 +108,9 @@
   async function firmar() {
     error = "";
     manifiesto = "";
+    firmado = null;
+    publicado = "";
+    errorNube = "";
     firmando = true;
     try {
       const resultado = await central.firmarActualizacion(
@@ -117,6 +129,7 @@
         return;
       }
       manifiesto = JSON.stringify(resultado.manifiesto, null, 2);
+      firmado = resultado.manifiesto;
     } finally {
       firmando = false;
     }
@@ -124,6 +137,43 @@
 
   function copiar() {
     void navigator.clipboard?.writeText(manifiesto);
+  }
+
+  /**
+   * Deja la versión en la nube y decide a quién se le ofrece.
+   *
+   * PUBLICAR Y ASIGNAR SON DOS DECISIONES, y aquí se ven separadas a propósito:
+   * sin elegir locales, la versión queda subida y **no le llega a nadie**.
+   * Juntarlas es cómo se acaba mandando una versión a toda la flota por un clic
+   * de más — que es exactamente lo que este panel existe para impedir.
+   */
+  async function publicar() {
+    if (!firmado) return;
+    publicando = true;
+    errorNube = "";
+    publicado = "";
+    try {
+      const resultado = await central.publicarEnLaNube(firmado, {
+        canal,
+        sucursales: elegidos,
+      });
+      if (!resultado.ok) {
+        errorNube = resultado.error;
+        return;
+      }
+      publicado =
+        elegidos.length === 0
+          ? `${firmado.version} está en la nube, sin ofrecérsela a ningún local todavía.`
+          : `${firmado.version} está en la nube y se le ofrece a ${elegidos.length} local(es).`;
+    } finally {
+      publicando = false;
+    }
+  }
+
+  function alternar(sucursal: string) {
+    elegidos = elegidos.includes(sucursal)
+      ? elegidos.filter((s) => s !== sucursal)
+      : [...elegidos, sucursal];
   }
 </script>
 
@@ -336,10 +386,50 @@
           </div>
           <pre>{manifiesto}</pre>
         </div>
-        <p class="siguiente">
-          Súbalo como archivo adjunto del release, junto al instalador. Los Hubs
-          lo verán en su siguiente comprobación (cada 12 h).
-        </p>
+        <div class="nube">
+          <h3>Publicar en la nube</h3>
+          <p class="nube-nota">
+            El documento va <b>tal cual</b>: la nube guarda exactamente lo que se
+            firmó. Reconstruirlo desde columnas rompería la firma, y el síntoma
+            sería «una firma que no es de MOTRAE» en la bitácora de cada local.
+          </p>
+
+          <label class="canal">
+            Canal
+            <select bind:value={canal}>
+              <option value="estable">estable — el canal de la flota</option>
+              <option value="beta">beta — solo quien se asigne a mano</option>
+            </select>
+          </label>
+
+          <fieldset class="locales">
+            <legend>A quién se le ofrece</legend>
+            <p class="locales-nota">
+              Sin marcar a nadie, la versión queda subida y <b>no le llega a
+              ningún local</b>. Publicar y asignar son dos decisiones.
+            </p>
+            {#each central.clientes as cliente (cliente.id)}
+              <label class="local">
+                <input
+                  type="checkbox"
+                  checked={elegidos.includes(cliente.id)}
+                  onchange={() => alternar(cliente.id)}
+                />
+                {cliente.nombre}
+                <code>{cliente.id}</code>
+              </label>
+            {:else}
+              <p class="locales-nota">Todavía no hay restaurantes en la cartera.</p>
+            {/each}
+          </fieldset>
+
+          <button class="primario" disabled={publicando} onclick={publicar}>
+            {publicando ? "Publicando…" : "Publicar en la nube"}
+          </button>
+
+          {#if errorNube}<p class="error">{errorNube}</p>{/if}
+          {#if publicado}<p class="hecho">{publicado}</p>{/if}
+        </div>
       {/if}
     </div>
 
@@ -600,11 +690,63 @@
     cursor: not-allowed;
   }
   .falta,
-  .siguiente {
+  .nube-nota,
+  .locales-nota {
     font-size: 0.76rem;
     line-height: 1.5;
     color: var(--gris);
     margin: 0.5rem 0 0;
+  }
+  .nube {
+    margin-top: 1.25rem;
+    padding-top: 1.25rem;
+    border-top: 1px solid var(--borde);
+  }
+  .nube h3 {
+    margin: 0;
+    font-size: 0.95rem;
+    color: var(--pizarra);
+  }
+  .canal {
+    display: block;
+    margin: 0.9rem 0;
+    font-size: 0.82rem;
+    color: var(--pizarra);
+  }
+  .canal select {
+    display: block;
+    margin-top: 0.3rem;
+    width: 100%;
+    padding: 0.45rem;
+    border: 1px solid var(--borde);
+    border-radius: 6px;
+  }
+  .locales {
+    border: 1px solid var(--borde);
+    border-radius: 8px;
+    padding: 0.75rem 0.9rem 0.9rem;
+    margin: 0 0 0.9rem;
+  }
+  .locales legend {
+    font-size: 0.8rem;
+    color: var(--pizarra);
+    padding: 0 0.35rem;
+  }
+  .local {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-size: 0.82rem;
+    margin-top: 0.45rem;
+  }
+  .local code {
+    color: var(--gris);
+    font-size: 0.72rem;
+  }
+  .hecho {
+    font-size: 0.82rem;
+    margin: 0.6rem 0 0;
+    color: var(--acento);
   }
   .error {
     font-size: 0.82rem;

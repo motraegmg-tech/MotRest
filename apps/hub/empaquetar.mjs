@@ -125,6 +125,28 @@ if (!/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(REPOSITORIO_ACTUALIZACIONES)) {
   );
 }
 
+/**
+ * La llave publicable de la nube de MotRest. Viaja dentro del binario.
+ *
+ * Mismo motivo que el repositorio: una variable de entorno que nadie escribe es
+ * una configuración que no está, y el local se instalaría sin enlace con MOTRAE.
+ *
+ * No es un secreto. Identifica al proyecto y no autoriza nada: con ella sola se
+ * entra como `anon`, y en este esquema `anon` no ve una sola fila. Lo que abre
+ * puertas es la credencial del local, que viaja en su licencia firmada.
+ */
+const LLAVE_PUBLICABLE_NUBE = (
+  process.env.MOTREST_NUBE_PUBLICABLE?.trim() || "sb_publishable_dcYaU3LejSfVFJDtZQ6XBw_tVl_dPW0"
+);
+
+if (!/^(sb_publishable_[A-Za-z0-9_-]+|eyJ[A-Za-z0-9_.-]+)$/.test(LLAVE_PUBLICABLE_NUBE)) {
+  throw new Error(
+    `MOTREST_NUBE_PUBLICABLE="${LLAVE_PUBLICABLE_NUBE}" no parece una llave publicable de Supabase.
+` +
+      "Con una llave mal copiada el Hub arranca igual y el local se queda sin enlace en silencio.",
+  );
+}
+
 console.log("1/4  Juntando el Hub en un solo archivo…");
 rmSync(salida, { recursive: true, force: true });
 mkdirSync(salida, { recursive: true });
@@ -156,6 +178,7 @@ await build({
     __MOTREST_LICENCIA_PUBLICA__: JSON.stringify(LLAVE_PUBLICA_LICENCIAS),
     __MOTREST_ACTUALIZACIONES_PUBLICA__: JSON.stringify(LLAVE_PUBLICA_ACTUALIZACIONES),
     __MOTREST_ACTUALIZACIONES_REPO__: JSON.stringify(REPOSITORIO_ACTUALIZACIONES),
+    __MOTREST_NUBE_PUBLICABLE__: JSON.stringify(LLAVE_PUBLICABLE_NUBE),
     __MOTREST_VERSION__: JSON.stringify(version),
   },
 });

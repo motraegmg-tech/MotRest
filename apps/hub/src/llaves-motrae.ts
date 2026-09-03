@@ -40,3 +40,24 @@ export const REPOSITORIO_ACTUALIZACIONES =
   typeof __MOTREST_ACTUALIZACIONES_REPO__ === "string"
     ? __MOTREST_ACTUALIZACIONES_REPO__
     : (process.env.MOTREST_ACTUALIZACIONES_REPO ?? "").trim();
+
+/**
+ * La llave publicable de la nube de MotRest. **Viaja en el binario.**
+ *
+ * Se incrusta por el mismo motivo que el repositorio de actualizaciones: si
+ * dependiera de una variable de entorno, ningún local la tendría —ni el
+ * instalador NSIS la escribe, ni Tauri lanza el Hub con entorno propio— y el
+ * enlace con MOTRAE quedaría apagado en cada instalación.
+ *
+ * NO ES UN SECRETO, y conviene entender por qué: identifica al proyecto, no
+ * autoriza nada. Con ella sola se entra como `anon`, y en este esquema `anon` no
+ * ve una sola fila — todas las políticas exigen la sucursal del JWT, que solo
+ * sale de iniciar sesión con la credencial del local. Lo que abre puertas es la
+ * credencial, y esa viaja en la licencia firmada, una por restaurante.
+ */
+declare const __MOTREST_NUBE_PUBLICABLE__: string;
+
+export const LLAVE_PUBLICABLE_NUBE =
+  typeof __MOTREST_NUBE_PUBLICABLE__ === "string"
+    ? __MOTREST_NUBE_PUBLICABLE__
+    : (process.env.MOTREST_NUBE_PUBLICABLE ?? "").trim();

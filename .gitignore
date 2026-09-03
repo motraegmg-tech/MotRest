@@ -92,3 +92,9 @@ video/**/out/
 video/**/*.wav
 video/**/*.mp3
 video/**/*.mp4
+
+# La llave de servicio de la nube, para correr el ensayo del canal.
+# Se salta TODAS las politicas RLS: quien la tenga lee el padron entero de
+# MOTRAE y puede repartir licencias ya firmadas. Vive aqui solo mientras dura
+# un ensayo, y nunca en el repositorio.
+.llave-servicio

@@ -95,6 +95,15 @@ export interface Secretos {
   soporte_fijado_ts?: number;
   /** Dónde está el relay. La clave con la que se consulta NO sale de DPAPI. */
   relay_url?: string;
+  /**
+   * Dónde está la nube. **Solo la dirección.**
+   *
+   * La llave de servicio NO se proyecta aquí y no debe hacerlo nunca: esta vista
+   * se lee sin desproteger nada, y esa llave se salta todas las políticas RLS.
+   * La interfaz solo necesita saber si ya hay una guardada, y para eso basta con
+   * que exista la URL.
+   */
+  nube_url?: string;
   /** Cuándo se sacó el último respaldo portátil de las llaves. */
   ultimo_respaldo_ts?: number;
 }
@@ -116,6 +125,18 @@ interface SecretosProtegidos {
   /** El relay de MOTRAE y su clave de administración, para traer los pulsos. */
   relay_url?: string;
   relay_clave_admin?: string;
+  /**
+   * La nube de MotRest, y la llave con la que Central publica en ella.
+   *
+   * ES LA LLAVE DE SERVICIO, y por eso vive aquí con los PINes y las privadas:
+   * se salta todas las políticas RLS. Quien la tenga puede leer el padrón
+   * entero y depositar licencias — no puede FIRMAR ninguna, porque para eso
+   * hace falta la privada Ed25519, pero puede repartir las ya firmadas.
+   *
+   * Nunca sale de DPAPI ni viaja en la cartera.
+   */
+  nube_url?: string;
+  nube_servicio?: string;
   /** PINes de responsables, cifrados con DPAPI y nunca en la cartera. */
   responsables?: Record<string, ResponsableProtegido>;
   /**
@@ -229,6 +250,7 @@ function vistaDe(secretos: SecretosProtegidos): Secretos {
     ...(secretos.soporte ? { soporte: secretos.soporte } : {}),
     ...(secretos.soporte_fijado_ts ? { soporte_fijado_ts: secretos.soporte_fijado_ts } : {}),
     ...(secretos.relay_url ? { relay_url: secretos.relay_url } : {}),
+    ...(secretos.nube_url ? { nube_url: secretos.nube_url } : {}),
     ...(secretos.ultimo_respaldo_ts ? { ultimo_respaldo_ts: secretos.ultimo_respaldo_ts } : {}),
   };
 }
@@ -319,6 +341,8 @@ function decodificarSecretos(texto: string): SecretosProtegidos | null {
       (valor.publicacion !== undefined && !esPar(valor.publicacion)) ||
       (valor.relay_url !== undefined && typeof valor.relay_url !== "string") ||
       (valor.relay_clave_admin !== undefined && typeof valor.relay_clave_admin !== "string") ||
+      (valor.nube_url !== undefined && typeof valor.nube_url !== "string") ||
+      (valor.nube_servicio !== undefined && typeof valor.nube_servicio !== "string") ||
       (valor.responsables !== undefined && !esResponsablesProtegidos(valor.responsables))) {
       return null;
     }
@@ -354,6 +378,21 @@ async function guardarProtegidos(secretos: SecretosProtegidos): Promise<void> {
     return;
   }
   await invoke("guardar_secretos", { secretos: texto });
+}
+
+/**
+ * ¿Se puede hablar con la nube por aquí?
+ *
+ * Solo https. Por este cable viaja la llave de servicio, que se salta todas las
+ * políticas RLS: en claro, quien esté en el mismo wifi se lleva el padrón entero
+ * de MOTRAE.
+ */
+function esUrlDeNubeSegura(texto: string): boolean {
+  try {
+    return new URL(texto).protocol === "https:";
+  } catch {
+    return false;
+  }
 }
 
 function esUrlGitHubSegura(texto: string): boolean {
@@ -1181,6 +1220,102 @@ export class StoreCentral {
   }
 
   /**
+   * Deja el manifiesto firmado en la nube, y decide a quién se le ofrece.
+   *
+   * ESTO SUSTITUYE A SUBIR UN RELEASE A GITHUB A MANO, y con ello desaparece el
+   * paso donde más fácil era equivocarse: pegar en el release un manifiesto
+   * distinto del que se firmó, o subir un `.exe` que no es el de la huella.
+   *
+   * EL DOCUMENTO VA TAL CUAL. La columna `manifiesto` guarda exactamente lo que
+   * se firmó; las demás son copias para poder consultar. Reconstruirlo desde
+   * columnas rompería todas las verificaciones —la firma cubre el JSON canónico
+   * entero— y el síntoma sería «una firma que no es de MOTRAE» en la bitácora de
+   * cada local, con el canal parado y sin causa aparente (ADR-28 §Decisión 2).
+   *
+   * A QUIÉN SE LE OFRECE lo dice `asignaciones`, por nombre de local. Es lo que
+   * el anillo por porcentaje no podía dar: el manifiesto era un archivo público
+   * de GitHub y la cartera de MOTRAE no podía estar ahí.
+   */
+  async publicarEnLaNube(
+    manifiesto: VersionDisponible,
+    destino: { canal: "estable" | "beta"; sucursales?: string[] },
+  ): Promise<{ ok: true } | { ok: false; error: string }> {
+    const url = this.protegidos.nube_url?.trim().replace(/[/]+$/, "") ?? "";
+    const servicio = this.protegidos.nube_servicio?.trim() ?? "";
+    if (!url || !servicio) {
+      return { ok: false, error: "Falta configurar la nube en Llaves (URL y llave de servicio)" };
+    }
+    if (!esUrlDeNubeSegura(url)) {
+      return { ok: false, error: "La URL de la nube tiene que ser https://" };
+    }
+
+    const cabeceras = {
+      apikey: servicio,
+      authorization: `Bearer ${servicio}`,
+      "content-type": "application/json",
+    };
+
+    try {
+      const alta = await fetch(`${url}/rest/v1/versiones`, {
+        method: "POST",
+        headers: { ...cabeceras, prefer: "resolution=merge-duplicates,return=minimal" },
+        body: JSON.stringify({
+          version: manifiesto.version,
+          notas: manifiesto.notas,
+          url: manifiesto.url,
+          sha256: manifiesto.sha256,
+          publicado_ts: new Date(manifiesto.publicado_ts).toISOString(),
+          obligatoria: manifiesto.obligatoria ?? false,
+          version_minima_soportada: manifiesto.version_minima_soportada ?? null,
+          firma: manifiesto.firma,
+          canal: destino.canal,
+          manifiesto,
+        }),
+      });
+
+      if (!alta.ok) {
+        return { ok: false, error: `La nube no aceptó la versión: ${await alta.text()}` };
+      }
+
+      /*
+       * Sin locales, la versión queda publicada y NO se le ofrece a nadie
+       * todavía. Es deliberado: publicar y asignar son dos decisiones, y
+       * juntarlas es cómo se acaba mandando una versión a toda la flota por un
+       * clic de más.
+       */
+      if (!destino.sucursales?.length) return { ok: true };
+
+      const asignacion = await fetch(`${url}/rest/v1/asignaciones`, {
+        method: "POST",
+        headers: {
+          ...cabeceras,
+          prefer: "resolution=merge-duplicates,return=minimal",
+        },
+        body: JSON.stringify(
+          destino.sucursales.map((sucursal_id) => ({
+            sucursal_id,
+            canal: destino.canal,
+            version_fijada: manifiesto.version,
+            actualizada_ts: new Date().toISOString(),
+          })),
+        ),
+      });
+
+      if (!asignacion.ok) {
+        return {
+          ok: false,
+          error:
+            `La versión quedó publicada pero no se asignó a nadie: ${await asignacion.text()}`,
+        };
+      }
+
+      return { ok: true };
+    } catch (causa) {
+      return { ok: false, error: `No se pudo hablar con la nube: ${String(causa)}` };
+    }
+  }
+
+  /**
    * Cómo va bajando la última versión publicada.
    *
    * `null` mientras no se haya publicado nada desde esta Central: no hay nada
@@ -1232,6 +1367,8 @@ export class StoreCentral {
     repositorio: string;
     relay_url?: string;
     relay_clave_admin?: string;
+    nube_url?: string;
+    nube_servicio?: string;
   }): Promise<Resultado> {
     const url = cambios.relay_url?.trim() ?? this.protegidos.relay_url ?? "";
     /*
@@ -1244,12 +1381,27 @@ export class StoreCentral {
       return { ok: false, error: "La dirección del relay tiene que ser https://" };
     }
 
+    /*
+     * La misma regla para la nube, y por el mismo motivo con el volumen subido:
+     * lo que viaja por aquí es la llave de SERVICIO, que se salta todas las
+     * políticas RLS. En claro, quien esté en el camino se lleva el padrón entero
+     * de MOTRAE y la capacidad de repartir licencias.
+     */
+    const nube = cambios.nube_url?.trim() ?? this.protegidos.nube_url ?? "";
+    if (nube && !/^https:[/][/]/i.test(nube)) {
+      return { ok: false, error: "La dirección de la nube tiene que ser https://" };
+    }
+
     return this.reemplazarProtegidos({
       ...this.protegidos,
       repositorio: cambios.repositorio.trim(),
       ...(cambios.relay_url !== undefined ? { relay_url: url } : {}),
       ...(cambios.relay_clave_admin !== undefined
         ? { relay_clave_admin: cambios.relay_clave_admin.trim() }
+        : {}),
+      ...(cambios.nube_url !== undefined ? { nube_url: nube } : {}),
+      ...(cambios.nube_servicio !== undefined
+        ? { nube_servicio: cambios.nube_servicio.trim() }
         : {}),
     });
   }
