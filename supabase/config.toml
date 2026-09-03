@@ -1,0 +1,46 @@
+# Configuración de la nube de MotRest.
+#
+# Sirve para dos cosas, y la segunda es la que importa:
+#
+#   1. `supabase start` / `db reset` en local, para que el Postgres de desarrollo
+#      sea el mismo que el de producción.
+#   2. **Decirle a la integración de GitHub qué Edge Functions desplegar.** Y esto
+#      no es opcional: la integración despliega las migraciones siempre, pero de
+#      las funciones **solo las que estén declaradas aquí**. Una función que se
+#      escriba y no se apunte en este archivo se queda sin desplegar, en
+#      silencio, y el síntoma es que el código nuevo no hace efecto.
+#
+# Lo demás —API, Auth, correo— se ignora al desplegar a producción. Se configura
+# en el panel y no aquí, a propósito: este archivo está en el repositorio.
+
+project_id = "ixttslqbbwqfcqjmttyg"
+
+[db]
+# El mismo Postgres que corre en el proyecto. Si esto y producción divergen, las
+# migraciones pueden pasar en local y fallar arriba, que es la peor forma de
+# enterarse.
+major_version = 17
+
+# -----------------------------------------------------------------------------
+# Las Edge Functions
+# -----------------------------------------------------------------------------
+
+# LA PUERTA DE LA CALLE. Es la única sin JWT, y hay que entender por qué antes de
+# tocarla: Meta no tiene forma de llevar un JWT nuestro, así que se publica
+# abierta y lo que la protege es la firma HMAC del cuerpo, comprobada sobre los
+# bytes crudos.
+#
+# Poner `verify_jwt = true` aquí rompería WhatsApp entero: Supabase rechazaría
+# los webhooks de Meta antes de que la función llegara a mirarlos.
+[functions.webhook-whatsapp]
+verify_jwt = false
+
+# Estas dos SÍ exigen el JWT del local, y de ahí sale su identidad: la sucursal
+# no viene en el cuerpo, se lee del token. Con `verify_jwt = false` cualquiera
+# podría pedir que se mandara WhatsApp en nombre de un restaurante, o reclamar su
+# número.
+[functions.enviar-whatsapp]
+verify_jwt = true
+
+[functions.publicar-credenciales]
+verify_jwt = true
