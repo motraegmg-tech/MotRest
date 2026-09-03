@@ -1,0 +1,22 @@
+# Cargo compila fuera del repositorio, y no es una manía: sin esto no compila.
+#
+# LA RUTA SE PASABA DE LARGA. Windows corta en 260 caracteres salvo que se active
+# `LongPathsEnabled` (aquí está en 0), y los archivos intermedios de Cargo son de
+# la forma:
+#
+#   …\apps\central-escritorio\src-tauri\target\release\build\
+#     icu_properties_data-bff70d85af53ac45\build_script_build-bff70d85af53ac45.exe
+#
+# Eso son **266 caracteres**. El mismo archivo bajo `apps\escritorio` son 258, y
+# por eso MotRest compilaba y Central no: la diferencia era literalmente el
+# prefijo `central-`.
+#
+# El síntoma no lo dice. `link.exe` contesta «LNK1104: no se puede abrir el
+# archivo» señalando una ruta que se ve perfectamente en la pantalla, y manda a
+# buscar un antivirus o un archivo bloqueado. Se persiguió por ahí un buen rato.
+#
+# `C:\mr` deja unos 200 caracteres de margen. No se toca el registro ni hacen
+# falta permisos de administrador, y quien clone el repositorio en una carpeta
+# más profunda tampoco se va a topar con esto.
+[build]
+target-dir = "C:/mr/central-escritorio"
