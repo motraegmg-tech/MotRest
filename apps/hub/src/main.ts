@@ -93,11 +93,7 @@ import { registrarPedido, type PlatilloDeKiosco } from "./kiosco.js";
 import { registrarOpinion, solicitarReserva, verCuenta } from "./portal.js";
 import { Avisos, avisoReservaConfirmada } from "./avisos.js";
 import { Correo } from "./correo.js";
-import {
-  EnlaceRelayWs,
-  type EnlaceConMotrae,
-  type MensajeDelComensal,
-} from "./relay.js";
+import type { EnlaceConMotrae, MensajeDelComensal } from "./enlace-motrae.js";
 import { EnlaceSupabase, pareceNubeSupabase } from "./enlace-supabase.js";
 import { carpetaCertificados, certificadoTls, type CertificadoTls } from "./certificado.js";
 import { anunciarEnLaRed } from "./descubrimiento.js";
@@ -201,7 +197,7 @@ let secretoPortal = "";
  * transportes vivos —el relay de Fly y la nube de Supabase— y el resto del Hub
  * no tiene por qué enterarse de cuál le tocó a este local.
  */
-let enlaceRelay: EnlaceConMotrae | null = null;
+let enlaceNube: EnlaceConMotrae | null = null;
 let avisos: Avisos | null = null;
 
 /**
@@ -2247,7 +2243,7 @@ async function prepararActualizaciones(): Promise<void> {
    * —hablando con la nube pero mirando los releases de GitHub—, que sería un
    * estado difícil de ver desde fuera y fácil de dejarse puesto.
    */
-  const urlDeLaNube = process.env.MOTREST_RELAY_URL ?? licencia?.enlaceRelay?.url ?? "";
+  const urlDeLaNube = process.env.MOTREST_NUBE_URL ?? licencia?.enlaceNube?.url ?? "";
   const enLaNube = Boolean(urlDeLaNube) && pareceNubeSupabase(urlDeLaNube);
 
   if ((!repositorio && !enLaNube) || !LLAVE_PUBLICA_ACTUALIZACIONES) {
@@ -2276,12 +2272,12 @@ async function prepararActualizaciones(): Promise<void> {
             nube: {
               host: new URL(urlDeLaNube).hostname,
               manifiesto: async () =>
-                enlaceRelay instanceof EnlaceSupabase
-                  ? await enlaceRelay.manifiestoDeMiVersion()
+                enlaceNube instanceof EnlaceSupabase
+                  ? await enlaceNube.manifiestoDeMiVersion()
                   : null,
               firmarDescarga: async (url) =>
-                enlaceRelay instanceof EnlaceSupabase
-                  ? await enlaceRelay.firmarDescarga(url)
+                enlaceNube instanceof EnlaceSupabase
+                  ? await enlaceNube.firmarDescarga(url)
                   : url,
             },
           }
@@ -2400,9 +2396,9 @@ function ultimoCorteCerrado(): { ventas: Centavos; cuentas: number } | null {
 }
 
 function reportarPulso(): void {
-  if (!enlaceRelay?.conectado()) return;
+  if (!enlaceNube?.conectado()) return;
   try {
-    enlaceRelay.reportarPulso(pulsoDelLocal() as unknown as Record<string, unknown>);
+    enlaceNube.reportarPulso(pulsoDelLocal() as unknown as Record<string, unknown>);
   } catch (causa) {
     // Que no se pueda reportar no puede tumbar nada: es información para
     // MOTRAE, no para el restaurante, y el local sigue vendiendo igual.
@@ -2639,9 +2635,9 @@ async function conectarAlRelay(): Promise<void> {
   // un relay de pruebas—, después el documento firmado por MOTRAE, y de último
   // lo que hubiera en la configuración de WhatsApp, que es de donde salía antes
   // y sigue valiendo para los locales ya montados.
-  const delaLicencia = licencia?.enlaceRelay ?? null;
-  const url = process.env.MOTREST_RELAY_URL ?? delaLicencia?.url ?? config?.url;
-  const clave = process.env.MOTREST_RELAY_CLAVE ?? delaLicencia?.clave ?? config?.clave;
+  const delaLicencia = licencia?.enlaceNube ?? null;
+  const url = process.env.MOTREST_NUBE_URL ?? delaLicencia?.url ?? config?.url;
+  const clave = process.env.MOTREST_NUBE_CLAVE ?? delaLicencia?.clave ?? config?.clave;
   if (!url || !clave) {
     registrar(
       "aviso",
@@ -2675,39 +2671,38 @@ async function conectarAlRelay(): Promise<void> {
   };
 
   /*
-   * QUÉ TRANSPORTE LE TOCA A ESTE LOCAL, Y POR QUÉ SE DECIDE AQUÍ.
+   * LA DIRECCIÓN TIENE QUE SER LA DE LA NUBE.
    *
-   * Durante la migración conviven los dos: el relay de Fly (`wss://`) y la nube
-   * de Supabase (`https://`). Se elige por la forma de la dirección y no por una
-   * bandera de configuración, porque una bandera es algo más que hay que
-   * acordarse de poner en cada local — y lo que no se pone, no está.
-   *
-   * Un Hub que solo hablara el idioma nuevo dejaría fuera a todo local que
-   * todavía no haya recibido su licencia reemitida. Por eso esta versión tiene
-   * que salir ANTES de mover a nadie: primero la flota entiende los dos, después
-   * se cambian las direcciones.
+   * Hubo un segundo transporte —un servidor propio en Fly, por WebSocket— y se
+   * retiró: nunca llegó a existir de verdad, y mientras tanto cada local que
+   * apuntara ahí quedaba sin pulso y sin renovaciones sin que nadie lo viera.
+   * Ahora una dirección que no sea de Supabase se rechaza diciéndolo, en vez de
+   * intentar conectar para siempre contra algo que no está.
    */
-  if (pareceNubeSupabase(url)) {
-    if (!LLAVE_PUBLICABLE_NUBE) {
-      registrar(
-        "error",
-        "Este local apunta a la nube de MotRest pero el Hub se empaquetó sin la llave publicable. " +
-          "No reportará su pulso ni recibirá renovaciones: hay que reempaquetar con MOTREST_NUBE_PUBLICABLE.",
-      );
-      return;
-    }
-    enlaceRelay = new EnlaceSupabase({ ...comunes, llavePublicable: LLAVE_PUBLICABLE_NUBE });
-  } else {
-    enlaceRelay = new EnlaceRelayWs(comunes);
+  if (!pareceNubeSupabase(url)) {
+    registrar(
+      "error",
+      `La dirección de MOTRAE en la licencia («${url}») no es la de la nube de MotRest. Este local no reportará su pulso ni recibirá renovaciones: hay que reemitir su licencia.`,
+    );
+    return;
   }
+  if (!LLAVE_PUBLICABLE_NUBE) {
+    registrar(
+      "error",
+      "Este local apunta a la nube de MotRest pero el Hub se empaquetó sin la llave publicable. " +
+        "No reportará su pulso ni recibirá renovaciones: hay que reempaquetar con MOTREST_NUBE_PUBLICABLE.",
+    );
+    return;
+  }
+  enlaceNube = new EnlaceSupabase({ ...comunes, llavePublicable: LLAVE_PUBLICABLE_NUBE });
 
   avisos = new Avisos(
-    enlaceRelay,
+    enlaceNube,
     () => almacen.log.porTipo("mensaje_recibido", 0, 2000) as unknown as EventoMensajeria[],
     registrar,
   );
 
-  enlaceRelay.conectar();
+  enlaceNube.conectar();
 
   /*
    * El pulso diario. `alConectar` ya manda el primero; este es el que sostiene

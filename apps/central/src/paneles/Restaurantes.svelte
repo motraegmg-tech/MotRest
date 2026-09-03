@@ -165,7 +165,7 @@
     <div class="cabeza">
       <h1>Restaurantes</h1>
       <div class="acciones-cabeza">
-        {#if central.puedeConsultarRelay}
+        {#if central.puedeConsultarNube}
           <button
             class="secundario"
             disabled={central.consultandoPulsos}
@@ -184,7 +184,7 @@
       fecha al lado se lee como si fuera de ahora mismo, y podría ser de antes de
       la última publicación — que es justo cuando se mira.
     -->
-    {#if central.puedeConsultarRelay}
+    {#if central.puedeConsultarNube}
       <p class="sondeo" class:mal={central.errorPulsos !== ""}>
         {#if central.errorPulsos}
           Sin contacto con el relay: {central.errorPulsos}

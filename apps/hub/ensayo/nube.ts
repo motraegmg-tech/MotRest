@@ -35,7 +35,7 @@
  */
 import { createClient } from "@supabase/supabase-js";
 import { EnlaceSupabase } from "../src/enlace-supabase.js";
-import type { MensajeDelComensal } from "../src/relay.js";
+import type { MensajeDelComensal } from "../src/enlace-motrae.js";
 
 const URL_NUBE = process.env.MOTREST_NUBE_URL ?? "";
 const PUBLICABLE = process.env.MOTREST_NUBE_PUBLICABLE ?? "";

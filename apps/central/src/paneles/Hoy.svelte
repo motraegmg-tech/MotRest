@@ -29,7 +29,7 @@
    */
   const sinRespaldo = $derived(!central.respaldoAlDia);
   const soportePendiente = $derived(central.localesConSoportePendiente);
-  const relay = $derived(central.saludRelay);
+  const relay = $derived(central.saludNube);
 
   /*
    * Renovaciones que ya se firmaron y el local todavía no ha recogido.
@@ -49,7 +49,7 @@
     return central.clientes.find((c) => c.id === sucursal_id)?.nombre ?? sucursal_id;
   }
   /* Si el relay no contesta, lo caído es el relay y no los restaurantes. */
-  const relayMudo = $derived(central.puedeConsultarRelay && central.errorPulsos !== "");
+  const relayMudo = $derived(central.puedeConsultarNube && central.errorPulsos !== "");
 
   const ETIQUETA: Record<Urgencia, string> = {
     caido: "Caído",

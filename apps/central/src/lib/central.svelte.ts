@@ -72,8 +72,8 @@ export interface PublicacionVigilada {
   obligatoria?: boolean;
 }
 
-/** El parte del propio relay, que hasta ahora nadie miraba. */
-export interface SaludRelay {
+/** Cómo está la nube de MotRest. */
+export interface SaludNube {
   restaurantes: number;
   hubs_conectados: number;
   pulsos: number;
@@ -93,8 +93,6 @@ export interface Secretos {
   soporte?: CredencialSoporte;
   /** Cuándo se fijó la contraseña de soporte vigente. */
   soporte_fijado_ts?: number;
-  /** Dónde está el relay. La clave con la que se consulta NO sale de DPAPI. */
-  relay_url?: string;
   /**
    * Dónde está la nube. **Solo la dirección.**
    *
@@ -122,9 +120,6 @@ interface SecretosProtegidos {
    * llega a un restaurante cuando se le emite una nueva.
    */
   soporte_fijado_ts?: number;
-  /** El relay de MOTRAE y su clave de administración, para traer los pulsos. */
-  relay_url?: string;
-  relay_clave_admin?: string;
   /**
    * La nube de MotRest, y la llave con la que Central publica en ella.
    *
@@ -140,14 +135,14 @@ interface SecretosProtegidos {
   /** PINes de responsables, cifrados con DPAPI y nunca en la cartera. */
   responsables?: Record<string, ResponsableProtegido>;
   /**
-   * La clave con la que cada local se identifica ante el relay.
+   * La credencial con la que cada local se identifica ante la nube.
    *
    * UNA POR RESTAURANTE, la que emite `padron alta`. Va aquí y no en la cartera
    * por lo mismo que los PINes: la cartera se lee sin desproteger nada, y esta
    * clave permite hablar por el restaurante. Se copia dentro de la licencia
    * firmada al emitirla, que es como llega a su caja.
    */
-  claves_relay?: Record<string, string>;
+  claves_nube?: Record<string, string>;
   /**
    * La clave con la que se cifra el respaldo portátil de cada local.
    *
@@ -203,16 +198,16 @@ type ResultadoAlta =
  * Cómo le llegó la licencia al restaurante.
  *
  * Se distingue «entregada» de «instalada» a propósito, y la diferencia no es
- * quisquillosa: el relay confirma que se la mandó al Hub, pero quien la escribe
+ * quisquillosa: la nube confirma que quedó depositada, pero quien la escribe
  * en disco es el Hub. Decir «listo» cuando solo se ha depositado sería repetir
  * el problema de origen, con el agravante de que ahora nadie iría a comprobarlo.
  */
 export type EntregaLicencia =
-  /** El relay se la pasó al Hub, que estaba conectado. */
+  /** La nube se la pasó al Hub, que estaba conectado. */
   | "entregada"
   /** El local está apagado o sin internet: la recogerá al conectarse. */
   | "en_espera"
-  /** No hay relay configurado, o falló: toca pegarla a mano. */
+  /** No hay nube configurada, o falló: toca pegarla a mano. */
   | "a_mano";
 
 type ResultadoConLicencia =
@@ -249,7 +244,6 @@ function vistaDe(secretos: SecretosProtegidos): Secretos {
     ...(secretos.publicacion ? { publicacion: { publica: secretos.publicacion.publica } } : {}),
     ...(secretos.soporte ? { soporte: secretos.soporte } : {}),
     ...(secretos.soporte_fijado_ts ? { soporte_fijado_ts: secretos.soporte_fijado_ts } : {}),
-    ...(secretos.relay_url ? { relay_url: secretos.relay_url } : {}),
     ...(secretos.nube_url ? { nube_url: secretos.nube_url } : {}),
     ...(secretos.ultimo_respaldo_ts ? { ultimo_respaldo_ts: secretos.ultimo_respaldo_ts } : {}),
   };
@@ -339,8 +333,6 @@ function decodificarSecretos(texto: string): SecretosProtegidos | null {
     if (!valor || valor.formato !== 2 || typeof valor.repositorio !== "string") return null;
     if ((valor.licencias !== undefined && !esPar(valor.licencias)) ||
       (valor.publicacion !== undefined && !esPar(valor.publicacion)) ||
-      (valor.relay_url !== undefined && typeof valor.relay_url !== "string") ||
-      (valor.relay_clave_admin !== undefined && typeof valor.relay_clave_admin !== "string") ||
       (valor.nube_url !== undefined && typeof valor.nube_url !== "string") ||
       (valor.nube_servicio !== undefined && typeof valor.nube_servicio !== "string") ||
       (valor.responsables !== undefined && !esResponsablesProtegidos(valor.responsables))) {
@@ -426,8 +418,8 @@ export class StoreCentral {
   ultimaPublicacion = $state<PublicacionVigilada | null>(
     leer(LLAVE_PUBLICACION, null as PublicacionVigilada | null),
   );
-  /** El parte del propio relay. `null` = todavía no se le ha preguntado. */
-  saludRelay = $state<SaludRelay | null>(null);
+  /** El parte de la nube. `null` = todavía no se le ha preguntado. */
+  saludNube = $state<SaludNube | null>(null);
   /** Renovaciones depositadas que su restaurante todavía no ha recogido. */
   licenciasPendientes = $state<
     { sucursal_id: string; depositada_ts: number; conectado: boolean }[]
@@ -441,7 +433,7 @@ export class StoreCentral {
   /** Se refresca cada minuto para que "vence en 3 días" no se quede clavado. */
   ahora = $state(Date.now());
 
-  /** Cuándo se habló por última vez con el relay, y cómo fue. */
+  /** Cuándo se habló por última vez con la nube, y cómo fue. */
   consultandoPulsos = $state(false);
   ultimaConsultaPulsos = $state<number | null>(null);
   errorPulsos = $state("");
@@ -966,17 +958,16 @@ export class StoreCentral {
         /*
          * El enlace con MOTRAE viaja DENTRO de la licencia.
          *
-         * Sin esto el Hub no monta el enlace con el relay, no reporta su pulso y
-         * el local sale en «Hoy» como si estuviera sin señal aunque esté
-         * vendiendo. Hacen falta las dos mitades: el relay es de MOTRAE y su
-         * dirección es la misma para todos, pero la clave es de este
-         * restaurante y de ninguno más.
+         * Sin esto el Hub no monta el enlace, no reporta su pulso y el local sale
+         * en «Hoy» como si estuviera sin señal aunque esté vendiendo. Hacen
+         * falta las dos mitades: la nube es de MOTRAE y su dirección es la misma
+         * para todos, pero la credencial es de este restaurante y de ninguno más.
          */
-        ...(this.protegidos.relay_url && this.protegidos.claves_relay?.[cliente.id]
+        ...(this.protegidos.nube_url && this.protegidos.claves_nube?.[cliente.id]
           ? {
-              relay: {
-                url: this.protegidos.relay_url,
-                clave: this.protegidos.claves_relay[cliente.id]!,
+              nube: {
+                url: this.protegidos.nube_url,
+                clave: this.protegidos.claves_nube[cliente.id]!,
               },
             }
           : {}),
@@ -1041,7 +1032,7 @@ export class StoreCentral {
   }
 
   /**
-   * Deja la licencia en el relay para que el Hub del local la recoja.
+   * Deja la licencia en el buzón del local para que su Hub la recoja.
    *
    * ESTO ES LO QUE QUITA EL JSON DE LA CAJA DEL RESTAURANTERO. Antes la única
    * puerta de entrada era `POST /licencia` en el Hub, que solo acepta peticiones
@@ -1049,40 +1040,53 @@ export class StoreCentral {
    * por remoto. Con treinta clientes eso deja de ser una molestia y pasa a ser
    * el cuello de botella de la empresa.
    *
-   * El relay no puede falsificar nada: la licencia va firmada con la privada de
+   * La nube no puede falsificar nada: la licencia va firmada con la privada de
    * MOTRAE, que no sale de esta máquina, y el Hub la verifica contra su pública
    * compilada antes de escribirla. Es un cartero, no una autoridad.
+   *
+   * SE DEVUELVE «EN ESPERA», NUNCA «ENTREGADA». Depositarla es todo lo que
+   * Central puede saber: quien confirma que se instaló es el Hub, escribiendo
+   * `confirmada_ts` en su propia fila. Decir «entregada» aquí sería la mentira
+   * que este mecanismo no se puede permitir — un local bloqueado un lunes
+   * mientras el panel lo da por renovado.
    */
   async entregarLicencia(
     sucursal_id: string,
     licencia: Licencia,
   ): Promise<{ entrega: EntregaLicencia; motivo?: string }> {
-    const url = this.protegidos.relay_url;
-    const clave = this.protegidos.relay_clave_admin;
-    if (!url || !clave) {
-      return { entrega: "a_mano", motivo: "No hay relay configurado (ver Llaves)" };
+    const url = this.protegidos.nube_url?.trim().replace(/[/]+$/, "") ?? "";
+    const servicio = this.protegidos.nube_servicio ?? "";
+    if (!url || !servicio) {
+      return { entrega: "a_mano", motivo: "No hay nube configurada (ver Llaves)" };
     }
 
     try {
-      const respuesta = await fetch(new URL("/licencia", url), {
+      const respuesta = await fetch(`${url}/rest/v1/licencias_pendientes`, {
         method: "POST",
-        headers: { authorization: `Bearer ${clave}`, "content-type": "application/json" },
-        body: JSON.stringify({ sucursal_id, licencia }),
+        headers: {
+          apikey: servicio,
+          authorization: `Bearer ${servicio}`,
+          "content-type": "application/json",
+          prefer: "resolution=merge-duplicates,return=minimal",
+        },
+        body: JSON.stringify({
+          sucursal_id,
+          licencia,
+          depositada_ts: new Date().toISOString(),
+          // Se limpian los dos: una renovación nueva no hereda el «ya instalada»
+          // de la anterior, ni el error que dejó la que se rechazó.
+          confirmada_ts: null,
+          ultimo_error: null,
+        }),
         signal: AbortSignal.timeout(15_000),
       });
 
       if (!respuesta.ok) {
-        const detalle = (await respuesta.json().catch(() => null)) as { error?: string } | null;
-        return {
-          entrega: "a_mano",
-          motivo: detalle?.error ?? `El relay respondió ${respuesta.status}`,
-        };
+        return { entrega: "a_mano", motivo: `La nube respondió ${respuesta.status}: ${await respuesta.text()}` };
       }
-
-      const datos = (await respuesta.json()) as { entregada?: boolean };
-      return { entrega: datos.entregada ? "entregada" : "en_espera" };
+      return { entrega: "en_espera" };
     } catch (causa) {
-      return { entrega: "a_mano", motivo: `No se pudo hablar con el relay: ${String(causa)}` };
+      return { entrega: "a_mano", motivo: `No se pudo hablar con la nube: ${String(causa)}` };
     }
   }
 
@@ -1096,24 +1100,49 @@ export class StoreCentral {
     | { ok: true; pendientes: { sucursal_id: string; depositada_ts: number; conectado: boolean }[] }
     | { ok: false; error: string }
   > {
-    const url = this.protegidos.relay_url;
-    const clave = this.protegidos.relay_clave_admin;
-    if (!url || !clave) return { ok: false, error: "No hay relay configurado" };
+    const url = this.protegidos.nube_url?.trim().replace(/[/]+$/, "") ?? "";
+    const servicio = this.protegidos.nube_servicio ?? "";
+    if (!url || !servicio) return { ok: false, error: "No hay nube configurada" };
 
     try {
-      const respuesta = await fetch(new URL("/licencia", url), {
-        headers: { authorization: `Bearer ${clave}` },
-        signal: AbortSignal.timeout(10_000),
-      });
-      if (!respuesta.ok) return { ok: false, error: `El relay respondió ${respuesta.status}` };
+      /*
+       * Solo las que siguen sin confirmar. Una fila con `confirmada_ts` es una
+       * renovación que el Hub ya instaló: dejarla en la lista de pendientes
+       * convertiría el panel en un montón de alarmas viejas, y una lista que
+       * siempre tiene cosas deja de mirarse.
+       */
+      const respuesta = await fetch(
+        `${url}/rest/v1/licencias_pendientes` +
+          "?select=sucursal_id,depositada_ts,intentos,ultimo_error&confirmada_ts=is.null",
+        {
+          headers: { apikey: servicio, authorization: `Bearer ${servicio}` },
+          signal: AbortSignal.timeout(10_000),
+        },
+      );
+      if (!respuesta.ok) return { ok: false, error: `La nube respondió ${respuesta.status}` };
 
-      const datos = (await respuesta.json()) as {
-        pendientes?: { sucursal_id: string; depositada_ts: number; conectado: boolean }[];
-      };
-      this.licenciasPendientes = datos.pendientes ?? [];
+      const filas = (await respuesta.json()) as {
+        sucursal_id: string;
+        depositada_ts: string;
+        intentos?: number;
+      }[];
+
+      this.licenciasPendientes = filas.map((f) => ({
+        sucursal_id: f.sucursal_id,
+        depositada_ts: new Date(f.depositada_ts).getTime(),
+        /*
+         * «Conectado» ya no se puede saber, y decirlo es mejor que fingirlo.
+         *
+         * El relay sostenía un socket por local y sabía quién estaba vivo en ese
+         * instante. Con la nube no hay tal cosa: lo que hay es el último pulso,
+         * que es un dato distinto y vive en su propia tabla. Se deja en `false`
+         * y el panel se apoya en los pulsos para eso.
+         */
+        conectado: false,
+      }));
       return { ok: true, pendientes: this.licenciasPendientes };
     } catch (causa) {
-      return { ok: false, error: `No se pudo hablar con el relay: ${String(causa)}` };
+      return { ok: false, error: `No se pudo hablar con la nube: ${String(causa)}` };
     }
   }
 
@@ -1431,7 +1460,7 @@ export class StoreCentral {
     nube_url?: string;
     nube_servicio?: string;
   }): Promise<Resultado> {
-    const url = cambios.relay_url?.trim() ?? this.protegidos.relay_url ?? "";
+    const url = cambios.relay_url?.trim() ?? this.protegidos.nube_url ?? "";
     /*
      * Solo `https://`. Por aquí viaja la clave de administración del relay —la
      * que abre el estado de toda la cartera— y en claro se la lleva cualquier
@@ -1468,8 +1497,8 @@ export class StoreCentral {
   }
 
   /** ¿Se puede preguntar al relay cómo están los locales? */
-  get puedeConsultarRelay(): boolean {
-    return Boolean(this.protegidos.relay_url && this.protegidos.relay_clave_admin);
+  get puedeConsultarNube(): boolean {
+    return Boolean(this.protegidos.nube_url && this.protegidos.nube_servicio);
   }
 
   /**
@@ -1483,12 +1512,12 @@ export class StoreCentral {
     if (!this.clientes.some((c) => c.id === sucursalId)) {
       return { ok: false, error: "No existe ese local" };
     }
-    const claves = { ...(this.protegidos.claves_relay ?? {}) };
+    const claves = { ...(this.protegidos.claves_nube ?? {}) };
     const limpia = clave.trim();
     if (limpia) claves[sucursalId] = limpia;
     else delete claves[sucursalId];
 
-    return this.reemplazarProtegidos({ ...this.protegidos, claves_relay: claves });
+    return this.reemplazarProtegidos({ ...this.protegidos, claves_nube: claves });
   }
 
   /**
@@ -1532,7 +1561,7 @@ export class StoreCentral {
    * en «Hoy» como que no lo vemos.
    */
   tieneEnlaceRelay(sucursalId: string): boolean {
-    return Boolean(this.protegidos.relay_url && this.protegidos.claves_relay?.[sucursalId]);
+    return Boolean(this.protegidos.nube_url && this.protegidos.claves_nube?.[sucursalId]);
   }
 
   /**
@@ -1542,45 +1571,75 @@ export class StoreCentral {
    * cuándo dio señales. Sustituye por completo lo que hubiera de cada sucursal —
    * el pulso es un estado actual, no un historial.
    *
-   * Lo que no llegue se queda como estaba. Un relay caído no puede convertir a
+   * Lo que no llegue se queda como estaba. Una nube caída no puede convertir a
    * toda la cartera en «nunca reportó», que se leería como una avería masiva.
+   *
+   * La hora la puso el servidor al escribir el pulso, no el local: el reloj de
+   * una caja puede estar en cualquier año, y un pulso fechado en 2019
+   * desordenaría este panel entero.
    */
   async traerPulsos(): Promise<{ ok: true; total: number } | { ok: false; error: string }> {
-    const url = this.protegidos.relay_url;
-    const clave = this.protegidos.relay_clave_admin;
-    if (!url || !clave) {
-      return { ok: false, error: "Falta la dirección del relay o su clave de administración" };
+    const url = this.protegidos.nube_url?.trim().replace(/[/]+$/, "") ?? "";
+    const servicio = this.protegidos.nube_servicio ?? "";
+    if (!url || !servicio) {
+      return { ok: false, error: "Falta la dirección de la nube o su llave de servicio" };
     }
     /* Dos consultas a la vez solo duplican el gasto: la segunda trae lo mismo. */
-    if (this.consultandoPulsos) return { ok: false, error: "Ya se está consultando el relay" };
+    if (this.consultandoPulsos) return { ok: false, error: "Ya se está consultando la nube" };
     this.consultandoPulsos = true;
 
     try {
-      const respuesta = await fetch(new URL("/pulsos", url), {
-        headers: { authorization: `Bearer ${clave}` },
+      const respuesta = await fetch(`${url}/rest/v1/pulsos?select=*`, {
+        headers: { apikey: servicio, authorization: `Bearer ${servicio}` },
         signal: AbortSignal.timeout(10_000),
       });
 
-      if (respuesta.status === 401) {
-        return this.falloDePulsos("El relay rechazó la clave de administración");
+      if (respuesta.status === 401 || respuesta.status === 403) {
+        return this.falloDePulsos("La nube rechazó la llave de servicio");
       }
       if (!respuesta.ok) {
-        return this.falloDePulsos(`El relay respondió ${respuesta.status}`);
+        return this.falloDePulsos(`La nube respondió ${respuesta.status}`);
       }
 
-      const datos = (await respuesta.json()) as { pulsos?: PulsoCliente[] };
-      if (!Array.isArray(datos.pulsos)) {
-        return this.falloDePulsos("El relay contestó algo que no son pulsos");
+      const filas = (await respuesta.json()) as Record<string, unknown>[];
+      if (!Array.isArray(filas)) {
+        return this.falloDePulsos("La nube contestó algo que no son pulsos");
       }
 
-      for (const pulso of datos.pulsos) {
-        if (pulso?.sucursal_id && typeof pulso.version === "string") this.recibirPulso(pulso);
+      let leidos = 0;
+      for (const fila of filas) {
+        const sucursal_id = fila.sucursal_id;
+        const version = fila.version;
+        if (typeof sucursal_id !== "string" || typeof version !== "string") continue;
+
+        /*
+         * Se traduce campo a campo, no con `...fila`. La tabla tiene columnas
+         * que el panel no conoce y podría tener más mañana; copiarlas todas es
+         * cómo un dato de la base acaba pintado en la interfaz sin que nadie lo
+         * haya decidido.
+         */
+        this.recibirPulso({
+          sucursal_id,
+          version,
+          ts: new Date(String(fila.ts)).getTime(),
+          ...(typeof fila.ventas_dia === "number" ? { ventas_dia: fila.ventas_dia } : {}),
+          ...(typeof fila.cuentas_dia === "number" ? { cuentas_dia: fila.cuentas_dia } : {}),
+          ...(typeof fila.terminales === "number" ? { terminales: fila.terminales } : {}),
+          ...(Array.isArray(fila.dispositivos) ? { dispositivos: fila.dispositivos } : {}),
+          ...(Array.isArray(fila.problemas) ? { problemas: fila.problemas } : {}),
+          ...(typeof fila.hub_id === "string" ? { hub_id: fila.hub_id } : {}),
+          ...(typeof fila.plataforma === "string" ? { plataforma: fila.plataforma } : {}),
+          ...(typeof fila.eventos === "number" ? { eventos: fila.eventos } : {}),
+          ...(fila.respaldo_ts ? { respaldo_ts: new Date(String(fila.respaldo_ts)).getTime() } : {}),
+        } as PulsoCliente);
+        leidos++;
       }
+
       this.ultimaConsultaPulsos = Date.now();
       this.errorPulsos = "";
-      return { ok: true, total: datos.pulsos.length };
+      return { ok: true, total: leidos };
     } catch (causa) {
-      return this.falloDePulsos(`No se pudo hablar con el relay: ${String(causa)}`);
+      return this.falloDePulsos(`No se pudo hablar con la nube: ${String(causa)}`);
     } finally {
       this.consultandoPulsos = false;
     }
@@ -1615,9 +1674,9 @@ export class StoreCentral {
   }
 
   private async sondearSiSePuede(): Promise<void> {
-    if (!this.puedeConsultarRelay || this.consultandoPulsos) return;
+    if (!this.puedeConsultarNube || this.consultandoPulsos) return;
     await this.traerPulsos();
-    await this.traerSaludRelay();
+    await this.traerSaludNube();
     /* Una renovación que lleva días sin recoger es el local que va a llamar. */
     await this.traerLicenciasPendientes();
   }
@@ -1631,34 +1690,50 @@ export class StoreCentral {
    * restaurantes cuando en realidad todos están vendiendo tan tranquilos. Saber
    * que el caído es el relay cambia por completo a quién hay que llamar.
    */
-  async traerSaludRelay(): Promise<{ ok: true } | { ok: false; error: string }> {
-    const url = this.protegidos.relay_url;
-    const clave = this.protegidos.relay_clave_admin;
-    if (!url || !clave) {
-      return { ok: false, error: "Falta la dirección del relay o su clave de administración" };
+  async traerSaludNube(): Promise<{ ok: true } | { ok: false; error: string }> {
+    const url = this.protegidos.nube_url?.trim().replace(/[/]+$/, "") ?? "";
+    const servicio = this.protegidos.nube_servicio ?? "";
+    if (!url || !servicio) {
+      return { ok: false, error: "Falta la dirección de la nube o su llave de servicio" };
     }
 
-    try {
-      const respuesta = await fetch(new URL("/salud/detalle", url), {
-        headers: { authorization: `Bearer ${clave}` },
+    const cabeceras = { apikey: servicio, authorization: `Bearer ${servicio}` };
+    /*
+     * Se cuentan con `Prefer: count=exact` y `limit=0`: interesa cuántos hay, no
+     * traerse el padrón entero para medir su longitud.
+     */
+    const contar = async (tabla: string): Promise<number> => {
+      const r = await fetch(`${url}/rest/v1/${tabla}?select=sucursal_id&limit=0`, {
+        headers: { ...cabeceras, prefer: "count=exact" },
         signal: AbortSignal.timeout(10_000),
       });
-      if (!respuesta.ok) {
-        this.saludRelay = null;
-        return { ok: false, error: `El relay respondió ${respuesta.status}` };
-      }
+      if (!r.ok) throw new Error(`${tabla}: ${r.status}`);
+      // El total viene en «content-range: 0-0/N», o «*/N» cuando no hay filas.
+      const total = Number(r.headers.get("content-range")?.split("/")[1] ?? "0");
+      return Number.isFinite(total) ? total : 0;
+    };
 
-      const datos = (await respuesta.json()) as Partial<SaludRelay> & { ts?: number };
-      this.saludRelay = {
-        restaurantes: datos.restaurantes ?? 0,
-        hubs_conectados: datos.hubs_conectados ?? 0,
-        pulsos: datos.pulsos ?? 0,
+    try {
+      const [restaurantes, pulsos] = await Promise.all([contar("sucursales"), contar("pulsos")]);
+      this.saludNube = {
+        restaurantes,
+        /*
+         * NO HAY «HUBS CONECTADOS», y decirlo es mejor que inventarlo.
+         *
+         * El relay sostenía un socket por local y sabía quién estaba vivo en ese
+         * instante. La nube no: lo que hay es el último pulso de cada uno, que
+         * es un dato distinto y ya se ve en «Hoy». Poner aquí el número de
+         * pulsos disfrazado de conexiones sería un panel que dice que un local
+         * está en línea cuando lo que sabe es que lo estuvo ayer.
+         */
+        hubs_conectados: 0,
+        pulsos,
         consultado_ts: Date.now(),
       };
       return { ok: true };
     } catch (causa) {
-      this.saludRelay = null;
-      return { ok: false, error: `No se pudo hablar con el relay: ${String(causa)}` };
+      this.saludNube = null;
+      return { ok: false, error: `No se pudo hablar con la nube: ${String(causa)}` };
     }
   }
 

@@ -27,7 +27,7 @@
 import { createClient, type RealtimeChannel, type SupabaseClient } from "@supabase/supabase-js";
 import WebSocket from "ws";
 import type { Aviso } from "./avisos.js";
-import type { EnlaceConMotrae, MensajeDelComensal, OpcionesRelay } from "./relay.js";
+import type { EnlaceConMotrae, MensajeDelComensal, OpcionesNube } from "./enlace-motrae.js";
 
 /** El buzón de cada Hub en Supabase Auth. No recibe correo; es un identificador. */
 const DOMINIO_HUBS = "hubs.motrae.mx";
@@ -56,7 +56,7 @@ const REINTENTO_MAX_MS = 5 * 60 * 1000;
  * **Solo `https://`.** Por aquí viajan la credencial del restaurante y el token
  * de la API de Meta; en claro se los lleva cualquiera en el mismo wifi, y a
  * partir de ahí manda WhatsApp en nombre del restaurante. Es la misma regla que
- * `direccionUsable()` aplica al `wss://` del relay, y por la misma razón.
+ * la nube aplica a todo lo que sale del restaurante, y por la misma razón.
  *
  * Se deja pasar el bucle local para poder correr el ensayo contra un Supabase de
  * desarrollo, donde no hay red que escuchar.
@@ -81,14 +81,20 @@ export function direccionDeNubeUsable(url: string): { ok: true } | { ok: false; 
   };
 }
 
-/** ¿Esta dirección es de la nube de Supabase, o del relay de toda la vida? */
+/**
+ * ¿Este local tiene dirección de nube, o no tiene ninguna?
+ *
+ * Distingue «hay a dónde hablar» de «este local todavía no está enlazado», que
+ * es un caso normal: un restaurante recién instalado opera con el portal y sin
+ * nube hasta que se le emite la licencia con sus datos.
+ *
+ * Es deliberadamente laxa —solo mira el esquema— porque quien decide si la
+ * dirección SIRVE es `direccionDeNubeUsable`, que exige https salvo en el bucle
+ * local. Tener dos comprobaciones estrictas del mismo dato es cómo se acaba con
+ * dos que discrepan.
+ */
 export function pareceNubeSupabase(url: string): boolean {
   return /^https?:\/\//i.test(url.trim());
-}
-
-export interface OpcionesNube extends OpcionesRelay {
-  /** La llave publicable del proyecto. No es un secreto: sin JWT no ve nada. */
-  llavePublicable: string;
 }
 
 export class EnlaceSupabase implements EnlaceConMotrae {
