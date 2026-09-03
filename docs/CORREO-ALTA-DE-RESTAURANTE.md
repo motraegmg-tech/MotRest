@@ -7,11 +7,11 @@ Meta, esto es **otro mundo de simple**:
 |---|---|---|
 | Verificación de empresa | 2 días – 3 semanas | **Ninguna** |
 | Aprobación de plantillas | Horas – 48 h | **Ninguna** |
-| Servicio en la nube (relay) | **Obligatorio** | **No hace falta** |
+| Servicio en la nube | **Obligatorio** | **No hace falta** |
 | Costo | Por conversación | **Gratis** |
 | Alta de un restaurante | Días | **10 minutos** |
 
-**Por qué desaparece el relay.** Mandar un correo es una llamada de salida: el
+**Por qué no hace falta la nube.** Mandar un correo es una llamada de salida: el
 Hub la hace él mismo desde el restaurante. WhatsApp necesitaba un servicio
 público porque Meta tiene que poder *alcanzarnos* para entregar lo que entra. El
 correo no entra: si el comensal responde, le llega al buzón del restaurante.

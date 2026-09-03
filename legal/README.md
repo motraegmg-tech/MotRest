@@ -94,7 +94,7 @@ contradiga.
 
 | Qué | Dónde | Lo obliga |
 |---|---|---|
-| **Ruta pública de baja de correo** — en el relay o en `motrest.mx`, **nunca en el Hub**, que sólo es alcanzable desde la red del local | Relay / sitio | C4 §11 |
+| **Ruta pública de baja de correo** — en la nube o en el sitio público, **nunca en el Hub**, que sólo es alcanzable desde la red del local | Nube / sitio | C4 §11 |
 | **Cabeceras `List-Unsubscribe` y `List-Unsubscribe-Post`** (RFC 8058) | `apps/hub/src/smtp.ts` y `correo.ts` | C4 §11 |
 | **Alimentar `datos.baja`** — hoy sólo existe en los tests, y el pie de baja se omite en silencio | `packages/dominio/src/clientes/correo.ts` | C4 §12 |
 | **Lista de exclusión** persistente, que sobreviva a la supresión de la ficha | Dominio | C4 §3 · D4 §2 |

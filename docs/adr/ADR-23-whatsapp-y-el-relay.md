@@ -1,6 +1,16 @@
 # ADR-23 — WhatsApp: de quién es el número, y por qué hay un relay
 
 **Estado:** aceptado · **Fecha:** 2026-07-30
+**Actualizado por:** [ADR-28](ADR-28-la-nube-en-supabase.md)
+
+> **Lo que decide este ADR sigue en pie; cambió dónde corre.** El número es del
+> restaurante, hace falta un intermediario público porque Meta tiene que poder
+> alcanzarnos, y ese intermediario no guarda la operación del local. Nada de eso
+> se ha tocado.
+>
+> Lo que cambió es el alojamiento: donde este documento dice «el relay» —un
+> servicio propio en Fly.io— hoy hay una función de Supabase. Aquel servicio
+> nunca llegó a desplegarse. Ver ADR-28.
 
 ## Contexto
 

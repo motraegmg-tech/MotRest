@@ -97,7 +97,7 @@ Riesgos identificados sobre los datos personales tratados, y su tratamiento:
 | Compromiso del CSD | Baja | **Muy alto** | Mitigado — ACL, BitLocker, no se sincroniza; obligación de aviso inmediato al SAT |
 | Fuga por respaldo mal manejado | Media | Alto | Respaldo cifrado con clave de licencia; permanece en el equipo |
 | Suplantación de terminal en la red del local | Baja | Medio | **Abierto** — clave compartida; atribución por credencial de empleado |
-| Compromiso del padrón del relay (tokens de Meta) | Baja | **Muy alto** | Cifrado AES-256-GCM, escritura atómica, llave en el entorno |
+| Compromiso del padrón (tokens de Meta) | Baja | **Muy alto** | Cifrado AES-256-GCM por MOTRAE antes de escribir; la llave no está en la nube |
 | Envío de marketing sin consentimiento | **Alta** | Medio | **Abierto** — falta la ruta de baja; se prohíbe habilitar campañas hasta cerrarlo (C4 §12) |
 | Imposibilidad de atender un derecho de cancelación | **Alta** | Medio | **Abierto** — falta el mecanismo de supresión (D3 §5) |
 | Pérdida de datos del cliente | Baja | Alto | Respaldos automáticos diarios con rotación |

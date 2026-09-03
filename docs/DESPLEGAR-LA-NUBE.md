@@ -1,8 +1,13 @@
 # Desplegar la nube de MotRest
 
-Lo que sustituye a [`DESPLEGAR-EL-RELAY.md`](DESPLEGAR-EL-RELAY.md). Se hace
-**una vez**; después, dar de alta un restaurante son dos minutos y **ya no hay
-que entrar por SSH a ninguna máquina**.
+Se hace **una vez**; después, dar de alta un restaurante son dos minutos y **ya
+no hay que entrar por SSH a ninguna máquina**.
+
+> Hubo antes un servidor propio en Fly.io con su propia guía de despliegue. Se
+> retiró junto con el servicio: **nunca llegó a existir** —el dominio no se
+> registró y la aplicación no tenía máquinas— y mientras tanto cada Hub
+> reintentaba contra él en silencio. El registro de aquella decisión sigue en
+> [ADR-27](adr/ADR-27-donde-vive-el-relay.md), marcado como superado.
 
 > **Lo que hay en la nube.** El padrón, el pulso de cada local, las renovaciones
 > sin recoger y el catálogo de versiones. Ni comandas, ni ventas, ni clientes:
@@ -60,9 +65,6 @@ Va donde ya están las llaves de firma de MOTRAE, con el mismo cuidado. Esto no 
 higiene: es la diferencia entre restaurar un respaldo y llamar a cincuenta
 restaurantes.
 
-> Si algún día hay que leer el padrón exportado del relay de Fly, **es la misma
-> llave y el mismo formato de sobre**: `MOTREST_RELAY_LLAVE_PADRON` sirve tal
-> cual como `MOTREST_LLAVE_PADRON`.
 
 ## 4 · Los secretos
 
@@ -125,10 +127,9 @@ curl.exe -s -o NUL -w "%{http_code}`n" "https://ixttslqbbwqfcqjmttyg.supabase.co
 | Campo suscrito | **`messages`** |
 
 > **Este paso es de una sola dirección.** Hay una URL de webhook por app: en el
-> instante en que se guarda, todo el WhatsApp entrante deja de ir al relay y
-> viene aquí. Antes de tocarlo, mira
-> [`MIGRAR-DE-FLY-A-SUPABASE.md`](MIGRAR-DE-FLY-A-SUPABASE.md) — hay cosas que
-> tienen que estar hechas ya.
+> instante en que se guarda, todo el WhatsApp entrante viene aquí. Ensáyalo
+> antes contra el número de pruebas que Meta regala — un webhook mal puesto no
+> avisa, simplemente deja de llegar lo que el comensal escribe.
 
 ## 7 · Dar de alta un restaurante
 
@@ -188,4 +189,4 @@ juntos son el padrón en claro. Esa incomodidad es el diseño.
 
 - [ADR-28 · La nube en Supabase, y el relay se apaga](adr/ADR-28-la-nube-en-supabase.md)
 - [El esquema, tabla por tabla](../supabase/README.md)
-- [`MIGRAR-DE-FLY-A-SUPABASE.md`](MIGRAR-DE-FLY-A-SUPABASE.md) — el orden del corte
+- [ADR-27 · Dónde vive el relay](adr/ADR-27-donde-vive-el-relay.md) — la decisión que esto superó
