@@ -74,7 +74,7 @@ function leerArgumentos(argv: string[]): Opciones | string {
    * que el error diga qué pasa, en vez de llegar como un fallo de Postgres a
    * mitad del alta con el usuario de Auth ya creado.
    */
-  if (!/^suc-[a-z0-9]{4,32}$/.test(sucursal)) {
+  if (!/^suc-[A-Za-z0-9-]{1,60}$/.test(sucursal)) {
     return `"${sucursal}" no tiene forma de sucursal. El Hub la escribe en <datos>/sucursal.txt al instalarse: cópiala de ahí.`;
   }
   return { sucursal, nombre };
