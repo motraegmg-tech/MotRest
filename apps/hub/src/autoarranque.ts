@@ -23,7 +23,7 @@
  */
 import { execFile } from "node:child_process";
 import { writeFile } from "node:fs/promises";
-import { basename, dirname, join } from "node:path";
+import { basename, win32 } from "node:path";
 import { promisify } from "node:util";
 
 const ejecutar = promisify(execFile);
@@ -63,9 +63,21 @@ export interface EstadoAutoarranque {
   motivo?: string;
 }
 
-/** Ruta del lanzador pequeño que queda junto al ejecutable instalado. */
+/**
+ * Ruta del lanzador pequeño que queda junto al ejecutable instalado.
+ *
+ * `win32` A PROPÓSITO, y no el `path` del sistema anfitrión. Lo que se arma
+ * aquí es una ruta de Windows —va dentro de un comando de `wscript.exe`—, así
+ * que sus reglas son las de Windows se ejecute esto donde se ejecute.
+ *
+ * Con el `path` genérico, en Linux la barra invertida no es separador: de
+ * "C:\…\motrest-hub.exe" salía "." como carpeta y el .vbs perdía la suya,
+ * quedando un comando que apunta al directorio actual. En la caja no se nota
+ * —ahí sí es Windows— pero cualquier comprobación fuera de Windows queda
+ * mintiendo, y eso es peor que no tenerla.
+ */
 export function rutaLanzadorSilencioso(rutaHub: string): string {
-  return join(dirname(rutaHub), LANZADOR_SILENCIOSO);
+  return win32.join(win32.dirname(rutaHub), LANZADOR_SILENCIOSO);
 }
 
 /** Exact command stored under HKCU\\...\\Run. */

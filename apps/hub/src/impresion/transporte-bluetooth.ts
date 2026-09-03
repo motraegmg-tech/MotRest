@@ -127,14 +127,23 @@ export function enviarABluetooth(
   datos: Uint8Array,
   timeoutMs = 15_000,
 ): Promise<ResultadoImpresionBluetooth> {
-  if (process.platform !== "win32") {
-    return Promise.resolve({ ok: false, error: "La impresión por COM solo está disponible en Windows" });
-  }
+  /*
+   * EL PUERTO SE VALIDA PRIMERO, y el orden importa.
+   *
+   * Un puerto mal escrito lo está en cualquier sistema, y decir «COM4) no es
+   * un puerto» sirve para corregirlo; decir «esto solo va en Windows» a quien
+   * además tiene la configuración mal, lo manda a buscar por el lado
+   * equivocado. Con la guarda de plataforma delante, el error útil no llegaba
+   * a salir nunca fuera de Windows.
+   */
   if (!esPuertoValido(puerto)) {
     return Promise.resolve({
       ok: false,
       error: `«${puerto}» no es un puerto COM. Se espera algo como COM4, tal como aparece entre paréntesis en el administrador de dispositivos de Windows.`,
     });
+  }
+  if (process.platform !== "win32") {
+    return Promise.resolve({ ok: false, error: "La impresión por COM solo está disponible en Windows" });
   }
   const limpio = puerto.trim().toUpperCase();
 
