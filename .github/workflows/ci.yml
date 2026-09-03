@@ -36,3 +36,40 @@ jobs:
 
       - name: Ejecutar pruebas de todos los paquetes
         run: corepack pnpm@9.15.0 -r test
+
+  # ---------------------------------------------------------------------------
+  # Que las migraciones apliquen SOBRE UNA BASE VACÍA
+  # ---------------------------------------------------------------------------
+  #
+  # Este es el trabajo que se marca como obligatorio en `main`. Existe porque una
+  # versión rota de MotRest se arregla publicando la siguiente, y **una migración
+  # rota no**: si tira una columna, la columna se fue. Y esta es la base que
+  # tiene el padrón de todos los restaurantes.
+  #
+  # Levanta un Supabase entero en el runner y aplica `supabase/migrations` desde
+  # cero. Eso atrapa la clase de fallo que no se ve trabajando contra el proyecto
+  # real, donde las tablas ya existen: una migración que solo funciona porque el
+  # estado anterior estaba ahí.
+  #
+  # NO ES EL CHECK DE SUPABASE. El suyo —«Supabase Preview»— lo produce el
+  # branching, que es de plan Pro y crea una base de vista previa por cada PR. El
+  # día que MOTRAE pase a Pro, ese check se añade AL LADO de este, no en su
+  # lugar: aquel prueba contra la nube, este prueba desde cero.
+  esquema:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Obtener el código
+        # actions/checkout@v4.3.1
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+
+      - name: Instalar la CLI de Supabase
+        # supabase/setup-cli@v1.7.1
+        uses: supabase/setup-cli@ab058987d8d6c725971f6cf9d0b5c98467e30bd1
+        with:
+          version: latest
+
+      # Arranca Postgres y corre todas las migraciones en orden. Si una no
+      # aplica sobre una base limpia, el trabajo falla aquí y el PR no se puede
+      # fusionar.
+      - name: Aplicar las migraciones desde cero
+        run: supabase db start
