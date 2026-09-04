@@ -6,8 +6,8 @@
  * caigan. Lo multisucursal no es una base de datos compartida — es juntar lo que
  * cada local ya calculó por su cuenta.
  *
- * CÓMO LLEGAN LOS REPORTES. Cada Hub manda su jornada cerrada al relay, y el
- * relay se los reparte a los demás locales del grupo. Si no hay internet, no
+ * CÓMO LLEGAN LOS REPORTES. Cada Hub manda su jornada cerrada a la nube, y de
+ * ahí se reparte a los demás locales del grupo. Si no hay internet, no
  * llegan, y entonces el consolidado sale incompleto y LO DICE. Eso es lo
  * correcto: un local que vendió $40 000 y no reportó no es un local que vendió
  * cero, y presentar el total sin decirlo hace que el dueño decida con un número

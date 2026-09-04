@@ -23,8 +23,8 @@ function escribio(ts: number): EventoMensajeria {
   return ev;
 }
 
-/** Un relay de mentira, para ver qué se le pidió mandar. */
-function relay(conectado = true) {
+/** Un enlace de mentira, para ver qué se le pidió mandar. */
+function enlace(conectado = true) {
   const enviados: Aviso[] = [];
   return {
     enviados,
@@ -36,7 +36,7 @@ function relay(conectado = true) {
 }
 
 function avisos(
-  r: ReturnType<typeof relay>,
+  r: ReturnType<typeof enlace>,
   eventos: EventoMensajeria[] = [],
   ahora = AHORA,
 ): Avisos {
@@ -49,7 +49,7 @@ describe("avisar que la mesa está lista", () => {
    * una vuelta, y hay que alcanzarlo. El Hub no puede hacerlo solo.
    */
   it("sale aunque el comensal nunca haya escrito, con plantilla", () => {
-    const r = relay();
+    const r = enlace();
     const res = avisos(r).mandar(avisoMesaLista(TEL, "Ramírez", "Rodizio"));
 
     expect(res.enviado).toBe(true);
@@ -58,7 +58,7 @@ describe("avisar que la mesa está lista", () => {
   });
 
   it("la confirmación de reserva dice el día y la hora", () => {
-    const r = relay();
+    const r = enlace();
     avisos(r).mandar(avisoReservaConfirmada(TEL, "Ramírez", AHORA));
     const vars = r.enviados[0]!.plantilla?.variables ?? [];
     expect(vars[0]).toBe("Ramírez");
@@ -72,7 +72,7 @@ describe("lo que NO se manda", () => {
    * de 24 h. Se prefiere no mandar nada antes que mandarlo "a ver si pasa".
    */
   it("un aviso sin plantilla, fuera de la ventana, no sale", () => {
-    const r = relay();
+    const r = enlace();
     const res = avisos(r).mandar({
       contacto: TEL, proposito: "aviso_operativo", texto: "Su mesa está lista",
     });
@@ -83,7 +83,7 @@ describe("lo que NO se manda", () => {
   });
 
   it("dentro de la ventana, el texto libre sí sale", () => {
-    const r = relay();
+    const r = enlace();
     const res = avisos(r, [escribio(AHORA - 60_000)]).mandar({
       contacto: TEL, proposito: "aviso_operativo", texto: "Su mesa está lista",
     });
@@ -91,7 +91,7 @@ describe("lo que NO se manda", () => {
   });
 
   it("una promoción a quien no la pidió no sale", () => {
-    const r = relay();
+    const r = enlace();
     const res = avisos(r, [escribio(AHORA - 60_000)]).mandar({
       contacto: TEL, proposito: "marketing", texto: "2x1 hoy",
     });
@@ -102,7 +102,7 @@ describe("lo que NO se manda", () => {
 
 describe("cuando no hay nube", () => {
   it("el aviso se guarda y el restaurante sigue operando", () => {
-    const r = relay(false);
+    const r = enlace(false);
     const a = avisos(r);
     const res = a.mandar(avisoMesaLista(TEL, "Ramírez", "Rodizio"));
 
@@ -111,7 +111,7 @@ describe("cuando no hay nube", () => {
   });
 
   it("al volver el enlace, sale lo pendiente", () => {
-    const r = relay(false);
+    const r = enlace(false);
     const a = avisos(r);
     a.mandar(avisoMesaLista(TEL, "Ramírez", "Rodizio"));
 
@@ -126,7 +126,7 @@ describe("cuando no hay nube", () => {
    * molestia que provoca bajas, y las bajas queman el número.
    */
   it("lo que ya no tiene sentido se descarta en vez de mandarse", () => {
-    const r = relay(false);
+    const r = enlace(false);
     let reloj = AHORA;
     const a = new Avisos(r, () => [], () => {}, () => reloj);
 
@@ -143,7 +143,7 @@ describe("cuando no hay nube", () => {
    * mensajes viejos el día que vuelve internet.
    */
   it("la cola tiene tope y descarta lo más viejo", () => {
-    const r = relay(false);
+    const r = enlace(false);
     const a = avisos(r);
     for (let i = 0; i < 250; i++) a.mandar(avisoMesaLista(TEL, `Cliente ${i}`, "Rodizio"));
     expect(a.pendientes).toBe(200);
@@ -152,15 +152,15 @@ describe("cuando no hay nube", () => {
 
 describe("por qué no se mandó", () => {
   /*
-   * "No aceptó promociones" es un dato de negocio; "no hay relay" es un
+   * "No aceptó promociones" es un dato de negocio; "no hay nube" es un
    * problema de infraestructura. Confundirlos hace perseguir el fallo
    * equivocado un viernes a las nueve de la noche.
    */
   it("distingue el motivo de negocio del de infraestructura", () => {
-    const sinRelay = avisos(relay(false)).mandar(avisoMesaLista(TEL, "R", "Rodizio"));
-    expect(sinRelay.razon).toContain("MOTRAE");
+    const sinNube = avisos(enlace(false)).mandar(avisoMesaLista(TEL, "R", "Rodizio"));
+    expect(sinNube.razon).toContain("MOTRAE");
 
-    const sinPermiso = avisos(relay(), [escribio(AHORA - 60_000)]).mandar({
+    const sinPermiso = avisos(enlace(), [escribio(AHORA - 60_000)]).mandar({
       contacto: TEL, proposito: "marketing", texto: "promo",
     });
     expect(sinPermiso.razon).toContain("promociones");
@@ -169,7 +169,7 @@ describe("por qué no se mandó", () => {
 
 describe("el reloj de la ventana", () => {
   it("a las 25 horas ya hace falta plantilla", () => {
-    const r = relay();
+    const r = enlace();
     const res = avisos(r, [escribio(AHORA - DIA - 3_600_000)]).mandar({
       contacto: TEL, proposito: "aviso_operativo", texto: "libre",
     });

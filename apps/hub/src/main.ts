@@ -2084,7 +2084,7 @@ async function arrancar(): Promise<void> {
   await prepararLicencia();
   await prepararActualizaciones();
   await prepararCorreo();
-  await conectarAlRelay();
+  await conectarConLaNube();
 
   escuchar();
 }
@@ -2638,7 +2638,7 @@ async function prepararCorreo(): Promise<void> {
  * gratis y no depende de nadie. Solo que entonces Central no puede verlo, y eso
  * se dice en la bitácora en vez de dejarlo a que se note en el panel.
  */
-async function conectarAlRelay(): Promise<void> {
+async function conectarConLaNube(): Promise<void> {
   const config = await almacen.estado.cargar<{
     url?: string;
     clave?: string;

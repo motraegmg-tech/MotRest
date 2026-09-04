@@ -13,7 +13,7 @@
  * se paga con el número del restaurante limitado o bloqueado por Meta, y con él
  * se caen los avisos, la encuesta y las promociones a la vez.
  *
- * SI NO HAY RELAY, NO PASA NADA GRAVE
+ * SI NO HAY NUBE, NO PASA NADA GRAVE
  *
  * Los avisos se encolan y salen al reconectar. El restaurante sigue vendiendo:
  * es la misma postura de todo el sistema — lo de afuera es una mejora, nunca un
@@ -42,7 +42,7 @@ export interface Aviso {
   plantilla?: { nombre: string; idioma: string; variables?: string[] };
 }
 
-export interface EnlaceRelay {
+export interface EnlaceDeAvisos {
   /** true = hay conexión viva con la nube ahora mismo. */
   conectado(): boolean;
   enviar(aviso: Aviso): void;
@@ -69,7 +69,7 @@ export class Avisos {
   private cola: EnCola[] = [];
 
   constructor(
-    private enlace: EnlaceRelay,
+    private enlace: EnlaceDeAvisos,
     private eventosMensajeria: () => readonly EventoMensajeria[],
     private registrar: (nivel: "info" | "aviso", texto: string) => void,
     private ahora: () => number = Date.now,

@@ -6,7 +6,7 @@
  *
  *   - El `sucursal_id` se APRENDÍA de los últimos 5 eventos, con caída al
  *     literal `"suc-local"`. **Dos Hubs recién instalados colisionaban entre
- *     sí**: ambos se anunciaban igual al relay y el segundo desplazaba al
+ *     sí**: ambos se anunciaban igual a la nube y el segundo desplazaba al
  *     primero.
  *
  *   - El registro era un único `console.log`, y en la aplicación instalada esa
@@ -65,7 +65,7 @@ function resolverSucursal(
 describe("a qué sucursal pertenece este Hub", () => {
   /*
    * EL CANDADO. Antes ambos caían en el literal `"suc-local"` y colisionaban:
-   * al conectarse al relay, el segundo desplazaba el enlace del primero y se
+   * al conectarse a la nube, el segundo desplazaba el enlace del primero y se
    * quedaba con sus mensajes entrantes.
    */
   it("dos instalaciones nuevas NO reciben el mismo identificador", () => {

@@ -432,7 +432,7 @@ describe("el mensaje de cobro", () => {
 
 describe("la historia de un local", () => {
   /*
-   * Central pregunta al relay cada diez minutos y el Hub reporta una vez al día:
+   * Central pregunta a la nube cada diez minutos y el Hub reporta una vez al día:
    * casi todas las consultas devuelven EL MISMO parte. Sin deduplicar, una tarde
    * llenaría el historial de copias y no guardaría ni un día de historia real.
    */
