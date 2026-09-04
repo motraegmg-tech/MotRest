@@ -30,6 +30,28 @@ beforeEach(async () => {
   await central.guardarConfiguracion({ repositorio: "motrae/motrest" });
 });
 
+/**
+ * Una respuesta con la forma que espera `peticionNube`.
+ *
+ * Lee `text()` y no `json()` a propósito: en la aplicación instalada la petición
+ * la hace Rust y devuelve el cuerpo como texto, porque la llave de servicio no
+ * puede salir de la webview — Supabase rechaza una `sb_secret_` que llegue con
+ * User-Agent de navegador. Fuera de Tauri se usa `fetch`, y estas pruebas cubren
+ * ese camino con el mismo contrato.
+ */
+function respuestaNube(
+  estado: number,
+  cuerpo: unknown = "",
+  contentRange: string | null = null,
+): Response {
+  return {
+    ok: estado < 300,
+    status: estado,
+    text: async () => (typeof cuerpo === "string" ? cuerpo : JSON.stringify(cuerpo)),
+    headers: { get: (h: string) => (h === "content-range" ? contentRange : null) },
+  } as unknown as Response;
+}
+
 async function alta(nombre = "Rodizio", sufijo = "Centro") {
   return central.alta({
     nombre, sufijo, contacto: "Dueño", plan: "mensual", cuota: pesos(1_500),
@@ -422,13 +444,11 @@ describe("la licencia se le manda sola al restaurante", () => {
     let pedido = "";
     global.fetch = vi.fn().mockImplementation((u) => {
       pedido = String(u);
-      return Promise.resolve({
-        ok: true,
-        status: 200,
-        json: async () => [
+      return Promise.resolve(
+        respuestaNube(200, [
           { sucursal_id: "suc-rodizio-centro", depositada_ts: "2026-08-01T00:00:00Z", intentos: 0 },
-        ],
-      });
+        ]),
+      );
     });
 
     const r = await central.traerLicenciasPendientes();
@@ -848,13 +868,7 @@ describe("la salud de la nube", () => {
       nube_servicio: "secreto123",
     });
 
-    global.fetch = vi.fn().mockResolvedValue({
-      ok: true,
-      status: 200,
-      // PostgREST devuelve el total en «content-range», no en el cuerpo.
-      headers: { get: (h: string) => (h === "content-range" ? "0-0/4" : null) },
-      json: async () => [],
-    });
+    global.fetch = vi.fn().mockResolvedValue(respuestaNube(200, [], "0-0/4"));
 
     expect((await central.traerSaludNube()).ok).toBe(true);
     expect(central.saludNube).toMatchObject({ restaurantes: 4, pulsos: 4 });
@@ -873,12 +887,7 @@ describe("la salud de la nube", () => {
       nube_url: "https://nube.test",
       nube_servicio: "secreto123",
     });
-    global.fetch = vi.fn().mockResolvedValue({
-      ok: true,
-      status: 200,
-      headers: { get: () => "0-0/4" },
-      json: async () => [],
-    });
+    global.fetch = vi.fn().mockResolvedValue(respuestaNube(200, [], "0-0/4"));
     await central.traerSaludNube();
 
     global.fetch = vi.fn().mockRejectedValue(new Error("sin red"));
@@ -1023,10 +1032,8 @@ describe("traerPulsos", () => {
 
     const id = (await alta()).cliente!.id;
 
-    global.fetch = vi.fn().mockResolvedValue({
-      ok: true,
-      status: 200,
-      json: async () => [
+    global.fetch = vi.fn().mockResolvedValue(
+      respuestaNube(200, [
         {
           sucursal_id: id,
           ts: "2026-08-28T15:30:00Z",
@@ -1035,8 +1042,8 @@ describe("traerPulsos", () => {
           // Una columna que el panel no conoce. No debe acabar pintada.
           columna_que_nadie_pidio: "sorpresa",
         },
-      ],
-    });
+      ]),
+    );
 
     const r = await central.traerPulsos();
     expect(r.ok).toBe(true);
@@ -1073,11 +1080,7 @@ describe("traerPulsos", () => {
       nube_servicio: "secreto123",
     });
 
-    global.fetch = vi.fn().mockResolvedValue({
-      ok: true,
-      status: 200,
-      json: async () => [],
-    });
+    global.fetch = vi.fn().mockResolvedValue(respuestaNube(200, []));
 
     const [primera, segunda] = await Promise.all([
       central.traerPulsos(),
@@ -1096,7 +1099,7 @@ describe("traerPulsos", () => {
       nube_servicio: "secreto123",
     });
 
-    global.fetch = vi.fn().mockResolvedValue({ ok: false, status: 500 });
+    global.fetch = vi.fn().mockResolvedValue(respuestaNube(500));
 
     const r = await central.traerPulsos();
 

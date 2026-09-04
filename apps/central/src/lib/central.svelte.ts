@@ -387,6 +387,82 @@ function esUrlDeNubeSegura(texto: string): boolean {
   }
 }
 
+/** Lo que devuelve una llamada a la nube, venga de Rust o de `fetch`. */
+interface RespuestaNube {
+  estado: number;
+  cuerpo: string;
+  content_range: string | null;
+}
+
+/**
+ * TODA petición a la nube pasa por aquí, y en Central la hace **Rust**.
+ *
+ * SUPABASE RECHAZA LA LLAVE DE SERVICIO SI VIENE DE UN NAVEGADOR. Contesta
+ * `401 Forbidden use of secret API key in browser`, y la interfaz de Central
+ * corre en una webview: cada llamada suya llegaba con `User-Agent` de navegador
+ * y era rechazada. No se esquiva falseando la cabecera — el control es correcto:
+ * esa llave se salta todas las políticas RLS y no tiene nada que hacer donde
+ * pueda leerla contenido web.
+ *
+ * Así que en la aplicación instalada la petición la hace el proceso nativo, que
+ * lee la llave del almacén DPAPI. La ventana dice **qué** pedir; nunca **con
+ * qué**.
+ *
+ * Fuera de Tauri —las pruebas, y el navegador de desarrollo— se usa `fetch` con
+ * la llave que haya en memoria. Ahí no hay nada que proteger y permite que las
+ * pruebas sigan comprobando el contrato con dobles.
+ */
+async function peticionNube(
+  base: string,
+  llave: string,
+  ruta: string,
+  opciones: {
+    metodo?: string;
+    cuerpo?: string;
+    /** El instalador: bytes en vez de JSON. */
+    bytes?: ArrayBuffer | Uint8Array;
+    prefer?: string;
+    upsert?: boolean;
+  } = {},
+): Promise<RespuestaNube> {
+  const { metodo = "GET", cuerpo, bytes, prefer, upsert } = opciones;
+
+  if (isTauri()) {
+    return invoke<RespuestaNube>("nube_peticion", {
+      metodo,
+      ruta,
+      cuerpo: cuerpo ?? null,
+      // Tauri necesita un arreglo de números, no un ArrayBuffer.
+      bytes: bytes ? Array.from(new Uint8Array(bytes)) : null,
+      prefer: prefer ?? null,
+      upsert: upsert ?? null,
+    });
+  }
+
+  const respuesta = await fetch(`${base}${ruta}`, {
+    method: metodo,
+    headers: {
+      apikey: llave,
+      authorization: `Bearer ${llave}`,
+      ...(bytes
+        ? { "content-type": "application/octet-stream" }
+        : cuerpo
+          ? { "content-type": "application/json" }
+          : {}),
+      ...(prefer ? { prefer } : {}),
+      ...(upsert ? { "x-upsert": "true" } : {}),
+    },
+    ...(bytes ? { body: bytes as BodyInit } : cuerpo ? { body: cuerpo } : {}),
+    signal: AbortSignal.timeout(30_000),
+  });
+
+  return {
+    estado: respuesta.status,
+    cuerpo: await respuesta.text(),
+    content_range: respuesta.headers?.get?.("content-range") ?? null,
+  };
+}
+
 function esUrlGitHubSegura(texto: string): boolean {
   try {
     const url = new URL(texto);
@@ -1061,15 +1137,10 @@ export class StoreCentral {
     }
 
     try {
-      const respuesta = await fetch(`${url}/rest/v1/licencias_pendientes`, {
-        method: "POST",
-        headers: {
-          apikey: servicio,
-          authorization: `Bearer ${servicio}`,
-          "content-type": "application/json",
-          prefer: "resolution=merge-duplicates,return=minimal",
-        },
-        body: JSON.stringify({
+      const respuesta = await peticionNube(url, servicio, "/rest/v1/licencias_pendientes", {
+        metodo: "POST",
+        prefer: "resolution=merge-duplicates,return=minimal",
+        cuerpo: JSON.stringify({
           sucursal_id,
           licencia,
           depositada_ts: new Date().toISOString(),
@@ -1078,11 +1149,13 @@ export class StoreCentral {
           confirmada_ts: null,
           ultimo_error: null,
         }),
-        signal: AbortSignal.timeout(15_000),
       });
 
-      if (!respuesta.ok) {
-        return { entrega: "a_mano", motivo: `La nube respondió ${respuesta.status}: ${await respuesta.text()}` };
+      if (respuesta.estado >= 300) {
+        return {
+          entrega: "a_mano",
+          motivo: `La nube respondió ${respuesta.estado}: ${respuesta.cuerpo}`,
+        };
       }
       return { entrega: "en_espera" };
     } catch (causa) {
@@ -1111,17 +1184,17 @@ export class StoreCentral {
        * convertiría el panel en un montón de alarmas viejas, y una lista que
        * siempre tiene cosas deja de mirarse.
        */
-      const respuesta = await fetch(
-        `${url}/rest/v1/licencias_pendientes` +
+      const respuesta = await peticionNube(
+        url,
+        servicio,
+        "/rest/v1/licencias_pendientes" +
           "?select=sucursal_id,depositada_ts,intentos,ultimo_error&confirmada_ts=is.null",
-        {
-          headers: { apikey: servicio, authorization: `Bearer ${servicio}` },
-          signal: AbortSignal.timeout(10_000),
-        },
       );
-      if (!respuesta.ok) return { ok: false, error: `La nube respondió ${respuesta.status}` };
+      if (respuesta.estado >= 300) {
+        return { ok: false, error: `La nube respondió ${respuesta.estado}` };
+      }
 
-      const filas = (await respuesta.json()) as {
+      const filas = JSON.parse(respuesta.cuerpo) as {
         sucursal_id: string;
         depositada_ts: string;
         intentos?: number;
@@ -1300,27 +1373,19 @@ export class StoreCentral {
      * quien publica, un archivo llamado distinto dejaría el instalador
      * inalcanzable para todos.
      */
-    const destinoObjeto = `${url}/storage/v1/object/instaladores/${version}.exe`;
+    const rutaObjeto = `/storage/v1/object/instaladores/${version}.exe`;
 
     try {
-      const subida = await fetch(destinoObjeto, {
-        method: "POST",
-        headers: {
-          apikey: servicio,
-          authorization: `Bearer ${servicio}`,
-          "content-type": "application/octet-stream",
-          // Volver a publicar una versión reemplaza su archivo. Sin esto, un
-          // segundo intento tras un fallo a medias daría «ya existe» y habría
-          // que ir a borrarlo a mano al panel de Supabase.
-          "x-upsert": "true",
-        },
-        body: contenido as BodyInit,
+      const subida = await peticionNube(url, servicio, rutaObjeto, {
+        metodo: "POST",
+        bytes: contenido,
+        upsert: true,
       });
 
-      if (!subida.ok) {
-        return { ok: false, error: `No se pudo subir el instalador: ${await subida.text()}` };
+      if (subida.estado >= 300) {
+        return { ok: false, error: `No se pudo subir el instalador: ${subida.cuerpo}` };
       }
-      return { ok: true, url: destinoObjeto };
+      return { ok: true, url: `${url}${rutaObjeto}` };
     } catch (causa) {
       return { ok: false, error: `No se pudo subir el instalador: ${String(causa)}` };
     }
@@ -1339,17 +1404,12 @@ export class StoreCentral {
       return { ok: false, error: "La URL de la nube tiene que ser https://" };
     }
 
-    const cabeceras = {
-      apikey: servicio,
-      authorization: `Bearer ${servicio}`,
-      "content-type": "application/json",
-    };
 
     try {
-      const alta = await fetch(`${url}/rest/v1/versiones`, {
-        method: "POST",
-        headers: { ...cabeceras, prefer: "resolution=merge-duplicates,return=minimal" },
-        body: JSON.stringify({
+      const alta = await peticionNube(url, servicio, "/rest/v1/versiones", {
+        metodo: "POST",
+        prefer: "resolution=merge-duplicates,return=minimal",
+        cuerpo: JSON.stringify({
           version: manifiesto.version,
           notas: manifiesto.notas,
           url: manifiesto.url,
@@ -1363,8 +1423,8 @@ export class StoreCentral {
         }),
       });
 
-      if (!alta.ok) {
-        return { ok: false, error: `La nube no aceptó la versión: ${await alta.text()}` };
+      if (alta.estado >= 300) {
+        return { ok: false, error: `La nube no aceptó la versión: ${alta.cuerpo}` };
       }
 
       /*
@@ -1375,13 +1435,10 @@ export class StoreCentral {
        */
       if (!destino.sucursales?.length) return { ok: true };
 
-      const asignacion = await fetch(`${url}/rest/v1/asignaciones`, {
-        method: "POST",
-        headers: {
-          ...cabeceras,
-          prefer: "resolution=merge-duplicates,return=minimal",
-        },
-        body: JSON.stringify(
+      const asignacion = await peticionNube(url, servicio, "/rest/v1/asignaciones", {
+        metodo: "POST",
+        prefer: "resolution=merge-duplicates,return=minimal",
+        cuerpo: JSON.stringify(
           destino.sucursales.map((sucursal_id) => ({
             sucursal_id,
             canal: destino.canal,
@@ -1391,11 +1448,10 @@ export class StoreCentral {
         ),
       });
 
-      if (!asignacion.ok) {
+      if (asignacion.estado >= 300) {
         return {
           ok: false,
-          error:
-            `La versión quedó publicada pero no se asignó a nadie: ${await asignacion.text()}`,
+          error: `La versión quedó publicada pero no se asignó a nadie: ${asignacion.cuerpo}`,
         };
       }
 
@@ -1572,19 +1628,16 @@ export class StoreCentral {
     this.consultandoPulsos = true;
 
     try {
-      const respuesta = await fetch(`${url}/rest/v1/pulsos?select=*`, {
-        headers: { apikey: servicio, authorization: `Bearer ${servicio}` },
-        signal: AbortSignal.timeout(10_000),
-      });
+      const respuesta = await peticionNube(url, servicio, "/rest/v1/pulsos?select=*");
 
-      if (respuesta.status === 401 || respuesta.status === 403) {
+      if (respuesta.estado === 401 || respuesta.estado === 403) {
         return this.falloDePulsos("La nube rechazó la llave de servicio");
       }
-      if (!respuesta.ok) {
-        return this.falloDePulsos(`La nube respondió ${respuesta.status}`);
+      if (respuesta.estado >= 300) {
+        return this.falloDePulsos(`La nube respondió ${respuesta.estado}`);
       }
 
-      const filas = (await respuesta.json()) as Record<string, unknown>[];
+      const filas = JSON.parse(respuesta.cuerpo) as Record<string, unknown>[];
       if (!Array.isArray(filas)) {
         return this.falloDePulsos("La nube contestó algo que no son pulsos");
       }
@@ -1680,19 +1733,18 @@ export class StoreCentral {
       return { ok: false, error: "Falta la dirección de la nube o su llave de servicio" };
     }
 
-    const cabeceras = { apikey: servicio, authorization: `Bearer ${servicio}` };
+
     /*
      * Se cuentan con `Prefer: count=exact` y `limit=0`: interesa cuántos hay, no
      * traerse el padrón entero para medir su longitud.
      */
     const contar = async (tabla: string): Promise<number> => {
-      const r = await fetch(`${url}/rest/v1/${tabla}?select=sucursal_id&limit=0`, {
-        headers: { ...cabeceras, prefer: "count=exact" },
-        signal: AbortSignal.timeout(10_000),
+      const r = await peticionNube(url, servicio, `/rest/v1/${tabla}?select=sucursal_id&limit=0`, {
+        prefer: "count=exact",
       });
-      if (!r.ok) throw new Error(`${tabla}: ${r.status}`);
+      if (r.estado >= 300) throw new Error(`${tabla}: ${r.estado}`);
       // El total viene en «content-range: 0-0/N», o «*/N» cuando no hay filas.
-      const total = Number(r.headers.get("content-range")?.split("/")[1] ?? "0");
+      const total = Number(r.content_range?.split("/")[1] ?? "0");
       return Number.isFinite(total) ? total : 0;
     };
 
