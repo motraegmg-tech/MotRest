@@ -306,6 +306,8 @@ describe("el Bloc de notas y su BOM", () => {
         nombre: "Rodizio",
         plan: "mensual",
         vence_ts: Date.now() + 86_400_000,
+        gracia_dias: 3,
+        emitida_ts: Date.now(),
       },
       MOTRAE.privada,
     );

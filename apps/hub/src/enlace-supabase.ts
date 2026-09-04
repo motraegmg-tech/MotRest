@@ -53,6 +53,45 @@ const REINTENTO_BASE_MS = 2_000;
 const REINTENTO_MAX_MS = 5 * 60 * 1000;
 
 /**
+ * El pulso, con la forma que entiende la tabla.
+ *
+ * TRES COSAS QUE NO SALEN DEL HUB, y cada una por su motivo:
+ *
+ * - `sucursal_id` lo pone el enlace con el de la credencial, no con el que
+ *   venga en el parte. Un local no reporta en nombre de otro.
+ * - `ts` lo pone el servidor con un trigger. El reloj de un local puede estar
+ *   en cualquier año, y un pulso fechado en 2019 desordena el panel entero.
+ * - Las fechas van en ISO, no en milisegundos.
+ *
+ * LO ÚLTIMO ES UN FALLO REAL Y CARO. `respaldo_ts` sale de la fecha de un
+ * archivo (`mtimeMs`) y llega como número con decimales; la columna es
+ * `timestamptz`. Postgres no lo convierte: contesta «date/time field value out
+ * of range» y **rechaza el pulso entero**, de modo que por ese campo se pierden
+ * también la versión, las terminales y las ventas. En el panel el local sale
+ * como «nunca reportó», que es indistinguible de un restaurante caído — y así
+ * estuvo el primer local que conectó de verdad.
+ *
+ * Se convierte aquí y no en la base porque Central lee esa columna con
+ * `new Date(...)`: la ida y la vuelta tienen que hablar el mismo idioma.
+ */
+export function filaDelPulso(
+  pulso: Record<string, unknown>,
+  sucursalId: string,
+): Record<string, unknown> {
+  const { sucursal_id: _propio, ts: _servidor, respaldo_ts, ...cuerpo } = pulso;
+
+  const enFecha =
+    typeof respaldo_ts === "number" && Number.isFinite(respaldo_ts)
+      ? new Date(respaldo_ts).toISOString()
+      : undefined;
+
+  return {
+    ...cuerpo,
+    sucursal_id: sucursalId,
+    ...(enFecha ? { respaldo_ts: enFecha } : {}),
+  };
+}
+/**
  * ¿Se puede usar esta dirección para hablar con la nube?
  *
  * **Solo `https://`.** Por aquí viajan la credencial del restaurante y el token
@@ -432,11 +471,10 @@ export class EnlaceSupabase implements EnlaceConMotrae {
    */
   reportarPulso(pulso: Record<string, unknown>): void {
     if (!this.dentro || !this.cliente) return;
-    const { sucursal_id: _propio, ts: _servidor, ...cuerpo } = pulso;
 
     void this.cliente
       .from("pulsos")
-      .upsert({ ...cuerpo, sucursal_id: this.opciones.sucursal_id }, { onConflict: "sucursal_id" })
+      .upsert(filaDelPulso(pulso, this.opciones.sucursal_id), { onConflict: "sucursal_id" })
       .then(({ error }) => {
         if (error) this.opciones.registrar("aviso", `No se pudo reportar el pulso: ${error.message}`);
       });
