@@ -1,17 +1,19 @@
 /**
  * El enlace del Hub con la nube de MotRest, cuando esa nube es Supabase.
  *
- * Hace exactamente lo mismo que `EnlaceRelayWs` (relay.ts) y por eso implementa
- * su misma interfaz: main.ts elige uno u otro por la forma de la dirección y no
- * sabe cuál le tocó. Lo que cambia es que ya no hay un servidor de MOTRAE
+ * Cumple `EnlaceConMotrae` (enlace-motrae.ts), que dice qué le pide el Hub a la
+ * nube sin decir quién la aloja. Ya no hay un servidor propio de MOTRAE
  * sosteniendo el socket — lo sostiene Realtime.
  *
- * POR QUÉ ESTO NO ES REPUNTAR EL ANTERIOR
+ * HUBO UN SEGUNDO TRANSPORTE Y SE RETIRÓ
  *
- * `EnlaceRelayWs` habla un protocolo propio: abre un WebSocket, dice
- * `{tipo:"hola"}` con su credencial y el relay le contesta. Realtime habla
- * Phoenix y autentica con un JWT. No es la misma conversación con otra URL, es
- * otra conversación — de ahí que convivan dos clases en vez de un parámetro.
+ * Un servidor propio en Fly, con protocolo a medida: abría un WebSocket, decía
+ * `{tipo:"hola"}` con su credencial y el servidor contestaba. Nunca llegó a
+ * existir de verdad —el dominio ni siquiera estaba registrado— y mientras tanto
+ * cada local que apuntara ahí quedaba sin pulso y sin renovaciones sin que nadie
+ * lo viera. Realtime habla Phoenix y autentica con un JWT: no era la misma
+ * conversación con otra URL, era otra conversación, y por eso no se repuntó
+ * sino que se sustituyó.
  *
  * SI ESTO NO CONECTA, EL RESTAURANTE SIGUE VENDIENDO. Igual que antes: el POS,
  * el KDS, las impresoras, el portal y el corte de caja viven en el Hub y no
@@ -40,7 +42,7 @@ const DOMINIO_HUBS = "hubs.motrae.mx";
  * recuperarlo solo serviría para llenarle la pantalla al restaurante un lunes
  * por la mañana.
  *
- * El relay no recuperaba ninguno —no tenía dónde guardarlos— y eso dejaba un
+ * El servidor viejo no recuperaba ninguno —no tenía dónde guardarlos— y dejaba un
  * fallo silencioso: si un comensal escribía de madrugada, el Hub no se enteraba
  * y creía que no podía responderle con texto libre. Ahora que la tabla los
  * guarda, recogerlos es lo correcto.
@@ -156,8 +158,8 @@ export class EnlaceSupabase implements EnlaceConMotrae {
 
       if (error) {
         /*
-         * Una credencial que no reconoce no se arregla reintentando, igual que
-         * en el relay: es un problema de alta que alguien tiene que mirar. Se
+         * Una credencial que no reconoce no se arregla reintentando: es un
+         * problema de alta que alguien tiene que mirar. Se
          * sigue reintentando de todos modos porque el mismo error sale cuando
          * la nube está caída, y ahí sí conviene volver.
          */

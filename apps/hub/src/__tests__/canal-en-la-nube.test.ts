@@ -150,8 +150,8 @@ describe("lo que la nube NO puede hacer", () => {
   });
 });
 
-describe("qué dirección es de la nube y cuál del relay", () => {
-  it("distingue la nube del relay de toda la vida", () => {
+describe("qué dirección es de la nube y cuál no", () => {
+  it("distingue una dirección de nube de cualquier otra", () => {
     // De esto depende que un local migrado no se quede hablando con Fly, y que
     // uno sin migrar no intente autenticarse contra Supabase.
     expect(pareceNubeSupabase(`https://${HOST_NUBE}`)).toBe(true);

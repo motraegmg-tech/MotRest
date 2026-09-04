@@ -100,7 +100,7 @@ describe("lo que NO se manda", () => {
   });
 });
 
-describe("cuando no hay relay", () => {
+describe("cuando no hay nube", () => {
   it("el aviso se guarda y el restaurante sigue operando", () => {
     const r = relay(false);
     const a = avisos(r);
@@ -158,7 +158,7 @@ describe("por qué no se mandó", () => {
    */
   it("distingue el motivo de negocio del de infraestructura", () => {
     const sinRelay = avisos(relay(false)).mandar(avisoMesaLista(TEL, "R", "Rodizio"));
-    expect(sinRelay.razon).toContain("relay");
+    expect(sinRelay.razon).toContain("MOTRAE");
 
     const sinPermiso = avisos(relay(), [escribio(AHORA - 60_000)]).mandar({
       contacto: TEL, proposito: "marketing", texto: "promo",

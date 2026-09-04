@@ -113,7 +113,7 @@ export interface OpcionesHub {
    * Es el punto donde el Hub reacciona a lo que pasa en el local sin que
    * ninguna terminal tenga que acordarse de avisarle: confirmar una reserva
    * dispara su mensaje de WhatsApp aunque quien la confirmó fuera una tablet
-   * que ni sabe que el relay existe.
+   * que ni sabe que la nube existe.
    */
   alIngerir?: (eventos: readonly EventoBase[]) => void;
   /**

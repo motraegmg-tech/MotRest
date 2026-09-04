@@ -1206,7 +1206,7 @@ export class StoreCentral {
         /*
          * «Conectado» ya no se puede saber, y decirlo es mejor que fingirlo.
          *
-         * El relay sostenía un socket por local y sabía quién estaba vivo en ese
+         * El servidor viejo sostenía un socket por local y sabía quién estaba vivo en ese
          * instante. Con la nube no hay tal cosa: lo que hay es el último pulso,
          * que es un dato distinto y vive en su propia tabla. Se deja en `false`
          * y el panel se apoya en los pulsos para eso.
@@ -1755,7 +1755,7 @@ export class StoreCentral {
         /*
          * NO HAY «HUBS CONECTADOS», y decirlo es mejor que inventarlo.
          *
-         * El relay sostenía un socket por local y sabía quién estaba vivo en ese
+         * El servidor viejo sostenía un socket por local y sabía quién estaba vivo en ese
          * instante. La nube no: lo que hay es el último pulso de cada uno, que
          * es un dato distinto y ya se ve en «Hoy». Poner aquí el número de
          * pulsos disfrazado de conexiones sería un panel que dice que un local

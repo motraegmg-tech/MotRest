@@ -194,14 +194,14 @@ let secretoPortal = "";
  * El enlace con MOTRAE y la cola de avisos. Nulos si el local todavía no lo tiene.
  *
  * El tipo es la interfaz y no la clase a propósito: durante la migración hay dos
- * transportes vivos —el relay de Fly y la nube de Supabase— y el resto del Hub
+ * transportes vivos —un servidor propio y la nube— y el resto del Hub
  * no tiene por qué enterarse de cuál le tocó a este local.
  */
 let enlaceNube: EnlaceConMotrae | null = null;
 let avisos: Avisos | null = null;
 
 /**
- * El correo del restaurante. A diferencia de WhatsApp, NO necesita relay: es
+ * El correo del restaurante. A diferencia de WhatsApp, NO necesita la nube: es
  * una llamada de salida que el Hub hace desde el propio local.
  */
 let correo: Correo | null = null;
@@ -285,7 +285,7 @@ function marcarProvisional(esProvisional: boolean): void {
  * literal `"suc-local"`. Tres consecuencias, todas malas y ninguna visible:
  *
  *   1. **Dos Hubs recién instalados colisionaban entre sí**: ambos se anunciaban
- *      al relay como `suc-local` y el segundo desplazaba al primero.
+ *      a MOTRAE como `suc-local` y el segundo desplazaba al primero.
  *   2. El stream de identidad (donde el Hub va a leer quién puede hacer qué)
  *      apuntaría al sitio equivocado mientras el log estuviera vacío.
  *   3. La atribución de reservas del portal cambiaba según lo último que hubiera
@@ -2090,7 +2090,7 @@ async function arrancar(): Promise<void> {
  * El Hub avisa por WhatsApp cuando pasa algo que el comensal necesita saber.
  *
  * Se engancha a lo que ENTRA AL REGISTRO, no a quien lo hizo. Así una tablet
- * que confirma una reserva dispara el mensaje sin saber que el relay existe, y
+ * que confirma una reserva dispara el mensaje sin saber que la nube existe, y
  * mañana un canal nuevo no obliga a tocar cada pantalla.
  *
  * Solo dos cosas mandan mensaje, y las dos son utilidades que el comensal
@@ -2193,13 +2193,13 @@ function difundirLicencia(): void {
 }
 
 /**
- * Instala una licencia que llegó por el relay, sin que nadie la pegue.
+ * Instala una licencia que llegó por la nube, sin que nadie la pegue.
  *
  * ES EL MISMO CAMINO QUE EL DE PEGARLA A MANO, a propósito: `instalar()`
  * comprueba la firma contra la pública de MOTRAE compilada en este binario y
  * rechaza cualquier documento que no sea de ESTE local. Que la licencia venga
- * del relay no le da ni un permiso más que venir del portapapeles de la caja —
- * un relay comprometido no puede fabricar una licencia ni alargar la de nadie.
+ * de la nube no le da ni un permiso más que venir del portapapeles de la caja —
+ * una nube comprometida no puede fabricar una licencia ni alargar la de nadie.
  *
  * Al terminar se difunde a las terminales: si estaban bloqueadas por falta de
  * pago, se desbloquean solas en el momento. Ése es el punto de todo esto —el
@@ -2379,7 +2379,7 @@ function pulsoDelLocal(): PulsoCliente {
  *
  * SE CONSTRUYE CAMPO A CAMPO Y ESO NO ES ESTILO. `dispositivos()` devuelve
  * también el `token` de emparejamiento de cada terminal: la credencial con la
- * que se sincroniza contra este Hub. Mandarlo por el relay —aunque el relay sea
+ * que se sincroniza contra este Hub. Mandarlo por la nube —aunque la nube sea
  * de MOTRAE y el enlace vaya cifrado— sería sacar del restaurante la llave de su
  * propio canal, y un `...dispositivo` lo haría sin que nadie lo notara.
  *
@@ -2617,10 +2617,10 @@ async function prepararCorreo(): Promise<void> {
 }
 
 /**
- * Enlaza con el relay de MOTRAE.
+ * Enlaza con la nube de MOTRAE.
  *
  * EL ENLACE NO DEPENDE DE WHATSAPP, y antes sí. La dirección y la clave del
- * relay vivían únicamente en la configuración de la mensajería, así que un local
+ * la nube vivían únicamente en la configuración de la mensajería, así que un local
  * sin WhatsApp no montaba el enlace — y de ese enlace cuelga el **pulso**, el
  * latido con el que MotRest Central sabe que un restaurante está vivo. El
  * resultado se vio en Rodizio: operando con normalidad y pintado de rojo en
@@ -2631,7 +2631,7 @@ async function prepararCorreo(): Promise<void> {
  * darla de alta— y la mensajería es lo opcional: si hay credenciales de Meta se
  * añaden, y si no, el enlace sirve igual para reportar el pulso.
  *
- * Un local sin relay sigue siendo un caso normal: opera con el portal, que es
+ * Un local sin nube sigue siendo un caso normal: opera con el portal, que es
  * gratis y no depende de nadie. Solo que entonces Central no puede verlo, y eso
  * se dice en la bitácora en vez de dejarlo a que se note en el panel.
  */
@@ -2645,7 +2645,7 @@ async function conectarAlRelay(): Promise<void> {
   }>(CLAVE_WHATSAPP);
 
   // Orden deliberado: lo que diga quien instala manda —para apuntar un equipo a
-  // un relay de pruebas—, después el documento firmado por MOTRAE, y de último
+  // una nube de pruebas—, después el documento firmado por MOTRAE, y de último
   // lo que hubiera en la configuración de WhatsApp, que es de donde salía antes
   // y sigue valiendo para los locales ya montados.
   const delaLicencia = licencia?.enlaceNube ?? null;
@@ -2655,7 +2655,7 @@ async function conectarAlRelay(): Promise<void> {
     registrar(
       "aviso",
       "Sin enlace con MOTRAE: este local no reportará su pulso y aparecerá sin señal en Central. " +
-        "Se corrige reemitiendo la licencia con los datos del relay.",
+        "Se corrige reemitiendo la licencia con los datos de la nube.",
     );
     return;
   }
@@ -2740,7 +2740,7 @@ function atenderMensajeDelComensal(mensaje: MensajeDelComensal): void {
   const sucursal = sucursalDelLocal();
   const base = {
     sucursal_id: sucursal,
-    device_id: "relay",
+    device_id: "nube",
     empleado_id: "comensal",
     ts: mensaje.ts,
     orden_local: 0,

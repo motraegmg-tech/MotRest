@@ -9,7 +9,7 @@
  * DE AQUÍ NO SALE NADA QUE NO PASE POR LAS REGLAS
  *
  * A quién se le puede escribir, cuándo y con qué lo decide el dominio
- * (`clientes/mensajeria.ts`), no este archivo ni el relay. Romper esas reglas
+ * (`clientes/mensajeria.ts`), no este archivo ni la nube. Romper esas reglas
  * se paga con el número del restaurante limitado o bloqueado por Meta, y con él
  * se caen los avisos, la encuesta y las promociones a la vez.
  *
@@ -43,13 +43,13 @@ export interface Aviso {
 }
 
 export interface EnlaceRelay {
-  /** true = hay conexión viva con el relay ahora mismo. */
+  /** true = hay conexión viva con la nube ahora mismo. */
   conectado(): boolean;
   enviar(aviso: Aviso): void;
 }
 
 /**
- * Cuántos avisos se guardan mientras no hay relay.
+ * Cuántos avisos se guardan mientras no hay nube.
  *
  * Con tope, y a propósito: una cola sin límite convierte una caída de internet
  * de tres días en una avalancha de mensajes viejos el día que vuelve. "Su mesa
@@ -79,7 +79,7 @@ export class Avisos {
    * Manda un aviso, si las reglas lo permiten.
    *
    * Devuelve por qué NO se mandó cuando no se manda. Que el Hub sepa la razón
-   * importa: "no aceptó promociones" es un dato de negocio, y "no hay relay" es
+   * importa: "no aceptó promociones" es un dato de negocio, y "no hay nube" es
    * un problema de infraestructura. Confundirlos hace perseguir el fallo
    * equivocado.
    */
@@ -107,7 +107,7 @@ export class Avisos {
 
     if (!this.enlace.conectado()) {
       this.encolar(aviso, ahora);
-      return { enviado: false, razon: "Sin enlace con el relay: queda en cola" };
+      return { enviado: false, razon: "Sin enlace con MOTRAE: queda en cola" };
     }
 
     this.enlace.enviar(aviso);
@@ -122,7 +122,7 @@ export class Avisos {
   }
 
   /**
-   * Vuelve el relay: sale lo que quedó pendiente y NO ha caducado.
+   * Vuelve la nube: sale lo que quedó pendiente y NO ha caducado.
    *
    * Media hora es el límite. Mandar "su mesa está lista" cuando la mesa se dio
    * hace dos horas no es un aviso tardío: es una molestia que provoca bajas.
