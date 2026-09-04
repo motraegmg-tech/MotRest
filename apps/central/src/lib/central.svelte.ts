@@ -1667,6 +1667,16 @@ export class StoreCentral {
           ...(typeof fila.plataforma === "string" ? { plataforma: fila.plataforma } : {}),
           ...(typeof fila.eventos === "number" ? { eventos: fila.eventos } : {}),
           ...(fila.respaldo_ts ? { respaldo_ts: new Date(String(fila.respaldo_ts)).getTime() } : {}),
+          /*
+           * Se lee aparte y no solo como texto dentro de `problemas` porque un
+           * Hub que no arranca solo deja al restaurante sin sistema la mañana en
+           * que alguien reinicia la caja y nadie se acuerda de abrir MotRest a
+           * mano. Poder preguntarlo directamente es la razón de que la columna
+           * exista; sin esta línea llegaba a la nube y se tiraba aquí.
+           */
+          ...(typeof fila.arranque_automatico === "boolean"
+            ? { arranque_automatico: fila.arranque_automatico }
+            : {}),
         } as PulsoCliente);
         leidos++;
       }
