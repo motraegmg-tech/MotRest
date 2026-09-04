@@ -1245,3 +1245,58 @@ describe("subir el instalador a la nube", () => {
     expect(r.ok).toBe(false);
   });
 });
+
+describe("la primera licencia de un local", () => {
+  /*
+   * EL HUEVO Y LA GALLINA QUE COSTO UNA TARDE.
+   *
+   * Para recoger una licencia de la nube, el Hub necesita una direccion y una
+   * credencial que viajan DENTRO de esa licencia. Un local que todavia no tiene
+   * enlace no puede recibir por enlace el enlace.
+   *
+   * Central depositaba, decia "en espera" -- correcto -- y ocultaba el archivo
+   * porque el deposito habia salido bien. El local se quedaba con su licencia
+   * vieja para siempre y en el panel aparecia como "nunca ha reportado".
+   *
+   * Se distingue por el pulso, que es el unico dato que dice si ese local puede
+   * hablar con la nube.
+   */
+  it("la licencia lleva dentro la direccion y la credencial de la nube", async () => {
+    await central.guardarConfiguracion({
+      repositorio: "r",
+      nube_url: "https://nube.test",
+      nube_servicio: "secreto123",
+    });
+    const id = (await alta()).cliente!.id;
+    await central.fijarCredencialNube(id, "credencial-de-este-local");
+
+    global.fetch = vi.fn().mockResolvedValue(respuestaNube(201));
+    const r = await central.emitir(id);
+
+    const licencia = r.licencia as unknown as { nube?: { url: string; clave: string } };
+    expect(licencia.nube).toEqual({
+      url: "https://nube.test",
+      clave: "credencial-de-este-local",
+    });
+  });
+
+  it("sin credencial guardada, la licencia sale firmada, valida... y muda", async () => {
+    await central.guardarConfiguracion({
+      repositorio: "r",
+      nube_url: "https://nube.test",
+      nube_servicio: "secreto123",
+    });
+    const id = (await alta()).cliente!.id;
+
+    global.fetch = vi.fn().mockResolvedValue(respuestaNube(201));
+    const r = await central.emitir(id);
+
+    /*
+     * Es el fallo silencioso: el local recibe una licencia perfectamente valida
+     * con la que nunca podra hablar con MOTRAE. Queda fijado aqui para que se
+     * vea al leer la prueba, no al perder una tarde.
+     */
+    expect((r.licencia as unknown as { nube?: unknown }).nube).toBeUndefined();
+    expect(await verificarLicencia(r.licencia!, id, central.secretos.licencias!.publica)).toBe(true);
+  });
+});

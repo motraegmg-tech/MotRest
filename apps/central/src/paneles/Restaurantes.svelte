@@ -68,10 +68,17 @@
   /**
    * Emitir y —lo importante— hacérsela llegar al restaurante.
    *
-   * EL ARCHIVO SOLO SE ENSEÑA SI HAY QUE PEGARLO. Cuando la nube se encarga, un
-   * bloque de JSON en pantalla no informa de nada y sí invita a pegarlo «por si
-   * acaso». Cuando el reparto falla, aparece igual que siempre: el camino manual
-   * no desaparece, se queda de red de seguridad.
+   * EL ARCHIVO SE ENSEÑA SI HAY QUE PEGARLO, y hay un caso en que hace falta
+   * aunque el depósito haya salido perfecto: **la primera licencia de un local**.
+   *
+   * Para recoger una licencia de la nube, el Hub necesita una dirección y una
+   * credencial que viajan **dentro de esa licencia**. Un local que todavía no
+   * tiene enlace no puede recibir por enlace el enlace. Central deposita, dice
+   * «en espera», y el local se queda con su licencia vieja para siempre.
+   *
+   * Se distingue por el pulso: un local que **nunca ha reportado** no puede
+   * recogerla, y punto. Uno que ya reportó alguna vez sí, y entonces enseñar el
+   * JSON solo invita a pegarlo «por si acaso».
    */
   async function renovar() {
     if (!cliente) return;
@@ -98,14 +105,29 @@
     licencia?: unknown,
   ) {
     const hasta = `Vence el ${fecha(vence_ts)}.`;
+
+    /*
+     * ¿Este local ha dado señales alguna vez? Si no, no puede recogerla y hay
+     * que pegarla a mano, por muy bien que haya ido el depósito.
+     */
+    const nuncaReporto = cliente ? !central.pulsoDe(cliente.id) : true;
+
     if (entrega === "entregada") {
       aviso = `Listo: el restaurante ya tiene su licencia. ${hasta} No hay que pegar nada.`;
       return;
     }
-    if (entrega === "en_espera") {
+    if (entrega === "en_espera" && !nuncaReporto) {
       aviso =
         `Licencia enviada. ${hasta} El local está apagado o sin internet: ` +
         "la recogerá sola en cuanto encienda.";
+      return;
+    }
+    if (entrega === "en_espera") {
+      licenciaGenerada = JSON.stringify(licencia, null, 2);
+      aviso =
+        `Licencia depositada, pero este local NUNCA ha reportado. ${hasta} ` +
+        "No puede recogerla solo: el enlace con la nube va dentro de esta " +
+        "licencia. Péguela a mano esta vez; las siguientes sí llegarán solas.";
       return;
     }
     licenciaGenerada = JSON.stringify(licencia, null, 2);

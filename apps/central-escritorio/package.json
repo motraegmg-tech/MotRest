@@ -1,6 +1,6 @@
 {
   "name": "@motrest/central-escritorio",
-  "version": "1.4.0",
+  "version": "1.4.1",
   "private": true,
   "description": "MotRest Central para Windows — el panel de MOTRAE: cartera de restaurantes, licencias y publicación de versiones. NO se instala en ningún restaurante.",
   "type": "module",
