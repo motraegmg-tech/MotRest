@@ -25,6 +25,7 @@
   import Bitacora from "./lib/modulos/admin/Bitacora.svelte";
   import Catalogo from "./lib/modulos/admin/Catalogo.svelte";
   import Hub from "./lib/modulos/admin/Hub.svelte";
+  import Licencia from "./lib/modulos/admin/Licencia.svelte";
   import Impresoras from "./lib/modulos/admin/Impresoras.svelte";
   import MensajesAlCliente from "./lib/modulos/admin/MensajesAlCliente.svelte";
   import Salones from "./lib/modulos/admin/Salones.svelte";
@@ -252,6 +253,8 @@
         <MensajesAlCliente />
       {:else if seccion === "hub"}
         <Hub />
+      {:else if seccion === "licencia"}
+        <Licencia />
       {:else}
         <Usuarios />
       {/if}

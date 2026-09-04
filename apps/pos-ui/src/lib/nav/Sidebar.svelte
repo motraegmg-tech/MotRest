@@ -4,6 +4,7 @@
    * filtra por los permisos del usuario en sesión: quien no puede ver un módulo
    * no lo ve en el menú.
    */
+  import { esSoporte } from "@motrest/dominio";
   import { COLOR_FASE, MODULOS } from "./modulos";
   import PropinasAcumuladas from "./PropinasAcumuladas.svelte";
   import { rutas } from "./rutas.svelte";
@@ -34,7 +35,7 @@
 
       {#if activo && modulo.secciones.length > 1}
         <div class="secciones">
-          {#each modulo.secciones.filter((s) => sesion.puedeVer(s.permiso)) as seccion (seccion.clave)}
+          {#each modulo.secciones.filter((s) => sesion.puedeVer(s.permiso) && (!s.soloMotrae || esSoporte(sesion.usuarioActual))) as seccion (seccion.clave)}
             <button
               class="seccion"
               class:on={rutas.actual.seccion === seccion.clave}

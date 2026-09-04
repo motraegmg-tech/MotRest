@@ -81,7 +81,7 @@ import {
 import { almacenSqlite } from "@motrest/protocolo-sync/sqlite";
 import { Hub, type Conexion } from "./servidor.js";
 import * as autoarranque from "./autoarranque.js";
-import { GestorLicencia } from "./licencia.js";
+import { GestorLicencia, sinBom } from "./licencia.js";
 import { Actualizaciones, CADA_MS as ACTUALIZAR_CADA_MS } from "./actualizaciones.js";
 import {
   LLAVE_PUBLICABLE_NUBE,
@@ -1437,7 +1437,10 @@ function atenderInterno(peticion: IncomingMessage, respuesta: ServerResponse): v
       void (async () => {
         try {
           const cuerpo = await leerCuerpo(peticion, 32 * 1024);
-          const r = await licencia!.instalar(JSON.parse(cuerpo.toString("utf8")));
+          // `sinBom` porque una licencia pegada puede venir de un archivo que
+          // el Bloc de notas guardó en UTF-8: tres bytes invisibles delante que
+          // `JSON.parse` rechaza, con un error que apunta al archivo entero.
+          const r = await licencia!.instalar(JSON.parse(sinBom(cuerpo.toString("utf8"))));
           if (!r.ok) {
             json(400, { error: r.error });
             return;

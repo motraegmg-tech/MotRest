@@ -14,6 +14,17 @@ export interface SeccionModulo {
   titulo: string;
   /** Permiso mínimo para ver la sección. */
   permiso: Accion;
+  /**
+   * Solo la ve la cuenta de soporte de MOTRAE.
+   *
+   * Se OCULTA, no se deshabilita. Un panel visible que no se puede usar solo
+   * invita a pedir que alguien lo use, y lo que hay detrás —cambiar la licencia
+   * del local— decide hasta cuándo abre el restaurante.
+   *
+   * No es la defensa: el Hub verifica la firma contra su pública compilada
+   * antes de escribir nada. Esto es para que no estorbe.
+   */
+  soloMotrae?: boolean;
 }
 
 export interface EntradaModulo {
@@ -231,6 +242,12 @@ export const MODULOS: EntradaModulo[] = [
       { clave: "socios", titulo: "Socios", permiso: "admin.socio.editar" },
       { clave: "mensajes", titulo: "Mensajes para el cliente", permiso: "admin.usuario.editar" },
       { clave: "hub", titulo: "Hub del local", permiso: "admin.dispositivo.aprobar" },
+      {
+        clave: "licencia",
+        titulo: "Licencia del local",
+        permiso: "admin.dispositivo.aprobar",
+        soloMotrae: true,
+      },
       { clave: "bitacora", titulo: "Bitácora", permiso: "admin.bitacora.ver" },
     ],
     resumen:

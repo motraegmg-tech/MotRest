@@ -33,6 +33,24 @@ export interface VeredictoLicencia {
   situacion: SituacionLicencia;
 }
 
+/**
+ * Quita la marca de orden de bytes con la que el Bloc de notas guarda en UTF-8.
+ *
+ * TRES BYTES INVISIBLES QUE DEJAN UN LOCAL SIN LICENCIA. Windows los antepone al
+ * guardar, `JSON.parse` los rechaza, y el mensaje que sale —«no se pudo leer»—
+ * apunta al archivo entero cuando lo que sobra es un carácter que nadie ve.
+ *
+ * Y pegar la licencia a mano con el Bloc de notas es un camino legítimo: es lo
+ * que hace quien monta una caja con el archivo en una USB, o quien entra por SSH
+ * a un restaurante. Pasó exactamente así la primera vez que se probó.
+ *
+ * Se limpia al leer y no al escribir, porque el archivo puede venir de fuera:
+ * arreglarlo solo en nuestra escritura no ayudaría a quien lo pegó él mismo.
+ */
+export function sinBom(texto: string): string {
+  return texto.charCodeAt(0) === 0xfeff ? texto.slice(1) : texto;
+}
+
 export class GestorLicencia {
   private licencia: Licencia | null = null;
   private verificada = false;
@@ -89,7 +107,7 @@ export class GestorLicencia {
     }
 
     try {
-      this.licencia = JSON.parse(await readFile(this.ruta, "utf8")) as Licencia;
+      this.licencia = JSON.parse(sinBom(await readFile(this.ruta, "utf8"))) as Licencia;
     } catch (causa) {
       this.licencia = null;
       this.verificada = false;
