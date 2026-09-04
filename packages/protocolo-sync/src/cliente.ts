@@ -56,6 +56,8 @@ export interface OpcionesCliente {
   alRecibirCatalogos?: (catalogos: Catalogo[]) => void;
   /** Se llama con la lista de terminales del local. */
   alRecibirTerminales?: (terminales: TerminalRegistrada[]) => void;
+  /** Las credenciales del personal que guarda el Hub. */
+  alRecibirCredenciales?: (credenciales: Record<string, unknown[]>) => void;
   /** El Hub no tiene ni un evento: este local todavía no ha abierto. */
   alEncontrarLocalVacio?: () => void;
   /**
@@ -275,6 +277,10 @@ export class ClienteSync {
         this.opciones.alRecibirTerminales?.(mensaje.terminales);
         break;
 
+      case "credenciales":
+        this.opciones.alRecibirCredenciales?.(mensaje.credenciales);
+        break;
+
       case "enlace":
         this.opciones.alRecibirEnlaces?.(mensaje.enlaces);
         break;
@@ -348,6 +354,26 @@ export class ClienteSync {
   revocarTerminal(deviceId: string): void {
     if (!this.socket) return;
     this.enviar({ tipo: "admin", accion: "revocar", device_id: deviceId });
+  }
+
+  // --- Credenciales del personal -------------------------------------------------------
+
+  /**
+   * Pide al Hub las credenciales del personal. Llegan por `alRecibirCredenciales`.
+   *
+   * Se piden al conectar y no se dan por sabidas: vivían solo en la terminal
+   * donde se creó cada usuario, así que un mesero dado de alta en la caja no
+   * podía entrar desde ninguna tableta.
+   */
+  pedirCredenciales(): void {
+    if (!this.socket) return;
+    this.enviar({ tipo: "credenciales", accion: "pedir" });
+  }
+
+  /** Deja en el Hub la credencial de UN usuario. Nunca el PIN, solo su derivación. */
+  publicarCredencial(usuarioId: string, credenciales: unknown[]): void {
+    if (!this.socket) return;
+    this.enviar({ tipo: "credenciales", accion: "publicar", usuario_id: usuarioId, credenciales });
   }
 
   // --- Facturación ---------------------------------------------------------------------

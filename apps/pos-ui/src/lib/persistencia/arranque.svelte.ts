@@ -356,9 +356,13 @@ class Arranque {
 
       // El enlace con el Hub va al final: si no hay Hub, o está apagado, el POS
       // ya quedó listo para operar en isla (TRD R3).
+      sesion.alPublicarCredencial = (id, credenciales) =>
+        sync.publicarCredencial(id, credenciales);
+
       sync.iniciar(
         (eventos) => this.aplicarDeOtros(eventos),
         () => void this.sembrarLocalVacio(),
+        (credenciales) => void sesion.adoptarCredencialesDelHub(credenciales),
       );
     } catch (causa) {
       this.error = causa instanceof Error ? causa.message : "Error al cargar los datos";

@@ -187,6 +187,32 @@ export interface MensajeTerminales {
   terminales: TerminalRegistrada[];
 }
 
+/**
+ * Las credenciales del personal, con el Hub como fuente.
+ *
+ * POR QUÉ NO SON UN CATÁLOGO, que es el canal que ya existe para replicar
+ * estado entre terminales: un catálogo se manda a TODAS, y eso pondría el hash
+ * del PIN de cada empleado en cada tableta del salón. `docs/SEGURIDAD.md` lo
+ * dice sin rodeos — «frente a alguien que obtenga el archivo de hashes, ningún
+ * algoritmo lo salva»— y un PIN de cuatro dígitos con el hash delante se rompe
+ * en segundos.
+ *
+ * Aquí las guarda el Hub, que vive en la caja, y las entrega **solo a quien las
+ * pide y está autorizado**. La terminal se queda una copia para poder seguir
+ * operando sin red, que es el modo isla. Es la «etapa 10» del propio documento:
+ * el Hub como fuente canónica.
+ *
+ * Va por el canal CIFRADO por lo mismo que la administración de terminales:
+ * quien no tiene la clave del local no puede ni formular la petición.
+ */
+export interface MensajeCredenciales {
+  tipo: "credenciales";
+  accion: "pedir" | "publicar";
+  /** Al publicar: las credenciales de UN usuario, ya derivadas. Nunca el PIN. */
+  usuario_id?: ID;
+  credenciales?: unknown[];
+}
+
 export type MensajeCliente =
   | MensajeHola
   | MensajePush
@@ -194,6 +220,7 @@ export type MensajeCliente =
   | MensajePing
   | MensajeCatalogo
   | MensajeAdmin
+  | MensajeCredenciales
   | MensajeFiscal;
 
 // --- Hub → Dispositivo -----------------------------------------------------------------
@@ -274,6 +301,13 @@ export interface MensajePong {
   ts: number;
 }
 
+/** Lo que el Hub devuelve a una terminal que pidió las credenciales. */
+export interface MensajeCredencialesDelHub {
+  tipo: "credenciales";
+  /** usuario_id -> sus credenciales derivadas. */
+  credenciales: Record<string, unknown[]>;
+}
+
 export type MensajeHub =
   | MensajeBienvenida
   | MensajeAcks
@@ -281,6 +315,7 @@ export type MensajeHub =
   | MensajeError
   | MensajePong
   | MensajeCatalogo
+  | MensajeCredencialesDelHub
   | MensajeTerminales
   | MensajeEnlace
   | MensajeFiscalRespuesta;

@@ -593,6 +593,14 @@ const CLAVE_LOCAL_AJUSTES = "ajustes_local";
 const CLAVE_WHATSAPP = "whatsapp";
 /** Clave bajo la que se guarda el secreto del local. */
 const CLAVE_SECRETO = "clave_local";
+/**
+ * Las credenciales del personal, con el Hub como fuente.
+ *
+ * Aquí y no en un catálogo: un catálogo se replica a TODAS las terminales, y
+ * eso repartiría el hash del PIN de cada empleado por el salón. El Hub está en
+ * la caja y las entrega solo a quien las pide estando autorizado.
+ */
+const CLAVE_CREDENCIALES = "credenciales_personal";
 
 /**
  * Secreto del local: con él se cifra todo lo que viaja por la red.
@@ -729,6 +737,11 @@ const hub = new Hub({
       const resto = (previos ?? []).filter((c) => c.clave !== catalogo.clave);
       void almacen.estado.guardar(claveDeEstado, [...resto, catalogo]);
     });
+  },
+  leerCredenciales: async () =>
+    (await almacen.estado.cargar<Record<string, unknown[]>>(CLAVE_CREDENCIALES)) ?? {},
+  guardarCredenciales: async (todas) => {
+    await almacen.estado.guardar(CLAVE_CREDENCIALES, todas);
   },
 });
 

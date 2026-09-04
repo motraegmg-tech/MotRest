@@ -86,6 +86,16 @@ export interface OpcionesHub {
   /** Persiste un catálogo aceptado, separando el origen de confianza. */
   guardarCatalogo?: (catalogo: Catalogo, origen: "terminal" | "hub") => void;
   /**
+   * Las credenciales del personal, con el Hub como fuente.
+   *
+   * Viven aquí y no en un catálogo porque un catálogo va a TODAS las
+   * terminales, y eso repartiría el hash del PIN de cada empleado por el
+   * salón. El Hub las guarda —está en la caja— y las entrega solo a quien las
+   * pide estando autorizado.
+   */
+  leerCredenciales?: () => Promise<Record<string, unknown[]>>;
+  guardarCredenciales?: (todas: Record<string, unknown[]>) => Promise<void>;
+  /**
    * Fija la identidad del local con la que trae su primera terminal.
    *
    * Solo se llama con el registro EN BLANCO, y por eso es seguro: un local que
@@ -292,6 +302,9 @@ export class Hub {
       case "admin":
         if (this.exigirSaludo(sesion)) this.administrar(sesion, mensaje);
         break;
+      case "credenciales":
+        if (this.exigirSaludo(sesion)) void this.atenderCredenciales(sesion, mensaje);
+        break;
       case "fiscal":
         if (this.exigirSaludo(sesion)) this.atenderFiscal(sesion, mensaje);
         break;
@@ -311,6 +324,54 @@ export class Hub {
    * todo esto viaja por el canal cifrado, ni siquiera se puede formular la
    * petición sin la clave del local.
    */
+  /**
+   * Entrega o recibe las credenciales del personal.
+   *
+   * EL FALLO QUE ESTO CIERRA: las credenciales vivían **solo** en la terminal
+   * donde se creó cada usuario. Un mesero dado de alta en la caja no podía
+   * entrar desde ninguna tableta, y al reinstalar MotRest —que registra una
+   * terminal nueva— todos los PIN dejaban de valer a la vez, sin más pista que
+   * «credencial inválida».
+   *
+   * SOLO A TERMINALES APROBADAS, igual que la administración. Quien no está
+   * aprobado no recibe nada: pedir credenciales es pedir la lista de hashes del
+   * local, y eso no se le da a un dispositivo que solo ha conseguido conectarse.
+   */
+  private async atenderCredenciales(
+    sesion: Sesion,
+    mensaje: Extract<MensajeCliente, { tipo: "credenciales" }>,
+  ): Promise<void> {
+    const quienPide = this.log.dispositivo(sesion.device_id);
+    if (!quienPide?.aprobado) {
+      sesion.conexion.enviar({
+        tipo: "error",
+        codigo: "permiso_denegado",
+        mensaje: "Solo una terminal autorizada del local puede leer las credenciales",
+      });
+      return;
+    }
+    if (!this.opciones.leerCredenciales || !this.opciones.guardarCredenciales) return;
+
+    if (mensaje.accion === "publicar") {
+      if (!mensaje.usuario_id || !Array.isArray(mensaje.credenciales)) return;
+      const todas = await this.opciones.leerCredenciales();
+      /*
+       * Se reemplaza la entrada de ESE usuario, no el mapa entero. Dos
+       * terminales dando de alta a la vez no pueden borrarse el trabajo la una
+       * a la otra, que es lo que pasaría mandando el mapa completo.
+       */
+      todas[mensaje.usuario_id] = mensaje.credenciales;
+      await this.opciones.guardarCredenciales(todas);
+      this.anotar("info", `Credencial de ${mensaje.usuario_id} guardada en el Hub`);
+      return;
+    }
+
+    sesion.conexion.enviar({
+      tipo: "credenciales",
+      credenciales: await this.opciones.leerCredenciales(),
+    });
+  }
+
   private administrar(sesion: Sesion, mensaje: Extract<MensajeCliente, { tipo: "admin" }>): void {
     const quienPide = this.log.dispositivo(sesion.device_id);
     if (!quienPide?.aprobado) {
