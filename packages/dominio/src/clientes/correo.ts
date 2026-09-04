@@ -7,7 +7,7 @@
  * aprobación de plantillas y un webhook público. Para "su reserva quedó
  * confirmada" eso es una montaña de trámite y de costo por un mensaje que el
  * correo entrega igual de bien. Y hay una consecuencia técnica que importa
- * todavía más: **el correo no necesita relay**. El Hub llama al proveedor
+ * todavía más: **el correo no necesita la nube**. El Hub llama al proveedor
  * directamente desde el restaurante. Un servicio menos que pagar, que vigilar y
  * que exponer a internet.
  *

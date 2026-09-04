@@ -162,8 +162,8 @@ export interface TerminalReportada {
 /**
  * Lo que cada Hub reporta a Central, una vez al día y al arrancar.
  *
- * Va por el relay, que es la única pieza de MOTRAE conectada a internet. Si el
- * relay se cae, los restaurantes siguen operando y Central deja de ver — que es
+ * Va por la nube, que es la única pieza de MOTRAE conectada a internet. Si la
+ * nube se cae, los restaurantes siguen operando y Central deja de ver — que es
  * el reparto correcto del riesgo.
  *
  * TODO ES OPCIONAL MENOS LA VERSIÓN Y LA HORA. Un Hub viejo no manda los campos
@@ -671,7 +671,7 @@ export function idDeSucursal(nombre: string, sufijo = ""): ID {
  * Con un pulso al día son unos cuatro meses, que es el horizonte en el que
  * alguien pregunta «¿esto ya pasaba antes de la 1.2?». Guardarlo todo para
  * siempre convertiría el panel en el archivo de la operación de la cartera, que
- * es justo lo que el relay tiene prohibido ser (TRD R3) y no hay razón para que
+ * es justo lo que la nube tiene prohibido ser (TRD R3) y no hay razón para que
  * Central lo sea en su lugar.
  */
 export const PULSOS_GUARDADOS = 120;
@@ -734,7 +734,7 @@ export function historiaDelLocal(
 /**
  * Añade un parte al historial sin repetir el mismo dos veces.
  *
- * Central pregunta al relay cada diez minutos y el Hub reporta una vez al día,
+ * Central pregunta a la nube cada diez minutos y el Hub reporta una vez al día,
  * así que la inmensa mayoría de las consultas devuelven EL MISMO pulso. Sin esta
  * comprobación, el historial se llenaría de copias del último parte en una tarde
  * y no guardaría ni un día de historia real.

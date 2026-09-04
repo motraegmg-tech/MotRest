@@ -7,9 +7,27 @@
 
 ## Contexto
 
+> **Corrección de septiembre de 2026.** Este ADR se escribió dando por hecho que
+> el relay estaba desplegado y funcionando. **No lo estaba.** Al ir a conectar
+> los locales se comprobó que `motrae.mx` nunca se registró —el DNS responde
+> «dominio inexistente»— y que la app de Fly no tenía ninguna máquina. Ningún
+> restaurante había reportado jamás un pulso, y ninguna renovación había llegado
+> sola a nadie.
+>
+> Lo que sigue se conserva porque el razonamiento técnico es el que se aplicó, y
+> la decisión —Supabase— no cambia. Lo que cambia es que **no hubo migración**:
+> no había dos sistemas conviviendo, había uno a medio hacer y otro ausente. Se
+> cayó entera la parte delicada del plan (reemitir licencias entregadas por el
+> relay viejo, esperar adopción, mover el webhook sin vuelta atrás) y quedó lo
+> directo: dar de alta cada local en la nube y emitir su licencia.
+>
+> **Por qué no se vio antes:** el Hub reintentaba la conexión en silencio, con
+> espera creciente, sin decir nunca que el otro extremo no existía. Y esta misma
+> página lo daba por vivo. Ahora una dirección que no es de la nube se rechaza
+> diciéndolo, en el arranque.
+
 [ADR-27](ADR-27-donde-vive-el-relay.md) puso el relay en Fly.io hace unas
-semanas y funciona: Rodizio opera contra él, reporta su pulso y recibe
-renovaciones. Esto no se decide por un fallo suyo.
+semanas — sobre el papel. Esto no se decide por un fallo suyo.
 
 Se decide porque faltaba una **base de datos**. El canal de actualizaciones
 publicaba un `motrest.json` firmado en un release de GitHub, y de ahí salían dos

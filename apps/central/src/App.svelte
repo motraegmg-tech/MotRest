@@ -35,7 +35,7 @@
 
   /*
    * DPAPI se consulta solo cuando existe la ventana Tauri, nunca al importar el
-   * módulo. El sondeo del relay arranca DESPUÉS: la dirección y la clave viven
+   * módulo. El sondeo de la nube arranca DESPUÉS: la dirección y la clave viven
    * en el almacén protegido, así que antes de abrirlo no hay a quién preguntar.
    */
   onMount(() => {

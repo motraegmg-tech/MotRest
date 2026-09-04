@@ -162,7 +162,7 @@ y Yahoo. Sus reglas caen sobre MOTRAE, no sobre el restaurante.
 
 **Enlace alcanzable desde fuera del local**
 - [ ] La ruta de baja **no puede servirse desde el equipo del restaurante**, que sólo es alcanzable
-      en su propia red. Vive en `motrest.mx` o en el relay.
+      en su propia red. Vive en el sitio público de MOTRAE o en una función de la nube.
 - [ ] El token de baja va firmado, es de un solo destinatario y no revela otros datos.
 
 **Reputación**

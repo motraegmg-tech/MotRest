@@ -66,16 +66,23 @@ export interface ResponsableLicenciado extends PerfilResponsable {
 }
 
 /**
- * Cómo alcanza este local al relay de MOTRAE.
+ * Cómo alcanza este local la nube de MOTRAE.
  *
  * Es lo mínimo para que el Hub pueda reportar su pulso: a dónde y con qué se
  * identifica. La mensajería del comensal —WhatsApp— se configura aparte y no
  * condiciona esto.
  */
-export interface RelayLicenciado {
-  /** `wss://…` del relay de MOTRAE. */
+export interface NubeLicenciada {
+  /** `https://<proyecto>.supabase.co`. */
   url: string;
-  /** La de ESTE restaurante, emitida en el alta del padrón. */
+  /**
+   * La credencial de ESTE restaurante, emitida al darlo de alta en la nube.
+   *
+   * De ella sale su identidad: con ella el Hub inicia sesión y todo lo que
+   * consulte después queda acotado por su propio token. El `sucursal_id` no
+   * viaja en ninguna petición — la base de datos no se cree lo que el Hub diga
+   * que es.
+   */
   clave: string;
 }
 
@@ -153,18 +160,23 @@ export interface Licencia {
    * Por dónde le habla este local a MOTRAE.
    *
    * VIAJA AQUÍ, y no en la configuración de WhatsApp, porque son dos cosas
-   * distintas que estaban en el mismo sitio. El enlace con el relay se montaba
-   * solo si había mensajería configurada, y de ese enlace cuelga el **pulso**:
-   * el latido con el que Central sabe que un restaurante vive. El resultado era
-   * que todo local sin WhatsApp —un caso normal, dice el propio código— salía en
-   * Central marcado como CAÍDO mientras vendía con normalidad.
+   * distintas que estaban en el mismo sitio. El enlace se montaba solo si había
+   * mensajería configurada, y de ese enlace cuelga el **pulso**: el latido con
+   * el que Central sabe que un restaurante vive. El resultado era que todo local
+   * sin WhatsApp —un caso normal, dice el propio código— salía en Central
+   * marcado como CAÍDO mientras vendía con normalidad.
    *
-   * La clave es de este restaurante y de ningún otro: la emite MOTRAE en el alta
-   * del padrón. Por eso no puede ir incrustada en el instalador como el
+   * La clave es de este restaurante y de ningún otro: la emite MOTRAE al darlo
+   * de alta en la nube. Por eso no puede ir incrustada en el instalador como el
    * repositorio de actualizaciones, y viaja en el documento firmado que ya se
    * pega en cada caja.
+   *
+   * **Sin esto, un local no existe para MOTRAE.** No reporta versión, no recibe
+   * renovaciones y aparece como «nunca reportó». Es exactamente lo que pasaba
+   * con toda la flota mientras el campo apuntaba a un servidor que no llegó a
+   * existir.
    */
-  relay?: RelayLicenciado;
+  nube?: NubeLicenciada;
   /**
    * Permiso para restaurar el respaldo de este local en un equipo nuevo.
    *

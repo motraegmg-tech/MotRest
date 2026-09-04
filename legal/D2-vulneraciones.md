@@ -26,7 +26,7 @@ Cualquiera de estas, ocurra en MOTRAE o en el equipo de un cliente:
 - **Uso, acceso o tratamiento** no autorizado, por alguien de dentro o de fuera.
 - **Daño, alteración o modificación** no autorizada.
 - Compromiso del **CSD** o de sus credenciales.
-- Compromiso del **padrón del relay** (contiene tokens de Meta de todos los locales).
+- Compromiso del **padrón en la nube** (contiene tokens de Meta de todos los locales).
 - Compromiso de las **llaves privadas de firma** de MOTRAE.
 - Envío masivo indebido desde el dominio compartido.
 
@@ -58,7 +58,7 @@ documenta.
 - Rotar credenciales, llaves o tokens afectados.
 - Si es el **CSD**: avisar al cliente en el acto para que tramite su revocación ante el SAT. Un CSD
   comprometido permite facturar a nombre del contribuyente.
-- Si es el **padrón del relay**: rotar la llave de cifrado y las credenciales de todos los locales.
+- Si es el **padrón en la nube**: rotar la llave de cifrado y las credenciales de todos los locales.
 - Si es una **llave privada de firma**: generar par nuevo, compilar y reemitir. Ver
   [`ADR-25`](../docs/adr/ADR-25-firmas-ed25519-y-migracion.md).
 - **No borrar rastros.** Los registros son la prueba de qué ocurrió y hasta dónde llegó.

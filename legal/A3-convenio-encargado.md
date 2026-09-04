@@ -112,7 +112,7 @@ función y ninguno para otra:
 | **Resend** | Entrega de correo, en modo dominio propio o compartido | Igual | EE. UU. |
 | **Meta Platforms** (WhatsApp Business) | Mensajería con el comensal | Teléfono y contenido del mensaje | EE. UU. |
 | **GitHub** | Distribución de actualizaciones | **Ningún dato personal** | EE. UU. |
-| **Servicio de relay de MOTRAE** | Enrutamiento de WhatsApp y estado de salud | Tránsito de mensajes; no los almacena | Nube, operado por MOTRAE |
+| **Supabase** | Padrón, pulso de cada local, tránsito de WhatsApp e instaladores | Tokens de Meta cifrados por MOTRAE; el resto en claro | EE. UU. (`us-east-1`) |
 
 **El PAC** que timbra los comprobantes fiscales **lo contrata el Responsable directamente**, y por
 tanto es subencargado suyo, no de MOTRAE. Ver documento **A4**.
@@ -217,7 +217,7 @@ confidencialidad, supresión y responsabilidad, sobrevive a su terminación.
 | **Duración** | La del contrato, más los plazos de supresión de la cláusula 10. |
 | **Ubicación principal** | Equipo de caja del establecimiento del Responsable. |
 | **Copias** | Respaldos automáticos locales, con rotación. |
-| **Salidas al exterior** | Correo (Google / Resend), WhatsApp (Meta, vía relay de MOTRAE), timbrado (PAC del Responsable), estado de salud (relay de MOTRAE). |
+| **Salidas al exterior** | Correo (Google / Resend), WhatsApp (Meta, vía la nube de MOTRAE en Supabase), timbrado (PAC del Responsable), estado de salud (la misma nube). |
 
 # Anexo II · Medidas de seguridad
 
@@ -238,7 +238,8 @@ confidencialidad, supresión y responsabilidad, sobrevive a su terminación.
   Bloqueo automático tras siete intentos fallidos.
 - **Firma criptográfica Ed25519** de licencias y de paquetes de actualización, verificada localmente.
   Ninguna versión no emitida por MOTRAE puede instalarse.
-- **Cifrado AES-256-GCM** del padrón de credenciales de servicio en el relay, con escritura atómica.
+- **Cifrado AES-256-GCM** de los tokens de Meta antes de escribirlos en la nube: los cifra MOTRAE,
+  y el proveedor los almacena sin poder leerlos.
 - **Almacén protegido del sistema operativo (DPAPI)** para las llaves privadas del panel de
   administración de MOTRAE.
 - **Cifrado AES-256-GCM del canal entre las terminales y el equipo de caja**, con la clave del

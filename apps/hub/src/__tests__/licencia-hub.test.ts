@@ -284,3 +284,41 @@ describe("dar de alta el restaurante con su licencia", () => {
     expect(g.sucursalAhora()).toBe(PROVISIONAL);
   });
 });
+
+describe("el Bloc de notas y su BOM", () => {
+  /*
+   * TRES BYTES INVISIBLES QUE DEJAN UN LOCAL SIN LICENCIA.
+   *
+   * Pegar la licencia a mano es un camino legitimo -- montar una caja con el
+   * archivo en una USB, o entrar por SSH a un restaurante -- y en Windows eso
+   * casi siempre pasa por el Bloc de notas, que antepone la marca de orden de
+   * bytes al guardar en UTF-8.
+   *
+   * `JSON.parse` la rechaza, y el mensaje que sale ("el archivo de licencia no
+   * se pudo leer") apunta al archivo entero cuando lo que sobra es un caracter
+   * que nadie ve. Paso exactamente asi la primera vez que se probo, y costo
+   * media hora entender por que una licencia que se ve perfecta no servia.
+   */
+  it("una licencia guardada con el Bloc de notas se lee igual", async () => {
+    const licencia = await emitirLicencia(
+      {
+        sucursal_id: SUC,
+        nombre: "Rodizio",
+        plan: "mensual",
+        vence_ts: Date.now() + 86_400_000,
+        gracia_dias: 3,
+        emitida_ts: Date.now(),
+      },
+      MOTRAE.privada,
+    );
+
+    // Exactamente lo que escribe el Bloc de notas: BOM y despues el JSON.
+    await writeFile(ruta, "\uFEFF" + JSON.stringify(licencia, null, 2), "utf8");
+
+    const gestor = new GestorLicencia(ruta, () => SUC, MOTRAE.publica, () => undefined);
+    const veredicto = await gestor.cargar();
+
+    expect(veredicto.verificada).toBe(true);
+    expect(veredicto.licencia?.nombre).toBe("Rodizio");
+  });
+});

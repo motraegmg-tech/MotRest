@@ -31,7 +31,7 @@ el dato, y confundirlas es el error que hace inservible todo lo demás.
 | Comensales (nombre, teléfono, correo, domicilio, RFC, notas) | `hub.sqlite`, en el equipo de caja del local | **El restaurante** | MOTRAE | A3 · C1 |
 | Reservas | `hub.sqlite` | **El restaurante** | MOTRAE | A3 · C1 |
 | Opiniones y encuestas (texto libre) | `hub.sqlite` | **El restaurante** | MOTRAE | A3 · C1 |
-| Mensajes de WhatsApp (número + contenido) | `hub.sqlite` · tránsito por el relay | **El restaurante** | MOTRAE | A3 · C4 |
+| Mensajes de WhatsApp (número + contenido) | `hub.sqlite` · tránsito por la nube | **El restaurante** | MOTRAE | A3 · C4 |
 | Lealtad: puntos, monedero, gift cards | `hub.sqlite` | **El restaurante** | MOTRAE | A3 · C1 |
 | Empleados: identidad, PIN, permisos | `hub.sqlite` | **El restaurante** | MOTRAE | A3 · C2 |
 | Empleados: sueldo, propinas, fichajes, prenómina | `hub.sqlite` | **El restaurante** | MOTRAE | A3 · C2 |
@@ -39,8 +39,8 @@ el dato, y confundirlas es el error que hace inservible todo lo demás.
 | Socios e inversionistas del local | `hub.sqlite` | **El restaurante** | MOTRAE | A3 |
 | Datos fiscales del receptor (RFC, régimen, CP) | `hub.sqlite` + CFDI timbrado | **El restaurante** | MOTRAE | A4 |
 | Cartera de MOTRAE: contacto, responsable, teléfono, correo, pagos, notas privadas | MotRest Central, equipo de Gonzalo | **MOTRAE** | — | B1 |
-| Pulso: `sucursal_id`, versión, **ventas del día**, cuentas, dispositivos | Relay, en la nube | **MOTRAE** | — | A1 · B1 |
-| Padrón del relay: tokens de Meta por local | Relay, cifrado AES-256-GCM | **MOTRAE** | — | A3 |
+| Pulso: `sucursal_id`, versión, **ventas del día**, cuentas, dispositivos | Supabase (`public.pulsos`) | **MOTRAE** | — | A1 · B1 |
+| Padrón: tokens de Meta por local | Supabase (`public.sucursales`), cifrados AES-256-GCM por MOTRAE | **MOTRAE** | — | A3 |
 
 **La regla que resume la tabla:** *lo que el restaurante recoge de sus comensales y de su personal
 es suyo; MOTRAE sólo lo procesa por encargo. Lo que MOTRAE recoge sobre el restaurante como cliente
@@ -105,23 +105,23 @@ suyo es de MOTRAE.*
 | Restaurante: nombre, contacto, **responsable (persona física)**, teléfono, correo, plan, cuota | `organizacion/central.ts` → `ClienteMotRest`; alta en `apps/central/src/paneles/Alta.svelte` | Son datos personales del dueño o encargado, no sólo de la empresa. |
 | `pagos[]`, `resultados[]` | `organizacion/central.ts` | Historial comercial. |
 | `notas` de MOTRAE — *«nunca las ve el restaurante»* | `organizacion/central.ts` | **Sujetas a derecho de acceso.** Que el cliente no las vea en la pantalla no significa que no pueda pedirlas: si contienen datos personales de una persona física identificable, un ARCO las alcanza. Redactarlas como si fueran a leerse. |
-| **Pulso** | `organizacion/central.ts` → `PulsoCliente`; `apps/relay/src/pulsos.ts` | Ver §3. |
+| **Pulso** | `organizacion/central.ts` → `PulsoCliente`; `supabase/migrations/…_padron_y_pulsos.sql` | Ver §3. |
 
 ---
 
 ## 3. El pulso: lo que sale del restaurante hacia MOTRAE
 
-Cada Hub reporta **al arrancar y cada 24 horas** por el relay. Es la única recolección continua que
+Cada Hub reporta **al arrancar y cada 24 horas** a la nube. Es la única recolección continua que
 MOTRAE hace desde dentro de un local, y hoy **no está declarada en ningún documento que el cliente
 haya visto**.
 
-**Lo que viaja:** `sucursal_id`, `ts` (lo pone el relay, no el local), `version`, **`ventas_dia`**,
+**Lo que viaja:** `sucursal_id`, `ts` (lo pone el servidor, no el local), `version`, **`ventas_dia`**,
 `cuentas_dia`, `terminales`, `dispositivos[]` (id recortado, nombre, aprobado, visto), `hub_id`,
 `plataforma`, `arranque_automatico`, `respaldo_ts`, conteo de eventos, `problemas[]`.
 
-**Lo que NO viaja:** comandas, clientes, empleados, tokens, contenido de mensajes. El relay
+**Lo que NO viaja:** comandas, clientes, empleados, tokens, contenido de mensajes. La nube
 **recorta campo a campo** y guarda **sólo el último pulso por local, sin serie temporal** — decisión
-deliberada de [ADR-26](../docs/adr/ADR-26-actualizacion-remota.md) para que el relay nunca se
+deliberada de [ADR-26](../docs/adr/ADR-26-actualizacion-remota.md) para que la nube nunca se
 convierta en el sitio donde vive la operación de toda la cartera.
 
 **Calificación:** `ventas_dia` **no es dato personal** — es información comercial de una empresa.
@@ -138,16 +138,27 @@ resultado.
 |---|---|---|---|
 | **Google (Gmail SMTP)** | Correo del comensal + contenido del mensaje | Subencargado | `apps/hub/src/smtp.ts` |
 | **Resend** | Igual, en modo dominio propio o compartido | Subencargado | `apps/hub/src/correo.ts` |
-| **Meta / WhatsApp Cloud API** | Teléfono del comensal + contenido | Subencargado | `apps/relay/src/` |
+| **Meta / WhatsApp Cloud API** | Teléfono del comensal + contenido | Subencargado | `supabase/functions/` |
 | **PAC (a elegir por el restaurante)** | CFDI con RFC y nombre del receptor | Subencargado del restaurante | `apps/hub/src/fiscal/pac-http.ts` |
 | **SAT** | El CFDI timbrado | Obligación legal | `fiscal/representacion.ts` |
 | **GitHub** | Nada personal. Sólo descarga de instaladores | Proveedor de infraestructura | `apps/hub/src/actualizaciones.ts` |
-| **Relay de MOTRAE** | Pulso + tránsito de WhatsApp | MOTRAE | `apps/relay/` |
+| **Supabase** | Padrón, pulso, tránsito de WhatsApp, instaladores | **Subencargado** | `supabase/` |
 
-**Transferencias fuera de México.** Google, Resend, Meta y GitHub procesan en el extranjero. Bajo la
-ley de 2025, el responsable sólo puede transferir o remitir fuera del territorio nacional cuando el
-receptor **se obligue a proteger los datos conforme a los principios de la ley**. Se cubre con la
-lista nominal de subencargados del **A3** y con la mención en los avisos.
+**Transferencias fuera de México.** Google, Resend, Meta, GitHub y **Supabase** procesan en el
+extranjero. Bajo la ley de 2025, el responsable sólo puede transferir o remitir fuera del territorio
+nacional cuando el receptor **se obligue a proteger los datos conforme a los principios de la ley**.
+Se cubre con la lista nominal de subencargados del **A3** y con la mención en los avisos.
+
+> **Supabase es el subencargado nuevo, y hay que nombrarlo.** El proyecto está en
+> `us-east-1` (Virginia, EE. UU.); no existe región en México. Ahí viven el padrón, el pulso de cada
+> local y el tránsito de los mensajes de WhatsApp. **Los tokens de Meta van cifrados por MOTRAE con
+> AES-256-GCM antes de escribirse**, así que Supabase los almacena sin poder leerlos — pero el resto
+> de los campos sí los ve, y por eso es subencargado y no un mero proveedor de infraestructura como
+> GitHub.
+>
+> Antes esta fila decía «Relay de MOTRAE», un servidor propio. Ese servidor **nunca llegó a
+> desplegarse**: el dominio no se registró y la aplicación no tenía máquinas. Ningún dato de ningún
+> restaurante pasó jamás por él, así que no hubo tratamiento que declarar en ese periodo.
 
 ---
 
@@ -177,11 +188,12 @@ Lo que se declare en el **A3** tiene que ser esto y no una lista de deseos.
   con sal por credencial. Bloqueo a los 7 intentos fallidos.
 - **Ed25519** para firmar licencias y manifiestos de actualización; verificación **offline**.
 - **DPAPI** de Windows para las llaves privadas en MotRest Central.
-- **AES-256-GCM** para el padrón del relay, con escritura atómica.
+- **AES-256-GCM** para los tokens de Meta en el padrón. Los cifra MOTRAE antes de escribirlos:
+  Supabase guarda texto cifrado y no tiene la llave.
 - **AES-256-GCM en el canal entre terminales y Hub**, con la clave del local. **No es TLS**, y la
   razón está en `packages/protocolo-sync/src/cifrado.ts`: un Hub de LAN no tiene nombre de dominio,
   y un certificado autofirmado obligaría a saltarse la advertencia roja del navegador en cada caja.
-- Sólo `wss://` hacia el relay, comprobado antes de abrir el socket.
+- Sólo `https://` hacia la nube, comprobado antes de abrir sesión.
 - **ACL de NTFS** (`icacls`) sobre las carpetas con secretos: cortan la herencia y dejan dentro a
   SYSTEM, administradores y la cuenta que ejecuta el Hub. Resuelto en CN-033 — antes el `0o600` no
   restringía a nadie en Windows.

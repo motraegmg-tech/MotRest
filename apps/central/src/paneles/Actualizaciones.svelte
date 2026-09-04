@@ -43,6 +43,10 @@
   let notas = $state("");
   let url = $state("");
   let sha256 = $state("");
+  /** El instalador elegido, aún sin subir. */
+  let instalador = $state<File | null>(null);
+  let subiendo = $state(false);
+  let subido = $state("");
   let obligatoria = $state(false);
   let versionMinima = $state("");
   let manifiesto = $state("");
@@ -132,6 +136,41 @@
       firmado = resultado.manifiesto;
     } finally {
       firmando = false;
+    }
+  }
+
+  /**
+   * Toma el instalador, calcula su huella y lo sube a la nube.
+   *
+   * LA HUELLA SE CALCULA AQUÍ, sobre los bytes que se van a subir. Tecleada a
+   * mano desde un `Get-FileHash` es donde se cuela el error clásico: sacarla de
+   * un archivo y subir otro. El Hub lo detecta y se niega a instalar, pero para
+   * entonces la versión ya está publicada y hay que rehacerla.
+   */
+  async function subirYCalcular() {
+    if (!instalador) return;
+    subiendo = true;
+    errorNube = "";
+    subido = "";
+    try {
+      const bytes = await instalador.arrayBuffer();
+      const digest = await crypto.subtle.digest("SHA-256", bytes);
+      const huella = [...new Uint8Array(digest)]
+        .map((b) => b.toString(16).padStart(2, "0"))
+        .join("");
+
+      const resultado = await central.subirInstalador(version.trim(), bytes);
+      if (!resultado.ok) {
+        errorNube = resultado.error;
+        return;
+      }
+      // Se rellenan los dos a la vez: la URL de lo subido y la huella de esos
+      // mismos bytes. Así no pueden desparejarse.
+      url = resultado.url;
+      sha256 = huella;
+      subido = `${instalador.name} — ${(instalador.size / 1024 / 1024).toFixed(1)} MB`;
+    } finally {
+      subiendo = false;
     }
   }
 
@@ -332,19 +371,41 @@
         ></textarea>
       </label>
 
+      <fieldset class="instalador">
+        <legend>El instalador</legend>
+        <p class="nube-nota">
+          Elíjalo y súbalo: la huella se calcula sobre los bytes que se suben, y
+          la URL se rellena sola. Tecleada a mano es donde se cuela el error de
+          sacar la huella de un archivo y publicar otro.
+        </p>
+        <input
+          type="file"
+          accept=".exe"
+          onchange={(e) => (instalador = e.currentTarget.files?.[0] ?? null)}
+        />
+        <button disabled={!instalador || !version.trim() || subiendo} onclick={subirYCalcular}>
+          {subiendo ? "Subiendo…" : "Subir a la nube y calcular la huella"}
+        </button>
+        {#if subido}<p class="hecho">{subido}</p>{/if}
+      </fieldset>
+
       <label>
         URL del instalador
         <input
           bind:value={url}
           placeholder="https://github.com/{repositorio}/releases/download/v1.5.0/MotRest_setup.exe"
         />
+        <small>
+          Se rellena al subir. Se escribe a mano solo cuando la versión va por
+          un release de GitHub y no por la nube.
+        </small>
       </label>
 
       <label>
         Huella SHA-256 del instalador
         <input bind:value={sha256} placeholder="64 caracteres" spellcheck="false" />
         <small>
-          En PowerShell: <code>Get-FileHash MotRest_setup.exe</code>
+          Si el instalador va por GitHub: <code>Get-FileHash MotRest_setup.exe</code>
         </small>
       </label>
 
@@ -720,6 +781,22 @@
     padding: 0.45rem;
     border: 1px solid var(--borde);
     border-radius: 6px;
+  }
+  .instalador {
+    border: 1px solid var(--borde);
+    border-radius: 8px;
+    padding: 0.75rem 0.9rem 0.9rem;
+    margin: 0 0 0.9rem;
+  }
+  .instalador legend {
+    font-size: 0.8rem;
+    color: var(--pizarra);
+    padding: 0 0.35rem;
+  }
+  .instalador input[type="file"] {
+    display: block;
+    margin: 0.6rem 0;
+    font-size: 0.8rem;
   }
   .locales {
     border: 1px solid var(--borde);

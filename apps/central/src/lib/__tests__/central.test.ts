@@ -30,6 +30,28 @@ beforeEach(async () => {
   await central.guardarConfiguracion({ repositorio: "motrae/motrest" });
 });
 
+/**
+ * Una respuesta con la forma que espera `peticionNube`.
+ *
+ * Lee `text()` y no `json()` a propósito: en la aplicación instalada la petición
+ * la hace Rust y devuelve el cuerpo como texto, porque la llave de servicio no
+ * puede salir de la webview — Supabase rechaza una `sb_secret_` que llegue con
+ * User-Agent de navegador. Fuera de Tauri se usa `fetch`, y estas pruebas cubren
+ * ese camino con el mismo contrato.
+ */
+function respuestaNube(
+  estado: number,
+  cuerpo: unknown = "",
+  contentRange: string | null = null,
+): Response {
+  return {
+    ok: estado < 300,
+    status: estado,
+    text: async () => (typeof cuerpo === "string" ? cuerpo : JSON.stringify(cuerpo)),
+    headers: { get: (h: string) => (h === "content-range" ? contentRange : null) },
+  } as unknown as Response;
+}
+
 async function alta(nombre = "Rodizio", sufijo = "Centro") {
   return central.alta({
     nombre, sufijo, contacto: "Dueño", plan: "mensual", cuota: pesos(1_500),
@@ -288,11 +310,11 @@ describe("el cobro por resultado", () => {
 });
 
 describe("la licencia se le manda sola al restaurante", () => {
-  async function conRelay() {
+  async function conNube() {
     await central.guardarConfiguracion({
       repositorio: "r",
-      relay_url: "https://relay.test",
-      relay_clave_admin: "secreto123",
+      nube_url: "https://nube.test",
+      nube_servicio: "secreto123",
     });
     return (await alta()).cliente!.id;
   }
@@ -302,20 +324,16 @@ describe("la licencia se le manda sola al restaurante", () => {
    * alguien estuviera en esa caja pegando un JSON. Un restaurantero operando su
    * punto de venta a base de pegar código es un fallo de producto.
    */
-  it("al renovar, la deposita en el relay y avisa de que llegó", async () => {
-    const id = await conRelay();
-    global.fetch = vi.fn().mockResolvedValue({
-      ok: true,
-      status: 200,
-      json: async () => ({ ok: true, entregada: true }),
-    });
+  it("al renovar, la deposita en el buzón del local", async () => {
+    const id = await conNube();
+    global.fetch = vi.fn().mockResolvedValue({ ok: true, status: 201, text: async () => "" });
 
     const r = await central.emitir(id);
 
     expect(r.ok).toBe(true);
-    expect(r.entrega).toBe("entregada");
+    expect(r.entrega).toBe("en_espera");
     expect(global.fetch).toHaveBeenCalledWith(
-      new URL("https://relay.test/licencia"),
+      "https://nube.test/rest/v1/licencias_pendientes",
       expect.objectContaining({
         method: "POST",
         headers: expect.objectContaining({ authorization: "Bearer secreto123" }),
@@ -323,13 +341,13 @@ describe("la licencia se le manda sola al restaurante", () => {
     );
   });
 
-  /* Lo que viaja es la licencia firmada entera, con su firma: el relay no firma nada. */
+  /* Lo que viaja es la licencia firmada entera, con su firma: la nube no firma nada. */
   it("manda el documento firmado y su destinatario", async () => {
-    const id = await conRelay();
+    const id = await conNube();
     let enviado: { sucursal_id?: string; licencia?: { firma?: string } } = {};
     global.fetch = vi.fn().mockImplementation((_url, opciones) => {
       enviado = JSON.parse(String(opciones.body));
-      return Promise.resolve({ ok: true, status: 200, json: async () => ({ entregada: true }) });
+      return Promise.resolve({ ok: true, status: 201, text: async () => "" });
     });
 
     const r = await central.emitir(id);
@@ -338,86 +356,111 @@ describe("la licencia se le manda sola al restaurante", () => {
     expect(enviado.licencia?.firma).toBe(r.licencia!.firma);
   });
 
-  /* El local está apagado: la recogerá al encender, y hay que decirlo así. */
-  it("con el local desconectado dice que queda en espera, no que llegó", async () => {
-    const id = await conRelay();
-    global.fetch = vi.fn().mockResolvedValue({
-      ok: true,
-      status: 200,
-      json: async () => ({ ok: true, entregada: false }),
-    });
+  /*
+   * NUNCA «ENTREGADA», por mucho que la nube acepte el depósito.
+   *
+   * Depositarla es todo lo que Central puede saber; quien confirma que se
+   * instaló es el Hub, escribiendo en su propia fila. Decir «entregada» aquí
+   * sería un local bloqueado un lunes mientras el panel lo da por renovado.
+   */
+  it("depositarla no es entregarla: siempre queda «en espera»", async () => {
+    const id = await conNube();
+    global.fetch = vi.fn().mockResolvedValue({ ok: true, status: 201, text: async () => "" });
 
     expect((await central.emitir(id)).entrega).toBe("en_espera");
+  });
+
+  /* Una renovación nueva no puede heredar el «ya instalada» de la anterior. */
+  it("al depositar, limpia la confirmación y el error de la vez pasada", async () => {
+    const id = await conNube();
+    let enviado: Record<string, unknown> = {};
+    global.fetch = vi.fn().mockImplementation((_url, opciones) => {
+      enviado = JSON.parse(String(opciones.body));
+      return Promise.resolve({ ok: true, status: 201, text: async () => "" });
+    });
+
+    await central.emitir(id);
+
+    expect(enviado.confirmada_ts).toBeNull();
+    expect(enviado.ultimo_error).toBeNull();
   });
 
   /*
    * Si el reparto falla NO se pierde la licencia: está firmada y es válida. Se
    * degrada al camino de siempre —copiar y pegar— y se dice por qué.
    */
-  it("si el relay no responde, la licencia sigue siendo válida y se pega a mano", async () => {
-    const id = await conRelay();
+  it("si la nube no responde, la licencia sigue siendo válida y se pega a mano", async () => {
+    const id = await conNube();
     global.fetch = vi.fn().mockRejectedValue(new Error("sin red"));
 
     const r = await central.emitir(id);
 
     expect(r.ok).toBe(true);
     expect(r.entrega).toBe("a_mano");
-    expect(r.motivoEntrega).toContain("relay");
+    expect(r.motivoEntrega).toContain("nube");
     expect(await verificarLicencia(r.licencia!, id, central.secretos.licencias!.publica)).toBe(true);
     /* Y quedó guardada en la cartera igual que cualquier otra. */
     expect(central.clientes.find((c) => c.id === id)!.licencia).not.toBeNull();
   });
 
-  it("sin relay configurado se comporta como siempre", async () => {
+  it("sin nube configurada se comporta como siempre", async () => {
     const id = (await alta()).cliente!.id;
     const r = await central.emitir(id);
 
     expect(r.entrega).toBe("a_mano");
-    expect(r.motivoEntrega).toContain("relay");
+    expect(r.motivoEntrega).toContain("nube");
   });
 
-  it("un rechazo del relay explica el motivo en vez de tragárselo", async () => {
-    const id = await conRelay();
+  it("un rechazo de la nube explica el motivo en vez de tragárselo", async () => {
+    const id = await conNube();
     global.fetch = vi.fn().mockResolvedValue({
       ok: false,
-      status: 404,
-      json: async () => ({ error: "suc-rodizio-centro no está en el padrón del relay" }),
+      status: 409,
+      text: async () => 'violates foreign key constraint "licencias_pendientes_sucursal_id_fkey"',
     });
 
     const r = await central.emitir(id);
 
     expect(r.entrega).toBe("a_mano");
-    expect(r.motivoEntrega).toContain("padrón");
+    /*
+     * Que se vea el detalle de Postgres importa: la causa real casi siempre es
+     * que el local no está dado de alta en la nube, y ese mensaje lo dice.
+     */
+    expect(r.motivoEntrega).toContain("foreign key");
   });
 
   it("cortar el servicio también viaja solo", async () => {
-    const id = await conRelay();
-    global.fetch = vi.fn().mockResolvedValue({
-      ok: true,
-      status: 200,
-      json: async () => ({ ok: true, entregada: true }),
-    });
+    const id = await conNube();
+    global.fetch = vi.fn().mockResolvedValue({ ok: true, status: 201, text: async () => "" });
 
     const r = await central.cortarServicio(id);
 
-    expect(r.entrega).toBe("entregada");
+    expect(r.entrega).toBe("en_espera");
     expect(r.licencia!.vence_ts).toBeLessThan(Date.now());
   });
 
-  it("trae del relay las renovaciones que nadie ha recogido", async () => {
-    await conRelay();
-    global.fetch = vi.fn().mockResolvedValue({
-      ok: true,
-      status: 200,
-      json: async () => ({
-        pendientes: [{ sucursal_id: "suc-rodizio-centro", depositada_ts: 10, conectado: false }],
-      }),
+  it("trae las renovaciones que nadie ha recogido, y solo esas", async () => {
+    await conNube();
+    let pedido = "";
+    global.fetch = vi.fn().mockImplementation((u) => {
+      pedido = String(u);
+      return Promise.resolve(
+        respuestaNube(200, [
+          { sucursal_id: "suc-rodizio-centro", depositada_ts: "2026-08-01T00:00:00Z", intentos: 0 },
+        ]),
+      );
     });
 
     const r = await central.traerLicenciasPendientes();
 
     expect(r.ok).toBe(true);
     expect(central.licenciasPendientes).toHaveLength(1);
+    /*
+     * Una fila confirmada es una renovación ya instalada. Dejarla en la lista
+     * convertiría el panel en un montón de alarmas viejas, y una lista que
+     * siempre tiene cosas deja de mirarse.
+     */
+    expect(pedido).toContain("confirmada_ts=is.null");
   });
 });
 
@@ -812,49 +855,44 @@ describe("vigilar el anillo después de publicar", () => {
   });
 });
 
-describe("la salud del propio relay", () => {
+describe("la salud de la nube", () => {
   /*
-   * Si el relay se cae, lo que se veía aquí era «todos los locales llevan horas
+   * Si la nube se cae, lo que se veía aquí era «todos los locales llevan horas
    * sin reportar» — que se lee como avería masiva cuando en realidad todos están
-   * vendiendo. Saber que el caído es el relay cambia a quién hay que llamar.
+   * vendiendo. Saber que la caída es la nube cambia a quién hay que llamar.
    */
-  it("trae cuántos Hubs están conectados ahora mismo", async () => {
+  it("cuenta cuántos locales y cuántos pulsos hay", async () => {
     await central.guardarConfiguracion({
       repositorio: "r",
-      relay_url: "https://relay.test",
-      relay_clave_admin: "secreto123",
+      nube_url: "https://nube.test",
+      nube_servicio: "secreto123",
     });
 
-    global.fetch = vi.fn().mockResolvedValue({
-      ok: true,
-      status: 200,
-      json: async () => ({ restaurantes: 4, hubs_conectados: 3, pulsos: 4 }),
-    });
+    global.fetch = vi.fn().mockResolvedValue(respuestaNube(200, [], "0-0/4"));
 
-    expect((await central.traerSaludRelay()).ok).toBe(true);
-    expect(central.saludRelay).toMatchObject({ restaurantes: 4, hubs_conectados: 3 });
-    expect(global.fetch).toHaveBeenCalledWith(
-      new URL("https://relay.test/salud/detalle"),
-      expect.objectContaining({ headers: { authorization: "Bearer secreto123" } }),
-    );
+    expect((await central.traerSaludNube()).ok).toBe(true);
+    expect(central.saludNube).toMatchObject({ restaurantes: 4, pulsos: 4 });
+
+    /*
+     * Y NO se inventa un «conectados»: la nube no sostiene sockets, así que no
+     * hay tal cosa que saber. Un panel que dijera que un local está en línea
+     * cuando lo que sabe es que lo estuvo ayer es peor que uno que calla.
+     */
+    expect(central.saludNube!.hubs_conectados).toBe(0);
   });
 
-  it("un relay que no contesta deja el parte en blanco, no en cifras viejas", async () => {
+  it("una nube que no contesta deja el parte en blanco, no en cifras viejas", async () => {
     await central.guardarConfiguracion({
       repositorio: "r",
-      relay_url: "https://relay.test",
-      relay_clave_admin: "secreto123",
+      nube_url: "https://nube.test",
+      nube_servicio: "secreto123",
     });
-    global.fetch = vi.fn().mockResolvedValue({
-      ok: true,
-      status: 200,
-      json: async () => ({ restaurantes: 4, hubs_conectados: 3, pulsos: 4 }),
-    });
-    await central.traerSaludRelay();
+    global.fetch = vi.fn().mockResolvedValue(respuestaNube(200, [], "0-0/4"));
+    await central.traerSaludNube();
 
     global.fetch = vi.fn().mockRejectedValue(new Error("sin red"));
-    expect((await central.traerSaludRelay()).ok).toBe(false);
-    expect(central.saludRelay).toBeNull();
+    expect((await central.traerSaludNube()).ok).toBe(false);
+    expect(central.saludNube).toBeNull();
   });
 });
 
@@ -979,59 +1017,70 @@ describe("anillos de despliegue", () => {
 });
 
 describe("traerPulsos", () => {
-  it("falla si no hay configuración del relay", async () => {
+  it("falla si no hay configuración de la nube", async () => {
     const r = await central.traerPulsos();
     expect(r.ok).toBe(false);
     if (!r.ok) expect(r.error).toContain("Falta la dirección");
   });
 
-  it("llama al fetch con autorización y actualiza los pulsos", async () => {
+  it("lee los pulsos de la nube y los guarda", async () => {
     await central.guardarConfiguracion({
       repositorio: "r",
-      relay_url: "https://relay.test",
-      relay_clave_admin: "secreto123"
+      nube_url: "https://nube.test",
+      nube_servicio: "secreto123",
     });
 
     const id = (await alta()).cliente!.id;
 
-    global.fetch = vi.fn().mockResolvedValue({
-      ok: true,
-      status: 200,
-      json: async () => ({
-        pulsos: [{ sucursal_id: id, ts: 9999, version: "2.0.0" }]
-      })
-    });
+    global.fetch = vi.fn().mockResolvedValue(
+      respuestaNube(200, [
+        {
+          sucursal_id: id,
+          ts: "2026-08-28T15:30:00Z",
+          version: "2.0.0",
+          terminales: 4,
+          // Una columna que el panel no conoce. No debe acabar pintada.
+          columna_que_nadie_pidio: "sorpresa",
+        },
+      ]),
+    );
 
     const r = await central.traerPulsos();
     expect(r.ok).toBe(true);
     expect(central.ultimaConsultaPulsos).not.toBeNull();
     expect(central.errorPulsos).toBe("");
     expect(global.fetch).toHaveBeenCalledWith(
-      new URL("https://relay.test/pulsos"),
+      "https://nube.test/rest/v1/pulsos?select=*",
       expect.objectContaining({
-        headers: { authorization: "Bearer secreto123" }
-      })
+        headers: expect.objectContaining({ authorization: "Bearer secreto123" }),
+      }),
     );
 
-    expect(central.pulsoDe(id)!.version).toBe("2.0.0");
+    const pulso = central.pulsoDe(id)!;
+    expect(pulso.version).toBe("2.0.0");
+    expect(pulso.terminales).toBe(4);
+    // La hora llega como texto ISO y tiene que quedar en milisegundos.
+    expect(pulso.ts).toBe(new Date("2026-08-28T15:30:00Z").getTime());
+    /*
+     * Se traduce campo a campo, no con `...fila`: la tabla puede tener columnas
+     * nuevas mañana, y copiarlas todas es como un dato de la base acaba pintado
+     * en la interfaz sin que nadie lo haya decidido.
+     */
+    expect(pulso).not.toHaveProperty("columna_que_nadie_pidio");
   });
 
   /*
    * El sondeo automático corre en paralelo con el botón de refrescar. Dos
    * consultas a la vez traen exactamente lo mismo: la segunda solo gasta.
    */
-  it("no consulta el relay dos veces a la vez", async () => {
+  it("no consulta la nube dos veces a la vez", async () => {
     await central.guardarConfiguracion({
       repositorio: "r",
-      relay_url: "https://relay.test",
-      relay_clave_admin: "secreto123",
+      nube_url: "https://nube.test",
+      nube_servicio: "secreto123",
     });
 
-    global.fetch = vi.fn().mockResolvedValue({
-      ok: true,
-      status: 200,
-      json: async () => ({ pulsos: [] }),
-    });
+    global.fetch = vi.fn().mockResolvedValue(respuestaNube(200, []));
 
     const [primera, segunda] = await Promise.all([
       central.traerPulsos(),
@@ -1042,15 +1091,15 @@ describe("traerPulsos", () => {
     expect(global.fetch).toHaveBeenCalledTimes(1);
   });
 
-  /* Un relay caído tiene que verse en la pantalla, no quedarse en un `return`. */
-  it("un fallo del relay queda a la vista y no borra la última consulta buena", async () => {
+  /* Una nube caída tiene que verse en la pantalla, no quedarse en un `return`. */
+  it("un fallo de la nube queda a la vista y no borra la última consulta buena", async () => {
     await central.guardarConfiguracion({
       repositorio: "r",
-      relay_url: "https://relay.test",
-      relay_clave_admin: "secreto123",
+      nube_url: "https://nube.test",
+      nube_servicio: "secreto123",
     });
 
-    global.fetch = vi.fn().mockResolvedValue({ ok: false, status: 500 });
+    global.fetch = vi.fn().mockResolvedValue(respuestaNube(500));
 
     const r = await central.traerPulsos();
 
@@ -1146,5 +1195,108 @@ describe("publicar una version en la nube", () => {
     // una version a toda la flota por un clic de mas.
     expect(rutas.some((r) => r.includes("/versiones"))).toBe(true);
     expect(rutas.some((r) => r.includes("/asignaciones"))).toBe(false);
+  });
+});
+
+describe("subir el instalador a la nube", () => {
+  beforeEach(async () => {
+    await central.guardarConfiguracion({
+      repositorio: "motrae/motrest",
+      nube_url: "https://ejemplo.supabase.co",
+      nube_servicio: "llave",
+    });
+  });
+
+  it("lo nombra por la VERSION, no por el archivo que se eligio", async () => {
+    let destino = "";
+    global.fetch = vi.fn(async (u: unknown) => {
+      destino = String(u);
+      return { ok: true, text: async () => "" } as Response;
+    }) as unknown as typeof fetch;
+
+    const r = await central.subirInstalador("1.4.0", new Uint8Array([1, 2, 3]));
+
+    /*
+     * De ese nombre depende la politica de Storage -- un local solo baja el de
+     * la version que tiene asignada. Si viniera del disco de quien publica, un
+     * archivo llamado distinto dejaria el instalador inalcanzable para todos.
+     */
+    expect(destino).toContain("/storage/v1/object/instaladores/1.4.0.exe");
+    expect(r.ok && r.url).toContain("1.4.0.exe");
+  });
+
+  it("no sube nada si la version no tiene forma x.y.z", async () => {
+    const llamado = vi.fn();
+    global.fetch = llamado as unknown as typeof fetch;
+
+    const r = await central.subirInstalador("la-de-ayer", new Uint8Array([1]));
+
+    expect(r.ok).toBe(false);
+    expect(llamado).not.toHaveBeenCalled();
+  });
+
+  it("no sube nada sin la nube configurada", async () => {
+    await central.guardarConfiguracion({ repositorio: "motrae/motrest" });
+    const solo = crearCentralParaPruebas();
+    await solo.generarPares();
+    await solo.guardarConfiguracion({ repositorio: "motrae/motrest" });
+
+    const r = await solo.subirInstalador("1.4.0", new Uint8Array([1]));
+    expect(r.ok).toBe(false);
+  });
+});
+
+describe("la primera licencia de un local", () => {
+  /*
+   * EL HUEVO Y LA GALLINA QUE COSTO UNA TARDE.
+   *
+   * Para recoger una licencia de la nube, el Hub necesita una direccion y una
+   * credencial que viajan DENTRO de esa licencia. Un local que todavia no tiene
+   * enlace no puede recibir por enlace el enlace.
+   *
+   * Central depositaba, decia "en espera" -- correcto -- y ocultaba el archivo
+   * porque el deposito habia salido bien. El local se quedaba con su licencia
+   * vieja para siempre y en el panel aparecia como "nunca ha reportado".
+   *
+   * Se distingue por el pulso, que es el unico dato que dice si ese local puede
+   * hablar con la nube.
+   */
+  it("la licencia lleva dentro la direccion y la credencial de la nube", async () => {
+    await central.guardarConfiguracion({
+      repositorio: "r",
+      nube_url: "https://nube.test",
+      nube_servicio: "secreto123",
+    });
+    const id = (await alta()).cliente!.id;
+    await central.fijarCredencialNube(id, "credencial-de-este-local");
+
+    global.fetch = vi.fn().mockResolvedValue(respuestaNube(201));
+    const r = await central.emitir(id);
+
+    const licencia = r.licencia as unknown as { nube?: { url: string; clave: string } };
+    expect(licencia.nube).toEqual({
+      url: "https://nube.test",
+      clave: "credencial-de-este-local",
+    });
+  });
+
+  it("sin credencial guardada, la licencia sale firmada, valida... y muda", async () => {
+    await central.guardarConfiguracion({
+      repositorio: "r",
+      nube_url: "https://nube.test",
+      nube_servicio: "secreto123",
+    });
+    const id = (await alta()).cliente!.id;
+
+    global.fetch = vi.fn().mockResolvedValue(respuestaNube(201));
+    const r = await central.emitir(id);
+
+    /*
+     * Es el fallo silencioso: el local recibe una licencia perfectamente valida
+     * con la que nunca podra hablar con MOTRAE. Queda fijado aqui para que se
+     * vea al leer la prueba, no al perder una tarde.
+     */
+    expect((r.licencia as unknown as { nube?: unknown }).nube).toBeUndefined();
+    expect(await verificarLicencia(r.licencia!, id, central.secretos.licencias!.publica)).toBe(true);
   });
 });
