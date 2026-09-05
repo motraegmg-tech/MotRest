@@ -423,16 +423,26 @@
     <div class="ch">
       <h2>Mesa {pos.nombreMesaActiva}</h2>
       <!--
-        A nombre de quién. Es lo que convierte una mesa cualquiera en un pedido
-        PARA LLEVAR: sin un nombre, cocina prepara y nadie sabe de quién es la
-        bolsa del mostrador.
+        A NOMBRE DE QUIÉN VA LA CUENTA. De cualquier cuenta, no solo de un
+        pedido para llevar.
+
+        Nació para el mostrador —sin nombre, cocina prepara y nadie sabe de
+        quién es la bolsa— y por eso el rótulo decía «+ Nombre», que en una mesa
+        no significa nada. Pero una mesa también tiene dueño: la familia que
+        reservó, el cliente de todos los jueves, el que pidió que le separaran
+        la cuenta. Puesto el nombre, sale en la mesa del plano, en la comanda de
+        cocina y en el papel que se entrega.
       -->
       {#if pos.comanda.a_nombre_de}
-        <button class="chip nombre" onclick={abrirNombre} title="Cambiar el nombre">
+        <button class="chip nombre" onclick={abrirNombre} title="Cambiar el nombre del cliente">
+          <Icono nombre="clientes" tam={14} />
           {pos.comanda.a_nombre_de}
         </button>
       {:else}
-        <button class="chip poner-nombre" onclick={abrirNombre}>+ Nombre</button>
+        <button class="chip poner-nombre" onclick={abrirNombre} title="A nombre de quién va esta cuenta">
+          <Icono nombre="clientes" tam={14} />
+          Cliente
+        </button>
       {/if}
       {#if pos.enviadaACocina}
         <span class="chip cocina">En cocina</span>

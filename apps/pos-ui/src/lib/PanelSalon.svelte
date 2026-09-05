@@ -199,11 +199,26 @@
           style="grid-column: {mesa.columna + 1} / span {mesa.ancho};
                  grid-row: {mesa.fila + 1} / span {mesa.alto}"
           onclick={() => tocar(mesa.id)}
-          title="Mesa {mesa.nombre} · {capacidadDe(mesa)} comensales{unida
+          title="Mesa {mesa.nombre} · {capacidadDe(mesa)} comensales{pos.nombreDeCuenta(mesa.id)
+            ? ` · a nombre de ${pos.nombreDeCuenta(mesa.id)}`
+            : ''}{unida
             ? ` · unida a la cuenta de la ${plano.nombreMesa(pos.mesaPrincipalDe(mesa.id))}`
             : ''}"
         >
           <span class="nombre">{mesa.nombre}</span>
+          <!--
+            DE QUIÉN ES LA MESA.
+
+            Cuando la cuenta lleva nombre, se ve aquí. Es la diferencia entre
+            «mesa 7» y «los Ramírez»: el mesero que cruza el salón sabe a quién
+            va a atender antes de llegar, y quien recibe el turno de otro no
+            tiene que preguntar. Solo se pinta si hay nombre — la inmensa
+            mayoría de las mesas no lo tendrán, y un hueco vacío en cada una
+            solo quitaría sitio.
+          -->
+          {#if pos.nombreDeCuenta(mesa.id)}
+            <span class="cliente">{pos.nombreDeCuenta(mesa.id)}</span>
+          {/if}
           <small>
             <!--
               El icono acompaña al texto, no lo sustituye. Con la mesa
@@ -541,6 +556,21 @@
     font-size: 1.05rem;
     font-weight: 700;
     line-height: 1;
+  }
+  /*
+   * El nombre por encima del estado y por debajo del número: es lo segundo que
+   * se busca en una mesa ocupada, después de saber cuál es. Se recorta con
+   * puntos suspensivos porque «Familia Hernández Gutiérrez» no cabe en una
+   * mesa de 4rem y partirlo en dos líneas descuadraría la rejilla entera.
+   */
+  .mesa .cliente {
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: var(--t-xs);
+    font-weight: 600;
+    line-height: 1.1;
   }
   .mesa small {
     display: flex;

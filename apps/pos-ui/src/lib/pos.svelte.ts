@@ -438,6 +438,21 @@ class TiendaPOS {
   }
 
   /**
+   * A nombre de quién está esta mesa, si es que tiene nombre.
+   *
+   * Pasa por `mesaPrincipalDe` porque una mesa unida no tiene cuenta propia:
+   * la 4 pegada a la 3 comparte el nombre de la 3, y leerlo de su propio log
+   * —que está vacío— haría que el nombre desapareciera justo al juntar mesas,
+   * que es cuando hay más gente y más falta hace saber de quién es.
+   *
+   * Devuelve cadena vacía y no `null` para que la plantilla pueda usarlo
+   * directamente sin comparar contra nada.
+   */
+  nombreDeCuenta(mesaId: ID): string {
+    return this.comandaDeMesa(this.mesaPrincipalDe(mesaId))?.a_nombre_de ?? "";
+  }
+
+  /**
    * Mesas juntadas → la mesa que lleva su cuenta.
    *
    * Una unión no duplica la cuenta: la mesa 4 unida a la 3 no tiene log propio,
@@ -1577,6 +1592,16 @@ class TiendaPOS {
         ...(local.qrAdicionalParaTicket ? [local.qrAdicionalParaTicket] : []),
       ],
       mesa: plano.etiquetaMesas(mesasDeComanda(comanda)),
+      /*
+       * A nombre de quién va la cuenta, en la pre-cuenta y en el ticket.
+       *
+       * El dato existía desde el principio y ya llegaba a la comanda de cocina,
+       * pero no al papel que se entrega al comensal. Servía entonces para que
+       * la cocina supiera de quién era la bolsa, y no para lo que el mesero
+       * necesita: repartir tres cuentas en una sala llena sin preguntar de
+       * quién es cada una.
+       */
+      a_nombre_de: comanda.a_nombre_de,
       mesero: sesion.nombreDe(comanda.mesero_id),
       propina: t.propina,
       pagos: comanda.pagos.map((p) => ({
@@ -1648,6 +1673,9 @@ class TiendaPOS {
       folio: comanda.orden_id.slice(-8).toUpperCase(),
       ts: Date.now(),
       mesa: plano.etiquetaMesas(mesasDeComanda(comanda)),
+      // La copia que archiva el restaurante también, o al reclamar una cuenta
+      // no habría forma de saber de quién era.
+      a_nombre_de: comanda.a_nombre_de,
       mesero: sesion.nombreDe(comanda.mesero_id),
       propina: t.propina,
       pagos: comanda.pagos.map((p) => ({
