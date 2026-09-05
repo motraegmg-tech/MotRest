@@ -8,6 +8,7 @@
   import Sidebar from "./lib/nav/Sidebar.svelte";
   import { MODULO_POR_CLAVE, MODULOS } from "./lib/nav/modulos";
   import { rutas } from "./lib/nav/rutas.svelte";
+  import { modoCocina } from "./lib/nav/modo-cocina.svelte";
   import { orientacion } from "./lib/nav/orientacion.svelte";
   import Clientes from "./lib/modulos/Clientes.svelte";
   import Reservas from "./lib/modulos/clientes/Reservas.svelte";
@@ -168,7 +169,7 @@
     que entra por la izquierda, y el botón de las tres rayas lo llama.
     En horizontal nada de esto se activa: el menú sigue fijo, como siempre.
   -->
-  {#if orientacion.vertical}
+  {#if orientacion.vertical && !modoCocina.activo}
     <button
       class="hamburguesa"
       aria-label={orientacion.menuAbierto ? "Cerrar el menú" : "Abrir el menú"}
@@ -181,7 +182,7 @@
     </button>
   {/if}
 
-  {#if orientacion.vertical && orientacion.menuAbierto}
+  {#if orientacion.vertical && orientacion.menuAbierto && !modoCocina.activo}
     <!--
       El velo cierra al tocar fuera. Es un botón y no un div para que exista
       para el teclado y para un lector de pantalla: un `div` con `onclick` es
@@ -194,12 +195,24 @@
     ></button>
   {/if}
 
-  <div class="carril" class:abierto={orientacion.menuAbierto}>
-    <Sidebar />
-  </div>
+  <!--
+    LA TABLET DE COCINA NO LLEVA CARRIL NI BARRA.
+
+    Son 15rem de ancho y 4rem de alto que en esa pantalla nadie va a tocar —ahí
+    no se navega, se mira— y que le faltan a las comandas, que es lo único que
+    importa. En la caja y en el escritorio el carril sigue puesto: ahí el
+    gerente sí entra al tablero y luego se va a Finanzas.
+  -->
+  {#if !modoCocina.activo}
+    <div class="carril" class:abierto={orientacion.menuAbierto}>
+      <Sidebar />
+    </div>
+  {/if}
 
   <div class="main">
-    <Header onAbrirAcceso={() => (mostrarAcceso = true)} />
+    {#if !modoCocina.activo}
+      <Header onAbrirAcceso={() => (mostrarAcceso = true)} />
+    {/if}
 
     {#if !permitido}
       <div class="sin-acceso">

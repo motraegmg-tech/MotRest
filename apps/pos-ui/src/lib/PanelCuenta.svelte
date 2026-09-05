@@ -990,7 +990,14 @@
   {/if}
 
   {#if pos.mensaje}
-    <div class="toast" role="status">{pos.mensaje}</div>
+    <div class="toast" role="status">
+      <span>{pos.mensaje}</span>
+      {#if pos.deshacer}
+        <button class="deshacer" onclick={() => pos.deshacer?.hacer()}>
+          {pos.deshacer.etiqueta}
+        </button>
+      {/if}
+    </div>
   {/if}
 </aside>
 
@@ -1822,13 +1829,38 @@
     left: 1.25rem;
     right: 1.25rem;
     bottom: 1.25rem;
+    z-index: var(--z-aviso);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.75rem;
     background: var(--negro);
     color: #fff;
     border-radius: var(--r-md);
-    padding: 0.75rem 1rem;
-    font-size: 0.88rem;
+    padding: 0.6rem 0.75rem 0.6rem 1rem;
+    font-size: var(--t-sm);
     text-align: center;
     box-shadow: var(--sombra-lg);
+  }
+  /*
+   * Alto de toque completo: este botón se pulsa con prisa, con el comensal
+   * delante y con ocho segundos de plazo. Es el peor momento para fallar el
+   * dedo.
+   */
+  .toast .deshacer {
+    flex: none;
+    min-height: var(--toque);
+    padding: 0 0.9rem;
+    border: 1.5px solid rgba(255, 255, 255, 0.35);
+    border-radius: var(--r-sm);
+    color: #fff;
+    font: inherit;
+    font-weight: 700;
+    white-space: nowrap;
+  }
+  .toast .deshacer:hover {
+    background: rgba(255, 255, 255, 0.12);
+    border-color: #fff;
   }
 
   /* --- Indicaciones para cocina --- */

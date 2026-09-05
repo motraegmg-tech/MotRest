@@ -17,6 +17,7 @@
   import { menu } from "./menu.svelte";
   import { configurador } from "./configurador.svelte";
   import { mxn } from "./formato";
+  import { inicialDeNombre, tonoDeNombre } from "./identidad-visual";
   import { pos } from "./pos.svelte";
 
   /*
@@ -112,9 +113,23 @@
   <div class="rejilla">
     {#each productos as producto (producto.id)}
       {@const requiere = pista(producto)}
-      <button class="producto" class:con-foto={!!producto.foto} onclick={() => tocar(producto)}>
+      <button class="producto con-foto" onclick={() => tocar(producto)}>
+        <!--
+          SIN FOTO, LA INICIAL. Nunca una tarjeta de puro texto.
+
+          La carta de un local recién instalado no tiene ni una foto, y así la
+          cuadrícula era una pared de rectángulos blancos iguales: buscar un
+          platillo costaba lo mismo que leer una lista. La inicial sobre color
+          no sustituye a la foto —cuando hay foto, manda la foto—, pero le da al
+          ojo algo que reconocer sin leer, y el color es siempre el mismo para
+          el mismo platillo, en toda terminal y en todo arranque.
+        -->
         {#if producto.foto}
           <div class="foto" style={`background-image: url('/foto/${producto.foto}')`}></div>
+        {:else}
+          <div class="inicial" style={`background: ${tonoDeNombre(producto.nombre)}`} aria-hidden="true">
+            {inicialDeNombre(producto.nombre)}
+          </div>
         {/if}
         <div class="contenido">
           <span class="nombre">{producto.nombre}</span>
@@ -230,6 +245,27 @@
     background-color: var(--fondo);
     border-bottom: 1px solid var(--borde);
     flex-shrink: 0;
+  }
+  /*
+   * La inicial ocupa el mismo hueco que la foto, para que una carta con fotos a
+   * medias no quede con las tarjetas a distinta altura. El texto va en el negro
+   * de la marca y no en blanco: los quince tonos de la paleta están medidos
+   * contra un texto oscuro, y varios —el dorado, el ámbar— no aguantarían
+   * blanco encima.
+   */
+  .producto .inicial {
+    width: 100%;
+    height: 6rem;
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-family: var(--font-titulo);
+    font-size: 2rem;
+    font-weight: 700;
+    letter-spacing: 0.02em;
+    color: var(--sobre-acento);
+    border-bottom: 1px solid var(--borde);
   }
   .nombre {
     font-size: 0.92rem;

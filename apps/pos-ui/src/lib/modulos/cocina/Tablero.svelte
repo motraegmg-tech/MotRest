@@ -370,6 +370,13 @@
   .ticket.advertencia .tiempo {
     color: var(--acento-2);
   }
+  /*
+   * ESTA PANTALLA SE LEE A DOS METROS.
+   *
+   * El cocinero no está sentado frente a ella: pasa, mira de reojo con las
+   * manos ocupadas y sigue. Los tamaños de aquí no son los del POS —donde el
+   * cajero tiene la cara a 40 cm— sino los de un letrero.
+   */
   .mesero {
     display: flex;
     align-items: center;

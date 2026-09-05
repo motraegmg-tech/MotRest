@@ -86,6 +86,13 @@ class TiendaPOS {
    */
   mesaActiva = $state<ID>("");
   mensaje = $state<string>("");
+  /**
+   * La acción que deshace lo último, mientras el aviso siga en pantalla.
+   *
+   * Vive junto al mensaje y no aparte porque son la misma cosa: el aviso dice
+   * qué pasó y esto ofrece revertirlo. Se limpia con él.
+   */
+  deshacer = $state<{ etiqueta: string; hacer: () => void | Promise<void> } | null>(null);
   /** Cuenta ya liberada cuyo ticket interno espera la decisión de propina. */
   propinaPendiente = $state<{ mesa_id: ID; orden_id: ID } | null>(null);
   private temporizador: ReturnType<typeof setTimeout> | undefined;
@@ -182,8 +189,56 @@ class TiendaPOS {
 
   private flash(texto: string): void {
     this.mensaje = texto;
+    this.deshacer = null;
     if (this.temporizador) clearTimeout(this.temporizador);
     this.temporizador = setTimeout(() => (this.mensaje = ""), 2600);
+  }
+
+  /**
+   * Aviso con salida.
+   *
+   * ## Por qué deshacer y no preguntar «¿seguro?»
+   *
+   * Preguntar antes cuesta un toque en CADA operación, incluidas las miles que
+   * salen bien, y a los dos días nadie lee el diálogo: se pulsa «sí» por
+   * reflejo, que es lo mismo que no preguntar pero más lento. Deshacer después
+   * cuesta cero cuando todo va bien y salva el caso raro, que es el que
+   * importa.
+   *
+   * ## Por qué SOLO para el traspaso, y no para el cobro
+   *
+   * Deshacer un traspaso es mover un renglón de vuelta: una operación que el
+   * sistema ya sabe hacer y que deja su propio rastro en la bitácora.
+   *
+   * Un cobro es otra cosa. Revertirlo en silencio, sin motivo y sin firma,
+   * sería exactamente el agujero que `reabrirCuenta` existe para tapar: la
+   * forma de que el dinero de una cuenta cobrada desaparezca sin que quede
+   * quién ni por qué. Ahí la fricción es la funcionalidad, y se queda.
+   */
+  private flashConDeshacer(
+    texto: string,
+    etiqueta: string,
+    hacer: () => void | Promise<void>,
+  ): void {
+    this.mensaje = texto;
+    if (this.temporizador) clearTimeout(this.temporizador);
+    /*
+     * Ocho segundos y no los 2.6 del aviso normal: aquí hay que leer, entender
+     * que uno se equivocó y alcanzar el botón, con una tableta en la mano.
+     */
+    this.deshacer = {
+      etiqueta,
+      hacer: async () => {
+        this.deshacer = null;
+        this.mensaje = "";
+        if (this.temporizador) clearTimeout(this.temporizador);
+        await hacer();
+      },
+    };
+    this.temporizador = setTimeout(() => {
+      this.mensaje = "";
+      this.deshacer = null;
+    }, 8000);
   }
 
   // --- Proyección de la mesa activa ---------------------------------------------
@@ -1297,7 +1352,23 @@ class TiendaPOS {
         de_orden_id: origen,
       }),
     );
-    this.flash(`"${renglon.descripcion}" traspasado a la mesa ${plano.nombreMesa(aMesaId)}`);
+    /*
+     * El traspaso era de un toque y sin retorno: se tocaba la mesa destino en
+     * una rejilla de botones pequeños y el renglón se iba. Errar de mesa
+     * obligaba a ir a la otra cuenta, encontrar el renglón y traerlo de vuelta
+     * —con el comensal delante—.
+     */
+    const volver = this.mesaActiva;
+    this.flashConDeshacer(
+      `"${renglon.descripcion}" traspasado a la mesa ${plano.nombreMesa(aMesaId)}`,
+      "Deshacer",
+      async () => {
+        // Se hace el camino inverso desde la mesa destino, que es donde el
+        // renglón está ahora.
+        this.mesaActiva = aMesaId;
+        await this.traspasarRenglon(renglonId, volver);
+      },
+    );
   }
 
   // --- Cobro -------------------------------------------------------------------------------
