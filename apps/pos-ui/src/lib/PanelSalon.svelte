@@ -370,7 +370,7 @@
   .area.on {
     background: var(--acento);
     border-color: var(--acento);
-    color: #fff;
+    color: var(--sobre-acento);
   }
 
   /* --- Buscar y filtrar ------------------------------------------------- */
@@ -413,7 +413,7 @@
     padding: 0.05rem 0.45rem;
     font-size: 0.7rem;
     font-weight: 700;
-    color: #fff;
+    color: var(--sobre-acento);
   }
   .limpiar {
     border: none;
@@ -448,8 +448,8 @@
     color: var(--pizarra);
   }
   .filtros button.libre.on {
-    border-color: var(--exito);
-    color: var(--exito);
+    border-color: var(--exito-texto);
+    color: var(--exito-texto);
   }
   .filtros button.ocupada.on {
     border-color: var(--peligro);
@@ -543,7 +543,7 @@
   .mesa.sel {
     background: var(--acento);
     border-color: var(--acento);
-    color: #fff;
+    color: var(--sobre-acento);
     box-shadow: var(--sombra-md);
   }
   .mesa.apagada {
@@ -646,7 +646,7 @@
     font-family: var(--font-titulo);
     font-size: 0.82rem;
     font-weight: 600;
-    color: #fff;
+    color: var(--sobre-acento);
     cursor: pointer;
   }
   .modal-cuerpo {

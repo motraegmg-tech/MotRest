@@ -798,7 +798,7 @@
   }
   .persona.dentro .ini {
     background: var(--acento);
-    color: #fff;
+    color: var(--sobre-acento);
   }
   .nom {
     flex: 1;
@@ -860,7 +860,7 @@
   .teclado .ok-btn {
     background: var(--acento);
     border-color: var(--acento);
-    color: #fff;
+    color: var(--sobre-acento);
   }
   .teclado .ok-btn:disabled {
     opacity: 0.4;
@@ -916,7 +916,7 @@
   }
   .chip.dentro {
     background: var(--acento);
-    color: #fff;
+    color: var(--sobre-acento);
   }
   .chip.abierto {
     background: #fdeae8;
@@ -995,7 +995,7 @@
   }
   .pestanas button.on {
     background: var(--acento);
-    color: #fff;
+    color: var(--sobre-acento);
   }
   .cab-raya {
     display: flex;
@@ -1025,7 +1025,7 @@
   .mini.principal {
     background: var(--acento);
     border-color: var(--acento);
-    color: #fff;
+    color: var(--sobre-acento);
   }
   .modo {
     display: flex;

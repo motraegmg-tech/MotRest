@@ -185,7 +185,7 @@
     }
     .badge {
       background: var(--acento);
-      color: #fff;
+      color: var(--sobre-acento);
       border-radius: var(--r-pill);
       font-size: 0.7rem;
       padding: 0.05rem 0.35rem;

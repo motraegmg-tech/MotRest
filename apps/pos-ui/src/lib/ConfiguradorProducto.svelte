@@ -287,7 +287,7 @@
   .chip.on {
     background: var(--acento);
     border-color: var(--acento);
-    color: #fff;
+    color: var(--sobre-acento);
   }
   .chip:disabled {
     opacity: 0.4;
@@ -381,7 +381,7 @@
   }
   .agregar {
     background: var(--acento);
-    color: #fff;
+    color: var(--sobre-acento);
     border-radius: var(--r-lg);
     padding: 0.8rem 1.4rem;
     font-family: var(--font-titulo);

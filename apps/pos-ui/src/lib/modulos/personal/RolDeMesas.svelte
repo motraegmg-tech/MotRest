@@ -414,7 +414,7 @@
   .toggle.on {
     background: var(--acento);
     border-color: var(--acento);
-    color: #fff;
+    color: var(--sobre-acento);
   }
   .punto {
     position: absolute;
@@ -468,7 +468,7 @@
   .mini.fuerte {
     background: var(--acento);
     border-color: var(--acento);
-    color: #fff;
+    color: var(--sobre-acento);
   }
   .mini.peligro:hover {
     border-color: var(--peligro);

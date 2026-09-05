@@ -1008,7 +1008,7 @@
   .area.on {
     background: var(--acento);
     border-color: var(--acento);
-    color: #fff;
+    color: var(--sobre-acento);
   }
   .area.on:hover:not(:disabled) {
     color: #fff;
@@ -1122,7 +1122,7 @@
   .principal {
     background: var(--acento);
     border-color: var(--acento);
-    color: #fff;
+    color: var(--sobre-acento);
     padding: 0.45rem 1rem;
   }
   .principal:hover:not(:disabled) {

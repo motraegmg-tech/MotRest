@@ -169,7 +169,7 @@
   .marca {
     flex: none;
     background: var(--acento);
-    color: #fff;
+    color: var(--sobre-acento);
     border-radius: var(--r-pill);
     padding: 0.12rem 0.55rem;
     font-size: 0.68rem;
@@ -217,7 +217,7 @@
   }
   .entregado:hover {
     background: var(--acento);
-    color: #fff;
+    color: var(--sobre-acento);
   }
   .cerrar {
     flex: none;

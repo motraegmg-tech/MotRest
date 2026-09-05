@@ -648,7 +648,7 @@
   .red.on {
     background: var(--acento);
     border-color: var(--acento);
-    color: #fff;
+    color: var(--sobre-acento);
   }
   .peligro {
     color: var(--gris);
@@ -796,7 +796,7 @@
   }
   .principal {
     background: var(--acento);
-    color: #fff;
+    color: var(--sobre-acento);
     border-radius: var(--r-md);
     padding: 0.62rem 1.3rem;
     font-family: var(--font-titulo);

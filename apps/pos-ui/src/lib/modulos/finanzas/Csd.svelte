@@ -402,7 +402,7 @@
   .principal {
     background: var(--acento);
     border-color: var(--acento);
-    color: #fff;
+    color: var(--sobre-acento);
   }
   .principal:disabled {
     opacity: 0.5;

@@ -30,9 +30,9 @@
         EL ICONO VA A COLOR SALVO EN EL MÓDULO ABIERTO.
 
         El módulo activo se pinta sobre el naranja de marca, y ahí un relleno de
-        color propio pelearía con el fondo. En cuanto está abierto, el icono
-        pasa a heredar el blanco del texto y lo que distingue al módulo deja de
-        ser el color del dibujo —ya lo dice el panel entero—.
+        color propio pelearía con el fondo. Abierto, el icono pasa a heredar el
+        mismo tono oscuro del rótulo, y lo que distingue al módulo deja de ser
+        el color del dibujo: ya lo dice el panel entero.
       -->
       <button class="item" class:on={activo} onclick={() => abrir(modulo.clave)}>
         <Icono nombre={modulo.icono} tam={20} color={!activo} />
@@ -125,7 +125,7 @@
   }
   .item.on {
     background: var(--acento);
-    color: #fff;
+    color: var(--sobre-acento);
     font-weight: 600;
   }
   .txt {
@@ -213,10 +213,15 @@
       animation: none;
     }
   }
+  /*
+   * `--gris-claro` y no `--gris`: este pie está sobre el carril negro, y el
+   * gris de la aplicación se oscureció para poder leerse sobre las tarjetas
+   * blancas. Aquí ese mismo gris quedaría en 3.6:1 contra el fondo.
+   */
   .foot {
     margin-top: auto;
     padding: 1.5rem 0.85rem 0;
-    font-size: 0.8rem;
-    color: var(--gris);
+    font-size: var(--t-xs);
+    color: var(--gris-claro);
   }
 </style>

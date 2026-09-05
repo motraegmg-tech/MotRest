@@ -7,16 +7,38 @@
  * renombradas con semántica correcta (el mockup llamaba "verde" al naranja).
  */
 :root {
-  /* Marca */
-  --acento: #f2853a; /* naranja MOTRAE — acento dominante · mesa enviada a cocina */
-  --acento-2: #e6b23a; /* ámbar de apoyo */
-  --peligro: #e0392b; /* rojo MOTRAE — cancelar / alertas · mesa ocupada */
-  --exito: #57ad30; /* verde MOTRAE — lo que SUMA: entradas al almacén, saldos a favor */
+  /*
+   * MARCA
+   *
+   * El naranja y el rojo siguen siendo los de MOTRAE. Lo que cambió es CÓMO se
+   * usan, porque medidos contra la norma varios reprobaban:
+   *
+   *   blanco sobre --acento .... 2.56:1   (mínimo 4.5)
+   *   --gris sobre --fondo ..... 2.79:1
+   *   --exito sobre blanco ..... 2.83:1
+   *
+   * Y no era un detalle de una pantalla: el naranja con letra blanca es el
+   * color de TODO botón primario del POS, y --gris aparece 402 veces. En una
+   * caja con reflejo y un mesero que mira dos segundos, eso es tiempo perdido
+   * en cada comanda.
+   *
+   * La regla que salió de ahí: el color de marca se queda como RELLENO, y lo
+   * que se pinta encima cambia. Por eso `--sobre-acento` es casi negro y no
+   * blanco: sobre el mismo naranja de siempre da 6.97:1.
+   */
+  --acento: #f2853a; /* naranja MOTRAE — relleno · mesa enviada a cocina */
+  --sobre-acento: #14181a; /* lo que se escribe ENCIMA del naranja — 6.97:1 */
+  --acento-texto: #b5540f; /* naranja como TEXTO sobre claro — 4.90:1 */
+  --acento-2: #e6b23a; /* ámbar de apoyo — solo relleno, nunca texto */
+  --peligro: #c22e21; /* rojo MOTRAE — cancelar / alertas · mesa ocupada */
+  --exito: #57ad30; /* verde MOTRAE — relleno y realces */
+  --exito-texto: #3f7d22; /* el mismo verde, legible como texto — 5.04:1 */
 
   /* Neutros */
   --negro: #14181a; /* barra lateral, paneles oscuros */
   --pizarra: #2d3a42; /* texto principal */
-  --gris: #8a969c; /* texto secundario */
+  --gris: #66727a; /* texto secundario SOBRE CLARO — 4.94:1 en blanco */
+  --gris-claro: #8a969c; /* texto secundario sobre el carril oscuro — 5.89:1 */
   --claro: #fdebd7; /* chips y realces cálidos */
   --fondo: #f4f6f3; /* fondo de la app */
   --borde: #e3e9e0; /* separadores */
@@ -25,6 +47,47 @@
   /* Tipografía */
   --font-titulo: "Space Grotesk", "Segoe UI", system-ui, sans-serif;
   --font-cuerpo: "Inter", "Segoe UI", system-ui, sans-serif;
+
+  /*
+   * ESCALA DE TEXTO
+   *
+   * Seis escalones, y el más pequeño es 0.8rem = 12.8px. No es un capricho:
+   * había 257 declaraciones por debajo de eso —hasta 0.6rem, que son 9.6px— en
+   * una pantalla que se mira de reojo, de pie y a veces con la tableta en la
+   * otra mano. Nada baja de --t-xs.
+   */
+  --t-xs: 0.8rem; /* 12.8px — etiquetas, pies de tabla */
+  --t-sm: 0.875rem; /* 14px — texto secundario */
+  --t-base: 1rem; /* 16px — cuerpo */
+  --t-md: 1.125rem; /* 18px — botones de acción */
+  --t-lg: 1.25rem; /* 20px — títulos de tarjeta */
+  --t-xl: 1.5rem; /* 24px — título de pantalla */
+
+  /*
+   * OBJETIVO DE TOQUE
+   *
+   * 44px es el mínimo de Apple y de la WCAG 2.2 (SC 2.5.8). Se pone como token
+   * porque en toda la app solo había DOS controles con `min-height`: los cuatro
+   * glifos que cancelan un renglón miden ~20px separados por 1.6px, y los
+   * `− +` de cantidad, 18px. Un dedo no acierta eso, y el cuarto de esa fila
+   * cancela lo que el cliente ya se comió.
+   */
+  --toque: 2.75rem;
+
+  /*
+   * PLANOS
+   *
+   * Los avisos globales de App.svelte se apilaban con números escritos a mano
+   * —26, 44, 45, 46, 47, 55, 60, 65, 68, 70— y el propio código admitía que
+   * podían taparse entre sí. Nombrarlos deja claro qué va encima de qué y por
+   * qué: lo que impide seguir vendiendo va arriba de lo que solo informa.
+   */
+  --z-contenido: 1;
+  --z-flotante: 10; /* menús desplegables, globos */
+  --z-velo: 40; /* el fondo que atenúa lo de atrás */
+  --z-dialogo: 50; /* diálogos y el configurador */
+  --z-aviso: 60; /* avisos que informan sin detener */
+  --z-bloqueo: 70; /* lo que impide seguir: licencia, reloj, sin Hub */
 
   /* Radios */
   --r-sm: 0.5rem;

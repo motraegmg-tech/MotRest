@@ -248,7 +248,7 @@
     border: 0;
     border-radius: 8px;
     background: var(--acento);
-    color: #fff;
+    color: var(--sobre-acento);
     font-size: 0.9rem;
     cursor: pointer;
   }

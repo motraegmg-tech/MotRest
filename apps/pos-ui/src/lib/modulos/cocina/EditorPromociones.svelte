@@ -492,7 +492,7 @@
     padding: 0.6rem 1.1rem;
     border-radius: var(--r-sm);
     background: var(--acento);
-    color: #fff;
+    color: var(--sobre-acento);
     font-weight: 600;
     cursor: pointer;
   }

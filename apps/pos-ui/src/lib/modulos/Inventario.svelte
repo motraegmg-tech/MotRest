@@ -628,7 +628,7 @@
   }
   .pestanas button.on {
     background: var(--acento);
-    color: #fff;
+    color: var(--sobre-acento);
   }
   .indicadores {
     display: flex;
@@ -767,7 +767,7 @@
     white-space: nowrap;
     min-width: 5rem;
     text-align: right;
-    color: var(--exito);
+    color: var(--exito-texto);
   }
   .mov .delta.resta {
     color: var(--peligro);
@@ -777,7 +777,7 @@
   }
   /* La devolución por cancelación se lee de un vistazo entre las salidas. */
   .mov.reverso_receta .motivo {
-    color: var(--exito);
+    color: var(--exito-texto);
     font-weight: 600;
   }
   .campos {
@@ -827,8 +827,8 @@
     border-color: var(--peligro);
   }
   .campos input.cantidad.suma {
-    color: var(--exito);
-    border-color: var(--exito);
+    color: var(--exito-texto);
+    border-color: var(--exito-texto);
   }
   .campos input.cantidad.resta:focus,
   .campos input.cantidad.suma:focus {
@@ -844,13 +844,13 @@
   }
   .efecto.suma,
   .tinta-suma {
-    color: var(--exito);
+    color: var(--exito-texto);
   }
   .devuelto {
     display: block;
     font-size: 0.68rem;
     font-weight: 600;
-    color: var(--exito);
+    color: var(--exito-texto);
   }
   .pista {
     margin-top: 0.75rem;
@@ -877,7 +877,7 @@
   }
   .principal {
     background: var(--acento);
-    color: #fff;
+    color: var(--sobre-acento);
     border-radius: var(--r-md);
     padding: 0.65rem 1.2rem;
     font-family: var(--font-titulo);

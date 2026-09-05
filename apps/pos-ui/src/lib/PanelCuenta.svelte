@@ -1149,7 +1149,7 @@
   }
   .registrar-espera {
     background: var(--acento);
-    color: #fff;
+    color: var(--sobre-acento);
     border-radius: var(--r-md);
     padding: 0.6rem 1rem;
     font-family: var(--font-titulo);
@@ -1275,7 +1275,7 @@
    * tiene delante ocho horas cansa y se acaba ignorando.
    */
   .est-r.avisa {
-    color: #fff;
+    color: var(--sobre-acento);
     background: var(--acento);
     animation: latido-listo 1.6s ease-in-out infinite;
   }
@@ -1327,7 +1327,7 @@
   .mini.on {
     background: var(--acento);
     border-color: var(--acento);
-    color: #fff;
+    color: var(--sobre-acento);
   }
   .acciones .mini {
     border: none;
@@ -1483,7 +1483,7 @@
   }
   .b1 {
     background: var(--acento);
-    color: #fff;
+    color: var(--sobre-acento);
     border-radius: var(--r-lg);
     padding: 0.85rem;
     text-align: center;
@@ -1520,7 +1520,7 @@
   }
   .b2.cobrar:hover {
     background: var(--acento);
-    color: #fff;
+    color: var(--sobre-acento);
   }
   .propinas {
     display: flex;
@@ -1554,7 +1554,7 @@
   .opciones-propina .mini.on {
     background: var(--acento);
     border-color: var(--acento);
-    color: #fff;
+    color: var(--sobre-acento);
   }
   .opciones-propina .mini.quitar {
     color: var(--peligro);
@@ -1822,7 +1822,7 @@
   .chip.puesta {
     background: var(--acento);
     border-color: var(--acento);
-    color: #fff;
+    color: var(--sobre-acento);
   }
   .dialogo textarea {
     width: 100%;
@@ -1880,7 +1880,7 @@
   }
   .chip.nombre {
     background: var(--acento);
-    color: #fff;
+    color: var(--sobre-acento);
     border: none;
     font-weight: 700;
     max-width: 9rem;

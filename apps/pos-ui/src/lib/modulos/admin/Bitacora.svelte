@@ -274,7 +274,7 @@
   }
   .filtros button.on {
     background: var(--acento);
-    color: #fff;
+    color: var(--sobre-acento);
   }
   .lista {
     background: #fff;

@@ -537,7 +537,7 @@
   .area.on {
     background: var(--acento);
     border-color: var(--acento);
-    color: #fff;
+    color: var(--sobre-acento);
   }
   .area .cuenta {
     font-size: 0.7rem;
@@ -603,7 +603,7 @@
   .mini.on {
     background: var(--acento);
     border-color: var(--acento);
-    color: #fff;
+    color: var(--sobre-acento);
   }
   .mini.peligro {
     color: var(--peligro);

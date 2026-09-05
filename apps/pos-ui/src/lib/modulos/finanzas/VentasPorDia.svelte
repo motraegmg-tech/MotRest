@@ -357,7 +357,7 @@
   .mini.on {
     background: var(--acento);
     border-color: var(--acento);
-    color: #fff;
+    color: var(--sobre-acento);
   }
   .retencion {
     margin-top: 1.1rem;

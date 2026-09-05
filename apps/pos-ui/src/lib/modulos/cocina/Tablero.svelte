@@ -283,7 +283,7 @@
   .est.on {
     background: var(--acento);
     border-color: var(--acento);
-    color: #fff;
+    color: var(--sobre-acento);
   }
   .est .cuenta {
     background: rgba(0, 0, 0, 0.3);
@@ -500,7 +500,7 @@
   .accion.primaria {
     background: var(--acento);
     border-color: var(--acento);
-    color: #fff;
+    color: var(--sobre-acento);
   }
   /*
    * Cuando «Listo» se queda solo, ocupa el renglón entero y crece.

@@ -401,7 +401,7 @@
     height: 2.4rem;
     border-radius: 50%;
     background: var(--acento);
-    color: #fff;
+    color: var(--sobre-acento);
     display: flex;
     align-items: center;
     justify-content: center;
@@ -567,7 +567,7 @@
   .rol.on {
     background: var(--acento);
     border-color: var(--acento);
-    color: #fff;
+    color: var(--sobre-acento);
   }
   .desc {
     font-size: 0.84rem;
@@ -648,7 +648,7 @@
   }
   .principal {
     background: var(--acento);
-    color: #fff;
+    color: var(--sobre-acento);
     border-radius: var(--r-md);
     padding: 0.7rem 1.25rem;
     font-family: var(--font-titulo);

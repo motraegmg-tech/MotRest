@@ -312,7 +312,7 @@
   }
   .tuya {
     background: var(--acento);
-    color: #fff;
+    color: var(--sobre-acento);
     border-radius: var(--r-pill);
     padding: 0.12rem 0.6rem;
     font-size: 0.7rem;
@@ -471,7 +471,7 @@
   }
   .principal {
     background: var(--acento);
-    color: #fff;
+    color: var(--sobre-acento);
     border-radius: var(--r-lg);
     padding: 1rem 1.5rem;
     font-family: var(--font-titulo);

@@ -462,7 +462,7 @@
   }
   .principal {
     background: var(--acento);
-    color: #fff;
+    color: var(--sobre-acento);
     border-radius: var(--r-md);
     padding: 0.65rem 1.2rem;
     font-family: var(--font-titulo);

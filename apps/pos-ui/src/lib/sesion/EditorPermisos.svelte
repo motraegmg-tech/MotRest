@@ -281,7 +281,7 @@
   }
   .nivel.on {
     background: var(--acento);
-    color: #fff;
+    color: var(--sobre-acento);
   }
   .nivel:disabled {
     cursor: not-allowed;
