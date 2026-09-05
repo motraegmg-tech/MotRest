@@ -245,7 +245,14 @@ importers:
         specifier: ^3.2.6
         version: 3.2.7(@types/node@26.1.1)(tsx@4.23.1)
 
-  packages/ui: {}
+  packages/ui:
+    devDependencies:
+      typescript:
+        specifier: ^5.9.3
+        version: 5.9.3
+      vitest:
+        specifier: ^3.2.6
+        version: 3.2.7(@types/node@26.1.1)(tsx@4.23.1)
 
 packages:
 

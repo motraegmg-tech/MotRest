@@ -45,4 +45,42 @@
   --sombra-sm: 0 2px 8px rgba(20, 24, 26, 0.08);
   --sombra-md: 0 6px 16px rgba(242, 133, 58, 0.28);
   --sombra-lg: 0 18px 40px rgba(20, 24, 26, 0.12);
+
+  /*
+   * TONOS DE LA ICONOGRAFÍA
+   *
+   * Los 18 tonos del set de 103 iconos (packages/ui/src/iconos.ts). No son la
+   * paleta de la interfaz: son los colores del RELLENO de los dibujos, y viven
+   * aquí para que un local pueda reteñir un icono sin recompilar.
+   *
+   * TODOS pasan 3:1 contra el panel `--fondo` #F4F6F3 Y contra el carril
+   * `--negro` #14181A. Es el mínimo de la WCAG 2.2 (SC 1.4.11) para objetos
+   * gráficos, y aquí hay que cumplirlo por partida doble: el mismo icono
+   * aparece en la barra lateral oscura y en las tarjetas claras. La banda que
+   * satisface ambos lados es estrecha —un tono más claro se pierde sobre el
+   * panel, uno más oscuro se traga el carril—, así que ninguno se cambia sin
+   * medir contra los dos.
+   *
+   * Se repite `--acento` como `--i-brasa` a propósito: el naranja de marca
+   * #F2853A da 2.56:1 sobre blanco y es ilegible como relleno. `--i-brasa` es
+   * el mismo naranja llevado a la banda útil.
+   */
+  --i-brasa: #c25a12; /* naranja MOTRAE legible — venta, salón, horno */
+  --i-fuego: #c0392b; /* lo que alarma o resta — merma, demorado, eliminar */
+  --i-tomate: #c1443a; /* pizza, salsa */
+  --i-ambar: #a8741a; /* espera, masa, pan — cocina, tardando */
+  --i-mostaza: #94781c; /* vale, permisos */
+  --i-oliva: #6f7d2e; /* entradas, hierbas */
+  --i-verde: #3f7d22; /* lo que SUMA — cobrar, guardar, recepción */
+  --i-jade: #1c7d5a; /* frescura — ensaladas, liberar mesa */
+  --i-turquesa: #17787c; /* frío — estación fría, transferencia */
+  --i-acero: #4a6b7c; /* neutro con vida — imprimir, ajuste, traspaso */
+  --i-cielo: #2a6fa8; /* bebidas, clientes, factura */
+  --i-indigo: #4f60ae; /* personal, crédito */
+  --i-ciruela: #835392; /* inteligencia, barra, reportes */
+  --i-vino: #9a4d65; /* vinos */
+  --i-rosa: #b04a72; /* repostería, cortesía */
+  --i-cafe: #835e3e; /* inventario, insumos, café */
+  --i-pizarra: #5a676e; /* estructura sin carga — cancelar, mesa libre */
+  --i-dorado: #8f7422; /* la estrella del socio y las monedas de propina */
 }

@@ -6,12 +6,15 @@
  * funciones del Anexo A del PRD cubren y en qué etapa del plan llegan.
  */
 import type { Accion, ModuloId } from "@motrest/dominio";
+import type { NombreIcono } from "@motrest/ui/iconos";
 
 export type Fase = "F1" | "F2" | "F3" | "F4";
 
 export interface SeccionModulo {
   clave: string;
   titulo: string;
+  /** Icono del set de MotRest. Acompaña al título; nunca lo sustituye. */
+  icono: NombreIcono;
   /** Permiso mínimo para ver la sección. */
   permiso: Accion;
   /**
@@ -32,6 +35,15 @@ export interface EntradaModulo {
   /** Segmento de la ruta: #/venta, #/cocina… */
   clave: string;
   titulo: string;
+  /**
+   * Icono del set de MotRest (packages/ui/src/iconos.ts).
+   *
+   * Es lo que distingue un módulo de otro de un vistazo. Antes ese sitio lo
+   * ocupaba un cuadrito con el color de la FASE del roadmap: un dato nuestro,
+   * no del restaurante, que además no separaba F3 de F4 —dos grises azulados
+   * casi iguales—.
+   */
+  icono: NombreIcono;
   /** Fase en la que el módulo queda mayormente cubierto. */
   fase: Fase;
   /** Permiso mínimo para que el módulo aparezca en el sidebar. */
@@ -53,10 +65,11 @@ export const MODULOS: EntradaModulo[] = [
     id: "m1",
     clave: "venta",
     titulo: "Venta",
+    icono: "venta",
     fase: "F1",
     permiso: "pos.orden.abrir",
     operativo: true,
-    secciones: [{ clave: "salon", titulo: "Salón y comandas", permiso: "pos.orden.abrir" }],
+    secciones: [{ clave: "salon", titulo: "Salón y comandas", icono: "salon", permiso: "pos.orden.abrir" }],
     resumen:
       "Mesas, comandas, cuentas, productos configurables y cobro. El corazón del servicio.",
     funciones: [
@@ -74,6 +87,7 @@ export const MODULOS: EntradaModulo[] = [
     id: "m2",
     clave: "cocina",
     titulo: "Cocina",
+    icono: "cocina",
     fase: "F1",
     // El menú se administra aquí, así que basta con poder consultar recetas
     // para que el módulo aparezca: un mesero entra a ver de qué está hecho un
@@ -81,8 +95,8 @@ export const MODULOS: EntradaModulo[] = [
     permiso: "cocina.receta.ver",
     operativo: true,
     secciones: [
-      { clave: "tablero", titulo: "Tablero de cocina", permiso: "cocina.comanda.ver" },
-      { clave: "menu", titulo: "Menú", permiso: "cocina.receta.ver" },
+      { clave: "tablero", titulo: "Tablero de cocina", icono: "tablero", permiso: "cocina.comanda.ver" },
+      { clave: "menu", titulo: "Menú", icono: "menu", permiso: "cocina.receta.ver" },
     ],
     resumen:
       "Pantalla de cocina por estación con tiempos y semáforo, recetas y control de producción.",
@@ -100,10 +114,11 @@ export const MODULOS: EntradaModulo[] = [
     id: "m3",
     clave: "inventario",
     titulo: "Inventario",
+    icono: "inventario",
     fase: "F1",
     permiso: "inv.existencias.ver",
     operativo: true,
-    secciones: [{ clave: "almacen", titulo: "Existencias y mermas", permiso: "inv.existencias.ver" }],
+    secciones: [{ clave: "almacen", titulo: "Existencias y mermas", icono: "inventario", permiso: "inv.existencias.ver" }],
     resumen:
       "Existencias en tiempo real, consumo por receta, mermas, conteos cíclicos y multialmacén.",
     funciones: [
@@ -119,10 +134,11 @@ export const MODULOS: EntradaModulo[] = [
     id: "m4",
     clave: "compras",
     titulo: "Compras",
+    icono: "compras",
     fase: "F2",
     permiso: "compras.proveedor.editar",
     operativo: true,
-    secciones: [{ clave: "compras", titulo: "Proveedores y órdenes", permiso: "compras.proveedor.editar" }],
+    secciones: [{ clave: "compras", titulo: "Proveedores y órdenes", icono: "compras", permiso: "compras.proveedor.editar" }],
     resumen:
       "Proveedores, órdenes de compra, recepción de mercancía y captura automática desde CFDI.",
     funciones: [
@@ -137,13 +153,14 @@ export const MODULOS: EntradaModulo[] = [
     id: "m5",
     clave: "finanzas",
     titulo: "Finanzas",
+    icono: "finanzas",
     fase: "F2",
     permiso: "fin.corte.ver",
     operativo: true,
     secciones: [
-      { clave: "facturacion", titulo: "Facturación", permiso: "fin.factura.emitir" },
-      { clave: "canales", titulo: "Canales y apps", permiso: "fin.corte.ver" },
-      { clave: "grupo", titulo: "El grupo", permiso: "fin.corte.ver" },
+      { clave: "facturacion", titulo: "Facturación", icono: "facturacion", permiso: "fin.factura.emitir" },
+      { clave: "canales", titulo: "Canales y apps", icono: "canales", permiso: "fin.corte.ver" },
+      { clave: "grupo", titulo: "El grupo", icono: "grupo", permiso: "fin.corte.ver" },
     ],
     resumen:
       "Corte del día, facturación CFDI 4.0, egresos, estado de resultados y enlace contable.",
@@ -161,15 +178,16 @@ export const MODULOS: EntradaModulo[] = [
     id: "m6",
     clave: "personal",
     titulo: "Personal",
+    icono: "personal",
     fase: "F1",
     permiso: "rrhh.checada.registrar",
     operativo: true,
     secciones: [
-      { clave: "checador", titulo: "Asistencia", permiso: "rrhh.checada.registrar" },
+      { clave: "checador", titulo: "Asistencia", icono: "asistencia", permiso: "rrhh.checada.registrar" },
       // El rol de mesas lo CONSULTA cualquiera que atienda —saber si una mesa es
       // tuya no es información reservada—; editarlo pide administrar personal.
-      { clave: "mesas", titulo: "Rol de mesas", permiso: "rrhh.checada.registrar" },
-      { clave: "prenomina", titulo: "Prenómina", permiso: "rrhh.empleado.editar" },
+      { clave: "mesas", titulo: "Rol de mesas", icono: "salon", permiso: "rrhh.checada.registrar" },
+      { clave: "prenomina", titulo: "Prenómina", icono: "prenomina", permiso: "rrhh.empleado.editar" },
     ],
     resumen: "Checador de asistencia, turnos, propinas, prenómina y desempeño del equipo.",
     funciones: [
@@ -184,13 +202,14 @@ export const MODULOS: EntradaModulo[] = [
     id: "m7",
     clave: "clientes",
     titulo: "Clientes",
+    icono: "clientes",
     fase: "F3",
     permiso: "crm.cliente.ver",
     operativo: true,
     secciones: [
-      { clave: "clientes", titulo: "Ficha del comensal", permiso: "crm.cliente.ver" },
-      { clave: "reservas", titulo: "Reservas y espera", permiso: "crm.cliente.ver" },
-      { clave: "comensales", titulo: "Comensales (360°)", permiso: "crm.cliente.ver" },
+      { clave: "clientes", titulo: "Ficha del comensal", icono: "clientes", permiso: "crm.cliente.ver" },
+      { clave: "reservas", titulo: "Reservas y espera", icono: "reservas", permiso: "crm.cliente.ver" },
+      { clave: "comensales", titulo: "Comensales (360°)", icono: "usuarios", permiso: "crm.cliente.ver" },
     ],
     resumen:
       "Ficha 360° del comensal, reservas, lealtad, monedero y campañas de retención.",
@@ -207,12 +226,13 @@ export const MODULOS: EntradaModulo[] = [
     id: "m8",
     clave: "inteligencia",
     titulo: "Inteligencia",
+    icono: "inteligencia",
     fase: "F3",
     permiso: "bi.reporte.ver",
     operativo: true,
     secciones: [
-      { clave: "reportes", titulo: "Reportes", permiso: "bi.reporte.ver" },
-      { clave: "comparativo", titulo: "Cómo voy", permiso: "bi.reporte.ver" },
+      { clave: "reportes", titulo: "Reportes", icono: "reportes", permiso: "bi.reporte.ver" },
+      { clave: "comparativo", titulo: "Cómo voy", icono: "como-voy", permiso: "bi.reporte.ver" },
     ],
     resumen:
       "Tableros por rol y las cinco capacidades AI-first: la diferencia de MotRest frente al mercado.",
@@ -231,24 +251,26 @@ export const MODULOS: EntradaModulo[] = [
     id: "m9",
     clave: "administracion",
     titulo: "Administración",
+    icono: "administracion",
     fase: "F1",
     permiso: "admin.bitacora.ver",
     operativo: true,
     secciones: [
-      { clave: "usuarios", titulo: "Usuarios y permisos", permiso: "admin.usuario.editar" },
-      { clave: "salones", titulo: "Salones y plano", permiso: "cat.area.editar" },
-      { clave: "catalogo", titulo: "Insumos y estaciones", permiso: "cat.producto.editar" },
-      { clave: "impresoras", titulo: "Impresoras", permiso: "admin.dispositivo.aprobar" },
-      { clave: "socios", titulo: "Socios", permiso: "admin.socio.editar" },
-      { clave: "mensajes", titulo: "Mensajes para el cliente", permiso: "admin.usuario.editar" },
-      { clave: "hub", titulo: "Hub del local", permiso: "admin.dispositivo.aprobar" },
+      { clave: "usuarios", titulo: "Usuarios y permisos", icono: "usuarios", permiso: "admin.usuario.editar" },
+      { clave: "salones", titulo: "Salones y plano", icono: "salon", permiso: "cat.area.editar" },
+      { clave: "catalogo", titulo: "Insumos y estaciones", icono: "insumos", permiso: "cat.producto.editar" },
+      { clave: "impresoras", titulo: "Impresoras", icono: "impresoras", permiso: "admin.dispositivo.aprobar" },
+      { clave: "socios", titulo: "Socios", icono: "socios", permiso: "admin.socio.editar" },
+      { clave: "mensajes", titulo: "Mensajes para el cliente", icono: "mensajes", permiso: "admin.usuario.editar" },
+      { clave: "hub", titulo: "Hub del local", icono: "hub", permiso: "admin.dispositivo.aprobar" },
       {
         clave: "licencia",
         titulo: "Licencia del local",
+        icono: "licencia",
         permiso: "admin.dispositivo.aprobar",
         soloMotrae: true,
       },
-      { clave: "bitacora", titulo: "Bitácora", permiso: "admin.bitacora.ver" },
+      { clave: "bitacora", titulo: "Bitácora", icono: "bitacora", permiso: "admin.bitacora.ver" },
     ],
     resumen:
       "Configuración del restaurante, usuarios, permisos, salones y auditoría de todo lo ocurrido.",
@@ -269,7 +291,14 @@ export const MODULO_POR_CLAVE: ReadonlyMap<string, EntradaModulo> = new Map(
   MODULOS.map((m) => [m.clave, m]),
 );
 
-/** Color del distintivo de fase en el sidebar. */
+/**
+ * Color del distintivo de fase.
+ *
+ * Ya NO se usa en el sidebar: ahí cada módulo tiene su icono, que es lo que de
+ * verdad lo distingue. Queda para la pantalla de roadmap
+ * (`ModuloEnRoadmap.svelte`), donde la fase sí es el dato que se está
+ * explicando y va acompañada de su letra —F1, F2— y no solo del color.
+ */
 export const COLOR_FASE: Record<Fase, string> = {
   F1: "var(--acento)",
   F2: "var(--acento-2)",
