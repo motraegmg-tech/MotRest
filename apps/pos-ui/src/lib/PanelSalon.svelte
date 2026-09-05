@@ -13,6 +13,8 @@
    * plano cuando la columna del POS se queda chica.
    */
   import { capacidadDe } from "@motrest/dominio";
+  import Icono from "./Icono.svelte";
+  import { ICONO_MESA } from "./iconos-de-estado";
   import { rutas } from "./nav/rutas.svelte";
   import { plano } from "./plano.svelte";
   import { pos } from "./pos.svelte";
@@ -203,6 +205,16 @@
         >
           <span class="nombre">{mesa.nombre}</span>
           <small>
+            <!--
+              El icono acompaña al texto, no lo sustituye. Con la mesa
+              seleccionada el fondo se vuelve naranja y el relleno de color
+              pelearía con él, así que ahí hereda el color del rótulo.
+            -->
+            <Icono
+              nombre={unida ? "juntar-mesas" : ICONO_MESA[estado]}
+              tam={13}
+              color={mesa.id !== pos.mesaActiva}
+            />
             {#if unida}unida
             {:else if estado === "libre"}{capacidadDe(mesa)} pers.
             {:else if estado === "cuenta"}en cocina
@@ -229,10 +241,20 @@
     {/if}
   {/if}
 
+  <!--
+    LA LEYENDA YA NO ES DE COLORES.
+
+    Eran tres cuadritos y nada más: rojo, naranja y gris. Rojo contra naranja es
+    el par que un daltonismo rojo-verde no separa, y el gris de «libre» ni
+    siquiera era el color real de una mesa libre —que es blanca con borde—, así
+    que la leyenda explicaba algo que no estaba en el plano.
+
+    Con el icono de cada estado, la leyenda dice lo mismo que la mesa.
+  -->
   <div class="leyenda">
-    <span><i style="background: var(--peligro)"></i>Ocupada · en servicio</span>
-    <span><i style="background: var(--acento)"></i>Enviada a cocina</span>
-    <span><i style="background: #dde3da"></i>Libre</span>
+    <span><Icono nombre="mesa-ocupada" tam={15} color />Ocupada · en servicio</span>
+    <span><Icono nombre="mesa-cocina" tam={15} color />Enviada a cocina</span>
+    <span><Icono nombre="mesa-libre" tam={15} color />Libre</span>
   </div>
 </section>
 
@@ -521,7 +543,11 @@
     line-height: 1;
   }
   .mesa small {
-    font-size: 0.6rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.22rem;
+    font-size: var(--t-xs);
     font-weight: 500;
     line-height: 1;
     text-align: center;
@@ -570,11 +596,6 @@
     display: flex;
     align-items: center;
     gap: 0.5rem;
-  }
-  .leyenda i {
-    width: 0.75rem;
-    height: 0.75rem;
-    border-radius: 4px;
   }
 
   /* --- El plano ampliado -------------------------------------------------- */

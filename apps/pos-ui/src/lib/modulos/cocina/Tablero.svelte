@@ -14,6 +14,8 @@
     etiquetaSemaforo,
     proyectarTablero,
   } from "@motrest/dominio";
+  import Icono from "../../Icono.svelte";
+  import { ICONO_SEMAFORO } from "../../iconos-de-estado";
   import { menu } from "../../menu.svelte";
   import { plano } from "../../plano.svelte";
   import { pos } from "../../pos.svelte";
@@ -119,7 +121,16 @@
             </span>
             <span class="tiempo">{minutos(ticket.minutos)}</span>
           </div>
-          <p class="mesero">{sesion.nombreDe(ticket.mesero_id)} · {etiquetaSemaforo(ticket.semaforo)}</p>
+          <!--
+            El semáforo llevaba su palabra pero no su forma, y esta pantalla se
+            mira a dos metros, de lado y con vapor encima. El icono cambia de
+            silueta entre un estado y otro —cronómetro, reloj de arena,
+            triángulo, campana—, así que se distingue antes de leerlo.
+          -->
+          <p class="mesero">
+            <Icono nombre={ICONO_SEMAFORO[ticket.semaforo]} tam={16} color />
+            {sesion.nombreDe(ticket.mesero_id)} · {etiquetaSemaforo(ticket.semaforo)}
+          </p>
 
           <ul class="platillos">
             {#each ticket.renglones as renglon (renglon.renglon_id)}
@@ -360,8 +371,11 @@
     color: var(--acento-2);
   }
   .mesero {
-    font-size: 0.8rem;
-    color: #8a969c;
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    font-size: var(--t-xs);
+    color: var(--gris-claro);
     margin-bottom: 0.6rem;
   }
   .platillos {
