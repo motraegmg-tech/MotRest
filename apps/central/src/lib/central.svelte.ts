@@ -463,21 +463,59 @@ async function peticionNube(
   };
 }
 
-function esUrlGitHubSegura(texto: string): boolean {
+/**
+ * ¿De dónde se le permite a un local bajar un instalador?
+ *
+ * De GitHub —el canal de respaldo— y de la nube del propio MOTRAE, que es por
+ * donde va desde la migración a Supabase.
+ *
+ * ## Por qué esto estaba roto
+ *
+ * Se llamaba `esUrlGitHubSegura` y solo admitía los cinco hosts de GitHub. Se
+ * escribió cuando ese era el único canal, y la migración a la nube no la tocó.
+ * El resultado: el panel subía el instalador a Storage, rellenaba el campo con
+ * la URL de Supabase que acababa de crear… y al firmar se rechazaba a sí mismo
+ * con «El instalador debe usar HTTPS en un host permitido de GitHub». Después
+ * de subir 26 MB, que es lo caro. Publicar por la nube era imposible.
+ *
+ * ## Por qué el host de la nube se pasa y no se codifica
+ *
+ * La URL de la nube es configuración del despliegue (`Llaves`), no una
+ * constante del producto: un MOTRAE con otro proyecto de Supabase tiene otro
+ * host. Se pasa el que hay guardado, y si no hay ninguno, solo pasa GitHub.
+ *
+ * Es la misma regla que ya aplica el Hub al descargar
+ * (`urlSegura` en `apps/hub/src/actualizaciones.ts`), y no es casualidad: si
+ * los dos lados no coincidieran, Central firmaría manifiestos que el Hub luego
+ * se negaría a bajar.
+ */
+const HOSTS_GITHUB = [
+  "github.com",
+  "api.github.com",
+  "objects.githubusercontent.com",
+  "release-assets.githubusercontent.com",
+  "github-releases.githubusercontent.com",
+];
+
+function esUrlDeInstaladorSegura(texto: string, hostDeLaNube?: string): boolean {
   try {
     const url = new URL(texto);
-    return (
-      url.protocol === "https:" &&
-      [
-        "github.com",
-        "api.github.com",
-        "objects.githubusercontent.com",
-        "release-assets.githubusercontent.com",
-        "github-releases.githubusercontent.com",
-      ].includes(url.hostname.toLowerCase())
-    );
+    if (url.protocol !== "https:") return false;
+    const host = url.hostname.toLowerCase();
+    if (HOSTS_GITHUB.includes(host)) return true;
+    return Boolean(hostDeLaNube) && host === hostDeLaNube!.toLowerCase();
   } catch {
     return false;
+  }
+}
+
+/** El host de la nube configurada, si lo hay. Sirve para validar una URL. */
+function hostDeNube(nubeUrl: string | undefined): string | undefined {
+  if (!nubeUrl?.trim()) return undefined;
+  try {
+    return new URL(nubeUrl.trim()).hostname.toLowerCase();
+  } catch {
+    return undefined;
   }
 }
 
@@ -1258,8 +1296,14 @@ export class StoreCentral {
     if (!privada) {
       return { ok: false, error: "Falta la llave privada Ed25519 de publicación (ver Llaves)" };
     }
-    if (!esUrlGitHubSegura(datos.url)) {
-      return { ok: false, error: "El instalador debe usar HTTPS en un host permitido de GitHub" };
+    const nube = hostDeNube(this.protegidos.nube_url);
+    if (!esUrlDeInstaladorSegura(datos.url, nube)) {
+      return {
+        ok: false,
+        error: nube
+          ? `El instalador debe usar HTTPS en GitHub o en la nube (${nube})`
+          : "El instalador debe usar HTTPS en un host permitido de GitHub",
+      };
     }
     if (!/^[0-9a-f]{64}$/i.test(datos.sha256.trim())) {
       return { ok: false, error: "La huella SHA-256 debe tener 64 caracteres hexadecimales" };

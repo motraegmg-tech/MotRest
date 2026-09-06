@@ -691,6 +691,57 @@ describe("las llaves de Central", () => {
     expect(JSON.stringify(central.secretos)).not.toContain("privada");
   });
 
+  /*
+   * EL FALLO QUE HIZO IMPOSIBLE PUBLICAR POR LA NUBE.
+   *
+   * La validación de la URL solo admitía los cinco hosts de GitHub, escrita
+   * cuando ese era el único canal. La migración a Supabase no la tocó, así que
+   * el panel subía el instalador a Storage, rellenaba el campo con la URL que
+   * acababa de crear, y al firmar se rechazaba a sí mismo. Se descubría después
+   * de subir 26 MB.
+   *
+   * Estas tres pruebas son el candado: la nube configurada pasa, GitHub sigue
+   * pasando, y un host cualquiera no.
+   */
+  it("acepta la URL de la nube configurada, que es por donde se publica hoy", async () => {
+    await central.guardarConfiguracion({
+      repositorio: "motrae/motrest",
+      nube_url: "https://ixttslqbbwqfcqjmttyg.supabase.co",
+    });
+
+    const r = await central.firmarActualizacion({
+      version: "1.5.0",
+      notas: "Prueba.",
+      url: "https://ixttslqbbwqfcqjmttyg.supabase.co/storage/v1/object/instaladores/1.5.0.exe",
+      sha256: "a".repeat(64),
+    });
+
+    expect(r.ok).toBe(true);
+  });
+
+  it("sigue aceptando GitHub, que es el canal de respaldo", async () => {
+    const r = await central.firmarActualizacion({
+      version: "1.5.2",
+      notas: "Prueba.",
+      url: "https://github.com/motrae/motrest/releases/download/1.5.2/MotRest_setup.exe",
+      sha256: "a".repeat(64),
+    });
+
+    expect(r.ok).toBe(true);
+  });
+
+  it("un host cualquiera no cuela, aunque sea HTTPS", async () => {
+    const r = await central.firmarActualizacion({
+      version: "1.5.3",
+      notas: "Prueba.",
+      url: "https://cualquier-sitio.example.com/MotRest_setup.exe",
+      sha256: "a".repeat(64),
+    });
+
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.error).toContain("HTTPS");
+  });
+
   it("firma publicaciones con un publicado_ts monótono, aunque el reloj no avance", async () => {
     const datos = {
       version: "1.5.0",

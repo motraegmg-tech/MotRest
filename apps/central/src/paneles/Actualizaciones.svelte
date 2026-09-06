@@ -393,11 +393,12 @@
         URL del instalador
         <input
           bind:value={url}
-          placeholder="https://github.com/{repositorio}/releases/download/v1.5.0/MotRest_setup.exe"
+          placeholder="https://github.com/{repositorio}/releases/download/1.5.0/MotRest_1.5.0_x64-setup.exe"
         />
         <small>
-          Se rellena al subir. Se escribe a mano solo cuando la versión va por
-          un release de GitHub y no por la nube.
+          Se rellena al subir a la nube. Se escribe a mano solo cuando la
+          versión va por un release de GitHub. Ojo con el nombre del tag: si en
+          GitHub es <code>1.5.0</code>, la URL no lleva <code>v</code>.
         </small>
       </label>
 
