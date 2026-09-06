@@ -10,19 +10,42 @@ Cómo llega una versión nueva a todos los restaurantes.
 
 ## Cómo funciona, en dos líneas
 
-MOTRAE sube el instalador a un **release de GitHub** junto a un `motrest.json`
-firmado. Cada Hub pregunta cada 12 horas, **comprueba la firma antes de descargar
-nada**, y le avisa al restaurante. El restaurante decide cuándo se instala. Al
-llegar la hora, el Hub prepara un guion de relevo, cierra la caja, instala en
-silencio y la vuelve a abrir.
+MOTRAE sube el instalador desde **MotRest Central**, que lo guarda en la nube y
+firma un manifiesto. Cada Hub pregunta cada 12 horas, **comprueba la firma antes
+de descargar nada**, y le avisa al restaurante. El restaurante decide cuándo se
+instala. Al llegar la hora, el Hub prepara un guion de relevo, cierra la caja,
+instala en silencio y la vuelve a abrir.
 
-**Por qué GitHub Releases:** es gratis, sirve por HTTPS con la disponibilidad de
-GitHub detrás, y no hay servidor de descargas que montar ni pagar.
+### Dónde vive el canal: la nube primero, GitHub de respaldo
+
+> **Esto cambió con la migración a Supabase y el resto de esta guía tardó en
+> enterarse.** Si algo de más abajo habla de subir archivos a mano a un release
+> de GitHub, manda lo de aquí.
+
+- **El camino normal es la nube.** Central sube el `.exe` a
+  `storage/v1/object/instaladores/<version>.exe` y publica el manifiesto
+  firmado. El Hub de un local que ya habla con la nube lo lee de ahí
+  (`origen.nube` en `apps/hub/src/actualizaciones.ts`).
+- **GitHub Releases queda de respaldo**, para un local que todavía no está
+  enlazado a la nube. Ese Hub cae a
+  `api.github.com/repos/<dueño>/<repo>/releases/latest`, que es el canal
+  incrustado en el binario.
+
+Los dos caminos verifican **la misma firma**, así que no hay uno «más seguro»:
+lo que decide si un instalador corre es el manifiesto firmado, no de dónde vino.
 
 **Por qué la firma:** el canal de actualización es la llave maestra de todas las
-instalaciones. Con el manifiesto firmado, ni siquiera hace falta confiar en
-GitHub — si alguien tomara la cuenta, sin la **llave privada** de MOTRAE no
-cuela nada. Las públicas que verifican van en los Hubs y no permiten firmar.
+instalaciones. Con el manifiesto firmado, ni siquiera hace falta confiar en el
+sitio que sirve el archivo — sin la **llave privada** de MOTRAE no cuela nada.
+Las públicas que verifican van en los Hubs y no permiten firmar.
+
+> **Central tiene que estar al día para publicar.** El panel sube el instalador
+> a la nube, y esa capacidad se arregló el 3 de septiembre de 2026. Un Central
+> anterior firma el manifiesto pero no sube el archivo, y los Hubs se quedan
+> buscando algo que no existe. Antes de publicar, comprueba la versión de tu
+> Central — y recuerda que Central **no se actualiza sola**: hay que recompilar
+> el `.exe` (ver `ACTUALIZAR-CENTRAL.md` si existe, o `pnpm run build` en
+> `apps/central-escritorio`).
 
 ---
 
