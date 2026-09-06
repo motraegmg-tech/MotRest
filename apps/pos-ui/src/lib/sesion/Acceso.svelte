@@ -755,7 +755,7 @@
     font-weight: 700;
     letter-spacing: 0.08em;
     text-align: center;
-    color: var(--acento);
+    color: var(--acento-texto);
     background: #fffaf5;
     border: 1.5px dashed var(--acento);
     border-radius: var(--r-md);

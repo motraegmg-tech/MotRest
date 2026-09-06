@@ -143,7 +143,7 @@
   .version {
     font-size: 0.82rem;
     font-weight: 600;
-    color: var(--acento);
+    color: var(--acento-texto);
     margin: 0 0 0.8rem;
   }
   .notas {

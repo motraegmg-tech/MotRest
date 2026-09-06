@@ -227,7 +227,7 @@
     word-break: break-all;
   }
   .si {
-    color: var(--acento);
+    color: var(--acento-texto);
   }
   .no {
     color: #e0392b;
@@ -238,7 +238,7 @@
     margin: 0.7rem 0 0;
   }
   .hecho {
-    color: var(--acento);
+    color: var(--acento-texto);
     font-size: 0.85rem;
     margin: 0.7rem 0 0;
   }

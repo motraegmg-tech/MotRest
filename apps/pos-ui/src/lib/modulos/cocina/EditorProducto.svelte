@@ -678,7 +678,7 @@
     font-size: 1.15rem;
   }
   .iva .acento {
-    color: var(--acento);
+    color: var(--acento-texto);
   }
   .iva .total {
     color: var(--pizarra);
@@ -844,7 +844,7 @@
   }
   .agregar-insumo:hover {
     border-color: var(--acento);
-    color: var(--acento);
+    color: var(--acento-texto);
   }
   .resumen-insumos {
     display: flex;

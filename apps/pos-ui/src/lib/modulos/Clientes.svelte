@@ -293,12 +293,6 @@
     gap: 1.1rem;
     max-width: 64rem;
   }
-  .encabezado {
-    display: flex;
-    align-items: flex-start;
-    gap: 1rem;
-    flex-wrap: wrap;
-  }
   .encabezado > div:first-child {
     flex: 1;
     min-width: 16rem;
@@ -312,11 +306,6 @@
     font-size: 0.9rem;
     color: var(--gris);
     max-width: 40rem;
-  }
-  .indicadores {
-    display: flex;
-    gap: 1rem;
-    flex-wrap: wrap;
   }
   .dato {
     flex: 1;
@@ -384,9 +373,6 @@
     font-size: 0.74rem;
     color: var(--gris);
   }
-  .tenue {
-    color: var(--gris);
-  }
   .badge {
     font-family: ui-monospace, Consolas, monospace;
     font-size: 0.78rem;
@@ -416,7 +402,7 @@
   }
   .mini:hover {
     border-color: var(--acento);
-    color: var(--acento);
+    color: var(--acento-texto);
   }
   .principal {
     background: var(--acento);

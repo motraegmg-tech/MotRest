@@ -298,7 +298,7 @@
     font-family: var(--font-titulo);
     font-size: 1.8rem;
     font-weight: 700;
-    color: var(--acento);
+    color: var(--acento-texto);
   }
   .listo .nota {
     font-size: 0.86rem;

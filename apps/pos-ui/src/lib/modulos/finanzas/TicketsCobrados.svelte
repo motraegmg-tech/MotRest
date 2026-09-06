@@ -314,9 +314,6 @@
     text-align: right;
     white-space: nowrap;
   }
-  .tenue {
-    color: var(--gris);
-  }
   .folio {
     font-family: ui-monospace, "Cascadia Code", Consolas, monospace;
     font-size: 0.78rem;
@@ -343,7 +340,7 @@
   }
   .marca.ok {
     background: color-mix(in srgb, var(--acento) 14%, transparent);
-    color: var(--acento);
+    color: var(--acento-texto);
   }
   .marca.anulada {
     background: #eceff1;
@@ -410,7 +407,7 @@
     font-weight: 700;
   }
   .quien {
-    color: var(--acento);
+    color: var(--acento-texto);
     font-weight: 600;
     font-size: 0.9rem;
     margin-top: -0.4rem;

@@ -254,7 +254,7 @@
   }
   .canal.on .interruptor {
     border-color: var(--acento);
-    color: var(--acento);
+    color: var(--acento-texto);
   }
   table {
     width: 100%;

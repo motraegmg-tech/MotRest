@@ -505,12 +505,6 @@
     gap: 1.1rem;
     max-width: 70rem;
   }
-  .encabezado {
-    display: flex;
-    align-items: flex-start;
-    gap: 1rem;
-    flex-wrap: wrap;
-  }
   .encabezado > div:first-child {
     flex: 1;
     min-width: 16rem;
@@ -524,25 +518,6 @@
     font-size: 0.88rem;
     color: var(--gris);
     max-width: 38rem;
-  }
-  .pestanas {
-    display: flex;
-    gap: 0.3rem;
-    background: var(--fondo);
-    border: 1px solid var(--borde);
-    border-radius: var(--r-md);
-    padding: 0.2rem;
-  }
-  .pestanas button {
-    padding: 0.4rem 0.9rem;
-    border-radius: var(--r-sm);
-    font-size: 0.83rem;
-    font-weight: 600;
-    color: var(--gris);
-  }
-  .pestanas button.on {
-    background: var(--acento);
-    color: var(--sobre-acento);
   }
   .tarjeta {
     background: #fff;
@@ -653,9 +628,6 @@
     font-size: 0.74rem;
     color: var(--gris);
   }
-  .tenue {
-    color: var(--gris);
-  }
   .acciones {
     text-align: right;
     white-space: nowrap;
@@ -671,7 +643,7 @@
   }
   .acciones button:hover:not(:disabled) {
     border-color: var(--acento);
-    color: var(--acento);
+    color: var(--acento-texto);
   }
   .acciones .peligro:hover:not(:disabled) {
     border-color: var(--peligro);

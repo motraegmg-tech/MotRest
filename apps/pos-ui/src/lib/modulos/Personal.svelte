@@ -824,7 +824,7 @@
     color: var(--gris);
   }
   .accion {
-    color: var(--acento);
+    color: var(--acento-texto);
   }
   .pin {
     width: 100%;
@@ -902,9 +902,6 @@
     font-size: 0.74rem;
     color: var(--gris);
   }
-  .tenue {
-    color: var(--gris);
-  }
   .chip {
     display: inline-block;
     font-size: 0.74rem;
@@ -946,7 +943,7 @@
     min-width: 9rem;
   }
   .checada .tipo {
-    color: var(--acento);
+    color: var(--acento-texto);
     font-weight: 600;
     font-size: 0.82rem;
   }
@@ -985,17 +982,6 @@
     border-radius: var(--r-md);
     padding: 0.2rem;
     flex: none;
-  }
-  .pestanas button {
-    padding: 0.4rem 0.9rem;
-    border-radius: var(--r-sm);
-    font-size: 0.83rem;
-    font-weight: 600;
-    color: var(--gris);
-  }
-  .pestanas button.on {
-    background: var(--acento);
-    color: var(--sobre-acento);
   }
   .cab-raya {
     display: flex;
@@ -1081,7 +1067,7 @@
   }
   .tarifa:hover {
     border-color: var(--acento);
-    color: var(--acento);
+    color: var(--acento-texto);
   }
   .ojo {
     display: block;
@@ -1103,7 +1089,7 @@
     font-family: var(--font-titulo);
     font-size: 1.15rem;
     font-weight: 700;
-    color: var(--acento);
+    color: var(--acento-texto);
   }
   .guardar-tarifa {
     display: flex;
@@ -1180,7 +1166,7 @@
     color: var(--gris);
   }
   .semana-total b {
-    color: var(--acento);
+    color: var(--acento-texto);
     font-family: var(--font-titulo);
     font-size: 1rem;
   }
@@ -1242,7 +1228,7 @@
     text-decoration: underline;
   }
   .replicar:hover {
-    color: var(--acento);
+    color: var(--acento-texto);
   }
   .acciones-sueldo {
     display: flex;

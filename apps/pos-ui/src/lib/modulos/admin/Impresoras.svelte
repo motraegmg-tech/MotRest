@@ -719,12 +719,6 @@
     gap: 1.1rem;
     max-width: 64rem;
   }
-  .encabezado {
-    display: flex;
-    align-items: flex-start;
-    gap: 1rem;
-    flex-wrap: wrap;
-  }
   .encabezado > div:first-child {
     flex: 1;
     min-width: 16rem;
@@ -759,7 +753,7 @@
   .buscando {
     font-size: 0.85rem;
     font-weight: 600;
-    color: var(--acento);
+    color: var(--acento-texto);
   }
   .error {
     font-size: 0.85rem;
@@ -851,7 +845,7 @@
     text-decoration: underline;
   }
   .mas:hover {
-    color: var(--acento);
+    color: var(--acento-texto);
   }
   .nota {
     background: var(--fondo);
@@ -935,7 +929,7 @@
   }
   button:hover:not(:disabled) {
     border-color: var(--acento);
-    color: var(--acento);
+    color: var(--acento-texto);
   }
   button.peligro:hover:not(:disabled) {
     border-color: var(--peligro);
@@ -1057,10 +1051,10 @@
    */
   .trabajo.simulado .est {
     background: #fdf0e6;
-    color: var(--acento);
+    color: var(--acento-texto);
   }
   .trabajo.simulado .err {
-    color: var(--acento);
+    color: var(--acento-texto);
   }
   .trabajo.fallido .est {
     background: #fdeae8;

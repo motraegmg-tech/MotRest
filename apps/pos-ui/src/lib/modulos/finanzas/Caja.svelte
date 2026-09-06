@@ -350,7 +350,7 @@
   }
   .desglose .aviso span,
   .desglose .aviso b {
-    color: var(--acento);
+    color: var(--acento-texto);
   }
   .destacado {
     border-top: 1.5px solid var(--borde);
@@ -360,7 +360,7 @@
   .destacado b {
     font-size: 1.3rem;
     font-family: var(--font-titulo);
-    color: var(--acento);
+    color: var(--acento-texto);
   }
   .nota {
     margin-top: 0.8rem;

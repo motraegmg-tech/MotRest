@@ -305,7 +305,7 @@
     display: block;
     font-size: 0.6rem;
     font-weight: 700;
-    color: var(--acento);
+    color: var(--acento-texto);
   }
   td.quien b {
     display: block;
@@ -338,7 +338,7 @@
   .btn-celda.activa {
     border-color: var(--acento);
     background: var(--claro);
-    color: var(--acento);
+    color: var(--acento-texto);
   }
   .btn-celda .mesas {
     display: block;
@@ -373,7 +373,7 @@
   .cuantas {
     font-size: 0.78rem;
     font-weight: 600;
-    color: var(--acento);
+    color: var(--acento-texto);
   }
   .cerrar {
     font-size: 0.95rem;
@@ -463,7 +463,7 @@
   }
   .mini:hover {
     border-color: var(--acento);
-    color: var(--acento);
+    color: var(--acento-texto);
   }
   .mini.fuerte {
     background: var(--acento);

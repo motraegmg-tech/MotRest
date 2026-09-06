@@ -308,9 +308,6 @@
     text-align: right;
     white-space: nowrap;
   }
-  .tenue {
-    color: var(--gris);
-  }
   tr.hoy {
     background: color-mix(in srgb, var(--acento) 6%, transparent);
   }
@@ -318,7 +315,7 @@
     display: block;
     font-size: 0.68rem;
     font-weight: 700;
-    color: var(--acento);
+    color: var(--acento-texto);
   }
   .vacio {
     text-align: center;
@@ -335,7 +332,7 @@
     font-family: var(--font-titulo);
     font-size: 1.1rem;
     font-weight: 700;
-    color: var(--acento);
+    color: var(--acento-texto);
   }
   .mini {
     border: 1.5px solid var(--borde);
@@ -348,7 +345,7 @@
   }
   .mini:hover:not(:disabled) {
     border-color: var(--acento);
-    color: var(--acento);
+    color: var(--acento-texto);
   }
   .mini:disabled {
     opacity: 0.45;

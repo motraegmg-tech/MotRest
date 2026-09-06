@@ -770,12 +770,6 @@
     gap: 1.1rem;
     max-width: 70rem;
   }
-  .encabezado {
-    display: flex;
-    align-items: flex-start;
-    gap: 1rem;
-    flex-wrap: wrap;
-  }
   .encabezado > div:first-child {
     flex: 1;
     min-width: 16rem;
@@ -790,29 +784,12 @@
     color: var(--gris);
     max-width: 38rem;
   }
-  .pestanas {
-    display: flex;
-    gap: 0.3rem;
-    background: var(--fondo);
-    border: 1px solid var(--borde);
-    border-radius: var(--r-md);
-    padding: 0.2rem;
-  }
   .pestanas button {
     padding: 0.4rem 0.85rem;
     border-radius: var(--r-sm);
     font-size: 0.83rem;
     font-weight: 600;
     color: var(--gris);
-  }
-  .pestanas button.on {
-    background: var(--acento);
-    color: var(--sobre-acento);
-  }
-  .indicadores {
-    display: flex;
-    gap: 1rem;
-    flex-wrap: wrap;
   }
   .dato {
     flex: 1;
@@ -883,9 +860,6 @@
   .num {
     text-align: right;
     white-space: nowrap;
-  }
-  .tenue {
-    color: var(--gris);
   }
   .alerta {
     color: var(--peligro);
@@ -1122,7 +1096,7 @@
   }
   .soltar:hover {
     border-color: var(--acento);
-    color: var(--acento);
+    color: var(--acento-texto);
   }
   .soltar input {
     display: block;

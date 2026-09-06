@@ -243,12 +243,6 @@
     gap: 1.1rem;
     max-width: 72rem;
   }
-  .encabezado {
-    display: flex;
-    align-items: flex-start;
-    gap: 1rem;
-    flex-wrap: wrap;
-  }
   .encabezado > div:first-child {
     flex: 1;
     min-width: 16rem;
@@ -384,7 +378,7 @@
     color: var(--gris);
   }
   .etiquetas .iva {
-    color: var(--acento);
+    color: var(--acento-texto);
   }
   .etiquetas .fc.alto {
     background: #fdeae8;
@@ -409,7 +403,7 @@
   }
   .descuenta {
     font-size: 0.76rem;
-    color: var(--acento);
+    color: var(--acento-texto);
     font-weight: 600;
   }
   .acciones {
@@ -427,7 +421,7 @@
   }
   .acciones button:hover {
     border-color: var(--acento);
-    color: var(--acento);
+    color: var(--acento-texto);
   }
   .vacio {
     font-size: 0.9rem;

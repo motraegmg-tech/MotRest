@@ -304,7 +304,7 @@
     background: none;
     border: none;
     padding: 0;
-    color: var(--acento);
+    color: var(--acento-texto);
     font: inherit;
     font-size: 0.78rem;
     text-decoration: underline;
@@ -322,7 +322,7 @@
   }
   .correo.on .interruptor {
     border-color: var(--acento);
-    color: var(--acento);
+    color: var(--acento-texto);
   }
   .acciones {
     display: flex;

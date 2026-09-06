@@ -288,7 +288,7 @@
     font-family: var(--font-titulo);
     font-size: 1rem;
     font-weight: 700;
-    color: var(--acento);
+    color: var(--acento-texto);
   }
   .vacio {
     grid-column: 1 / -1;

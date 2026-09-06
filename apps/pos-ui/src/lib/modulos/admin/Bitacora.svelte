@@ -237,12 +237,6 @@
     gap: 1.25rem;
     max-width: 62rem;
   }
-  .encabezado {
-    display: flex;
-    align-items: flex-start;
-    gap: 1rem;
-    flex-wrap: wrap;
-  }
   .encabezado > div:first-child {
     flex: 1;
     min-width: 16rem;
@@ -313,7 +307,7 @@
     font-weight: 500;
   }
   .entrada.acento .texto {
-    color: var(--acento);
+    color: var(--acento-texto);
     font-weight: 500;
   }
   .vacia {

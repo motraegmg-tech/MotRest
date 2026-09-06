@@ -690,7 +690,7 @@
   .estimacion b {
     font-family: var(--font-titulo);
     font-size: 1.5rem;
-    color: var(--acento);
+    color: var(--acento-texto);
   }
   .estimacion.tenue b {
     color: var(--pizarra);

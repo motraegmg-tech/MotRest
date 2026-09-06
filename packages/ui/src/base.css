@@ -111,6 +111,63 @@ ol {
 }
 
 /*
+ * `.tenue` vive en la base porque su uniformidad fue medida en los componentes:
+ * esta es la variante dominante consolidada, presente en 11 de 13 definiciones.
+ */
+.tenue {
+  color: var(--gris);
+}
+
+/*
+ * `.pestanas` vive en la base porque su uniformidad fue medida en cinco
+ * componentes; se consolidan aquí las variantes dominantes del contenedor y
+ * de sus botones, conservando localmente cualquier diferencia.
+ */
+.pestanas {
+  display: flex;
+  gap: 0.3rem;
+  background: var(--fondo);
+  border: 1px solid var(--borde);
+  border-radius: var(--r-md);
+  padding: 0.2rem;
+}
+
+.pestanas button {
+  padding: 0.4rem 0.9rem;
+  border-radius: var(--r-sm);
+  font-size: 0.83rem;
+  font-weight: 600;
+  color: var(--gris);
+}
+
+.pestanas button.on {
+  background: var(--acento);
+  color: var(--sobre-acento);
+}
+
+/*
+ * `.indicadores` vive en la base porque su uniformidad fue medida: tres de sus
+ * cuatro definiciones compartían esta variante dominante, ahora consolidada.
+ */
+.indicadores {
+  display: flex;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+
+/*
+ * `.encabezado` vive en la base porque su uniformidad fue medida: esta variante
+ * dominante aparecía en 9 de 17 definiciones y las ocho divergentes siguen
+ * siendo locales.
+ */
+.encabezado {
+  display: flex;
+  align-items: flex-start;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+
+/*
  * El botón que abre la lista completa. Va aquí porque ya aparece en cinco
  * tarjetas de tres módulos distintos y todas lo dibujaban igual: discreto, a lo
  * ancho, y con el borde punteado que dice «esto sigue» sin competir con los

@@ -370,7 +370,7 @@
     padding: 0.1rem 0.5rem;
     font-size: 0.7rem;
     font-weight: 700;
-    color: var(--acento);
+    color: var(--acento-texto);
     white-space: nowrap;
   }
   .chico {
@@ -386,7 +386,7 @@
   }
   .chico:hover {
     border-color: var(--acento);
-    color: var(--acento);
+    color: var(--acento-texto);
   }
   .areas {
     display: flex;
@@ -494,7 +494,7 @@
   }
   .filtros button.cuenta.on {
     border-color: var(--acento);
-    color: var(--acento);
+    color: var(--acento-texto);
   }
 
   /* --- El plano ---------------------------------------------------------- */
@@ -687,7 +687,7 @@
   }
   .zoom button:hover {
     border-color: var(--acento);
-    color: var(--acento);
+    color: var(--acento-texto);
   }
   .cerrar {
     border: 1.5px solid var(--acento);

@@ -360,7 +360,7 @@
     font-size: 0.85em;
   }
   .alerta {
-    color: var(--acento);
+    color: var(--acento-texto);
   }
   .alerta-caja {
     margin-top: 0.9rem;
@@ -495,7 +495,7 @@
     border-color: color-mix(in srgb, #e0392b 45%, transparent);
   }
   .etiqueta.recuperando {
-    color: var(--acento);
+    color: var(--acento-texto);
     border-color: color-mix(in srgb, var(--acento) 45%, transparent);
   }
 

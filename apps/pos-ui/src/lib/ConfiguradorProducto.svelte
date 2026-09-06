@@ -234,7 +234,7 @@
     font-weight: 600;
     text-transform: none;
     letter-spacing: 0;
-    color: var(--acento);
+    color: var(--acento-texto);
     background: var(--claro);
     border-radius: var(--r-pill);
     padding: 0.1rem 0.45rem;
@@ -376,7 +376,7 @@
     color: var(--gris);
   }
   .desglose .costo {
-    color: var(--acento);
+    color: var(--acento-texto);
     font-weight: 600;
   }
   .agregar {

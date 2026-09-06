@@ -756,12 +756,6 @@
     gap: 1.1rem;
     max-width: 76rem;
   }
-  .encabezado {
-    display: flex;
-    align-items: flex-start;
-    gap: 1rem;
-    flex-wrap: wrap;
-  }
   .encabezado > div:first-child {
     flex: 1;
     min-width: 15rem;
@@ -774,25 +768,6 @@
     margin-top: 0.25rem;
     font-size: 0.88rem;
     color: var(--gris);
-  }
-  .pestanas {
-    display: flex;
-    gap: 0.3rem;
-    background: var(--fondo);
-    border: 1px solid var(--borde);
-    border-radius: var(--r-md);
-    padding: 0.2rem;
-  }
-  .pestanas button {
-    padding: 0.4rem 0.9rem;
-    border-radius: var(--r-sm);
-    font-size: 0.83rem;
-    font-weight: 600;
-    color: var(--gris);
-  }
-  .pestanas button.on {
-    background: var(--acento);
-    color: var(--sobre-acento);
   }
   .indicadores {
     display: flex;
@@ -927,9 +902,6 @@
   td {
     padding: 0.5rem 0;
     border-bottom: 1px solid var(--borde);
-  }
-  .tenue {
-    color: var(--gris);
   }
   .cuadrantes {
     display: grid;
@@ -1275,7 +1247,7 @@
   .tolera {
     font-family: var(--font-titulo);
     font-size: 1rem;
-    color: var(--acento);
+    color: var(--acento-texto);
   }
   .botones-sim {
     display: flex;
@@ -1293,7 +1265,7 @@
   }
   .mini:hover {
     border-color: var(--acento);
-    color: var(--acento);
+    color: var(--acento-texto);
   }
   .indice-voz {
     display: flex;

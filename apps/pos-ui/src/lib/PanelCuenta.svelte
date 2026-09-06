@@ -1152,7 +1152,7 @@
     font-weight: 700;
     text-transform: uppercase;
     letter-spacing: 0.04em;
-    color: var(--acento);
+    color: var(--acento-texto);
   }
   .pista-espera {
     font-size: 0.78rem;
@@ -1243,7 +1243,7 @@
   }
   .chip.cocina {
     background: var(--claro);
-    color: var(--acento);
+    color: var(--acento-texto);
   }
   .sub {
     font-size: 0.82rem;
@@ -1276,11 +1276,11 @@
     line-height: 1;
   }
   .cant button:hover {
-    color: var(--acento);
+    color: var(--acento-texto);
   }
   .cant b {
     font-family: var(--font-titulo);
-    color: var(--acento);
+    color: var(--acento-texto);
     min-width: 1.1rem;
     text-align: center;
   }
@@ -1302,7 +1302,7 @@
     font-weight: 600;
     text-transform: uppercase;
     letter-spacing: 0.05em;
-    color: var(--acento);
+    color: var(--acento-texto);
     background: var(--claro);
     border-radius: var(--r-pill);
     padding: 0.08rem 0.4rem;
@@ -1336,12 +1336,12 @@
     }
   }
   .acciones .mini.entregar:hover {
-    color: var(--acento);
+    color: var(--acento-texto);
   }
   /* Cuando el platillo ya está listo, el visto bueno se enciende: es el gesto
      que toca hacer en ese momento. */
   .acciones .mini.entregar.urge {
-    color: var(--acento);
+    color: var(--acento-texto);
     font-weight: 800;
   }
   .item .p {
@@ -1365,7 +1365,7 @@
   }
   .mini:hover {
     border-color: var(--acento);
-    color: var(--acento);
+    color: var(--acento-texto);
   }
   .mini.on {
     background: var(--acento);
@@ -1439,7 +1439,7 @@
     font-size: 0.68rem;
     text-transform: uppercase;
     letter-spacing: 0.06em;
-    color: var(--acento);
+    color: var(--acento-texto);
     font-weight: 700;
   }
   .promo .nombre {
@@ -1448,7 +1448,7 @@
   }
   .promo .importe {
     font-weight: 700;
-    color: var(--acento);
+    color: var(--acento-texto);
   }
   .promo .cta {
     font-size: 0.72rem;
@@ -1475,7 +1475,7 @@
     font-size: 0.68rem;
     text-transform: uppercase;
     letter-spacing: 0.06em;
-    color: var(--acento);
+    color: var(--acento-texto);
     font-weight: 700;
   }
   .promo-puesta .nombre {
@@ -1484,7 +1484,7 @@
   }
   .promo-puesta .importe {
     font-weight: 700;
-    color: var(--acento);
+    color: var(--acento-texto);
   }
   .quitar-promo {
     padding: 0.25rem 0.6rem;
@@ -1516,11 +1516,11 @@
     color: var(--peligro);
   }
   .tot .propina {
-    color: var(--acento);
+    color: var(--acento-texto);
   }
   .tot .saldo {
     font-weight: 700;
-    color: var(--acento);
+    color: var(--acento-texto);
   }
   .tot .gt {
     font-family: var(--font-titulo);
@@ -1658,7 +1658,7 @@
     color: var(--pizarra);
   }
   .resumen-propina b {
-    color: var(--acento);
+    color: var(--acento-texto);
   }
   .panel-cobro {
     display: flex;
@@ -1718,11 +1718,11 @@
     color: var(--pizarra);
   }
   .reparto b {
-    color: var(--acento);
+    color: var(--acento-texto);
   }
   .cambio {
     font-size: 0.95rem;
-    color: var(--acento);
+    color: var(--acento-texto);
   }
   .cambio b {
     font-family: var(--font-titulo);
@@ -1743,7 +1743,7 @@
     color: var(--pizarra);
   }
   .cada {
-    color: var(--acento);
+    color: var(--acento-texto);
     font-weight: 600;
   }
   .volver {
@@ -1795,7 +1795,7 @@
     color: var(--gris);
   }
   .socio .bolsa b {
-    color: var(--acento);
+    color: var(--acento-texto);
   }
   .ayuda-socio {
     font-size: 0.78rem;
@@ -1877,11 +1877,11 @@
 
   .indicacion {
     display: block;
-    color: var(--acento);
+    color: var(--acento-texto);
     font-weight: 600;
   }
   .acciones .mini.activa {
-    color: var(--acento);
+    color: var(--acento-texto);
   }
 
   .velo {
@@ -2015,7 +2015,7 @@
   }
   .chip.poner-nombre:hover {
     border-color: var(--acento);
-    color: var(--acento);
+    color: var(--acento-texto);
   }
   .pista-nombre {
     font-size: 0.8rem;
@@ -2035,7 +2035,7 @@
   }
   .reabrir:hover {
     border-color: var(--acento);
-    color: var(--acento);
+    color: var(--acento-texto);
   }
   .acciones-cobrada {
     display: flex;
