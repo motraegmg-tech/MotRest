@@ -1,8 +1,0 @@
-{
-    "version": "1.4.0",
-    "notas": "Todo el sistema estrena iconos: cada módulo, cada estado de mesa y cada botón importante se reconoce de un vistazo. La pantalla se lee mejor de lejos y con reflejo, y los botones son más grandes para el dedo. Ya puede ponerle nombre del cliente a cualquier mesa, no solo a los pedidos para llevar, y ese nombre sale en la mesa, en la comanda de cocina y en el ticket. La tablet de la cocina aprovecha toda la pantalla. Y si traspasa un platillo a la mesa equivocada, ahora puede deshacerlo.",
-    "url": "https://github.com/motraegmg-tech/MotRest/releases/download/1.4.0/MotRest_1.4.0_x64-setup.exe",
-    "sha256": "bce7253bc97eac1fb895f2a911eba353db17c6ee3f72bc382de18160a6660392",
-    "publicado_ts": 1788660285168,
-    "firma": "235571d5378281398e61938a7641f1397762b09d73811e4ce971093e5e695ba7c9980314445856646276c616f82f1be9d98d530e5506e1f712b4d941d9c1ea01"
-}
