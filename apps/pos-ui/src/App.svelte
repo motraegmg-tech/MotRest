@@ -45,6 +45,7 @@
   import { sync } from "./lib/sync.svelte";
   import { actualizaciones } from "./lib/actualizaciones.svelte";
   import { caja } from "./lib/caja.svelte";
+  import { pos } from "./lib/pos.svelte";
   import { failover } from "./lib/failover.svelte";
   import { licencia } from "./lib/licencia.svelte";
   import { modoAbierto } from "./lib/modo-abierto.svelte";
@@ -397,10 +398,21 @@
   lateral se queda puesto mientras haya algo pendiente (ver Sidebar).
 -->
 {#if actualizaciones.avisar && actualizaciones.version}
+  <!--
+    Lo que hay abierto viaja al diálogo, no se queda aquí.
+
+    Desde que el sistema dejó de prohibir instalar fuera de la madrugada, el
+    turno de caja y las mesas abiertas ya no deciden nada: son lo que se le
+    enseña a quien va a confirmar. La cifra se lee en el momento de pintar el
+    aviso, así que si cierran la caja mientras el diálogo está puesto, el aviso
+    desaparece solo.
+  -->
   <AvisoActualizacion
     version={actualizaciones.version.version}
     notas={actualizaciones.version.notas}
     obligatoria={actualizaciones.obligatoria}
+    turnoAbierto={caja.activa !== undefined}
+    mesasAbiertas={pos.comandasAbiertas.length}
     onDecidir={(eleccion) => actualizaciones.decidir(eleccion)}
   />
 {/if}

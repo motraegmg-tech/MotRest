@@ -51,13 +51,11 @@ import {
   aplazar,
   configuracionVacia,
   debeInstalar,
-  enHorarioDeServicio,
   estadoInicial,
   hayNovedad,
   hayTurnoAbierto,
   marcarInstalada,
   pideBaja,
-  puedeInstalarse,
   registrarDisponible,
   permisoDeRestauracion,
   streamIdentidad,
@@ -2222,12 +2220,11 @@ async function instalarLicenciaDeMotrae(recibida: unknown): Promise<{ ok: boolea
 
 /**
  * Busca versiones nuevas, avisa a las terminales y —cuando el restaurante lo
- * pide y el momento es seguro— instala.
+ * pide— instala.
  *
- * NO INSTALA NADA POR SU CUENTA. Quien decide cuándo es el restaurante, y quien
- * comprueba que el momento sea seguro es el dominio (`puedeInstalarse`). Un Hub
- * que se actualiza solo a las nueve de la noche del viernes es exactamente lo
- * que no puede pasar.
+ * NO INSTALA NADA POR SU CUENTA. Quien decide cuándo es el restaurante, siempre.
+ * El Hub ya no pone ninguna condición de hora: lo que hay abierto se le enseña
+ * en el diálogo del POS antes de que confirme, y a partir de ahí manda él.
  *
  * El reloj de un minuto es lo que hace que «a las 23:00» signifique algo: nadie
  * tiene que estar delante de la pantalla a esa hora para que ocurra.
@@ -2439,10 +2436,9 @@ function difundirActualizacion(): void {
 /**
  * Traduce lo que llega por HTTP a una de las tres respuestas del diálogo.
  *
- * Se acepta cualquier hora del día, no solo las de madrugada que ofrece el POS.
- * Elegir las 14:00 no adelanta nada —`puedeInstalarse` seguirá negándose en
- * horario de servicio— pero tampoco hace daño, y rechazarlo obligaría a que esta
- * lista y la del diálogo no se separaran nunca.
+ * Se acepta cualquier hora del día. `a_las` sigue existiendo para quien quiera
+ * dejarlo programado —«instálalo a las 3»— y ahora significa exactamente eso,
+ * sin ventana que lo contradiga después.
  */
 function eleccionValida(cuerpo: { cuando?: unknown; hora?: unknown }): EleccionActualizacion | null {
   if (cuerpo.cuando === "ahora") return { cuando: "ahora" };
@@ -2513,20 +2509,28 @@ async function evaluarActualizacion(ahora = Date.now()): Promise<void> {
     return;
   }
 
-  const veredicto = puedeInstalarse(turnoDeCajaAbierto(), enHorarioDeServicio(ahora));
-  if (!veredicto.puede) {
-    /*
-     * Se dice UNA vez por motivo, no una por minuto. Un Hub que espera ocho
-     * horas a que cierre la caja llenaría la bitácora con la misma línea 480
-     * veces y taparía todo lo demás.
-     */
-    if (motivoDeEsperaAnotado !== veredicto.motivo) {
-      motivoDeEsperaAnotado = veredicto.motivo;
-      registrar("info", `MotRest ${version.version}: ${veredicto.razon}`);
-    }
-    return;
+  /*
+   * AQUÍ YA NO SE VETA NADA.
+   *
+   * Antes esto se negaba a instalar fuera de la ventana 23:00–06:00 y con un
+   * turno de caja abierto, aunque el restaurante hubiera pulsado «ahora». La
+   * ventana era una suposición: el sistema no conoce el horario de ningún
+   * local, así que un lunes a las once de la mañana, con la persiana abajo y
+   * nadie dentro, tampoco dejaba actualizar.
+   *
+   * Decisión de Gonzalo: manda quien está en el local. Lo que hay abierto se le
+   * dice ANTES de pulsar —el diálogo del POS lo enseña y pide confirmación— y
+   * a partir de ahí es su decisión, no la del Hub.
+   *
+   * Se anota lo que había abierto porque el día que un arqueo no cuadre, esta
+   * línea es la que explica por qué.
+   */
+  if (turnoDeCajaAbierto()) {
+    registrar(
+      "aviso",
+      `MotRest ${version.version}: se instala con un turno de caja abierto, confirmado desde la caja.`,
+    );
   }
-  motivoDeEsperaAnotado = null;
 
   instalandoActualizacion = true;
   try {
@@ -2553,9 +2557,6 @@ async function evaluarActualizacion(ahora = Date.now()): Promise<void> {
     instalandoActualizacion = false;
   }
 }
-
-/** El último motivo por el que se está esperando, para no repetirlo cada minuto. */
-let motivoDeEsperaAnotado: string | null = null;
 
 /**
  * ¿Queda algún turno de caja sin cerrar?

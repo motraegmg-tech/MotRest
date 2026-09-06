@@ -19,7 +19,7 @@ import {
   cuandoRecordar,
   debeAvisar,
   debeInstalar,
-  enHorarioDeServicio,
+  advertenciasDeInstalacion,
   estadoInicial,
   firmarVersion,
   hayNovedad,
@@ -29,7 +29,6 @@ import {
   leTocaElAnillo,
   marcarInstalada,
   posicionEnLaFlota,
-  puedeInstalarse,
   registrarDisponible,
   resumenDeEleccion,
   verificarVersion,
@@ -90,25 +89,37 @@ describe("saber qué versión es más nueva", () => {
 
 describe("cuándo se puede instalar", () => {
   /*
-   * EL CANDADO MÁS IMPORTANTE DEL ARCHIVO. Un turno abierto es dinero contado a
-   * medias: reiniciar ahí deja un arqueo que no cuadra y nadie sabe por qué. Se
-   * comprueba AUNQUE el restaurante haya dicho "instala ahora", porque quien
-   * elige eso a las nueve de la noche no está pensando en las doce mesas.
+   * YA NO HAY VETO, HAY AVISO.
+   *
+   * Antes esto era un candado: con la caja abierta o fuera de la madrugada, el
+   * sistema se negaba aunque el restaurante hubiera pulsado «ahora». Se quitó
+   * por decisión de Gonzalo — la ventana 23:00–06:00 era una suposición, porque
+   * MotRest no conoce el horario de ningún local, y dejaba a un lunes por la
+   * mañana con la persiana abajo sin poder actualizar.
+   *
+   * Lo que NO se perdió es la advertencia. Un turno abierto en mitad de un
+   * reinicio sigue dejando un arqueo que no cuadra; lo que cambia es quién
+   * decide. El diálogo lo enseña antes de que confirme.
    */
-  it("con la caja abierta NO se instala, aunque lo hayan pedido", () => {
-    const v = puedeInstalarse(true, false);
-    expect(v.puede).toBe(false);
-    expect(v.puede === false && v.motivo).toBe("turno_abierto");
+  it("sin nada abierto no hay nada que advertir", () => {
+    expect(advertenciasDeInstalacion(false, 0)).toEqual([]);
   });
 
-  it("en horario de servicio tampoco", () => {
-    const v = puedeInstalarse(false, true);
-    expect(v.puede).toBe(false);
-    expect(v.puede === false && v.motivo).toBe("horario_de_servicio");
+  it("un turno de caja abierto se advierte, y dice por qué importa", () => {
+    const avisos = advertenciasDeInstalacion(true, 0);
+    expect(avisos).toHaveLength(1);
+    expect(avisos[0]!.clave).toBe("turno_abierto");
+    expect(avisos[0]!.texto).toContain("arqueo");
   });
 
-  it("con la caja cerrada y fuera de servicio, adelante", () => {
-    expect(puedeInstalarse(false, false).puede).toBe(true);
+  it("las mesas abiertas se cuentan, y en singular no dice «1 mesas»", () => {
+    expect(advertenciasDeInstalacion(false, 1)[0]!.texto).toContain("1 mesa con");
+    expect(advertenciasDeInstalacion(false, 4)[0]!.texto).toContain("4 mesas");
+  });
+
+  it("las dos cosas a la vez se advierten las dos", () => {
+    const avisos = advertenciasDeInstalacion(true, 3);
+    expect(avisos.map((a) => a.clave)).toEqual(["turno_abierto", "mesas_abiertas"]);
   });
 });
 
@@ -238,6 +249,16 @@ describe("cuándo se pasa de decidir a instalar", () => {
    * Repetirle el diálogo cada minuto mientras tanto le tapa la pantalla de cobro
    * con una pregunta que ya contestó.
    */
+  /*
+   * La prueba de que el horario ya no manda. Es la que habría que borrar si
+   * alguien volviera a meter una ventana de madrugada, y por eso está escrita
+   * con la hora peor posible: viernes, nueve de la noche.
+   */
+  it("«ahora» significa ahora, aunque sea viernes a las nueve de la noche", () => {
+    const estado = aplazar(disponible(), { cuando: "ahora" }, VIERNES_21H);
+    expect(debeInstalar(estado, VIERNES_21H)).toBe(true);
+  });
+
   it("después de decir que sí, el diálogo no vuelve a salir", () => {
     const estado = aplazar(disponible(), { cuando: "ahora" }, VIERNES_21H);
     expect(debeAvisar(estado, VIERNES_21H + 60_000)).toBe(false);
@@ -245,25 +266,7 @@ describe("cuándo se pasa de decidir a instalar", () => {
   });
 });
 
-describe("los dos guardias del momento seguro", () => {
-  it("de día es horario de servicio; de madrugada no", () => {
-    expect(enHorarioDeServicio(VIERNES_21H)).toBe(true);
-    expect(enHorarioDeServicio(new Date(2026, 6, 24, 14, 0).getTime())).toBe(true);
-    expect(enHorarioDeServicio(new Date(2026, 6, 24, 23, 30).getTime())).toBe(false);
-    expect(enHorarioDeServicio(new Date(2026, 6, 25, 3, 0).getTime())).toBe(false);
-  });
-
-  /*
-   * Las horas que ofrece el diálogo tienen que ser horas a las que el sistema
-   * de verdad instale. Ofrecer una y luego negarse es lo peor: el restaurante
-   * eligió, esperó, y no pasó nada.
-   */
-  it("todas las horas que ofrece el POS caen fuera del servicio", () => {
-    for (const hora of [23, 0, 1, 2, 3, 4, 5, 6]) {
-      expect(enHorarioDeServicio(new Date(2026, 6, 25, hora, 0).getTime())).toBe(false);
-    }
-  });
-
+describe("los turnos de caja", () => {
   /* Con varias cajas los turnos se entrelazan: contar eventos no sirve. */
   it("un turno sin cerrar se detecta aunque otros ya cerraran", () => {
     const aperturas = [{ sesion_id: "ses-1" }, { sesion_id: "ses-2" }];

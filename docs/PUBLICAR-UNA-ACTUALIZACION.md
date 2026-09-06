@@ -152,26 +152,43 @@ No se publica a todos a la vez cuando es una versión mayor:
 
 ## Qué ve el restaurante
 
-Aparece **«Hay una nueva actualización disponible»** con la versión, las notas y
-tres opciones:
+Aparece **«Hay una nueva actualización disponible»** con la versión y la lista
+de mejoras, y dos opciones:
 
 | Opción | Qué hace |
 |---|---|
-| **Actualizar ahora** | Se instala en cuanto sea seguro |
+| **Actualizar ahora** | Abre la confirmación |
 | **Más tarde** | Vuelve a preguntar en 2 horas |
-| **A una hora…** | 23:00, 00:00, 01:00… solo horarios de cierre |
 
 Si lo pospone, **el aviso se queda puesto** en la barra lateral hasta que se
 instale, y se puede tocar para reabrirlo. Un aviso que desaparece al posponerlo
 es una versión que nunca se instala.
 
-### Lo que el sistema no deja hacer, aunque lo pidan
+### La confirmación
 
-- **Nunca con la caja abierta.** Un turno abierto es dinero contado a medias:
-  reiniciar ahí deja un arqueo que no cuadra y nadie sabe por qué.
-- **Nunca en horario de servicio.** Se comprueba aunque el restaurante haya
-  dicho "instala ahora": quien elige eso a las nueve de la noche no está pensando
-  en las doce mesas abiertas.
+«Actualizar ahora» no instala: abre una segunda pantalla que dice
+**«¿Actualizar ahora a MotRest X.Y.Z?»**, repite las mejoras, y —lo importante—
+enseña **qué hay abierto en ese momento**: el turno de caja y las mesas con
+cuenta. Con eso delante, el restaurante decide.
+
+Es la única pregunta doble del producto. Se gana el sitio porque es lo único que
+apaga la caja.
+
+### Ya no hay horario prohibido
+
+**Se instala cuando el restaurante lo diga, a cualquier hora.** Antes había una
+ventana de 23:00 a 06:00 y el sistema se negaba fuera de ella incluso si habían
+pulsado «ahora».
+
+Se quitó porque la ventana era una suposición: MotRest no conoce el horario de
+ningún local —uno da desayunos, otro abre solo de noche—, así que un lunes a las
+once de la mañana, con la persiana abajo y nadie dentro, tampoco dejaba
+actualizar. La versión se quedaba esperando una madrugada.
+
+Lo que no se perdió es la advertencia. Un turno de caja abierto en mitad de un
+reinicio sigue dejando un arqueo que no cuadra; lo que cambió es **quién
+decide**. El Hub anota en su bitácora cuando instala con un turno abierto: el
+día que un arqueo no cuadre, esa línea explica por qué.
 
 ### `obligatoria`
 

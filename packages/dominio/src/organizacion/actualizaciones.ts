@@ -213,10 +213,11 @@ export function debeAvisar(estado: EstadoActualizacion, ahora: number): boolean 
 /**
  * ¿El restaurante ya pidió instalar y llegó la hora que eligió?
  *
- * Distingue las dos respuestas afirmativas de las tres del diálogo. «Más tarde»
- * es *recuérdamelo*, y por eso nunca instala: vencido el plazo se vuelve a
- * preguntar. «Ahora» y «a las 23:00» son *hazlo*, y lo único que queda es que el
- * momento sea seguro — eso lo decide `puedeInstalarse`, no esta función.
+ * Distingue las respuestas afirmativas de la negativa. «Más tarde» es
+ * *recuérdamelo*, y por eso nunca instala: vencido el plazo se vuelve a
+ * preguntar. «Ahora» y «a las 23:00» son *hazlo*, y ya no queda nada más que
+ * comprobar: desde que se quitó la ventana de madrugada, esta función es la
+ * única palabra sobre cuándo se instala.
  */
 export function debeInstalar(estado: EstadoActualizacion, ahora: number): boolean {
   if (!estado.disponible || !estado.eleccion) return false;
@@ -235,62 +236,56 @@ export function hayPendiente(estado: EstadoActualizacion): boolean {
   return estado.disponible !== null;
 }
 
-export type MotivoEspera = "turno_abierto" | "horario_de_servicio";
-
-export type VeredictoInstalacion =
-  | { puede: true }
-  | { puede: false; motivo: MotivoEspera; razon: string };
-
 /**
- * ¿Se puede instalar en este momento?
+ * Lo que conviene saber ANTES de reiniciar, no lo que impide reiniciar.
  *
- * Lo comprueba el sistema aunque el restaurante haya dicho "ahora": quien elige
- * "sí, instala" a las nueve de la noche del viernes casi nunca está pensando en
- * que eso reinicia la caja con doce mesas abiertas.
+ * ## Por qué esto dejó de ser una prohibición
+ *
+ * Antes el sistema se negaba a instalar fuera de la madrugada y con un turno de
+ * caja abierto, incluso si el restaurante había pulsado «ahora». La intención
+ * era buena y el resultado no: el sistema no conoce el horario de ningún local
+ * —uno da desayunos, otro abre solo de noche— así que la ventana 23:00–06:00
+ * era una suposición disfrazada de regla. Y un local que quería actualizar un
+ * lunes a las once de la mañana, con la persiana abajo y sin nadie dentro, no
+ * podía. La versión se quedaba esperando una madrugada.
+ *
+ * Decisión de Gonzalo: **se instala cuando el restaurante lo diga**. Quien está
+ * ahí sabe si hay gente comiendo; el software no.
+ *
+ * Lo que NO se hace es callar las consecuencias. Un turno de caja abierto en
+ * mitad de un reinicio deja un arqueo que no cuadra, y eso hay que decirlo con
+ * todas sus letras antes de que pulse, no después. Por eso esto devuelve
+ * ADVERTENCIAS que el diálogo enseña, y no un veto que decide por él.
  */
-export function puedeInstalarse(
-  hayTurnoAbierto: boolean,
-  enHorarioDeServicio: boolean,
-): VeredictoInstalacion {
-  if (hayTurnoAbierto) {
-    return {
-      puede: false,
-      motivo: "turno_abierto",
-      razon: "Hay un turno de caja abierto. Se instalará al cerrarlo.",
-    };
-  }
-  if (enHorarioDeServicio) {
-    return {
-      puede: false,
-      motivo: "horario_de_servicio",
-      razon: "Estamos en horario de servicio. Se instalará al cerrar.",
-    };
-  }
-  return { puede: true };
+export type AdvertenciaInstalacion = "turno_abierto" | "mesas_abiertas";
+
+export interface AvisoInstalacion {
+  clave: AdvertenciaInstalacion;
+  texto: string;
 }
 
-/**
- * La primera hora de la madrugada en que se puede reiniciar, y la última.
- *
- * Son las mismas que ofrece el diálogo del POS (23:00 a 06:00). Si esta ventana
- * y aquella lista se separan, el sistema acabaría ofreciendo una hora a la que
- * después se niega a instalar, que es la peor combinación posible: el
- * restaurante eligió, esperó, y no pasó nada.
- */
-export const HORA_INICIO_VENTANA = 23;
-export const HORA_FIN_VENTANA = 6;
-
-/**
- * ¿Estamos en horas en las que un restaurante puede estar sirviendo?
- *
- * Todo lo que no sea la madrugada se considera servicio. Es deliberadamente
- * conservador: un local con comidas y cenas, otro que abre solo de noche y otro
- * que da desayunos no comparten horario, y el sistema no lo conoce. Lo único
- * cierto para todos es que a las tres de la mañana no hay nadie cobrando.
- */
-export function enHorarioDeServicio(ahora: number): boolean {
-  const hora = new Date(ahora).getHours();
-  return !(hora >= HORA_INICIO_VENTANA || hora <= HORA_FIN_VENTANA);
+export function advertenciasDeInstalacion(
+  hayTurnoAbierto: boolean,
+  mesasAbiertas = 0,
+): AvisoInstalacion[] {
+  const avisos: AvisoInstalacion[] = [];
+  if (hayTurnoAbierto) {
+    avisos.push({
+      clave: "turno_abierto",
+      texto:
+        "Hay un turno de caja abierto. Al reiniciar, el arqueo puede no cuadrar: conviene cerrarlo antes.",
+    });
+  }
+  if (mesasAbiertas > 0) {
+    avisos.push({
+      clave: "mesas_abiertas",
+      texto:
+        mesasAbiertas === 1
+          ? "Hay 1 mesa con la cuenta abierta."
+          : `Hay ${mesasAbiertas} mesas con la cuenta abierta.`,
+    });
+  }
+  return avisos;
 }
 
 /**
