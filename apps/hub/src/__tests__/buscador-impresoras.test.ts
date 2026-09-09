@@ -8,7 +8,36 @@
  * de la red privada del local.
  */
 import { createServer, type Server } from "node:net";
-import { afterAll, describe, expect, it } from "vitest";
+import { afterAll, describe, expect, it, vi } from "vitest";
+/*
+ * EL SISTEMA OPERATIVO SE QUEDA FUERA DE LAS PRUEBAS.
+ *
+ * `buscarImpresoras` pregunta a Windows por sus colas y por los puertos sin
+ * cola, y cada pregunta arranca PowerShell. Eso hacía que la prueba tardara
+ * segundos y que fallara por tiempo cuando el monorepo entero corre en
+ * paralelo — intermitente, que es la peor clase de prueba: nadie sabe si el
+ * rojo de hoy es un fallo de verdad o el corredor bajo carga.
+ *
+ * Subir el margen solo esconde el problema. Lo que esta prueba comprueba no
+ * es que Windows conteste, sino que `conRed: false` NO barra la red; y para
+ * eso el inventario del equipo puede estar vacío, que es exactamente lo que
+ * pasa cuando se corre fuera de Windows. Sale instantánea y comprueba lo
+ * mismo.
+ *
+ * Lo que de verdad habla con la impresora tiene sus propias pruebas, en
+ * `transporte-usb` y `transporte-bluetooth`.
+ */
+vi.mock("../impresion/transporte-usb.js", async (original) => ({
+  ...(await original<typeof import("../impresion/transporte-usb.js")>()),
+  impresorasDelSistema: async () => [],
+  puertosSinCola: async () => [],
+}));
+
+vi.mock("../impresion/transporte-bluetooth.js", async (original) => ({
+  ...(await original<typeof import("../impresion/transporte-bluetooth.js")>()),
+  puertosBluetooth: async () => [],
+}));
+
 import {
   anchoProbable,
   desdeElSistema,
@@ -140,7 +169,7 @@ describe("búsqueda completa", () => {
     expect(r.redes).toEqual([]);
     // Fuera de Windows no hay spooler y la lista sale vacía: no es un error.
     expect(Array.isArray(r.impresoras)).toBe(true);
-  }, 20_000);
+  });
 
   it("las virtuales quedan al final de la lista", async () => {
     const lista = [

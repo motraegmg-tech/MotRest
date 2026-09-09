@@ -8,6 +8,8 @@ import {
   CERO,
   FabricaEventos,
   agruparPorMesa,
+  huerfanosDeMesa,
+  mesaPorOrden,
   compararEventos,
   construirRenglon,
   desglosarConTasas,
@@ -144,7 +146,34 @@ class TiendaPOS {
    * renglones en la pantalla aunque la cuenta del Hub estuviera bien.
    */
   integrar(eventos: readonly EventoComanda[]): void {
-    const porMesa = agruparPorMesa(eventos);
+    /*
+     * SE UBICAN CON LO QUE ESTA TERMINAL YA SABE, no solo con el lote.
+     *
+     * Solo `orden_creada` dice a qué mesa va una orden. El resto —agregar un
+     * platillo, cobrar, cerrar— lleva únicamente el `orden_id`. Sin este mapa,
+     * un lote que trae solo «se agregó una pizza» no se podía ubicar y se
+     * descartaba en silencio.
+     *
+     * Que es justo lo que pasaba con las tabletas: abrían la mesa (ese evento
+     * sí llegaba y se pintaba), y a partir de ahí todo lo que agregaban se caía
+     * por el camino. Quedaba en el disco, así que al reiniciar el POS aparecía
+     * de golpe — y por eso parecía cosa de la red.
+     */
+    const porMesa = agruparPorMesa(eventos, mesaPorOrden(this.logs));
+
+    /*
+     * Y si algo sigue sin ubicarse, se DICE. Un huérfano es siempre un síntoma,
+     * y callárselo fue lo que hizo que este defecto durara meses sin que nadie
+     * pudiera diagnosticarlo.
+     */
+    const huerfanos = huerfanosDeMesa(eventos, mesaPorOrden(this.logs));
+    if (huerfanos.length > 0) {
+      console.warn(
+        `Llegaron ${huerfanos.length} evento(s) de comanda sin mesa conocida:`,
+        [...new Set(huerfanos.map((e) => e.orden_id))],
+      );
+    }
+
     const siguiente = { ...this.logs };
 
     for (const [mesaId, entrantes] of Object.entries(porMesa)) {
