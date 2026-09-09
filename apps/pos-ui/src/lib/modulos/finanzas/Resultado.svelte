@@ -14,22 +14,18 @@
     CATEGORIAS_EGRESO,
     CERO,
     FORMAS_PAGO,
-    armarEstadoFinanciero,
     avisoDe,
     cuentasCerradasEn,
-    detalleCsv,
     egresosEn,
     formatearCantidad,
     pesos,
     reporteContable,
-    resumenCsv,
     resumenVentas,
     sumar,
     type CategoriaEgreso,
     type Centavos,
     type LineaEgresoInsumo,
   } from "@motrest/dominio";
-  import { estadoFinancieroPdf, nombreArchivoEstado } from "@motrest/impresion";
   import { caja } from "../../caja.svelte";
   import { egresos } from "../../egresos.svelte";
   import { fiscal } from "../../fiscal.svelte";
@@ -43,108 +39,6 @@
 
   const puedeRegistrar = $derived(sesion.puedeOperar("fin.egreso.registrar"));
   const puedeVerCostos = $derived(sesion.puedeVer("fin.costo.ver"));
-
-  // --- Reporte para el contador ---------------------------------------------------
-
-  /** El mes que se exporta. Por defecto el corriente. */
-  let mesElegido = $state(new Date().toISOString().slice(0, 7));
-
-  const rangoMes = $derived.by(() => {
-    const [anio, mes] = mesElegido.split("-").map(Number);
-    const desde = new Date(anio ?? 2026, (mes ?? 1) - 1, 1).getTime();
-    const hasta = new Date(anio ?? 2026, mes ?? 1, 1).getTime();
-    return { desde, hasta };
-  });
-
-  /**
-   * Descarga un archivo generado en el navegador.
-   *
-   * Se usa un Blob y no una petición al Hub: el reporte se arma con datos que
-   * la terminal ya tiene, así que no hay razón para que el archivo viaje por la
-   * red ni para que dependa de que el Hub esté encendido.
-   *
-   * ## Por qué el enlace se mete al DOM y la URL se libera con retraso
-   *
-   * Antes no se hacía ninguna de las dos cosas, y por eso las descargas «no
-   * funcionaban»: el `<a>` suelto y el `revokeObjectURL` en la línea siguiente
-   * al `click()` dejaban al navegador sin el blob antes de que llegara a
-   * guardarlo. En el WebView de la caja fallaba en silencio — ni archivo ni
-   * error—, que es la peor forma de fallar.
-   */
-  function descargar(nombre: string, contenido: BlobPart, tipo: string): void {
-    const url = URL.createObjectURL(new Blob([contenido], { type: tipo }));
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = nombre;
-    a.rel = "noopener";
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-    // Un minuto de margen: el guardado es asíncrono y liberar el blob antes de
-    // que termine cancela la descarga sin decir nada.
-    setTimeout(() => URL.revokeObjectURL(url), 60_000);
-  }
-
-  function reporteDelMes() {
-    const cuentas = cuentasCerradasEn(pos.todasLasComandas, rangoMes);
-    return {
-      cuentas,
-      reporte: reporteContable(
-        cuentas,
-        fiscal.registros,
-        egresosEn(egresos.registros, rangoMes),
-        rangoMes,
-      ),
-    };
-  }
-
-  /**
-   * El estado financiero del mes, en PDF.
-   *
-   * Lo pidió Gonzalo: «que den un estado financiero de lo que fue el mes
-   * seleccionado, que diga gastos desglosados, ingresos, y todo tipo de
-   * movimiento económico». Se arma con el dominio y se dibuja con el generador
-   * propio del paquete de impresión — sin librerías, para que el instalador de
-   * cada restaurante no engorde ni dependa de nadie.
-   */
-  function estadoDelMes() {
-    return armarEstadoFinanciero(
-      {
-        local: local.fichaParaTicket(licencia.licencia?.nombre ?? "Mi restaurante").nombre,
-        comandas: pos.todasLasComandas,
-        egresos: egresos.registros,
-        cfdis: fiscal.registros,
-        sesiones: caja.sesiones,
-        tesoreria: tesoreria.todosLosEventos,
-      },
-      rangoMes,
-    );
-  }
-
-  function exportarEstadoPdf() {
-    const estado = estadoDelMes();
-    descargar(
-      nombreArchivoEstado(estado),
-      estadoFinancieroPdf(estado) as unknown as BlobPart,
-      "application/pdf",
-    );
-  }
-
-  function exportarResumen() {
-    descargar(
-      `motrest-resumen-${mesElegido}.csv`,
-      resumenCsv(reporteDelMes().reporte),
-      "text/csv;charset=utf-8",
-    );
-  }
-
-  function exportarDetalle() {
-    descargar(
-      `motrest-detalle-${mesElegido}.csv`,
-      detalleCsv(reporteDelMes().cuentas),
-      "text/csv;charset=utf-8",
-    );
-  }
 
   /*
    * La JORNADA, no el día natural: un viernes que cierra a la una de la
@@ -711,34 +605,6 @@
   </div>
 {/if}
 
-<!--
-  Reporte para el contador. Cada mes hay que mandarle lo mismo, y hoy se saca a
-  mano de varias pantallas y se manda por WhatsApp: así es como se pierden datos.
--->
-{#if puedeVerCostos}
-  <section class="tarjeta">
-    <h2>Cierre del mes</h2>
-    <p class="nota">
-      El <b>estado financiero</b> es el documento completo del mes: ingresos,
-      gastos desglosados uno por uno, el resultado y todos los movimientos de
-      dinero. Es lo que se entrega al contador, al banco o a un socio. Los dos
-      archivos de hoja de cálculo siguen ahí para quien los prefiera abrir en
-      Excel.
-    </p>
-    <div class="fila-contador">
-      <label>
-        <span>Mes</span>
-        <input type="month" bind:value={mesElegido} />
-      </label>
-      <button class="principal" onclick={exportarEstadoPdf}>
-        Descargar estado financiero (PDF)
-      </button>
-      <button class="mini" onclick={exportarResumen}>Resumen (CSV)</button>
-      <button class="mini" onclick={exportarDetalle}>Detalle (CSV)</button>
-    </div>
-  </section>
-{/if}
-
 {#if delDia.length > 0}
   <section class="tarjeta">
     <h2>Gastos de hoy</h2>
@@ -997,21 +863,6 @@
   }
   td small {
     color: var(--gris);
-  }
-  .fila-contador {
-    display: flex;
-    align-items: flex-end;
-    gap: 0.6rem;
-    flex-wrap: wrap;
-    margin-top: 0.9rem;
-  }
-  .fila-contador label {
-    display: flex;
-    flex-direction: column;
-    gap: 0.3rem;
-  }
-  .fila-contador input {
-    padding: 0.5rem 0.65rem;
   }
 
   /* --- Compra de insumos dentro del gasto --- */
