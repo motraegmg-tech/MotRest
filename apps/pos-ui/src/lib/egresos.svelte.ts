@@ -111,10 +111,33 @@ class StoreEgresos {
     this.fabrica.actualizarContexto({ empleado_id: empleadoId });
   }
 
+  /**
+   * EL EVENTO NO PUEDE SALIR A NOMBRE DE «sistema».
+   *
+   * El Hub revalida el permiso de estos eventos contra su padrón, y `sistema`
+   * no es un empleado: los rechazaría en silencio. Es exactamente lo que le
+   * pasa a Rodizio con `caja_cerrada` desde siempre —dos aperturas de caja y
+   * cero cierres en su base, porque el cierre se emite como `sistema` y el Hub
+   * lo tira— y el restaurante nunca se enteró de que su arqueo no existía.
+   *
+   * Aquí se corta antes de emitir y con un mensaje que se ve en pantalla. Un
+   * gasto que la terminal cree haber guardado y el Hub descarta es peor que un
+   * gasto que no se dejó capturar: el primero descuadra el dinero de todas las
+   * demás terminales sin que nadie lo sepa.
+   */
+  private sinActor(empleadoId?: ID): string | null {
+    const quien = empleadoId ?? this.fabrica.empleadoActual;
+    if (quien && quien !== "sistema") return null;
+    return "Inicia sesión para registrar movimientos de dinero";
+  }
+
   registrar(
     datos: DatosEgreso,
     empleadoId?: ID,
   ): { ok: true; id: ID } | { ok: false; error: string } {
+    const veto = this.sinActor(empleadoId);
+    if (veto) return { ok: false, error: veto };
+
     const concepto = datos.concepto.trim();
     if (concepto.length < 3) return { ok: false, error: "Escribe el concepto del gasto" };
     if (datos.monto <= 0) return { ok: false, error: "El monto tiene que ser mayor que cero" };
@@ -186,6 +209,9 @@ class StoreEgresos {
     formaPago: string,
     opciones: { referencia?: string; autorizadorId?: ID } = {},
   ): { ok: boolean; error?: string } {
+    const veto = this.sinActor(opciones.autorizadorId);
+    if (veto) return { ok: false, error: veto };
+
     const registro = this.registros.find((r) => r.egreso_id === egresoId);
     if (!registro) return { ok: false, error: "No se encontró el gasto" };
     if (registro.anulado) return { ok: false, error: "Ese gasto está anulado" };

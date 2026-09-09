@@ -87,6 +87,24 @@ class StoreTesoreria {
     this.fabrica.actualizarContexto({ empleado_id: empleadoId });
   }
 
+  /**
+   * EL EVENTO NO PUEDE SALIR A NOMBRE DE «sistema».
+   *
+   * El Hub revalida el permiso de estos dos eventos contra su padrón, y
+   * `sistema` no es un empleado: los rechazaría en silencio. Le pasa a Rodizio
+   * con `caja_cerrada` desde siempre —cero cierres en su base, porque el cierre
+   * se emite como `sistema`— y nadie se enteró de que su arqueo no existía.
+   *
+   * Un ajuste que la terminal cree haber guardado y el Hub descarta es lo peor
+   * que le puede pasar a este store: el saldo diría una cosa en esta caja y
+   * otra en las demás, sin nada en pantalla que lo explique.
+   */
+  private sinActor(empleadoId?: ID): string | null {
+    const quien = empleadoId ?? this.fabrica.empleadoActual;
+    if (quien && quien !== "sistema") return null;
+    return "Inicia sesión para mover el dinero del restaurante";
+  }
+
   /** Los eventos propios, para que el arranque los pueda volcar al Hub. */
   get todosLosEventos(): EventoTesoreria[] {
     return this.eventos;
@@ -158,6 +176,8 @@ class StoreTesoreria {
     monto: Centavos,
     opciones: { referencia?: string; nota?: string; empleadoId?: ID } = {},
   ): ResultadoTesoreria {
+    const veto = this.sinActor(opciones.empleadoId);
+    if (veto) return { ok: false, error: veto };
     if (!Number.isFinite(monto) || monto <= 0) {
       return { ok: false, error: "Escribe un monto mayor que cero" };
     }
@@ -199,6 +219,9 @@ class StoreTesoreria {
     justificacion: string,
     autorizadorId?: ID,
   ): ResultadoTesoreria {
+    const veto = this.sinActor(autorizadorId);
+    if (veto) return { ok: false, error: veto };
+
     const porque = justificacion.trim();
     if (porque.length < 5) {
       return { ok: false, error: "Explica el ajuste: queda en el histórico y en la bitácora" };

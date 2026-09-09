@@ -16,11 +16,17 @@
   /*
    * EL TURNO QUE NADIE CERRÓ.
    *
-   * En Rodizio la caja no se cierra nunca: hay cero cortes cerrados en la base.
-   * No es mala fe — nadie se acuerda a las dos de la mañana— pero el resultado
-   * es que el turno del jueves sigue abierto el lunes acumulando la venta de
-   * cuatro días, y ese corte ya no se puede arquear contra nada: nadie va a
-   * contar el cajón de hace cuatro noches.
+   * En Rodizio la caja no se cierra nunca: hay dos aperturas y CERO cierres en
+   * la base del Hub. Y no es olvido —esa fue la primera hipótesis y era falsa—:
+   * el `caja_cerrada` sale a nombre de `sistema`, que no está en el padrón, y
+   * el Hub lo rechaza por permisos una y otra vez. El cajero cierra, la pantalla
+   * dice que cerró, y el corte nunca llega a existir.
+   *
+   * Este aviso NO arregla ese defecto, que sigue abierto y es de otro sitio. Lo
+   * que hace es que deje de ser invisible: mientras el turno siga abierto, las
+   * cifras de abajo son la suma de varias jornadas revueltas y el esperado no se
+   * puede cuadrar contra ningún cajón de una sola noche. Hasta ahora nada en la
+   * pantalla lo decía.
    *
    * `ahora` avanza solo para que el aviso aparezca sin recargar la pantalla.
    * Cada diez minutos basta: lo que se vigila son horas.
