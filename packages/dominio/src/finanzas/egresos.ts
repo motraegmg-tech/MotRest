@@ -62,6 +62,28 @@ export function categoriaDe(id: CategoriaEgreso): DefinicionCategoria {
   return CATEGORIAS_EGRESO.find((c) => c.id === id) ?? CATEGORIAS_EGRESO[CATEGORIAS_EGRESO.length - 1]!;
 }
 
+// --- La compra que carga el almacén -----------------------------------------------
+
+/**
+ * Un renglón de mercancía dentro de un gasto.
+ *
+ * Existe para que registrar la compra del queso sea UN solo acto: sale el
+ * dinero y entra el producto al almacén. Antes eran dos capturas en dos
+ * pantallas distintas, y la segunda se olvidaba — por eso el inventario decía
+ * una cosa y la despensa otra.
+ *
+ * La cantidad va en la UNIDAD BASE del insumo. La conversión (una caja de 5 kg
+ * son 5 000 g) se hace al capturar, donde se sabe qué se compró; guardar aquí
+ * «1 caja» dejaría al almacén sin forma de saber cuánto entró.
+ */
+export interface LineaEgresoInsumo {
+  insumo_id: ID;
+  /** En la unidad base del insumo. */
+  cantidad: number;
+  /** Lo que costó ESTE renglón, completo. No es el costo unitario. */
+  importe: Centavos;
+}
+
 // --- Eventos ---------------------------------------------------------------------------
 
 export type EventoEgreso =
@@ -77,6 +99,48 @@ export type EventoEgreso =
       /** RFC y folio del comprobante recibido, si lo hay. */
       rfc_proveedor?: string;
       folio_comprobante?: string;
+      /**
+       * ¿Salió el dinero ya?
+       *
+       * `false` = se recibió a crédito y queda como cuenta por pagar: el gasto
+       * existe desde hoy, pero el dinero sale el día que se liquide. Es como
+       * opera un restaurante con sus proveedores, y confundir las dos fechas es
+       * lo que hace que el saldo esté mal toda la semana.
+       *
+       * Ausente = pagado. Es lo que valían todos los eventos anteriores a esta
+       * versión, y reinterpretarlos como deuda inventaría pasivos que nadie
+       * debe.
+       */
+      pagado?: boolean;
+      /** Cuándo se compromete el pago, en los gastos a crédito. */
+      vence_ts?: number;
+      /** El proveedor del catálogo de compras, cuando la compra viene de ahí. */
+      proveedor_id?: ID;
+      /** La orden de compra que lo originó, para poder rastrearlo. */
+      orden_id?: ID;
+      /**
+       * Mercancía que entra al almacén con esta compra.
+       *
+       * Solo la llevan los gastos de categoría `insumos`. El movimiento de
+       * inventario lo emite quien captura, no este evento: el almacén es dueño
+       * de sus existencias y no se le escriben desde fuera.
+       */
+      lineas?: LineaEgresoInsumo[];
+    })
+  | (EventoBase & {
+      /**
+       * Se liquida un gasto que estaba a crédito.
+       *
+       * Es el momento en que el dinero SALE de verdad. El gasto ya existía
+       * desde que se recibió la mercancía; esto no lo vuelve a contar, solo
+       * dice cuándo y con qué se pagó.
+       */
+      tipo: "egreso_pagado";
+      egreso_id: ID;
+      forma_pago: string;
+      /** Folio de la transferencia o del cheque. */
+      referencia?: string;
+      autorizador_id?: ID;
     })
   | (EventoBase & {
       /**
@@ -97,6 +161,7 @@ export interface RegistroEgreso {
   categoria: CategoriaEgreso;
   concepto: string;
   monto: Centavos;
+  /** Con qué se pagó, o con qué se pagará si todavía es deuda. */
   forma_pago: string;
   proveedor?: string;
   rfc_proveedor?: string;
@@ -105,6 +170,17 @@ export interface RegistroEgreso {
   ts: number;
   anulado: boolean;
   motivo_anulacion?: string;
+
+  /** false = todavía se debe. */
+  pagado: boolean;
+  /** Cuándo salió el dinero. Igual a `ts` cuando se pagó de contado. */
+  pagado_ts?: number;
+  /** Fecha comprometida de pago, en los que están a crédito. */
+  vence_ts?: number;
+  referencia_pago?: string;
+  proveedor_id?: ID;
+  orden_id?: ID;
+  lineas?: LineaEgresoInsumo[];
 }
 
 export function aplicarEventoEgreso(
@@ -115,6 +191,12 @@ export function aplicarEventoEgreso(
     case "egreso_registrado": {
       // Idempotente por id: reaplicar el mismo evento no duplica la salida.
       if (registros.some((r) => r.egreso_id === ev.egreso_id)) return [...registros];
+      /*
+       * Sin la bandera, PAGADO. Los eventos escritos antes de que existieran
+       * las cuentas por pagar registraban gastos ya liquidados; leerlos como
+       * deuda le inventaría al restaurante pasivos que nunca tuvo.
+       */
+      const pagado = ev.pagado !== false;
       return [
         ...registros,
         {
@@ -129,9 +211,33 @@ export function aplicarEventoEgreso(
           empleado_id: ev.empleado_id,
           ts: ev.ts,
           anulado: false,
+          pagado,
+          pagado_ts: pagado ? ev.ts : undefined,
+          vence_ts: ev.vence_ts,
+          proveedor_id: ev.proveedor_id,
+          orden_id: ev.orden_id,
+          lineas: ev.lineas,
         },
       ];
     }
+
+    case "egreso_pagado":
+      return registros.map((r) =>
+        /*
+         * Solo liquida lo que sigue debiéndose. Reaplicar el evento —una
+         * resincronización— no puede mover la fecha de pago ya asentada, que
+         * es la que decide en qué día salió el dinero.
+         */
+        r.egreso_id === ev.egreso_id && !r.pagado
+          ? {
+              ...r,
+              pagado: true,
+              pagado_ts: ev.ts,
+              forma_pago: ev.forma_pago,
+              referencia_pago: ev.referencia,
+            }
+          : r,
+      );
 
     case "egreso_anulado":
       return registros.map((r) =>
@@ -153,7 +259,13 @@ export function proyectarEgresos(eventos: readonly EventoEgreso[]): RegistroEgre
   return registros;
 }
 
-/** Los egresos vigentes de un período. Los anulados no cuentan. */
+/**
+ * Los egresos vigentes de un período, por la fecha en que SE INCURRIERON.
+ *
+ * Es la lectura del resultado: el gas de agosto es gasto de agosto aunque se
+ * pague en septiembre. Para saber qué día salió el dinero está
+ * `egresosPagadosEn`, que mira la otra fecha.
+ */
 export function egresosEn(
   registros: readonly RegistroEgreso[],
   rango: Rango,
@@ -161,6 +273,84 @@ export function egresosEn(
   return registros
     .filter((r) => !r.anulado && r.ts >= rango.desde && r.ts < rango.hasta)
     .sort((a, b) => a.ts - b.ts);
+}
+
+/**
+ * Los egresos cuyo DINERO salió en el período.
+ *
+ * La distinción no es contable-por-contable: es la diferencia entre «cuánto
+ * gasté este mes» y «cuánto dinero me queda». Un restaurante que compra a
+ * crédito tiene las dos cifras muy separadas, y mezclarlas es lo que hace que
+ * el saldo nunca cuadre con el cajón.
+ */
+export function egresosPagadosEn(
+  registros: readonly RegistroEgreso[],
+  rango: Rango,
+): RegistroEgreso[] {
+  return registros
+    .filter(
+      (r) =>
+        !r.anulado &&
+        r.pagado &&
+        r.pagado_ts !== undefined &&
+        r.pagado_ts >= rango.desde &&
+        r.pagado_ts < rango.hasta,
+    )
+    .sort((a, b) => (a.pagado_ts ?? 0) - (b.pagado_ts ?? 0));
+}
+
+/** Lo que se debe: gastos vigentes que todavía no se han pagado. */
+export function cuentasPorPagar(registros: readonly RegistroEgreso[]): RegistroEgreso[] {
+  return registros
+    .filter((r) => !r.anulado && !r.pagado)
+    // Primero lo que vence antes; lo que no tiene fecha, al final.
+    .sort((a, b) => (a.vence_ts ?? Infinity) - (b.vence_ts ?? Infinity));
+}
+
+/** El total adeudado a proveedores. */
+export function totalPorPagar(registros: readonly RegistroEgreso[]): Centavos {
+  return sumar(...cuentasPorPagar(registros).map((r) => r.monto));
+}
+
+/** Deuda cuya fecha comprometida ya pasó. Es la que hay que enseñar en rojo. */
+export function vencidas(registros: readonly RegistroEgreso[], ahora: number): RegistroEgreso[] {
+  return cuentasPorPagar(registros).filter((r) => r.vence_ts !== undefined && r.vence_ts < ahora);
+}
+
+/** Lo que se le debe a cada proveedor, de mayor a menor. */
+export interface DeudaProveedor {
+  proveedor: string;
+  proveedor_id?: ID;
+  monto: Centavos;
+  documentos: number;
+  /** El vencimiento más próximo de los pendientes. */
+  vence_ts?: number;
+}
+
+export function deudaPorProveedor(registros: readonly RegistroEgreso[]): DeudaProveedor[] {
+  const porNombre = new Map<string, DeudaProveedor>();
+
+  for (const r of cuentasPorPagar(registros)) {
+    const proveedor = r.proveedor?.trim() || "Sin proveedor";
+    const previa = porNombre.get(proveedor);
+    if (previa) {
+      previa.monto = sumar(previa.monto, r.monto);
+      previa.documentos += 1;
+      if (r.vence_ts !== undefined && (previa.vence_ts === undefined || r.vence_ts < previa.vence_ts)) {
+        previa.vence_ts = r.vence_ts;
+      }
+    } else {
+      porNombre.set(proveedor, {
+        proveedor,
+        proveedor_id: r.proveedor_id,
+        monto: r.monto,
+        documentos: 1,
+        vence_ts: r.vence_ts,
+      });
+    }
+  }
+
+  return [...porNombre.values()].sort((a, b) => b.monto - a.monto);
 }
 
 // --- El resultado ------------------------------------------------------------------------

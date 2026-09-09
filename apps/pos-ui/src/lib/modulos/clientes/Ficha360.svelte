@@ -237,7 +237,7 @@
     padding: 0.1rem 0.4rem;
     border-radius: var(--r-pill);
     background: var(--acento);
-    color: #fff;
+    color: var(--sobre-acento);
     font-size: 0.8rem;
     text-align: center;
   }

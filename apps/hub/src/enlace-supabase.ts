@@ -1,17 +1,19 @@
 /**
  * El enlace del Hub con la nube de MotRest, cuando esa nube es Supabase.
  *
- * Hace exactamente lo mismo que `EnlaceRelayWs` (relay.ts) y por eso implementa
- * su misma interfaz: main.ts elige uno u otro por la forma de la dirección y no
- * sabe cuál le tocó. Lo que cambia es que ya no hay un servidor de MOTRAE
+ * Cumple `EnlaceConMotrae` (enlace-motrae.ts), que dice qué le pide el Hub a la
+ * nube sin decir quién la aloja. Ya no hay un servidor propio de MOTRAE
  * sosteniendo el socket — lo sostiene Realtime.
  *
- * POR QUÉ ESTO NO ES REPUNTAR EL ANTERIOR
+ * HUBO UN SEGUNDO TRANSPORTE Y SE RETIRÓ
  *
- * `EnlaceRelayWs` habla un protocolo propio: abre un WebSocket, dice
- * `{tipo:"hola"}` con su credencial y el relay le contesta. Realtime habla
- * Phoenix y autentica con un JWT. No es la misma conversación con otra URL, es
- * otra conversación — de ahí que convivan dos clases en vez de un parámetro.
+ * Un servidor propio en Fly, con protocolo a medida: abría un WebSocket, decía
+ * `{tipo:"hola"}` con su credencial y el servidor contestaba. Nunca llegó a
+ * existir de verdad —el dominio ni siquiera estaba registrado— y mientras tanto
+ * cada local que apuntara ahí quedaba sin pulso y sin renovaciones sin que nadie
+ * lo viera. Realtime habla Phoenix y autentica con un JWT: no era la misma
+ * conversación con otra URL, era otra conversación, y por eso no se repuntó
+ * sino que se sustituyó.
  *
  * SI ESTO NO CONECTA, EL RESTAURANTE SIGUE VENDIENDO. Igual que antes: el POS,
  * el KDS, las impresoras, el portal y el corte de caja viven en el Hub y no
@@ -27,7 +29,7 @@
 import { createClient, type RealtimeChannel, type SupabaseClient } from "@supabase/supabase-js";
 import WebSocket from "ws";
 import type { Aviso } from "./avisos.js";
-import type { EnlaceConMotrae, MensajeDelComensal, OpcionesRelay } from "./relay.js";
+import type { EnlaceConMotrae, MensajeDelComensal, OpcionesNube } from "./enlace-motrae.js";
 
 /** El buzón de cada Hub en Supabase Auth. No recibe correo; es un identificador. */
 const DOMINIO_HUBS = "hubs.motrae.mx";
@@ -40,7 +42,7 @@ const DOMINIO_HUBS = "hubs.motrae.mx";
  * recuperarlo solo serviría para llenarle la pantalla al restaurante un lunes
  * por la mañana.
  *
- * El relay no recuperaba ninguno —no tenía dónde guardarlos— y eso dejaba un
+ * El servidor viejo no recuperaba ninguno —no tenía dónde guardarlos— y dejaba un
  * fallo silencioso: si un comensal escribía de madrugada, el Hub no se enteraba
  * y creía que no podía responderle con texto libre. Ahora que la tabla los
  * guarda, recogerlos es lo correcto.
@@ -51,12 +53,51 @@ const REINTENTO_BASE_MS = 2_000;
 const REINTENTO_MAX_MS = 5 * 60 * 1000;
 
 /**
+ * El pulso, con la forma que entiende la tabla.
+ *
+ * TRES COSAS QUE NO SALEN DEL HUB, y cada una por su motivo:
+ *
+ * - `sucursal_id` lo pone el enlace con el de la credencial, no con el que
+ *   venga en el parte. Un local no reporta en nombre de otro.
+ * - `ts` lo pone el servidor con un trigger. El reloj de un local puede estar
+ *   en cualquier año, y un pulso fechado en 2019 desordena el panel entero.
+ * - Las fechas van en ISO, no en milisegundos.
+ *
+ * LO ÚLTIMO ES UN FALLO REAL Y CARO. `respaldo_ts` sale de la fecha de un
+ * archivo (`mtimeMs`) y llega como número con decimales; la columna es
+ * `timestamptz`. Postgres no lo convierte: contesta «date/time field value out
+ * of range» y **rechaza el pulso entero**, de modo que por ese campo se pierden
+ * también la versión, las terminales y las ventas. En el panel el local sale
+ * como «nunca reportó», que es indistinguible de un restaurante caído — y así
+ * estuvo el primer local que conectó de verdad.
+ *
+ * Se convierte aquí y no en la base porque Central lee esa columna con
+ * `new Date(...)`: la ida y la vuelta tienen que hablar el mismo idioma.
+ */
+export function filaDelPulso(
+  pulso: Record<string, unknown>,
+  sucursalId: string,
+): Record<string, unknown> {
+  const { sucursal_id: _propio, ts: _servidor, respaldo_ts, ...cuerpo } = pulso;
+
+  const enFecha =
+    typeof respaldo_ts === "number" && Number.isFinite(respaldo_ts)
+      ? new Date(respaldo_ts).toISOString()
+      : undefined;
+
+  return {
+    ...cuerpo,
+    sucursal_id: sucursalId,
+    ...(enFecha ? { respaldo_ts: enFecha } : {}),
+  };
+}
+/**
  * ¿Se puede usar esta dirección para hablar con la nube?
  *
  * **Solo `https://`.** Por aquí viajan la credencial del restaurante y el token
  * de la API de Meta; en claro se los lleva cualquiera en el mismo wifi, y a
  * partir de ahí manda WhatsApp en nombre del restaurante. Es la misma regla que
- * `direccionUsable()` aplica al `wss://` del relay, y por la misma razón.
+ * la nube aplica a todo lo que sale del restaurante, y por la misma razón.
  *
  * Se deja pasar el bucle local para poder correr el ensayo contra un Supabase de
  * desarrollo, donde no hay red que escuchar.
@@ -81,14 +122,20 @@ export function direccionDeNubeUsable(url: string): { ok: true } | { ok: false; 
   };
 }
 
-/** ¿Esta dirección es de la nube de Supabase, o del relay de toda la vida? */
+/**
+ * ¿Este local tiene dirección de nube, o no tiene ninguna?
+ *
+ * Distingue «hay a dónde hablar» de «este local todavía no está enlazado», que
+ * es un caso normal: un restaurante recién instalado opera con el portal y sin
+ * nube hasta que se le emite la licencia con sus datos.
+ *
+ * Es deliberadamente laxa —solo mira el esquema— porque quien decide si la
+ * dirección SIRVE es `direccionDeNubeUsable`, que exige https salvo en el bucle
+ * local. Tener dos comprobaciones estrictas del mismo dato es cómo se acaba con
+ * dos que discrepan.
+ */
 export function pareceNubeSupabase(url: string): boolean {
   return /^https?:\/\//i.test(url.trim());
-}
-
-export interface OpcionesNube extends OpcionesRelay {
-  /** La llave publicable del proyecto. No es un secreto: sin JWT no ve nada. */
-  llavePublicable: string;
 }
 
 export class EnlaceSupabase implements EnlaceConMotrae {
@@ -150,8 +197,8 @@ export class EnlaceSupabase implements EnlaceConMotrae {
 
       if (error) {
         /*
-         * Una credencial que no reconoce no se arregla reintentando, igual que
-         * en el relay: es un problema de alta que alguien tiene que mirar. Se
+         * Una credencial que no reconoce no se arregla reintentando: es un
+         * problema de alta que alguien tiene que mirar. Se
          * sigue reintentando de todos modos porque el mismo error sale cuando
          * la nube está caída, y ahí sí conviene volver.
          */
@@ -424,11 +471,10 @@ export class EnlaceSupabase implements EnlaceConMotrae {
    */
   reportarPulso(pulso: Record<string, unknown>): void {
     if (!this.dentro || !this.cliente) return;
-    const { sucursal_id: _propio, ts: _servidor, ...cuerpo } = pulso;
 
     void this.cliente
       .from("pulsos")
-      .upsert({ ...cuerpo, sucursal_id: this.opciones.sucursal_id }, { onConflict: "sucursal_id" })
+      .upsert(filaDelPulso(pulso, this.opciones.sucursal_id), { onConflict: "sucursal_id" })
       .then(({ error }) => {
         if (error) this.opciones.registrar("aviso", `No se pudo reportar el pulso: ${error.message}`);
       });

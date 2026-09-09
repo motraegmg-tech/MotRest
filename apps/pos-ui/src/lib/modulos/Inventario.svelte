@@ -591,12 +591,6 @@
     gap: 1.1rem;
     max-width: 66rem;
   }
-  .encabezado {
-    display: flex;
-    align-items: flex-start;
-    gap: 1rem;
-    flex-wrap: wrap;
-  }
   .encabezado > div:first-child {
     flex: 1;
     min-width: 16rem;
@@ -611,29 +605,12 @@
     color: var(--gris);
     max-width: 38rem;
   }
-  .pestanas {
-    display: flex;
-    gap: 0.3rem;
-    background: var(--fondo);
-    border: 1px solid var(--borde);
-    border-radius: var(--r-md);
-    padding: 0.2rem;
-  }
   .pestanas button {
     padding: 0.4rem 0.85rem;
     border-radius: var(--r-sm);
     font-size: 0.83rem;
     font-weight: 600;
     color: var(--gris);
-  }
-  .pestanas button.on {
-    background: var(--acento);
-    color: #fff;
-  }
-  .indicadores {
-    display: flex;
-    gap: 1rem;
-    flex-wrap: wrap;
   }
   .dato {
     flex: 1;
@@ -711,11 +688,8 @@
     text-align: right;
     white-space: nowrap;
   }
-  .tenue {
-    color: var(--gris);
-  }
   tr.bajo .num:first-of-type {
-    color: var(--acento);
+    color: var(--acento-texto);
     font-weight: 700;
   }
   tr.negativo .num:first-of-type {
@@ -767,7 +741,7 @@
     white-space: nowrap;
     min-width: 5rem;
     text-align: right;
-    color: var(--exito);
+    color: var(--exito-texto);
   }
   .mov .delta.resta {
     color: var(--peligro);
@@ -777,7 +751,7 @@
   }
   /* La devolución por cancelación se lee de un vistazo entre las salidas. */
   .mov.reverso_receta .motivo {
-    color: var(--exito);
+    color: var(--exito-texto);
     font-weight: 600;
   }
   .campos {
@@ -827,8 +801,8 @@
     border-color: var(--peligro);
   }
   .campos input.cantidad.suma {
-    color: var(--exito);
-    border-color: var(--exito);
+    color: var(--exito-texto);
+    border-color: var(--exito-texto);
   }
   .campos input.cantidad.resta:focus,
   .campos input.cantidad.suma:focus {
@@ -844,13 +818,13 @@
   }
   .efecto.suma,
   .tinta-suma {
-    color: var(--exito);
+    color: var(--exito-texto);
   }
   .devuelto {
     display: block;
     font-size: 0.68rem;
     font-weight: 600;
-    color: var(--exito);
+    color: var(--exito-texto);
   }
   .pista {
     margin-top: 0.75rem;
@@ -877,7 +851,7 @@
   }
   .principal {
     background: var(--acento);
-    color: #fff;
+    color: var(--sobre-acento);
     border-radius: var(--r-md);
     padding: 0.65rem 1.2rem;
     font-family: var(--font-titulo);
@@ -932,7 +906,7 @@
     font-family: var(--font-titulo);
     font-size: 3rem;
     line-height: 1;
-    color: var(--acento);
+    color: var(--acento-texto);
     margin: 0.2rem 0;
   }
   .dato-grande .unidades {

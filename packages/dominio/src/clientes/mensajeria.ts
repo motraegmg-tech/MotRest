@@ -1,7 +1,7 @@
 /**
  * Mensajería con el comensal (M7 · F3): WhatsApp hoy, lo que venga después.
  *
- * POR QUÉ ESTO VIVE EN EL DOMINIO Y NO EN EL RELAY
+ * POR QUÉ ESTO VIVE EN EL DOMINIO Y NO EN EL TRANSPORTE
  *
  * Las reglas que gobiernan un mensaje no son de transporte: son de negocio, y
  * romperlas tiene una consecuencia concreta y cara — Meta limita o tumba el
@@ -9,7 +9,7 @@
  * está lista" y las promociones, todo junto y sin previo aviso.
  *
  * Un número quemado no se arregla con código. Por eso las tres reglas viven
- * aquí, probadas, y el relay solo obedece:
+ * aquí, probadas, y quien envía solo obedece:
  *
  *   1. VENTANA DE SERVICIO DE 24 HORAS. Cuando el comensal escribe, se abre una
  *      ventana de 24 h en la que se le puede contestar libremente. Fuera de esa

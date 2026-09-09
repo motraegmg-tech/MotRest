@@ -56,11 +56,24 @@ function generarCredencial(): string {
 }
 
 function leerArgumentos(argv: string[]): Opciones | string {
+  /*
+   * SE BUSCAN LAS BANDERAS, NO SE AVANZA DE DOS EN DOS.
+   *
+   * Iba a saltos fijos, y eso se rompe con un solo argumento de mas. pnpm
+   * pasa el `--` separador al script tal cual, asi que argv llegaba como
+   * ["--", "--sucursal", "suc-x", …]: el primero se descartaba por vacio, el
+   * indice quedaba corrido, y a partir de ahi cada valor se leia como si fuera
+   * una bandera. El resultado era «Faltan --sucursal y/o --nombre» teniendolos
+   * los dos delante — un error que manda a mirar justo donde no esta el fallo.
+   */
   const dado = new Map<string, string>();
-  for (let i = 0; i < argv.length; i += 2) {
-    const clave = argv[i]?.replace(/^--/, "");
-    if (!clave) continue;
-    dado.set(clave, argv[i + 1] ?? "");
+  for (let i = 0; i < argv.length; i++) {
+    const bruto = argv[i] ?? "";
+    if (!bruto.startsWith("--")) continue;
+    const clave = bruto.slice(2);
+    if (!clave) continue; // el `--` a secas es un separador, no una bandera
+    const valor = argv[i + 1] ?? "";
+    dado.set(clave, valor.startsWith("--") ? "" : valor);
   }
 
   const sucursal = dado.get("sucursal")?.trim() ?? "";
@@ -74,7 +87,7 @@ function leerArgumentos(argv: string[]): Opciones | string {
    * que el error diga qué pasa, en vez de llegar como un fallo de Postgres a
    * mitad del alta con el usuario de Auth ya creado.
    */
-  if (!/^suc-[a-z0-9]{4,32}$/.test(sucursal)) {
+  if (!/^suc-[A-Za-z0-9-]{1,60}$/.test(sucursal)) {
     return `"${sucursal}" no tiene forma de sucursal. El Hub la escribe en <datos>/sucursal.txt al instalarse: cópiala de ahí.`;
   }
   return { sucursal, nombre };

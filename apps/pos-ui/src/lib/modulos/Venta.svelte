@@ -117,7 +117,7 @@
   }
   .volver:hover {
     border-color: var(--acento);
-    color: var(--acento);
+    color: var(--acento-texto);
   }
   .titulo-pedido {
     font-family: var(--font-titulo);
@@ -125,7 +125,7 @@
     font-weight: 700;
     text-transform: uppercase;
     letter-spacing: 0.06em;
-    color: var(--acento);
+    color: var(--acento-texto);
   }
   .pasos {
     display: none;
@@ -180,12 +180,12 @@
       gap: 0.35rem;
     }
     .pasos button.on {
-      color: var(--acento);
+      color: var(--acento-texto);
       box-shadow: inset 0 2px 0 var(--acento);
     }
     .badge {
       background: var(--acento);
-      color: #fff;
+      color: var(--sobre-acento);
       border-radius: var(--r-pill);
       font-size: 0.7rem;
       padding: 0.05rem 0.35rem;

@@ -1,8 +1,9 @@
 /**
  * Envío de correo desde el Hub del restaurante, por dos caminos.
  *
- * SIN RELAY, y eso es lo importante. Mandar un correo es una llamada de SALIDA:
- * el Hub la hace él mismo desde el local. No hace falta un servicio en la nube,
+ * NO PASA POR LA NUBE, y eso es lo importante. Mandar un correo es una llamada
+ * de SALIDA: el Hub la hace él mismo desde el local. No hace falta un servicio
+ * intermedio,
  * ni un webhook público, ni exponer nada — a diferencia de WhatsApp, que
  * necesita que Meta pueda alcanzarnos para entregar lo que entra.
  *

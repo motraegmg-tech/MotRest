@@ -234,7 +234,7 @@
     font-weight: 600;
     text-transform: none;
     letter-spacing: 0;
-    color: var(--acento);
+    color: var(--acento-texto);
     background: var(--claro);
     border-radius: var(--r-pill);
     padding: 0.1rem 0.45rem;
@@ -287,7 +287,7 @@
   .chip.on {
     background: var(--acento);
     border-color: var(--acento);
-    color: #fff;
+    color: var(--sobre-acento);
   }
   .chip:disabled {
     opacity: 0.4;
@@ -376,12 +376,12 @@
     color: var(--gris);
   }
   .desglose .costo {
-    color: var(--acento);
+    color: var(--acento-texto);
     font-weight: 600;
   }
   .agregar {
     background: var(--acento);
-    color: #fff;
+    color: var(--sobre-acento);
     border-radius: var(--r-lg);
     padding: 0.8rem 1.4rem;
     font-family: var(--font-titulo);

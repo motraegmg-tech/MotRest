@@ -514,7 +514,7 @@
   }
   .volver:hover {
     border-color: var(--acento);
-    color: var(--acento);
+    color: var(--acento-texto);
   }
   .areas {
     display: flex;
@@ -537,7 +537,7 @@
   .area.on {
     background: var(--acento);
     border-color: var(--acento);
-    color: #fff;
+    color: var(--sobre-acento);
   }
   .area .cuenta {
     font-size: 0.7rem;
@@ -598,12 +598,12 @@
   }
   .mini:hover {
     border-color: var(--acento);
-    color: var(--acento);
+    color: var(--acento-texto);
   }
   .mini.on {
     background: var(--acento);
     border-color: var(--acento);
-    color: #fff;
+    color: var(--sobre-acento);
   }
   .mini.peligro {
     color: var(--peligro);
@@ -666,7 +666,7 @@
     font-size: 0.6rem;
     font-weight: 600;
     line-height: 1;
-    color: var(--acento);
+    color: var(--acento-texto);
   }
   .estimada {
     font-size: 0.75rem;
@@ -710,7 +710,7 @@
     font-size: 0.85rem;
   }
   .problemas b {
-    color: var(--acento);
+    color: var(--acento-texto);
   }
   .problemas ul {
     margin-top: 0.4rem;
@@ -721,7 +721,7 @@
   }
   .problemas li::before {
     content: "· ";
-    color: var(--acento);
+    color: var(--acento-texto);
   }
 
   /* --- Diálogos propios ------------------------------------------------------

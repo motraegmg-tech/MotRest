@@ -35,7 +35,7 @@
  */
 import { createClient } from "@supabase/supabase-js";
 import { EnlaceSupabase } from "../src/enlace-supabase.js";
-import type { MensajeDelComensal } from "../src/relay.js";
+import type { MensajeDelComensal } from "../src/enlace-motrae.js";
 
 const URL_NUBE = process.env.MOTREST_NUBE_URL ?? "";
 const PUBLICABLE = process.env.MOTREST_NUBE_PUBLICABLE ?? "";
@@ -165,7 +165,7 @@ async function principal(): Promise<void> {
   });
 
   // El pulso se manda sin esperar respuesta (es un upsert a fuego y olvido, como
-  // en el relay), así que se le da un momento antes de ir a leerlo.
+  // antes), así que se le da un momento antes de ir a leerlo.
   await new Promise((r) => setTimeout(r, 3_000));
   const { data: pulso } = await comoYo.from("pulsos").select("*").maybeSingle();
 

@@ -76,7 +76,7 @@ Errores que rebotan la solicitud:
 4. Guardar el **App ID** y el **App Secret**.
 
 > El **App Secret** es con lo que se comprueba que un webhook viene de verdad de
-> Meta. Va en una variable de entorno del relay y **nunca al repositorio**.
+> Meta. Va en un secreto de la función y **nunca al repositorio**.
 
 ### A.3 · Pedir los permisos como Proveedor de Tecnología
 
@@ -93,49 +93,60 @@ de MotRest, no con diapositivas — con diapositivas lo rechazan.
 
 **Tiempo: de 3 a 10 días hábiles.**
 
-### A.4 · Publicar el relay
+### A.4 · Publicar las funciones de la nube
 
-> **Los pasos exactos están en [DESPLEGAR-EL-RELAY.md](DESPLEGAR-EL-RELAY.md)**:
-> dominio, Fly.io, secretos, certificado y respaldo, en orden y con los comandos.
+> **Los pasos exactos están en [DESPLEGAR-LA-NUBE.md](DESPLEGAR-LA-NUBE.md)**:
+> proyecto, migraciones, secretos y funciones, en orden y con los comandos.
 > Aquí queda solo lo que hay que entender antes de correrlos.
 >
-> **Y no espera a Meta.** El relay también recoge el pulso de cada local —qué
+> **Y no espera a Meta.** La nube también recoge el pulso de cada local —qué
 > versión corre, cuándo dio señales— y eso funciona el primer día, sin ninguna
-> aprobación. Conviene publicarlo mientras la revisión de A.3 avanza.
+> aprobación. Conviene tenerla en pie mientras la revisión de A.3 avanza.
 
-El relay es la única parte de MotRest conectada a internet. Necesita:
+Hubo aquí un servidor propio —un «relay» en Fly.io— y se retiró. **Nunca llegó a
+existir:** el dominio no se registró y la aplicación no tenía máquinas, así que
+ningún local reportó jamás y nadie se enteró, porque el Hub reintentaba en
+silencio. Lo que hay ahora es Supabase, y no hay servidor que mantener.
 
-1. **Un dominio con HTTPS válido.** Meta no acepta webhooks sin certificado, y
-   los Hubs solo se conectan por `wss://` — un `ws://` lo rechaza el propio Hub.
-2. **Las variables de entorno.** Estas seis son **todas** las que el relay lee.
-   Las tres primeras son obligatorias y sin ellas no arranca:
+Necesita dos cosas:
+
+1. **Los secretos de la función del webhook.** Se ponen con
+   `supabase secrets set` y **nunca van al repositorio**:
 
    ```
-   MOTREST_META_APP_SECRET     el App Secret de A.2
-   MOTREST_META_VERIFY_TOKEN   una cadena larga que inventas tú, la misma que
-                               pondrás en el panel de Meta
-   MOTREST_RELAY_LLAVE_PADRON  32 bytes en base64: cifra el padrón en reposo
-   MOTREST_RELAY_CLAVE_ADMIN   para consultar /salud/detalle (opcional)
-   MOTREST_RELAY_PUERTO        puerto de escucha (por defecto 8080)
-   MOTREST_RELAY_PADRON        dónde se guarda el padrón (./datos/…)
+   MOTREST_META_APP_SECRET      el App Secret de A.2
+   MOTREST_META_VERIFY_TOKEN    una cadena larga que inventas tú, la misma que
+                                pondrás en el panel de Meta
+   MOTREST_LLAVE_TOKENS_META    32 bytes en base64: cifra los tokens en reposo
    ```
 
-   La llave del padrón se genera una vez y **no se pierde**: sin ella, el archivo
-   con los tokens de todos los restaurantes no se puede leer y hay que volver a
-   conectar cada número.
+   La llave de los tokens se genera una vez y **no se pierde**: sin ella, los
+   tokens de todos los restaurantes no se pueden descifrar y hay que volver a
+   conectar cada número. Supabase guarda el texto cifrado y **no tiene la llave**
+   — es lo que hace que el padrón no viva en la base de datos de nadie más.
 
    ```bash
-   pnpm --filter @motrest/relay padron llave
+   node -e "console.log(require('node:crypto').randomBytes(32).toString('base64'))"
    ```
 
-   > **`MOTREST_RELAY_CLAVE_HUB` ya no existe.** Era una sola clave para todos
-   > los Hubs: con ella, cualquier restaurante podía decir que era otro y
-   > quedarse con sus mensajes. Ahora cada local tiene la suya (paso B.0).
+2. **La URL del webhook**, que sale de desplegar la función:
+
+   ```
+   https://<proyecto>.supabase.co/functions/v1/webhook-whatsapp
+   ```
+
+   > **No lleva JWT, y es a propósito.** Meta no puede mandar un token nuestro.
+   > Lo que la protege es la firma HMAC del cuerpo, comprobada sobre los bytes
+   > crudos antes de mirar nada. Está declarado así en `supabase/config.toml`.
 
 3. **Registrar el webhook** en el panel de Meta:
-   - URL: `https://<tu-dominio>/webhook/whatsapp`
+   - URL: `https://<proyecto>.supabase.co/functions/v1/webhook-whatsapp`
    - Token de verificación: el mismo `MOTREST_META_VERIFY_TOKEN`
    - Suscribirse al campo **`messages`**
+
+   > **Es un cambio atómico y de una sola dirección.** Meta admite una URL por
+   > app: en el instante en que se guarda, todo el WhatsApp entrante se va ahí.
+   > Conviene ensayarlo antes contra el número de pruebas.
 
 Meta hace de inmediato una llamada `GET` de comprobación. Si el token coincide,
 queda verificado.
@@ -164,41 +175,33 @@ reclasifica a marketing y cobra más. Las promociones van como *Marketing* y
 
 ## Parte B — Dar de alta un restaurante (minutos)
 
-### B.0 · Darlo de alta en el padrón del relay
+### B.0 · Darlo de alta en la nube
 
-**Primero esto, antes que nada.** Un restaurante que no está en el padrón no
-existe para el relay: su Hub se conecta y lo echan.
+**Primero esto, antes que nada.** Un restaurante que no está dado de alta no
+existe para la nube: su Hub inicia sesión y no ve absolutamente nada.
 
-En el servidor del relay, con la llave del padrón en el entorno:
+Ya no hace falta entrar por SSH a ningún servidor — eso era lo más incómodo del
+relay, porque el padrón estaba cifrado con una llave que solo vivía allí. Se
+hace desde Central:
 
-```bash
+```powershell
 # El id de sucursal NO te lo inventas: lo genera el Hub al instalarse y lo
 # escribe en su registro y en <datos>/sucursal.txt. Cópialo de ahí.
-pnpm --filter @motrest/relay padron alta suc-a1b2c3d4 "Rodizio"
+$env:MOTRAE_SUPABASE_URL = "https://<proyecto>.supabase.co"
+$env:MOTRAE_SUPABASE_SERVICE_ROLE = "…"
+corepack pnpm@9.15.0 --filter @motrest/central alta-nube -- --sucursal suc-a1b2c3d4 --nombre "Rodizio"
 ```
 
-Devuelve una **credencial que se enseña una sola vez**. El padrón solo guarda su
-huella, así que no se puede volver a consultar — si se pierde, se genera otra con
-`padron rotar <sucursal>`.
+Devuelve una **credencial que se enseña una sola vez**. Supabase guarda su hash
+bcrypt, así que no se puede volver a consultar — si se pierde, se genera otra.
 
-Esa credencial se pega en el Hub del restaurante (Administración → Hub del local
-→ WhatsApp), junto con la dirección del relay:
+**Esa credencial no se pega a mano en ningún sitio.** Viaja dentro de la licencia
+firmada, junto con la dirección de la nube, y el Hub la recoge de ahí. Es lo que
+hace que dar de alta un restaurante sea emitir su licencia y nada más.
 
-```
-URL del relay:  wss://<tu-dominio>/hub
-Credencial:     la que devolvió el alta
-```
-
-De la credencial sale la identidad del local ante el relay. Por eso **una
-credencial por restaurante y nunca compartida**: quien la tiene, es el local.
-
-Las demás órdenes del padrón:
-
-| Orden | Para qué |
-|---|---|
-| `padron lista` | Ver quién está de alta y quién ya conectó su número |
-| `padron rotar <sucursal>` | Credencial nueva. Corta el enlace vivo del local |
-| `padron baja <sucursal>` | Lo saca y **olvida su token de Meta** de inmediato |
+De la credencial sale la identidad del local: con ella inicia sesión, y todo lo
+que consulte después queda acotado por su propio token. Por eso **una credencial
+por restaurante y nunca compartida**: quien la tiene, es el local.
 
 ### B.1 · El número
 
@@ -224,7 +227,8 @@ WhatsApp*. Se abre el flujo de Meta (*Embedded Signup*) dentro de MotRest y ahí
 4. Acepta que MotRest administre ese número.
 
 Al terminar, Meta devuelve el **`phone_number_id`** y un **token** del
-restaurante. El relay los guarda y a partir de ese momento sabe enrutar.
+restaurante. El Hub los publica en la nube —donde se guardan cifrados por
+MOTRAE— y a partir de ese momento sabe enrutar.
 
 > El número y la cuenta son **del restaurante**. Si algún día deja MotRest, se
 > lleva su número: solo hay que quitarle el permiso a la app de MOTRAE.

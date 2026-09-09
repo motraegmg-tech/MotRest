@@ -5,7 +5,13 @@
  * en `migrar()`. Es el mismo criterio que aplicará el Hub con SQLite (TRD §11).
  */
 import { compararEventos, type EventoBase, type ID } from "@motrest/dominio";
-import type { Ack, Almacen, RepositorioEstado, RepositorioEventos } from "./repositorio.js";
+import type {
+  Ack,
+  Almacen,
+  EventoRechazado,
+  RepositorioEstado,
+  RepositorioEventos,
+} from "./repositorio.js";
 
 const NOMBRE_BD = "motrest";
 export const VERSION_ESQUEMA = 1;
@@ -16,12 +22,23 @@ const TIENDA_ESTADO = "estado";
 /** Marca de confirmación indexable (IndexedDB no indexa `undefined`). */
 const PENDIENTE = 0;
 const CONFIRMADO = 1;
+/**
+ * El Hub lo rechazó y no se va a reintentar.
+ *
+ * Va como un valor MÁS del índice que ya existía, no como un campo nuevo:
+ * así no hace falta migrar el esquema en las cajas que ya están operando.
+ */
+const RECHAZADO = 2;
 
 interface EventoGuardado {
   id: string;
   stream_id: ID;
   ts: number;
-  confirmado: 0 | 1;
+  confirmado: 0 | 1 | 2;
+  /** Por qué lo rechazó el Hub. Solo en los RECHAZADO. */
+  motivo?: string;
+  /** Cuándo se supo del rechazo. */
+  rechazado_ts?: number;
   evento: EventoBase;
 }
 
@@ -136,13 +153,44 @@ export class RepositorioEventosIDB implements RepositorioEventos {
         tienda.get(ack.id) as IDBRequest<EventoGuardado | undefined>,
       );
       if (!fila) continue;
+      // Se limpia el rastro del rechazo: si el Hub acabó aceptándolo —tras
+      // corregir los permisos y reenviarlo—, deja de estar rechazado.
+      const { motivo: _m, rechazado_ts: _r, ...limpia } = fila;
       tienda.put({
-        ...fila,
+        ...limpia,
         confirmado: CONFIRMADO,
         evento: { ...fila.evento, seq: ack.seq },
       });
     }
     await alTerminar(tx);
+  }
+
+  async rechazar(ids: readonly ID[], motivo: string): Promise<void> {
+    if (ids.length === 0) return;
+    const ts = Date.now();
+    const tx = this.bd.transaction(TIENDA_EVENTOS, "readwrite");
+    const tienda = tx.objectStore(TIENDA_EVENTOS);
+    for (const id of ids) {
+      const fila = await promesa<EventoGuardado | undefined>(
+        tienda.get(id) as IDBRequest<EventoGuardado | undefined>,
+      );
+      // Lo ya confirmado no se toca: si el Hub lo aceptó, un rechazo
+      // posterior de otro lote es ruido y no puede deshacer el ack.
+      if (!fila || fila.confirmado === CONFIRMADO) continue;
+      tienda.put({ ...fila, confirmado: RECHAZADO, motivo, rechazado_ts: ts });
+    }
+    await alTerminar(tx);
+  }
+
+  async rechazados(): Promise<EventoRechazado[]> {
+    const filas = await this.filas({ nombre: "confirmado", valor: RECHAZADO });
+    return filas
+      .map((f) => ({
+        evento: f.evento,
+        motivo: f.motivo ?? "El Hub lo rechazó",
+        ts: f.rechazado_ts ?? f.ts,
+      }))
+      .sort((a, b) => b.ts - a.ts);
   }
 
   async reabrirOutbox(): Promise<void> {

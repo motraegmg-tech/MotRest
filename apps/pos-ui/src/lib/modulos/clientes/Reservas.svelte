@@ -593,7 +593,7 @@
   }
   .principal {
     background: var(--acento);
-    color: #fff;
+    color: var(--sobre-acento);
     border-radius: var(--r-md);
     padding: 0.6rem 1.15rem;
     font-family: var(--font-titulo);
@@ -633,7 +633,7 @@
     padding: 0.1rem 0.4rem;
     border-radius: var(--r-pill);
     background: var(--acento);
-    color: #fff;
+    color: var(--sobre-acento);
     font-size: 0.8rem;
     text-align: center;
     vertical-align: middle;
@@ -690,7 +690,7 @@
   .estimacion b {
     font-family: var(--font-titulo);
     font-size: 1.5rem;
-    color: var(--acento);
+    color: var(--acento-texto);
   }
   .estimacion.tenue b {
     color: var(--pizarra);

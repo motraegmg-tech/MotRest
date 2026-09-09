@@ -137,6 +137,17 @@ export interface PagoTicket {
 export interface DatosTicket {
   folio: string;
   ts: number;
+  /**
+   * A nombre de quién va la cuenta.
+   *
+   * No es solo para los pedidos para llevar. Una mesa también tiene dueño: la
+   * familia que reservó, el cliente de todos los jueves, el que pidió que le
+   * separaran la cuenta. Cuando el papel lleva el nombre, el mesero no tiene
+   * que preguntar de quién es al repartir la cuenta en una sala llena, y el
+   * comensal reconoce el suyo entre los tres que dejaron sobre la mesa.
+   */
+  a_nombre_de?: string;
+
   local: {
     nombre: string;
     direccion?: string;
@@ -239,6 +250,9 @@ export function ticketVenta(datos: DatosTicket, columnas: AnchoPapel = 42): Tick
 
   t.columnasDobles(`Folio: ${datos.folio}`, fechaHora(datos.ts));
   t.columnasDobles(`Mesa: ${datos.mesa}`, datos.mesero);
+  if (datos.a_nombre_de) {
+    t.linea(`Cliente: ${datos.a_nombre_de}`, { negrita: true });
+  }
   t.separador();
 
   for (const renglon of datos.renglones) {
@@ -320,6 +334,17 @@ export interface RenglonPrecuenta {
 export interface DatosPrecuenta {
   folio: string;
   ts: number;
+  /**
+   * A nombre de quién va la cuenta.
+   *
+   * No es solo para los pedidos para llevar. Una mesa también tiene dueño: la
+   * familia que reservó, el cliente de todos los jueves, el que pidió que le
+   * separaran la cuenta. Cuando el papel lleva el nombre, el mesero no tiene
+   * que preguntar de quién es al repartir la cuenta en una sala llena, y el
+   * comensal reconoce el suyo entre los tres que dejaron sobre la mesa.
+   */
+  a_nombre_de?: string;
+
   local: {
     nombre: string;
     direccion?: string;
@@ -374,6 +399,17 @@ export function precuenta(
 
   t.columnasDobles(`Folio: ${datos.folio}`, fechaHora(datos.ts));
   t.columnasDobles(`Mesa: ${datos.mesa}`, datos.mesero);
+  /*
+   * El nombre va en su propia línea y en negrita, debajo de la mesa.
+   *
+   * No se mete en la línea de la mesa porque en 42 columnas —o 32, que es lo
+   * que da una térmica angosta— un nombre largo empujaría fuera al mesero. Y va
+   * destacado porque es lo que se busca de un vistazo cuando hay tres cuentas
+   * sobre la misma mesa.
+   */
+  if (datos.a_nombre_de) {
+    t.linea(`Cliente: ${datos.a_nombre_de}`, { negrita: true });
+  }
   t.separador();
 
   for (const renglon of datos.renglones) {
@@ -433,6 +469,8 @@ export function precuenta(
 export interface DatosTicketInterno {
   folio: string;
   ts: number;
+  /** A nombre de quién iba la cuenta, si se le puso nombre. */
+  a_nombre_de?: string;
   mesa: string;
   mesero: string;
   renglones: RenglonPrecuenta[];
@@ -456,6 +494,9 @@ export function ticketInterno(datos: DatosTicketInterno, columnas: AnchoPapel = 
   }
   t.columnasDobles(`Folio: ${datos.folio}`, fechaHora(datos.ts));
   t.columnasDobles(`Mesa: ${datos.mesa}`, datos.mesero);
+  if (datos.a_nombre_de) {
+    t.linea(`Cliente: ${datos.a_nombre_de}`, { negrita: true });
+  }
   t.separador();
 
   for (const renglon of datos.renglones) {

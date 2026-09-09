@@ -340,9 +340,6 @@
   }
   .propio.c1 { color: #1e6b4a; }
   .propio.c4 { color: var(--peligro); }
-  .tenue {
-    color: var(--gris);
-  }
   .barra {
     font-size: 0.8rem;
     color: var(--gris);

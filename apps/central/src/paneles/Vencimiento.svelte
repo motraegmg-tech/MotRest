@@ -149,7 +149,7 @@
     -->
     <p class="nota">
       Se firma una licencia nueva y <b>se le manda sola al restaurante</b>. Si el
-      local está apagado, la recoge en cuanto encienda. Solo si el relay no
+      local está apagado, la recoge en cuanto encienda. Solo si la nube no
       responde habrá que pegar el archivo a mano.
     </p>
 

@@ -8,6 +8,8 @@
 import { CERO, repartirProporcional, restar, sumar, type Centavos } from "../comun/dinero.js";
 import type { ID } from "../comun/ids.js";
 import type { EventoComanda, FormaPago } from "../comanda/eventos.js";
+import type { RegistroEgreso } from "../finanzas/egresos.js";
+import { esPagoEnEfectivo } from "../finanzas/tesoreria.js";
 import type {
   EventoCaja,
   MotivoMovimientoCaja,
@@ -175,6 +177,17 @@ export interface CorteCaja {
   fondoInicial: Centavos;
   /** Entradas y salidas manuales de efectivo (retiros en negativo). */
   movimientos: Centavos;
+  /**
+   * Gastos del turno pagados EN EFECTIVO, en positivo. Salen del cajón.
+   *
+   * Es el agujero que este campo tapa: hasta ahora un gasto registrado en
+   * Finanzas no tocaba el corte, así que pagar el gas con el dinero del cajón
+   * aparecía como un faltante al cerrar. El cajero contaba bien y el sistema le
+   * decía que le faltaban 800 pesos.
+   */
+  gastosEfectivo: Centavos;
+  /** Esos gastos, uno por uno, para poder explicar el renglón de arriba. */
+  gastos: { concepto: string; monto: Centavos; ts: number }[];
   /** Lo que debería haber en el cajón. */
   efectivoEsperado: Centavos;
   /** Cuentas cerradas en el turno. */
@@ -201,12 +214,28 @@ function acumular(mapa: VentasPorForma, forma: FormaPago, monto: Centavos): void
 }
 
 /**
- * Calcula el corte a partir de la sesión y de los pagos del turno.
+ * Calcula el corte a partir de la sesión, los pagos del turno y sus gastos.
+ *
  * Los pagos llegan como eventos de comanda, porque es ahí donde se registran.
+ * Los gastos llegan ya filtrados al turno: quien llama sabe qué ventana de
+ * tiempo abarca la sesión, y aquí no se vuelve a decidir.
+ *
+ * ## Por qué el gasto se resta aquí y no como retiro de caja
+ *
+ * Se podría pedir al cajero que registrara un «retiro» además del gasto, y así
+ * estaba: era la única forma de que el cajón cuadrara. Pero son dos capturas
+ * del mismo hecho, y la segunda se olvidaba siempre — o peor, se hacían las dos
+ * y el dinero se descontaba por partida doble.
+ *
+ * Ahora hay un solo acto: se registra el gasto y el cajón lo refleja. Los
+ * `movimiento_efectivo` siguen existiendo para lo que de verdad no es un gasto
+ * —traer cambio del banco, guardar en la caja fuerte a media noche—, y por eso
+ * los gastos que MotRest genera solos no emiten además un retiro.
  */
 export function calcularCorte(
   caja: EstadoCaja,
   eventosComanda: readonly EventoComanda[],
+  egresosDelTurno: readonly RegistroEgreso[] = [],
 ): CorteCaja {
   const cobrado: VentasPorForma = {};
   const cuentas = new Map<ID, CuentaDelTurno>();
@@ -217,15 +246,35 @@ export function calcularCorte(
   let devoluciones = CERO;
   let ventasCanceladas = 0;
 
+  /*
+   * LA FORMA DE PAGO CORREGIDA, ANTES DE SUMAR NADA.
+   *
+   * Un cobro con la forma mal apuntada descuadra el cajón en los dos sentidos a
+   * la vez: sobra efectivo que nunca entró y falta el cargo de la tarjeta. La
+   * corrección se busca en una primera pasada porque el evento que la registra
+   * llega DESPUÉS del cobro —se descubre el error al cuadrar— y sumar primero
+   * para restar luego dejaría el desglose por forma con importes negativos.
+   *
+   * Solo se aplican las correcciones que caen en esta misma ventana de eventos.
+   * Un cobro de anteayer que se corrige hoy no puede mover el corte de anteayer:
+   * aquel papel ya se firmó y su sello dejaría de cuadrar. Esa corrección sí se
+   * refleja donde importa —en el saldo del restaurante, que no está sellado—.
+   */
+  const correcciones = new Map<ID, FormaPago>();
+  for (const ev of eventosComanda) {
+    if (ev.tipo === "pago_corregido") correcciones.set(ev.pago_id, ev.forma);
+  }
+
   for (const ev of eventosComanda) {
     if (ev.tipo === "pago_registrado") {
+      const forma = correcciones.get(ev.id) ?? ev.forma;
       const cuenta = cuentas.get(ev.orden_id) ?? { pagos: [], propina: CERO };
-      cuenta.pagos.push({ forma: ev.forma, monto: ev.monto });
+      cuenta.pagos.push({ forma, monto: ev.monto });
       cuentas.set(ev.orden_id, cuenta);
 
-      acumular(cobrado, ev.forma, ev.monto);
+      acumular(cobrado, forma, ev.monto);
       totalCobrado = sumar(totalCobrado, ev.monto);
-      if (ev.forma === "efectivo") efectivoVentas = sumar(efectivoVentas, ev.monto);
+      if (forma === "efectivo") efectivoVentas = sumar(efectivoVentas, ev.monto);
     } else if (ev.tipo === "propina_registrada") {
       const cuenta = cuentas.get(ev.orden_id) ?? { pagos: [], propina: CERO };
       cuenta.propina = sumar(cuenta.propina, ev.monto);
@@ -305,6 +354,19 @@ export function calcularCorte(
 
   const movimientos = sumar(...caja.movimientos.map((m) => m.monto));
 
+  /*
+   * Solo los gastos pagados EN EFECTIVO tocan el cajón. Uno pagado por
+   * transferencia salió del banco: descontarlo aquí dejaría al cajero buscando
+   * unos billetes que nunca estuvieron.
+   */
+  const enEfectivo = egresosDelTurno.filter((e) => !e.anulado && esPagoEnEfectivo(e.forma_pago));
+  const gastos = enEfectivo.map((e) => ({
+    concepto: e.concepto,
+    monto: e.monto,
+    ts: e.pagado_ts ?? e.ts,
+  }));
+  const gastosEfectivo = sumar(...gastos.map((g) => g.monto));
+
   return {
     cobrado,
     totalCobrado,
@@ -317,7 +379,12 @@ export function calcularCorte(
     efectivoVentas,
     fondoInicial: caja.fondo_inicial,
     movimientos,
-    efectivoEsperado: sumar(caja.fondo_inicial, efectivoVentas, movimientos),
+    gastosEfectivo,
+    gastos,
+    efectivoEsperado: restar(
+      sumar(caja.fondo_inicial, efectivoVentas, movimientos),
+      gastosEfectivo,
+    ),
     cuentasCerradas,
     devoluciones,
     ventasCanceladas,

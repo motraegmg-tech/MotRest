@@ -166,6 +166,20 @@
       case "cuenta_cerrada":
         return { ...base, texto: "Cerró la cuenta", tono: "acento" };
       /*
+       * EN ALERTA, SIEMPRE. Cambiar «efectivo» por «tarjeta» en un cobro ya
+       * hecho mueve dinero entre el cajón y el banco sin que nadie cuente un
+       * billete. Casi siempre es lo que parece —un error de captura que alguien
+       * corrigió— y justamente por eso tiene que verse: es también la forma más
+       * limpia de justificar un faltante de caja.
+       */
+      case "pago_corregido":
+        return { ...base,
+          texto:
+            `Corrigió un cobro de ${etiquetaFormaPago(ev.forma_anterior)} a ` +
+            `${etiquetaFormaPago(ev.forma)} · ${ev.motivo}` +
+            `${ev.autorizador_id ? ` · autorizó ${sesion.nombreDe(ev.autorizador_id)}` : ""}`,
+          tono: "alerta" };
+      /*
        * La alerta más fuerte que puede tener este registro: es dinero saliendo
        * del cajón por una venta que ya se había cobrado. Lleva el importe
        * devuelto en el propio renglón para que se vea sin abrir nada más.
@@ -237,12 +251,6 @@
     gap: 1.25rem;
     max-width: 62rem;
   }
-  .encabezado {
-    display: flex;
-    align-items: flex-start;
-    gap: 1rem;
-    flex-wrap: wrap;
-  }
   .encabezado > div:first-child {
     flex: 1;
     min-width: 16rem;
@@ -274,7 +282,7 @@
   }
   .filtros button.on {
     background: var(--acento);
-    color: #fff;
+    color: var(--sobre-acento);
   }
   .lista {
     background: #fff;
@@ -313,7 +321,7 @@
     font-weight: 500;
   }
   .entrada.acento .texto {
-    color: var(--acento);
+    color: var(--acento-texto);
     font-weight: 500;
   }
   .vacia {

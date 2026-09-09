@@ -414,7 +414,7 @@
   .opcion.on {
     border-color: var(--acento);
     background: var(--claro);
-    color: var(--acento);
+    color: var(--acento-texto);
     font-weight: 700;
   }
   .buscador {
@@ -445,7 +445,7 @@
   .dia.on {
     border-color: var(--acento);
     background: color-mix(in srgb, var(--acento) 12%, transparent);
-    color: var(--acento);
+    color: var(--acento-texto);
     font-weight: 700;
   }
   .check {
@@ -492,7 +492,7 @@
     padding: 0.6rem 1.1rem;
     border-radius: var(--r-sm);
     background: var(--acento);
-    color: #fff;
+    color: var(--sobre-acento);
     font-weight: 600;
     cursor: pointer;
   }
@@ -526,7 +526,7 @@
   .ahora {
     font-size: 0.72rem;
     font-weight: 700;
-    color: var(--acento);
+    color: var(--acento-texto);
     text-transform: uppercase;
     letter-spacing: 0.05em;
   }

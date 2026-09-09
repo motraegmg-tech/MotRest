@@ -2,10 +2,19 @@
   "name": "@motrest/ui",
   "version": "0.0.0",
   "private": true,
-  "description": "Sistema de diseño de MotRest: tokens de marca (acento naranja MOTRAE) y estilos base. Tipografías Space Grotesk + Inter (empaquetadas vía @fontsource, sin CDN).",
+  "description": "Sistema de diseño de MotRest: tokens de marca (acento naranja MOTRAE), estilos base y los 103 iconos propios. Tipografías Space Grotesk + Inter (empaquetadas vía @fontsource, sin CDN).",
   "type": "module",
   "exports": {
     "./tokens.css": "./src/tokens.css",
-    "./base.css": "./src/base.css"
+    "./base.css": "./src/base.css",
+    "./iconos": "./src/iconos.ts"
+  },
+  "scripts": {
+    "lint": "tsc --noEmit -p tsconfig.json",
+    "test": "vitest run"
+  },
+  "devDependencies": {
+    "typescript": "^5.9.3",
+    "vitest": "^3.2.6"
   }
 }

@@ -49,6 +49,15 @@ export interface MenuLocal {
    * en las terminales: un catálogo sin este campo simplemente no tiene ninguna.
    */
   promociones?: import("./promociones.js").Promocion[];
+  /**
+   * Las categorías de insumo que el local declaró.
+   *
+   * Opcional por la misma razón que las promociones: los menús ya guardados en
+   * los locales que están operando no lo traen, y sus categorías se deducen de
+   * lo escrito en cada insumo (`categoriasDeInsumoEnUso`). En cuanto alguien
+   * abre la pantalla y toca algo, quedan declaradas.
+   */
+  categorias_insumo?: string[];
 }
 
 /** Lo que captura el formulario de alta o edición. */
@@ -378,6 +387,176 @@ export function eliminarCategoria(menu: MenuLocal, categoriaId: ID): MenuLocal {
   if (productosEnCategoria(menu, categoriaId) > 0) return menu;
   return conVersion(menu, {
     categorias: menu.categorias.filter((c) => c.id !== categoriaId),
+  });
+}
+
+/**
+ * Cambia el color con que se distingue una categoría en el POS.
+ *
+ * `undefined` la devuelve al color neutro. Es lo único de la categoría que no
+ * afecta a ningún cálculo, y por eso va aparte del renombrado.
+ */
+export function recolorearCategoria(
+  menu: MenuLocal,
+  categoriaId: ID,
+  color: string | undefined,
+): MenuLocal {
+  return conVersion(menu, {
+    categorias: menu.categorias.map((c) =>
+      c.id === categoriaId ? { ...c, ...(color ? { color } : { color: undefined }) } : c,
+    ),
+  });
+}
+
+/**
+ * Sube o baja una categoría en la carta.
+ *
+ * El orden importa de verdad: es el de las pestañas del POS, y quien atiende
+ * quiere las bebidas donde siempre. Se reasignan TODOS los `orden` de corrido
+ * en vez de intercambiar dos números, porque un catálogo importado o venido de
+ * otra terminal puede traer huecos o repetidos, y con ellos el intercambio no
+ * mueve nada.
+ */
+export function moverCategoria(
+  menu: MenuLocal,
+  categoriaId: ID,
+  direccion: "sube" | "baja",
+): MenuLocal {
+  const ordenadas = [...menu.categorias].sort((a, b) => a.orden - b.orden);
+  const i = ordenadas.findIndex((c) => c.id === categoriaId);
+  if (i < 0) return menu;
+
+  const destino = direccion === "sube" ? i - 1 : i + 1;
+  if (destino < 0 || destino >= ordenadas.length) return menu;
+
+  const [movida] = ordenadas.splice(i, 1);
+  ordenadas.splice(destino, 0, movida!);
+
+  return conVersion(menu, {
+    categorias: ordenadas.map((c, n) => ({ ...c, orden: n + 1 })),
+  });
+}
+
+// --- Categorías de insumos -------------------------------------------------------------
+//
+// La categoría del insumo era TEXTO LIBRE en su ficha. Funcionaba para
+// escribirla y no para nada más: no había dónde ver los insumos de «Lácteos»,
+// ni forma de renombrarla, y dos capturas distintas —«Lacteos» y «lácteos»—
+// eran dos categorías para el sistema y una sola para el almacenista.
+//
+// Sigue guardándose como texto en el insumo, a propósito: convertirla en un id
+// obligaría a migrar todos los insumos ya capturados en los locales que están
+// operando. Lo que se agrega es el CATÁLOGO de las que existen, para poder
+// listarlas, renombrarlas en bloque y borrarlas.
+
+/** Las categorías de insumo declaradas por el local. */
+export function categoriasDeInsumo(menu: MenuLocal): string[] {
+  return [...(menu.categorias_insumo ?? [])].sort((a, b) => a.localeCompare(b, "es"));
+}
+
+/**
+ * Todas las categorías que se usan: las declaradas MÁS las que ya estaban
+ * escritas a mano en algún insumo.
+ *
+ * Sin esta unión, abrir la pantalla en un local que ya tenía insumos capturados
+ * mostraría el catálogo vacío mientras la despensa está llena de categorías.
+ */
+export function categoriasDeInsumoEnUso(menu: MenuLocal): string[] {
+  const vistas = new Set(menu.categorias_insumo ?? []);
+  for (const i of menu.insumos) {
+    const nombre = i.categoria?.trim();
+    if (nombre) vistas.add(nombre);
+  }
+  return [...vistas].sort((a, b) => a.localeCompare(b, "es"));
+}
+
+export function insumosEnCategoria(menu: MenuLocal, categoria: string): Insumo[] {
+  const buscada = normalizar(categoria);
+  return menu.insumos.filter((i) => normalizar(i.categoria ?? "") === buscada);
+}
+
+export function validarCategoriaInsumo(
+  nombre: string,
+  menu: MenuLocal,
+  anterior?: string,
+): ProblemaMenu[] {
+  const limpio = nombre.trim();
+  if (limpio.length < 2) {
+    return [{ campo: "nombre", mensaje: "La categoría necesita un nombre", gravedad: "error" }];
+  }
+  const repetida = categoriasDeInsumoEnUso(menu).some(
+    (c) => normalizar(c) !== normalizar(anterior ?? "") && normalizar(c) === normalizar(limpio),
+  );
+  if (repetida) {
+    return [{ campo: "nombre", mensaje: `Ya existe "${limpio}"`, gravedad: "error" }];
+  }
+  return [];
+}
+
+export function agregarCategoriaInsumo(menu: MenuLocal, nombre: string): MenuLocal {
+  const limpio = nombre.trim();
+  const actuales = menu.categorias_insumo ?? [];
+  if (actuales.some((c) => normalizar(c) === normalizar(limpio))) return menu;
+  return conVersion(menu, { categorias_insumo: [...actuales, limpio] });
+}
+
+/**
+ * Renombra la categoría Y la reescribe en cada insumo que la llevaba.
+ *
+ * Las dos cosas juntas, siempre. Cambiar solo el catálogo dejaría los insumos
+ * apuntando a un nombre que ya no existe, que es exactamente el desorden que
+ * esta pantalla viene a arreglar.
+ */
+export function renombrarCategoriaInsumo(
+  menu: MenuLocal,
+  anterior: string,
+  nuevo: string,
+): MenuLocal {
+  const limpio = nuevo.trim();
+  const buscada = normalizar(anterior);
+
+  const catalogo = (menu.categorias_insumo ?? []).map((c) =>
+    normalizar(c) === buscada ? limpio : c,
+  );
+  if (!catalogo.some((c) => normalizar(c) === normalizar(limpio))) catalogo.push(limpio);
+
+  return conVersion(menu, {
+    categorias_insumo: catalogo,
+    insumos: menu.insumos.map((i) =>
+      normalizar(i.categoria ?? "") === buscada ? { ...i, categoria: limpio } : i,
+    ),
+  });
+}
+
+/**
+ * Borra una categoría de insumos.
+ *
+ * Solo si está vacía. Un insumo cuya categoría desaparece no se rompe —el campo
+ * es texto— pero queda colgando de un nombre que ya no está en ninguna lista, y
+ * el almacenista no volvería a encontrarlo por ahí.
+ */
+export function eliminarCategoriaInsumo(menu: MenuLocal, categoria: string): MenuLocal {
+  if (insumosEnCategoria(menu, categoria).length > 0) return menu;
+  const buscada = normalizar(categoria);
+  return conVersion(menu, {
+    categorias_insumo: (menu.categorias_insumo ?? []).filter(
+      (c) => normalizar(c) !== buscada,
+    ),
+  });
+}
+
+/** Mueve todos los insumos de una categoría a otra, para poder vaciar la vieja. */
+export function moverInsumosDeCategoria(
+  menu: MenuLocal,
+  desde: string,
+  hacia: string,
+): MenuLocal {
+  const origen = normalizar(desde);
+  const destino = hacia.trim();
+  return conVersion(menu, {
+    insumos: menu.insumos.map((i) =>
+      normalizar(i.categoria ?? "") === origen ? { ...i, categoria: destino } : i,
+    ),
   });
 }
 

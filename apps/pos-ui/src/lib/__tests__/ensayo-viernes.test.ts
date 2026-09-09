@@ -438,7 +438,7 @@ describe("el viernes de Rodizio, de la apertura al corte", () => {
    */
   it("el arqueo del cajón cuadra en cero", async () => {
     const esperado = caja.corteEnVivo!.efectivoEsperado;
-    const r = await caja.cerrar(esperado, "Gonzalo");
+    const r = await caja.cerrar(esperado, "Gonzalo", sesion.usuarioActual!.id);
     expect(r.ok).toBe(true);
 
     const cerrada = caja.sesiones.find((s) => s.cerrada);
@@ -479,7 +479,7 @@ describe("lo que el viernes dejó en el log", () => {
   it("el efectivo declarado de menos aparece como faltante, no se disimula", async () => {
     caja.abrir(sesion.usuarioActual!.id, pesos(1000));
     const esperado = caja.corteEnVivo!.efectivoEsperado;
-    await caja.cerrar(restar(esperado, pesos(120)), "Gonzalo");
+    await caja.cerrar(restar(esperado, pesos(120)), "Gonzalo", sesion.usuarioActual!.id);
 
     const ultima = caja.sesiones.find((s) => s.cerrada)!;
     expect(ultima.resumen?.diferencia).toBe(pesos(-120));

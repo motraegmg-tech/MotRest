@@ -8,7 +8,7 @@ import type { ID } from "@motrest/dominio";
  * ## Por qué ya no es un literal
  *
  * Estaba escrito aquí, igual en toda instalación. Con un solo restaurante no se
- * notaba; con dos es un choque: los dos locales se llaman igual ante el relay y
+ * notaba; con dos es un choque: los dos locales se llaman igual ante la nube y
  * ante MotRest Central, y la licencia de uno vale en el otro.
  *
  * Ahora lo dice **el Hub del local**, que a su vez lo toma de la licencia que
@@ -31,7 +31,7 @@ const LLAVE_SUCURSAL = "motrest.sucursal_id";
  * Aquí había una constante con el identificador de Rodizio, heredada de cuando
  * era el único local. El problema no era el nombre sino la colisión: dos
  * restaurantes recién instalados nacían con el MISMO identificador de sucursal,
- * se anunciaban igual ante el relay y ante Central, y la licencia de uno habría
+ * se anunciaban igual ante la nube y ante Central, y la licencia de uno habría
  * valido en el otro.
  *
  * Se genera uno único y se guarda, exactamente como hace el Hub cuando arranca

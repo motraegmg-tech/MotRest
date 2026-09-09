@@ -393,7 +393,7 @@
     max-width: 46rem;
   }
   .nota-regla b {
-    color: var(--acento);
+    color: var(--acento-texto);
   }
   .vacio {
     font-size: 0.9rem;
@@ -463,7 +463,7 @@
     color: var(--pizarra);
   }
   .cifras .queda {
-    color: var(--acento);
+    color: var(--acento-texto);
   }
   .beneficios {
     margin-top: 0.75rem;
@@ -486,7 +486,7 @@
   }
   .valor-b {
     font-weight: 650;
-    color: var(--acento);
+    color: var(--acento-texto);
   }
   .beneficios small {
     flex-basis: 100%;
@@ -512,12 +512,12 @@
   }
   .mini:hover {
     border-color: var(--acento);
-    color: var(--acento);
+    color: var(--acento-texto);
   }
   .mini.on {
     background: var(--acento);
     border-color: var(--acento);
-    color: #fff;
+    color: var(--sobre-acento);
   }
   .mini.peligro:hover {
     border-color: var(--peligro);
@@ -525,7 +525,7 @@
   }
   .principal {
     background: var(--acento);
-    color: #fff;
+    color: var(--sobre-acento);
     border-radius: var(--r-md);
     padding: 0.6rem 1.1rem;
     font-family: var(--font-titulo);
@@ -636,7 +636,7 @@
     flex: 1;
     min-width: 12rem;
     font-size: 0.74rem;
-    color: var(--acento);
+    color: var(--acento-texto);
   }
   .entrada {
     display: flex;

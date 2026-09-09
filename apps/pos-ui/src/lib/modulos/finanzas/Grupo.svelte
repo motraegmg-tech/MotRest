@@ -271,7 +271,7 @@
     color: var(--gris);
   }
   .cifra.destacada b {
-    color: var(--acento);
+    color: var(--acento-texto);
   }
   /* La tabla desborda en horizontal DENTRO de su caja, nunca la página. */
   .tabla {
@@ -305,9 +305,6 @@
   .num {
     text-align: right;
     font-variant-numeric: tabular-nums;
-  }
-  .tenue {
-    color: var(--gris);
   }
   .bien {
     color: #1e6b4a;

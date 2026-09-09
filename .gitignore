@@ -98,3 +98,10 @@ video/**/*.mp4
 # MOTRAE y puede repartir licencias ya firmadas. Vive aqui solo mientras dura
 # un ensayo, y nunca en el repositorio.
 .llave-servicio
+
+# El manifiesto firmado que Central escribe al publicar una version.
+# No es un secreto —viaja publico en cada release— pero es un artefacto de
+# UNA publicacion concreta, y quedarse en la raiz del repo lo hace parecer
+# configuracion del proyecto. Ya paso: se commiteo el de la 1.4.0 y al dia
+# siguiente el archivo decia 1.4.1 sin que nadie lo hubiera tocado a mano.
+motrest.json

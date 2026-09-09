@@ -360,7 +360,7 @@
     font-size: 0.85em;
   }
   .alerta {
-    color: var(--acento);
+    color: var(--acento-texto);
   }
   .alerta-caja {
     margin-top: 0.9rem;
@@ -402,7 +402,7 @@
   .principal {
     background: var(--acento);
     border-color: var(--acento);
-    color: #fff;
+    color: var(--sobre-acento);
   }
   .principal:disabled {
     opacity: 0.5;
@@ -495,7 +495,7 @@
     border-color: color-mix(in srgb, #e0392b 45%, transparent);
   }
   .etiqueta.recuperando {
-    color: var(--acento);
+    color: var(--acento-texto);
     border-color: color-mix(in srgb, var(--acento) 45%, transparent);
   }
 

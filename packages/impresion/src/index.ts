@@ -9,3 +9,5 @@ export * from "./escpos.js";
 export * from "./plantillas.js";
 export * from "./sello.js";
 export * from "./cola.js";
+export * from "./pdf.js";
+export * from "./estado-financiero-pdf.js";

@@ -445,12 +445,6 @@
     gap: 1.1rem;
     max-width: 56rem;
   }
-  .encabezado {
-    display: flex;
-    align-items: flex-start;
-    gap: 1rem;
-    flex-wrap: wrap;
-  }
   .encabezado > div:first-child {
     flex: 1;
     min-width: 16rem;
@@ -541,7 +535,7 @@
   }
   .mini:hover:not(:disabled) {
     border-color: var(--acento);
-    color: var(--acento);
+    color: var(--acento-texto);
   }
   .mini:disabled {
     opacity: 0.5;
@@ -648,7 +642,7 @@
   .red.on {
     background: var(--acento);
     border-color: var(--acento);
-    color: #fff;
+    color: var(--sobre-acento);
   }
   .peligro {
     color: var(--gris);
@@ -669,7 +663,7 @@
   }
   table button:hover {
     border-color: var(--acento);
-    color: var(--acento);
+    color: var(--acento-texto);
   }
   table {
     width: 100%;
@@ -698,10 +692,7 @@
   td small {
     display: block;
     font-size: 0.72rem;
-    color: var(--acento);
-  }
-  .tenue {
-    color: var(--gris);
+    color: var(--acento-texto);
   }
   .chip {
     display: inline-block;
@@ -796,7 +787,7 @@
   }
   .principal {
     background: var(--acento);
-    color: #fff;
+    color: var(--sobre-acento);
     border-radius: var(--r-md);
     padding: 0.62rem 1.3rem;
     font-family: var(--font-titulo);

@@ -368,6 +368,46 @@ export type EventoComanda =
       orden_id: ID;
       /** Cuántas veces se ha reimpreso, contando esta. */
       numero: number;
+    })
+  | (EventoBase & {
+      /**
+       * Se cobró bien, pero se apuntó la forma de pago equivocada.
+       *
+       * ## Por qué hacía falta
+       *
+       * Pasa a diario: el cliente paga con tarjeta y el cajero teclea efectivo,
+       * o al revés. El dinero está completo y la venta es correcta — lo único
+       * mal es POR DÓNDE dice el sistema que entró. Y eso descuadra dos cosas a
+       * la vez: el arqueo del cajón, que espera unos billetes que nunca
+       * existieron, y el saldo del banco.
+       *
+       * Hasta ahora la única salida era cancelar la venta entera y volver a
+       * cobrarla, lo que deja una devolución falsa en la bitácora y, si la
+       * cuenta ya se facturó, un CFDI que hay que cancelar sin motivo real.
+       *
+       * ## Por qué es un evento y no una edición
+       *
+       * El cobro original NO se toca: sigue en el log tal como se registró.
+       * Esto es un renglón nuevo que dice «aquel pago iba por otra forma»,
+       * firmado por quien lo corrigió y con su motivo. Es la misma regla que
+       * gobierna las anulaciones de gasto y las cancelaciones de venta —el
+       * registro solo crece— y es lo que separa una corrección de un desfalco:
+       * cambiar «tarjeta» por «efectivo» sin dejar rastro es exactamente lo que
+       * haría quien se está llevando el dinero del cajón.
+       *
+       * El IMPORTE no se puede cambiar aquí. Cobrar de más o de menos no es un
+       * error de captura, es otra venta: para eso está la cancelación.
+       */
+      tipo: "pago_corregido";
+      orden_id: ID;
+      /** El `id` del evento `pago_registrado` que se corrige. */
+      pago_id: ID;
+      /** Cómo se había apuntado. Va en el evento para que la bitácora lo cuente sola. */
+      forma_anterior: FormaPago;
+      forma: FormaPago;
+      referencia?: string;
+      motivo: string;
+      autorizador_id?: ID;
     });
 
 export type TipoEventoComanda = EventoComanda["tipo"];

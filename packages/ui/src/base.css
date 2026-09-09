@@ -47,6 +47,46 @@ button {
   background: none;
 }
 
+/*
+ * EL FOCO SE VE.
+ *
+ * Había 37 `outline: none` repartidos por la aplicación y CERO reglas de foco:
+ * quien navegaba con teclado no tenía forma de saber dónde estaba parado, y en
+ * la pantalla de cobro eso significa no saber sobre qué botón se va a pulsar
+ * Enter.
+ *
+ * Va aquí, global y con `:focus-visible`, por dos razones. La primera es que
+ * `:focus-visible` solo se enciende cuando el navegador cree que hace falta —
+ * con teclado sí, al tocar con el dedo no—, así que no ensucia el uso táctil,
+ * que es el normal en el salón. La segunda es que puesto en la base gana
+ * cualquier `outline: none` de un componente sin tener que ir a quitarlos uno
+ * por uno: el `outline` de aquí se declara después en la cascada porque los
+ * estilos de Svelte son de mayor especificidad, y por eso se refuerza con
+ * `box-shadow`, que ningún `outline: none` puede apagar.
+ */
+:focus-visible {
+  outline: 2px solid var(--acento);
+  outline-offset: 2px;
+  box-shadow: 0 0 0 4px rgba(242, 133, 58, 0.25);
+  border-radius: var(--r-sm);
+}
+
+/*
+ * NINGÚN CONTROL POR DEBAJO DEL DEDO.
+ *
+ * 44px es el mínimo de la WCAG 2.2 (SC 2.5.8). Se aplica a los controles de
+ * formulario, que son los que el navegador dibuja pequeños por defecto. Los
+ * botones NO entran aquí: hay demasiados que son intencionalmente compactos
+ * dentro de una fila —la cantidad de un renglón, un chip de filtro— y forzarlos
+ * a todos rompería el diseño de cada pantalla. Esos se corrigen uno por uno
+ * donde el dedo de verdad falla.
+ */
+input:not([type="checkbox"]):not([type="radio"]),
+select,
+textarea {
+  min-height: var(--toque);
+}
+
 ul,
 ol {
   list-style: none;
@@ -68,6 +108,63 @@ ol {
  */
 .seccion > * {
   flex-shrink: 0;
+}
+
+/*
+ * `.tenue` vive en la base porque su uniformidad fue medida en los componentes:
+ * esta es la variante dominante consolidada, presente en 11 de 13 definiciones.
+ */
+.tenue {
+  color: var(--gris);
+}
+
+/*
+ * `.pestanas` vive en la base porque su uniformidad fue medida en cinco
+ * componentes; se consolidan aquí las variantes dominantes del contenedor y
+ * de sus botones, conservando localmente cualquier diferencia.
+ */
+.pestanas {
+  display: flex;
+  gap: 0.3rem;
+  background: var(--fondo);
+  border: 1px solid var(--borde);
+  border-radius: var(--r-md);
+  padding: 0.2rem;
+}
+
+.pestanas button {
+  padding: 0.4rem 0.9rem;
+  border-radius: var(--r-sm);
+  font-size: 0.83rem;
+  font-weight: 600;
+  color: var(--gris);
+}
+
+.pestanas button.on {
+  background: var(--acento);
+  color: var(--sobre-acento);
+}
+
+/*
+ * `.indicadores` vive en la base porque su uniformidad fue medida: tres de sus
+ * cuatro definiciones compartían esta variante dominante, ahora consolidada.
+ */
+.indicadores {
+  display: flex;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+
+/*
+ * `.encabezado` vive en la base porque su uniformidad fue medida: esta variante
+ * dominante aparecía en 9 de 17 definiciones y las ocho divergentes siguen
+ * siendo locales.
+ */
+.encabezado {
+  display: flex;
+  align-items: flex-start;
+  gap: 1rem;
+  flex-wrap: wrap;
 }
 
 /*

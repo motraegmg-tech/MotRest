@@ -386,7 +386,7 @@
     font-weight: 600;
     text-transform: uppercase;
     letter-spacing: 0.04em;
-    color: var(--acento);
+    color: var(--acento-texto);
   }
   .consumo {
     flex-basis: 100%;
@@ -458,11 +458,11 @@
   }
   .agregar:hover {
     border-color: var(--acento);
-    color: var(--acento);
+    color: var(--acento-texto);
   }
   .principal {
     background: var(--acento);
-    color: #fff;
+    color: var(--sobre-acento);
     border-radius: var(--r-md);
     padding: 0.65rem 1.2rem;
     font-family: var(--font-titulo);

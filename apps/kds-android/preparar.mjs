@@ -44,6 +44,11 @@ writeFileSync(
       // Pantalla de cocina por omisión. Si alguien navega a otro módulo, se
       // respeta: solo se fija la ruta cuando no hay ninguna.
       if (!location.hash) location.hash = "#/cocina/tablero";
+
+      // Este aparato ES la pantalla de cocina: sin carril de módulos y sin
+      // barra de usuario, que ahí nadie toca y le quitan sitio a las comandas.
+      // La bandera se guarda sola; para deshacerla, abrir con ?cocina=0.
+      try { localStorage.setItem("motrest.modo-cocina", "1"); } catch (e) {}
     </script>
   </head>`,
   ),

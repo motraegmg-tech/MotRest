@@ -15,6 +15,7 @@
   } from "@motrest/dominio";
   import DialogoFactura from "./DialogoFactura.svelte";
   import { hora, mxn } from "./formato";
+  import Icono from "./Icono.svelte";
   import { plano } from "./plano.svelte";
   import { pos } from "./pos.svelte";
   import { sesion } from "./sesion/sesion.svelte";
@@ -422,16 +423,26 @@
     <div class="ch">
       <h2>Mesa {pos.nombreMesaActiva}</h2>
       <!--
-        A nombre de quién. Es lo que convierte una mesa cualquiera en un pedido
-        PARA LLEVAR: sin un nombre, cocina prepara y nadie sabe de quién es la
-        bolsa del mostrador.
+        A NOMBRE DE QUIÉN VA LA CUENTA. De cualquier cuenta, no solo de un
+        pedido para llevar.
+
+        Nació para el mostrador —sin nombre, cocina prepara y nadie sabe de
+        quién es la bolsa— y por eso el rótulo decía «+ Nombre», que en una mesa
+        no significa nada. Pero una mesa también tiene dueño: la familia que
+        reservó, el cliente de todos los jueves, el que pidió que le separaran
+        la cuenta. Puesto el nombre, sale en la mesa del plano, en la comanda de
+        cocina y en el papel que se entrega.
       -->
       {#if pos.comanda.a_nombre_de}
-        <button class="chip nombre" onclick={abrirNombre} title="Cambiar el nombre">
+        <button class="chip nombre" onclick={abrirNombre} title="Cambiar el nombre del cliente">
+          <Icono nombre="clientes" tam={14} />
           {pos.comanda.a_nombre_de}
         </button>
       {:else}
-        <button class="chip poner-nombre" onclick={abrirNombre}>+ Nombre</button>
+        <button class="chip poner-nombre" onclick={abrirNombre} title="A nombre de quién va esta cuenta">
+          <Icono nombre="clientes" tam={14} />
+          Cliente
+        </button>
       {/if}
       {#if pos.enviadaACocina}
         <span class="chip cocina">En cocina</span>
@@ -489,34 +500,46 @@
                 es quien sabe que llegó: hasta ahora esto solo existía en el
                 tablero de cocina, donde lo pulsaba quien lo deja en el pase.
               -->
+              <!--
+                CUATRO GLIFOS DE 20px SEPARADOS POR 1.6px, Y EL CUARTO CANCELA.
+                Eso era esto. Cuatro caracteres sueltos —✔ ✎ ⇄ ×— cuya única
+                explicación vivía en un `title`, que en una tableta no aparece
+                nunca. Errar el tercero y dar en el cuarto cancelaba un platillo
+                que el comensal ya se estaba comiendo.
+
+                Ahora son iconos con nombre, cada uno con su superficie de
+                toque, y el que cancela sale del grupo con un separador delante:
+                lo que destruye no se pega a lo que no.
+              -->
               {#if puedeEntregar && renglon.estado !== "entregado" && renglon.estado !== "capturado"}
                 <button
-                  class="mini entregar"
+                  class="mini glifo entregar"
                   class:urge={renglon.estado === "listo"}
                   title="Marcar como entregado en la mesa"
                   aria-label="Marcar {renglon.descripcion} como entregado"
                   onclick={() => entregar(renglon.id)}
-                >✔</button>
+                ><Icono nombre="guardar" tam={16} /></button>
               {/if}
               <button
-                class="mini"
+                class="mini glifo"
                 class:activa={renglon.notas}
                 title="Indicaciones para cocina"
                 aria-label="Indicaciones para {renglon.descripcion}"
                 onclick={() => abrirIndicaciones(renglon.id, renglon.notas ?? "")}
-              >✎</button>
+              ><Icono nombre="editar" tam={16} /></button>
               <button
-                class="mini"
+                class="mini glifo"
                 title="Traspasar a otra mesa"
                 aria-label="Traspasar {renglon.descripcion}"
                 onclick={() => fijar({ renglonATraspasar: renglon.id, vista: "traspaso" })}
-              >⇄</button>
+              ><Icono nombre="traspasar" tam={16} /></button>
+              <span class="aparta"></span>
               <button
-                class="mini x"
+                class="mini glifo x"
                 title="Cancelar renglón"
                 aria-label="Cancelar {renglon.descripcion}"
                 onclick={() => pos.cancelar(renglon.id)}
-              >×</button>
+              ><Icono nombre="cancelar-renglon" tam={16} /></button>
             </span>
           </div>
         {/each}
@@ -661,14 +684,23 @@
       {/if}
 
       <div class="btns">
+        <!--
+          ICONO **MÁS** PALABRA, SIEMPRE, en todo lo que mueve dinero. El icono
+          acelera el reconocimiento cuando la fila espera; la palabra evita el
+          error caro. Ninguno de estos cuatro va nunca desnudo.
+        -->
         <button
           class="b1"
           disabled={pos.pendientes.length === 0}
           onclick={() => pos.enviarACocina()}
         >
-          {pos.pendientes.length === 0
-            ? "✓ Todo enviado a cocina"
-            : `Enviar a cocina (${pos.pendientes.length})`}
+          {#if pos.pendientes.length === 0}
+            <Icono nombre="guardar" tam={19} />
+            Todo enviado a cocina
+          {:else}
+            <Icono nombre="enviar-cocina" tam={19} />
+            Enviar a cocina ({pos.pendientes.length})
+          {/if}
         </button>
         <!--
           La cuenta va ANTES del cobro, que es el orden real de una mesa: el
@@ -680,6 +712,7 @@
           disabled={!pos.hayCuenta}
           onclick={() => pos.imprimirPrecuenta()}
         >
+          <Icono nombre="imprimir" tam={17} />
           Imprimir cuenta
         </button>
         <!--
@@ -693,6 +726,7 @@
             disabled={!pos.hayCuenta}
             onclick={() => fijar({ vista: "cobro" })}
           >
+            <Icono nombre="cobrar" tam={17} />
             Cobrar {mxn(t.saldo)}
           </button>
         {/if}
@@ -708,6 +742,7 @@
         -->
         {#if pos.puedeLiberarMesa}
           <button class="b2 liberar" onclick={() => pos.liberarMesa()}>
+            <Icono nombre="liberar-mesa" tam={17} />
             Liberar mesa
           </button>
         {/if}
@@ -965,7 +1000,14 @@
   {/if}
 
   {#if pos.mensaje}
-    <div class="toast" role="status">{pos.mensaje}</div>
+    <div class="toast" role="status">
+      <span>{pos.mensaje}</span>
+      {#if pos.deshacer}
+        <button class="deshacer" onclick={() => pos.deshacer?.hacer()}>
+          {pos.deshacer.etiqueta}
+        </button>
+      {/if}
+    </div>
   {/if}
 </aside>
 
@@ -1110,7 +1152,7 @@
     font-weight: 700;
     text-transform: uppercase;
     letter-spacing: 0.04em;
-    color: var(--acento);
+    color: var(--acento-texto);
   }
   .pista-espera {
     font-size: 0.78rem;
@@ -1149,7 +1191,7 @@
   }
   .registrar-espera {
     background: var(--acento);
-    color: #fff;
+    color: var(--sobre-acento);
     border-radius: var(--r-md);
     padding: 0.6rem 1rem;
     font-family: var(--font-titulo);
@@ -1201,7 +1243,7 @@
   }
   .chip.cocina {
     background: var(--claro);
-    color: var(--acento);
+    color: var(--acento-texto);
   }
   .sub {
     font-size: 0.82rem;
@@ -1234,11 +1276,11 @@
     line-height: 1;
   }
   .cant button:hover {
-    color: var(--acento);
+    color: var(--acento-texto);
   }
   .cant b {
     font-family: var(--font-titulo);
-    color: var(--acento);
+    color: var(--acento-texto);
     min-width: 1.1rem;
     text-align: center;
   }
@@ -1260,7 +1302,7 @@
     font-weight: 600;
     text-transform: uppercase;
     letter-spacing: 0.05em;
-    color: var(--acento);
+    color: var(--acento-texto);
     background: var(--claro);
     border-radius: var(--r-pill);
     padding: 0.08rem 0.4rem;
@@ -1275,7 +1317,7 @@
    * tiene delante ocho horas cansa y se acaba ignorando.
    */
   .est-r.avisa {
-    color: #fff;
+    color: var(--sobre-acento);
     background: var(--acento);
     animation: latido-listo 1.6s ease-in-out infinite;
   }
@@ -1294,12 +1336,12 @@
     }
   }
   .acciones .mini.entregar:hover {
-    color: var(--acento);
+    color: var(--acento-texto);
   }
   /* Cuando el platillo ya está listo, el visto bueno se enciende: es el gesto
      que toca hacer en ese momento. */
   .acciones .mini.entregar.urge {
-    color: var(--acento);
+    color: var(--acento-texto);
     font-weight: 800;
   }
   .item .p {
@@ -1308,7 +1350,8 @@
   }
   .acciones {
     display: inline-flex;
-    gap: 0.1rem;
+    align-items: center;
+    gap: 0.3rem;
     flex: none;
   }
   .mini {
@@ -1322,19 +1365,56 @@
   }
   .mini:hover {
     border-color: var(--acento);
-    color: var(--acento);
+    color: var(--acento-texto);
   }
   .mini.on {
     background: var(--acento);
     border-color: var(--acento);
-    color: #fff;
+    color: var(--sobre-acento);
   }
-  .acciones .mini {
+  /*
+   * SUPERFICIE DE TOQUE DE VERDAD.
+   *
+   * 2rem = 32px. No llega a los 44 de la norma —una fila de renglón no da para
+   * tanto sin volverse una lista de tres platillos por pantalla—, pero es un
+   * 60% más de blanco que los ~20px de antes, y sobre todo ahora están
+   * SEPARADOS: 0.3rem entre ellos y el doble antes del que cancela.
+   */
+  .acciones .mini.glifo {
     border: none;
     color: var(--gris);
-    padding: 0.15rem 0.3rem;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 2rem;
+    min-height: 2rem;
+    padding: 0;
+    border-radius: var(--r-sm);
   }
-  .acciones .x:hover {
+  .acciones .mini.glifo:hover {
+    background: var(--borde-2, rgba(20, 24, 26, 0.06));
+    color: var(--pizarra);
+  }
+  /*
+   * El separador antes de «cancelar». Es un hueco, no una raya: basta con que
+   * el dedo tenga que viajar para llegar ahí.
+   */
+  .aparta {
+    width: 0.4rem;
+    flex: none;
+  }
+  /*
+   * EL ROJO YA NO ESPERA AL MOUSE.
+   *
+   * Estaba en `:hover`, y en la tableta del salón —que es donde se usa— no hay
+   * hover: el único aviso de que ese botón cancela un platillo no aparecía
+   * jamás. Ahora se ve siempre.
+   */
+  .acciones .glifo.x {
+    color: var(--peligro);
+  }
+  .acciones .glifo.x:hover {
+    background: rgba(194, 46, 33, 0.12);
     color: var(--peligro);
   }
   .promo {
@@ -1359,7 +1439,7 @@
     font-size: 0.68rem;
     text-transform: uppercase;
     letter-spacing: 0.06em;
-    color: var(--acento);
+    color: var(--acento-texto);
     font-weight: 700;
   }
   .promo .nombre {
@@ -1368,7 +1448,7 @@
   }
   .promo .importe {
     font-weight: 700;
-    color: var(--acento);
+    color: var(--acento-texto);
   }
   .promo .cta {
     font-size: 0.72rem;
@@ -1395,7 +1475,7 @@
     font-size: 0.68rem;
     text-transform: uppercase;
     letter-spacing: 0.06em;
-    color: var(--acento);
+    color: var(--acento-texto);
     font-weight: 700;
   }
   .promo-puesta .nombre {
@@ -1404,7 +1484,7 @@
   }
   .promo-puesta .importe {
     font-weight: 700;
-    color: var(--acento);
+    color: var(--acento-texto);
   }
   .quitar-promo {
     padding: 0.25rem 0.6rem;
@@ -1436,11 +1516,11 @@
     color: var(--peligro);
   }
   .tot .propina {
-    color: var(--acento);
+    color: var(--acento-texto);
   }
   .tot .saldo {
     font-weight: 700;
-    color: var(--acento);
+    color: var(--acento-texto);
   }
   .tot .gt {
     font-family: var(--font-titulo);
@@ -1482,13 +1562,17 @@
     gap: 0.5rem;
   }
   .b1 {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
     background: var(--acento);
-    color: #fff;
+    color: var(--sobre-acento);
     border-radius: var(--r-lg);
     padding: 0.85rem;
-    text-align: center;
+    min-height: var(--toque);
     font-family: var(--font-titulo);
-    font-size: 1.05rem;
+    font-size: var(--t-md);
     font-weight: 600;
   }
   .b1:disabled {
@@ -1497,17 +1581,27 @@
     cursor: default;
   }
   .b2 {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.45rem;
     border: 2px solid var(--borde);
     border-radius: var(--r-md);
     padding: 0.7rem;
-    text-align: center;
-    font-size: 0.95rem;
+    min-height: var(--toque);
+    font-size: var(--t-sm);
     font-weight: 600;
     color: var(--pizarra);
   }
+  /*
+   * El borde se queda en el naranja de marca —ahí es un objeto gráfico y a
+   * 3.4:1 contra el blanco cumple—, pero el rótulo pasa a `--acento-texto`:
+   * como TEXTO, el naranja de marca da 2.56:1, y este botón dice cuánto se va
+   * a cobrar.
+   */
   .b2.cobrar {
     border-color: var(--acento);
-    color: var(--acento);
+    color: var(--acento-texto);
   }
   /*
    * Discreto: liberar es la salida de un error, no una acción del servicio.
@@ -1520,7 +1614,7 @@
   }
   .b2.cobrar:hover {
     background: var(--acento);
-    color: #fff;
+    color: var(--sobre-acento);
   }
   .propinas {
     display: flex;
@@ -1554,7 +1648,7 @@
   .opciones-propina .mini.on {
     background: var(--acento);
     border-color: var(--acento);
-    color: #fff;
+    color: var(--sobre-acento);
   }
   .opciones-propina .mini.quitar {
     color: var(--peligro);
@@ -1564,7 +1658,7 @@
     color: var(--pizarra);
   }
   .resumen-propina b {
-    color: var(--acento);
+    color: var(--acento-texto);
   }
   .panel-cobro {
     display: flex;
@@ -1624,11 +1718,11 @@
     color: var(--pizarra);
   }
   .reparto b {
-    color: var(--acento);
+    color: var(--acento-texto);
   }
   .cambio {
     font-size: 0.95rem;
-    color: var(--acento);
+    color: var(--acento-texto);
   }
   .cambio b {
     font-family: var(--font-titulo);
@@ -1649,7 +1743,7 @@
     color: var(--pizarra);
   }
   .cada {
-    color: var(--acento);
+    color: var(--acento-texto);
     font-weight: 600;
   }
   .volver {
@@ -1701,7 +1795,7 @@
     color: var(--gris);
   }
   .socio .bolsa b {
-    color: var(--acento);
+    color: var(--acento-texto);
   }
   .ayuda-socio {
     font-size: 0.78rem;
@@ -1745,24 +1839,49 @@
     left: 1.25rem;
     right: 1.25rem;
     bottom: 1.25rem;
+    z-index: var(--z-aviso);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.75rem;
     background: var(--negro);
     color: #fff;
     border-radius: var(--r-md);
-    padding: 0.75rem 1rem;
-    font-size: 0.88rem;
+    padding: 0.6rem 0.75rem 0.6rem 1rem;
+    font-size: var(--t-sm);
     text-align: center;
     box-shadow: var(--sombra-lg);
+  }
+  /*
+   * Alto de toque completo: este botón se pulsa con prisa, con el comensal
+   * delante y con ocho segundos de plazo. Es el peor momento para fallar el
+   * dedo.
+   */
+  .toast .deshacer {
+    flex: none;
+    min-height: var(--toque);
+    padding: 0 0.9rem;
+    border: 1.5px solid rgba(255, 255, 255, 0.35);
+    border-radius: var(--r-sm);
+    color: #fff;
+    font: inherit;
+    font-weight: 700;
+    white-space: nowrap;
+  }
+  .toast .deshacer:hover {
+    background: rgba(255, 255, 255, 0.12);
+    border-color: #fff;
   }
 
   /* --- Indicaciones para cocina --- */
 
   .indicacion {
     display: block;
-    color: var(--acento);
+    color: var(--acento-texto);
     font-weight: 600;
   }
   .acciones .mini.activa {
-    color: var(--acento);
+    color: var(--acento-texto);
   }
 
   .velo {
@@ -1822,7 +1941,7 @@
   .chip.puesta {
     background: var(--acento);
     border-color: var(--acento);
-    color: #fff;
+    color: var(--sobre-acento);
   }
   .dialogo textarea {
     width: 100%;
@@ -1880,7 +1999,7 @@
   }
   .chip.nombre {
     background: var(--acento);
-    color: #fff;
+    color: var(--sobre-acento);
     border: none;
     font-weight: 700;
     max-width: 9rem;
@@ -1896,7 +2015,7 @@
   }
   .chip.poner-nombre:hover {
     border-color: var(--acento);
-    color: var(--acento);
+    color: var(--acento-texto);
   }
   .pista-nombre {
     font-size: 0.8rem;
@@ -1916,7 +2035,7 @@
   }
   .reabrir:hover {
     border-color: var(--acento);
-    color: var(--acento);
+    color: var(--acento-texto);
   }
   .acciones-cobrada {
     display: flex;

@@ -118,7 +118,7 @@
   .ok {
     background: var(--acento);
     border-color: var(--acento);
-    color: #fff;
+    color: var(--sobre-acento);
   }
   button:disabled {
     opacity: 0.4;

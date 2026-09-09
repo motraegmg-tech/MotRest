@@ -248,7 +248,7 @@
     color: var(--pizarra);
   }
   .marca span {
-    color: var(--acento);
+    color: var(--acento-texto);
   }
   h1 {
     font-family: var(--font-titulo);
@@ -354,7 +354,7 @@
     text-decoration: underline;
     cursor: pointer;
   }
-  .mudanza .enlace:hover { color: var(--acento); }
+  .mudanza .enlace:hover { color: var(--acento-texto); }
   .mudanza-titulo { margin: 0 0 0.3rem; font-weight: 600; font-size: 0.9rem; }
   .mudanza-ayuda { margin: 0.3rem 0; font-size: 0.78rem; line-height: 1.5; color: var(--gris); }
   .mudanza-error { margin: 0.4rem 0 0; font-size: 0.8rem; color: var(--peligro); }

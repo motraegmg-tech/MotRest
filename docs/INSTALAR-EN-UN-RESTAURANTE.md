@@ -85,6 +85,27 @@ El procedimiento completo, paso a paso y con ejemplo, está en
 3. Pegar el `licencia.json` en **Licencia de MOTRAE** de la pantalla suspendida,
    o en **Administración → Licencia** si el local ya está abierto.
 
+> **EL PRIMER ENLACE DE UN LOCAL SIEMPRE SE PEGA A MANO. No hay forma de que no
+> sea así, y conviene entender por qué antes de perder una tarde con ello.**
+>
+> Central *deposita* las licencias en la nube y el Hub las recoge **de la nube**.
+> Pero para hablar con la nube, el Hub necesita una dirección y una credencial
+> que viajan **dentro de esa misma licencia**. Un local que todavía no tiene
+> enlace no puede recibir por enlace el enlace.
+>
+> El síntoma, si se olvida, es de los que engañan: Central dice «en espera» —
+> correcto, la depositó— y el local sigue con su licencia vieja sin quejarse de
+> nada. En el panel aparece como **«nunca ha reportado»** para siempre.
+>
+> Así que **la primera vez** se copia el `licencia.json` de la ficha del local en
+> Central y se pega en la caja. A partir de ahí, las renovaciones sí llegan
+> solas: el local ya sabe a dónde escuchar.
+>
+> Antes de darle a alguien la licencia, comprueba que trae el bloque `nube`. Si
+> no está, es que Central no tenía guardada la credencial de ese local
+> (**Restaurantes → el local → Editar datos**), y la licencia sale firmada,
+> válida… y muda.
+
 **Al PIN del responsable no hay que hacerle nada.** La primera vez que MotRest
 abre en el restaurante, la caja pide crear la cuenta del responsable con el PIN
 que él elija; si Central ya mandó su nombre en la licencia, lo enseña y solo pide

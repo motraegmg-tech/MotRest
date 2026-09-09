@@ -4,10 +4,12 @@
    * filtra por los permisos del usuario en sesión: quien no puede ver un módulo
    * no lo ve en el menú.
    */
-  import { COLOR_FASE, MODULOS } from "./modulos";
+  import { esSoporte } from "@motrest/dominio";
+  import { MODULOS } from "./modulos";
   import PropinasAcumuladas from "./PropinasAcumuladas.svelte";
   import { rutas } from "./rutas.svelte";
   import { actualizaciones } from "../actualizaciones.svelte";
+  import Icono from "../Icono.svelte";
   import { sesion } from "../sesion/sesion.svelte";
 
   const visibles = $derived(MODULOS.filter((m) => sesion.puedeVer(m.permiso)));
@@ -24,8 +26,16 @@
   <nav>
     {#each visibles as modulo (modulo.id)}
       {@const activo = rutas.enModulo(modulo.clave)}
+      <!--
+        EL ICONO VA A COLOR SALVO EN EL MÓDULO ABIERTO.
+
+        El módulo activo se pinta sobre el naranja de marca, y ahí un relleno de
+        color propio pelearía con el fondo. Abierto, el icono pasa a heredar el
+        mismo tono oscuro del rótulo, y lo que distingue al módulo deja de ser
+        el color del dibujo: ya lo dice el panel entero.
+      -->
       <button class="item" class:on={activo} onclick={() => abrir(modulo.clave)}>
-        <i style="background: {activo ? 'currentColor' : COLOR_FASE[modulo.fase]}"></i>
+        <Icono nombre={modulo.icono} tam={20} color={!activo} />
         <span class="txt">{modulo.titulo}</span>
         {#if !modulo.operativo}
           <span class="fase">{modulo.fase}</span>
@@ -34,13 +44,14 @@
 
       {#if activo && modulo.secciones.length > 1}
         <div class="secciones">
-          {#each modulo.secciones.filter((s) => sesion.puedeVer(s.permiso)) as seccion (seccion.clave)}
+          {#each modulo.secciones.filter((s) => sesion.puedeVer(s.permiso) && (!s.soloMotrae || esSoporte(sesion.usuarioActual))) as seccion (seccion.clave)}
             <button
               class="seccion"
               class:on={rutas.actual.seccion === seccion.clave}
               onclick={() => rutas.ir(modulo.clave, seccion.clave)}
             >
-              {seccion.titulo}
+              <Icono nombre={seccion.icono} tam={15} />
+              <span>{seccion.titulo}</span>
             </button>
           {/each}
         </div>
@@ -114,15 +125,8 @@
   }
   .item.on {
     background: var(--acento);
-    color: #fff;
+    color: var(--sobre-acento);
     font-weight: 600;
-  }
-  .item i {
-    width: 0.6rem;
-    height: 0.6rem;
-    border-radius: 3px;
-    flex: none;
-    opacity: 0.9;
   }
   .txt {
     flex: 1;
@@ -144,6 +148,10 @@
     margin: 0.15rem 0 0.35rem 1.6rem;
   }
   .seccion {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    width: 100%;
     text-align: left;
     padding: 0.4rem 0.6rem;
     border-radius: var(--r-sm);
@@ -205,10 +213,15 @@
       animation: none;
     }
   }
+  /*
+   * `--gris-claro` y no `--gris`: este pie está sobre el carril negro, y el
+   * gris de la aplicación se oscureció para poder leerse sobre las tarjetas
+   * blancas. Aquí ese mismo gris quedaría en 3.6:1 contra el fondo.
+   */
   .foot {
     margin-top: auto;
     padding: 1.5rem 0.85rem 0;
-    font-size: 0.8rem;
-    color: var(--gris);
+    font-size: var(--t-xs);
+    color: var(--gris-claro);
   }
 </style>

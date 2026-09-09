@@ -23,6 +23,18 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Security_Cryptography"] }
 
+# Para hablar con la nube DESDE RUST y no desde la webview.
+#
+# Supabase rechaza una llave de servicio si la peticion trae User-Agent de
+# navegador: contesta 401 «Forbidden use of secret API key in browser». Y hace
+# bien -- una llave que se salta todas las politicas RLS no tiene nada que hacer
+# en un contexto donde cualquier contenido web podria leerla.
+#
+# `rustls` en vez de la pila TLS del sistema: una dependencia menos que depende
+# de como este configurada la maquina donde se compile.
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json"] }
+tokio = { version = "1", features = ["rt-multi-thread"] }
+
 [profile.release]
 opt-level = "s"
 lto = true

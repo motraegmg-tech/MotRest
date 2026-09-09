@@ -29,7 +29,7 @@
    */
   const sinRespaldo = $derived(!central.respaldoAlDia);
   const soportePendiente = $derived(central.localesConSoportePendiente);
-  const relay = $derived(central.saludRelay);
+  const nube = $derived(central.saludNube);
 
   /*
    * Renovaciones que ya se firmaron y el local todavía no ha recogido.
@@ -48,8 +48,8 @@
   function nombreDe(sucursal_id: string): string {
     return central.clientes.find((c) => c.id === sucursal_id)?.nombre ?? sucursal_id;
   }
-  /* Si el relay no contesta, lo caído es el relay y no los restaurantes. */
-  const relayMudo = $derived(central.puedeConsultarRelay && central.errorPulsos !== "");
+  /* Si la nube no contesta, lo caído es la nube y no los restaurantes. */
+  const nubeMuda = $derived(central.puedeConsultarNube && central.errorPulsos !== "");
 
   const ETIQUETA: Record<Urgencia, string> = {
     caido: "Caído",
@@ -67,14 +67,14 @@
 <section>
   <h1>Hoy</h1>
 
-  {#if relayMudo}
+  {#if nubeMuda}
     <!--
-      Si el relay se cae, lo que se ve abajo es «todos llevan horas sin
+      Si la nube se cae, lo que se ve abajo es «todos llevan horas sin
       reportar», que se lee como avería masiva cuando en realidad todos están
       vendiendo. Decir quién es el caído cambia a quién hay que llamar.
     -->
     <div class="alarma">
-      <b>El relay no contesta.</b>
+      <b>La nube no contesta.</b>
       Los restaurantes siguen operando igual: lo que se pierde es la vista, no el
       servicio. Lo de abajo puede estar viejo.
     </div>
@@ -183,12 +183,18 @@
       </p>
     {/if}
 
-    {#if relay}
-      <h2>El relay</h2>
-      <div class="relay">
-        <span><b>{relay.hubs_conectados}</b> de {relay.restaurantes} Hubs conectados ahora</span>
-        <span>{relay.pulsos} partes guardados</span>
-        <span>consultado {desde(relay.consultado_ts, central.ahora)}</span>
+    {#if nube}
+      <h2>La nube</h2>
+      <!--
+        NO se dice «conectados ahora», y antes sí. La nube no sostiene un socket
+        por local, así que ese dato no existe: lo que hay es el último parte de
+        cada uno, que es otra cosa. Un panel que diga «en línea» cuando lo que
+        sabe es «ayer» es peor que uno que calla.
+      -->
+      <div class="nube">
+        <span><b>{nube.restaurantes}</b> locales dados de alta</span>
+        <span>{nube.pulsos} con parte de vida</span>
+        <span>consultado {desde(nube.consultado_ts, central.ahora)}</span>
       </div>
     {/if}
 
@@ -278,14 +284,14 @@
   .resultados-pendientes b {
     color: var(--acento);
   }
-  .relay {
+  .nube {
     display: flex;
     flex-wrap: wrap;
     gap: 1.2rem;
     font-size: 0.82rem;
     color: var(--gris);
   }
-  .relay b {
+  .nube b {
     color: var(--pizarra);
   }
   .vacio p {

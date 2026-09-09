@@ -10,19 +10,42 @@ Cómo llega una versión nueva a todos los restaurantes.
 
 ## Cómo funciona, en dos líneas
 
-MOTRAE sube el instalador a un **release de GitHub** junto a un `motrest.json`
-firmado. Cada Hub pregunta cada 12 horas, **comprueba la firma antes de descargar
-nada**, y le avisa al restaurante. El restaurante decide cuándo se instala. Al
-llegar la hora, el Hub prepara un guion de relevo, cierra la caja, instala en
-silencio y la vuelve a abrir.
+MOTRAE sube el instalador desde **MotRest Central**, que lo guarda en la nube y
+firma un manifiesto. Cada Hub pregunta cada 12 horas, **comprueba la firma antes
+de descargar nada**, y le avisa al restaurante. El restaurante decide cuándo se
+instala. Al llegar la hora, el Hub prepara un guion de relevo, cierra la caja,
+instala en silencio y la vuelve a abrir.
 
-**Por qué GitHub Releases:** es gratis, sirve por HTTPS con la disponibilidad de
-GitHub detrás, y no hay servidor de descargas que montar ni pagar.
+### Dónde vive el canal: la nube primero, GitHub de respaldo
+
+> **Esto cambió con la migración a Supabase y el resto de esta guía tardó en
+> enterarse.** Si algo de más abajo habla de subir archivos a mano a un release
+> de GitHub, manda lo de aquí.
+
+- **El camino normal es la nube.** Central sube el `.exe` a
+  `storage/v1/object/instaladores/<version>.exe` y publica el manifiesto
+  firmado. El Hub de un local que ya habla con la nube lo lee de ahí
+  (`origen.nube` en `apps/hub/src/actualizaciones.ts`).
+- **GitHub Releases queda de respaldo**, para un local que todavía no está
+  enlazado a la nube. Ese Hub cae a
+  `api.github.com/repos/<dueño>/<repo>/releases/latest`, que es el canal
+  incrustado en el binario.
+
+Los dos caminos verifican **la misma firma**, así que no hay uno «más seguro»:
+lo que decide si un instalador corre es el manifiesto firmado, no de dónde vino.
 
 **Por qué la firma:** el canal de actualización es la llave maestra de todas las
-instalaciones. Con el manifiesto firmado, ni siquiera hace falta confiar en
-GitHub — si alguien tomara la cuenta, sin la **llave privada** de MOTRAE no
-cuela nada. Las públicas que verifican van en los Hubs y no permiten firmar.
+instalaciones. Con el manifiesto firmado, ni siquiera hace falta confiar en el
+sitio que sirve el archivo — sin la **llave privada** de MOTRAE no cuela nada.
+Las públicas que verifican van en los Hubs y no permiten firmar.
+
+> **Central tiene que estar al día para publicar.** El panel sube el instalador
+> a la nube, y esa capacidad se arregló el 3 de septiembre de 2026. Un Central
+> anterior firma el manifiesto pero no sube el archivo, y los Hubs se quedan
+> buscando algo que no existe. Antes de publicar, comprueba la versión de tu
+> Central — y recuerda que Central **no se actualiza sola**: hay que recompilar
+> el `.exe` (ver `ACTUALIZAR-CENTRAL.md` si existe, o `pnpm run build` en
+> `apps/central-escritorio`).
 
 ---
 
@@ -129,26 +152,43 @@ No se publica a todos a la vez cuando es una versión mayor:
 
 ## Qué ve el restaurante
 
-Aparece **«Hay una nueva actualización disponible»** con la versión, las notas y
-tres opciones:
+Aparece **«Hay una nueva actualización disponible»** con la versión y la lista
+de mejoras, y dos opciones:
 
 | Opción | Qué hace |
 |---|---|
-| **Actualizar ahora** | Se instala en cuanto sea seguro |
+| **Actualizar ahora** | Abre la confirmación |
 | **Más tarde** | Vuelve a preguntar en 2 horas |
-| **A una hora…** | 23:00, 00:00, 01:00… solo horarios de cierre |
 
 Si lo pospone, **el aviso se queda puesto** en la barra lateral hasta que se
 instale, y se puede tocar para reabrirlo. Un aviso que desaparece al posponerlo
 es una versión que nunca se instala.
 
-### Lo que el sistema no deja hacer, aunque lo pidan
+### La confirmación
 
-- **Nunca con la caja abierta.** Un turno abierto es dinero contado a medias:
-  reiniciar ahí deja un arqueo que no cuadra y nadie sabe por qué.
-- **Nunca en horario de servicio.** Se comprueba aunque el restaurante haya
-  dicho "instala ahora": quien elige eso a las nueve de la noche no está pensando
-  en las doce mesas abiertas.
+«Actualizar ahora» no instala: abre una segunda pantalla que dice
+**«¿Actualizar ahora a MotRest X.Y.Z?»**, repite las mejoras, y —lo importante—
+enseña **qué hay abierto en ese momento**: el turno de caja y las mesas con
+cuenta. Con eso delante, el restaurante decide.
+
+Es la única pregunta doble del producto. Se gana el sitio porque es lo único que
+apaga la caja.
+
+### Ya no hay horario prohibido
+
+**Se instala cuando el restaurante lo diga, a cualquier hora.** Antes había una
+ventana de 23:00 a 06:00 y el sistema se negaba fuera de ella incluso si habían
+pulsado «ahora».
+
+Se quitó porque la ventana era una suposición: MotRest no conoce el horario de
+ningún local —uno da desayunos, otro abre solo de noche—, así que un lunes a las
+once de la mañana, con la persiana abajo y nadie dentro, tampoco dejaba
+actualizar. La versión se quedaba esperando una madrugada.
+
+Lo que no se perdió es la advertencia. Un turno de caja abierto en mitad de un
+reinicio sigue dejando un arqueo que no cuadra; lo que cambió es **quién
+decide**. El Hub anota en su bitácora cuando instala con un turno abierto: el
+día que un arqueo no cuadre, esa línea explica por qué.
 
 ### `obligatoria`
 

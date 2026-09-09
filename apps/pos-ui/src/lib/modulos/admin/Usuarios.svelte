@@ -401,7 +401,7 @@
     height: 2.4rem;
     border-radius: 50%;
     background: var(--acento);
-    color: #fff;
+    color: var(--sobre-acento);
     display: flex;
     align-items: center;
     justify-content: center;
@@ -445,7 +445,7 @@
   }
   .accion:hover {
     border-color: var(--acento);
-    color: var(--acento);
+    color: var(--acento-texto);
   }
   .accion.urgente {
     border-color: var(--peligro);
@@ -567,7 +567,7 @@
   .rol.on {
     background: var(--acento);
     border-color: var(--acento);
-    color: #fff;
+    color: var(--sobre-acento);
   }
   .desc {
     font-size: 0.84rem;
@@ -614,7 +614,7 @@
     font-weight: 700;
     text-transform: uppercase;
     letter-spacing: 0.04em;
-    color: var(--acento);
+    color: var(--acento-texto);
     border: 1px solid var(--acento);
     border-radius: var(--r-pill);
     padding: 0.05rem 0.4rem;
@@ -648,7 +648,7 @@
   }
   .principal {
     background: var(--acento);
-    color: #fff;
+    color: var(--sobre-acento);
     border-radius: var(--r-md);
     padding: 0.7rem 1.25rem;
     font-family: var(--font-titulo);
@@ -703,12 +703,12 @@
   }
   .mini-resc:hover {
     border-color: var(--acento);
-    color: var(--acento);
+    color: var(--acento-texto);
   }
   .titulo-resc {
     font-size: 0.85rem;
     font-weight: 700;
-    color: var(--acento);
+    color: var(--acento-texto);
   }
   .codigo-resc {
     font-family: ui-monospace, Consolas, monospace;
@@ -716,7 +716,7 @@
     font-weight: 700;
     letter-spacing: 0.08em;
     text-align: center;
-    color: var(--acento);
+    color: var(--acento-texto);
     background: #fffaf5;
     border: 1.5px dashed var(--acento);
     border-radius: var(--r-md);

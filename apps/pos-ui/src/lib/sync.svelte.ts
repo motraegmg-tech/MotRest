@@ -64,6 +64,16 @@ class StoreSync {
   url = $state<string>("");
   /** Cuántos eventos llegaron de otras terminales en esta sesión. */
   recibidos = $state(0);
+
+  /**
+   * Lo que el Hub RECHAZÓ y esta terminal se guardó para siempre.
+   *
+   * Es el aviso que le faltó a Rodizio: sus cortes de caja se rechazaban uno
+   * tras otro y la única forma de saberlo era leer la bitácora del Hub por
+   * SSH. Un hecho que la caja cree haber guardado y el Hub no tiene es una
+   * discrepancia que hay que ver el mismo día, no meses después.
+   */
+  rechazados = $state<{ evento_id: string; motivo: string; ts: number }[]>([]);
   /** true = esta terminal se emparejó en este arranque, desde la URL. */
   emparejadoAhora = $state(false);
   /** Catálogos adoptados del local (menú, plano) en esta sesión. */
@@ -84,6 +94,8 @@ class StoreSync {
   private cliente: ClienteSync | null = null;
   private almacen: Almacen | null = null;
   private alLlegar: ((eventos: EventoBase[]) => void) | null = null;
+  /** Qué hacer con las credenciales del personal que manda el Hub. */
+  private alLlegarCredenciales: ((c: Record<string, unknown[]>) => void) | null = null;
   private alLocalVacio: (() => void) | null = null;
 
   /**
@@ -244,10 +256,23 @@ class StoreSync {
   iniciar(
     alLlegar: (eventos: EventoBase[]) => void,
     alLocalVacio?: () => void,
+    alLlegarCredenciales?: (c: Record<string, unknown[]>) => void,
   ): void {
     this.alLlegar = alLlegar;
     this.alLocalVacio = alLocalVacio ?? null;
+    this.alLlegarCredenciales = alLlegarCredenciales ?? null;
     if (this.configurado) this.conectar();
+  }
+
+  /**
+   * Deja en el Hub la credencial de un usuario, para que valga en TODAS las
+   * terminales y no solo en esta.
+   *
+   * Nunca viaja el PIN: solo su derivación PBKDF2, que es lo único que se
+   * guarda en ningún sitio.
+   */
+  publicarCredencial(usuarioId: string, credenciales: unknown[]): void {
+    this.cliente?.publicarCredencial(usuarioId, credenciales);
   }
 
   /**
@@ -329,6 +354,10 @@ class StoreSync {
       catalogosLocales: () => this.catalogosLocales(),
       alRecibirCatalogos: (catalogos) => this.aplicarCatalogos(catalogos),
       alRecibirTerminales: (terminales) => (this.terminales = terminales),
+      alRechazar: (evento_id, motivo) => {
+        this.rechazados = [{ evento_id, motivo, ts: Date.now() }, ...this.rechazados];
+      },
+      alRecibirCredenciales: (credenciales) => this.alLlegarCredenciales?.(credenciales),
       alEncontrarLocalVacio: () => this.alLocalVacio?.(),
       alDetectarRelojDesfasado: (ms) => {
         this.desfaseReloj = ms;
@@ -358,6 +387,20 @@ class StoreSync {
          * Hub del local corre en la caja. No hace falta otra señal.
          */
         if (estado === "sincronizado") failover.latidoDelTitular();
+
+        /*
+         * En cuanto hay enlace, se piden las credenciales del personal.
+         *
+         * Vivían SOLO en la terminal donde se creó cada usuario: un mesero dado
+         * de alta en la caja no podía entrar desde ninguna tableta, y al
+         * reinstalar MotRest —que registra una terminal nueva— todos los PIN
+         * dejaban de valer a la vez, sin más pista que «credencial inválida».
+         *
+         * Se piden en CADA sincronización y no solo la primera: una terminal que
+         * estuvo desconectada mientras se daba de alta a alguien tiene que
+         * enterarse al volver, no al reiniciarse.
+         */
+        if (estado === "sincronizado") this.cliente?.pedirCredenciales();
       },
     });
 

@@ -567,7 +567,7 @@
   .entrar {
     width: min(18rem, 100%);
     background: var(--acento);
-    color: #fff;
+    color: var(--sobre-acento);
     border-radius: var(--r-md);
     padding: 0.85rem;
     font-family: var(--font-titulo);
@@ -755,7 +755,7 @@
     font-weight: 700;
     letter-spacing: 0.08em;
     text-align: center;
-    color: var(--acento);
+    color: var(--acento-texto);
     background: #fffaf5;
     border: 1.5px dashed var(--acento);
     border-radius: var(--r-md);

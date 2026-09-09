@@ -106,7 +106,7 @@ class StoreLocal {
    * Un QR que no abre no es neutro: gasta papel, y quien lo escanea y no obtiene
    * nada no vuelve a escanear el siguiente.
    *
-   * Se enciende cuando el portal viva en el relay y el enlace funcione desde
+   * Se enciende cuando el portal viva en la nube y el enlace funcione desde
    * cualquier red. Entonces esto pasa a ser una preferencia del restaurante y no
    * un interruptor de seguridad.
    */

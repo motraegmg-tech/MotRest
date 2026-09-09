@@ -117,7 +117,7 @@
     font-family: var(--font-titulo);
     font-size: 1.05rem;
     font-weight: 600;
-    color: var(--acento);
+    color: var(--acento-texto);
   }
   .razon {
     font-size: 0.85rem;

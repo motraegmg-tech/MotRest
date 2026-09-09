@@ -1,6 +1,24 @@
 # ADR-27 · Dónde vive el relay
 
-**Estado:** aceptado · **Fecha:** agosto 2026 · **Decide:** Gonzalo (MOTRAE)
+**Estado:** ~~aceptado~~ · **SUPERADO** por [ADR-28](ADR-28-la-nube-en-supabase.md)
+**Fecha:** agosto 2026 · **Decide:** Gonzalo (MOTRAE)
+
+> **Esta decisión no llegó a cumplirse, y eso importa más que el hecho de que se
+> superara.** El relay se escribió, se probó y se documentó entero — incluida
+> esta página, que describe un despliegue en presente. Pero al ir a conectar los
+> locales, en septiembre de 2026, se comprobó que **`motrae.mx` nunca se
+> registró** y que la app de Fly no tenía máquinas. Nadie había reportado nunca
+> un pulso.
+>
+> Se conserva sin tocar el cuerpo, porque el razonamiento de la Decisión 2 —qué
+> se rompe al replicar un servicio con estado en memoria— sigue siendo válido y
+> se aplica a cualquier sustituto. Lo que no hay que leer aquí es el estado del
+> sistema: para eso, ADR-28.
+>
+> **La lección que dejó:** un documento escrito en presente sobre algo que aún no
+> se ha desplegado se lee después como si estuviera funcionando. Y un Hub que
+> reintenta en silencio contra un servidor que no existe no se lo desmiente a
+> nadie.
 
 ---
 

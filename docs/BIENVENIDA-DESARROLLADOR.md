@@ -34,7 +34,7 @@ MotRest es **LAN-first**. En la caja del restaurante vive el **Hub**: un servido
 guarda todo en un registro de eventos (SQLite) y habla por WebSocket seguro con las
 terminales. Las terminales —POS en tablets, pantalla de cocina, portal del comensal— son
 clientes web que **funcionan aunque se caiga internet**, porque el que manda está en la
-misma red. Fuera del local sólo hay un **relay** (en Fly.io) que hace de cartero para
+misma red. Fuera del local sólo hay **la nube** (Supabase) que hace de cartero para
 licencias y enlaces del portal: no es la autoridad, no guarda las ventas.
 
 El detalle está en el TRD. Léelo antes de proponer arquitectura.
@@ -53,7 +53,7 @@ eso vas a proponer cambios que ya se descartaron con razón.
 | 3 | [`MOTRAE_MotRest_PRD.md`](../Documentos_de_Primer_Orden/MOTRAE_MotRest_PRD.md) | Alcance funcional: qué debe hacer el sistema. |
 | 4 | [`MOTRAE_MotRest_TRD.md`](../Documentos_de_Primer_Orden/MOTRAE_MotRest_TRD.md) | Arquitectura, stack, modelo de datos, sincronización. |
 | 5 | [`docs/adr/`](adr/) | Las decisiones difíciles, una por archivo, con su razón. |
-| 6 | [`docs/SEGURIDAD.md`](SEGURIDAD.md) | El modelo de amenazas. **Obligatorio** antes de tocar licencias, firmas o el relay. |
+| 6 | [`docs/SEGURIDAD.md`](SEGURIDAD.md) | El modelo de amenazas. **Obligatorio** antes de tocar licencias, firmas o la nube. |
 
 Y cuando vayas a trabajar en un área concreta, hay un documento de relevo por tema en
 [`docs/`](.) —impresión, licencias, actualización remota— que cuenta qué se intentó y qué
@@ -170,7 +170,7 @@ encuentra, en vez de caer al registro público.
 | `portal/` | Portal del comensal (el del código QR de la mesa). |
 | `kds-android/` | Pantalla de cocina como app Android (Capacitor). |
 | `motrest-android/` | El POS como app Android. |
-| `relay/` | El servicio en Fly.io: cartero de licencias y enlaces del portal. |
+| `../supabase/` | La nube: esquema con RLS y funciones. Cartero de licencias y enlaces del portal. |
 
 ### `packages/` — lo que se comparte
 
@@ -243,7 +243,7 @@ Gonzalo de inmediato: en Git, borrar en un commit posterior no borra nada.
 
 ### 7.2 · Nada de tocar producción por tu cuenta
 
-Instalar en un restaurante, publicar una actualización, desplegar el relay o firmar un
+Instalar en un restaurante, publicar una actualización, desplegar la nube o firmar un
 instalador son operaciones que **hace Gonzalo**. Están documentadas en `docs/` para que
 entiendas el proceso completo, no para que lo ejecutes. Si tu cambio necesita llegar a un
 local, se coordina.

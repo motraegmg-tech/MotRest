@@ -177,7 +177,7 @@
     color: var(--gris);
   }
   .resumen b {
-    color: var(--acento);
+    color: var(--acento-texto);
     font-family: var(--font-titulo);
     font-size: 1rem;
   }
@@ -218,7 +218,7 @@
     padding: 0.1rem 0.5rem;
   }
   .cuenta.activa {
-    color: var(--acento);
+    color: var(--acento-texto);
     border-color: var(--acento);
   }
   .acciones {
@@ -281,7 +281,7 @@
   }
   .nivel.on {
     background: var(--acento);
-    color: #fff;
+    color: var(--sobre-acento);
   }
   .nivel:disabled {
     cursor: not-allowed;

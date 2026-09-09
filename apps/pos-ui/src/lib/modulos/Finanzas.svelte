@@ -376,7 +376,7 @@
     line-height: 1.55;
   }
   .aviso b {
-    color: var(--acento);
+    color: var(--acento-texto);
   }
   .aviso p {
     margin-top: 0.3rem;
@@ -488,7 +488,7 @@
   .folio {
     font-family: var(--font-titulo);
     font-weight: 700;
-    color: var(--acento);
+    color: var(--acento-texto);
     flex: none;
     min-width: 4.5rem;
   }
@@ -528,7 +528,7 @@
   }
   .mini:hover {
     border-color: var(--acento);
-    color: var(--acento);
+    color: var(--acento-texto);
   }
   .mini.peligro {
     color: #e0392b;
@@ -558,7 +558,7 @@
     font-weight: 700;
   }
   .dialogo-cancel .quien {
-    color: var(--acento);
+    color: var(--acento-texto);
     font-weight: 600;
     font-size: 0.9rem;
     margin-top: -0.4rem;
@@ -631,7 +631,7 @@
   }
   .principal {
     background: var(--acento);
-    color: #fff;
+    color: var(--sobre-acento);
     border-radius: var(--r-md);
     padding: 0.6rem 1.1rem;
     font-family: var(--font-titulo);

@@ -27,6 +27,7 @@ import {
   type EstadoCaja,
   type EventoCaja,
   type EventoComanda,
+  type RegistroEgreso,
   type ID,
   type MotivoMovimientoCaja,
   type ResumenCorte,
@@ -78,6 +79,43 @@ class StoreCaja {
     this.fabrica.actualizarContexto({ empleado_id: empleadoId });
   }
 
+  /**
+   * NINGÚN EVENTO DE CAJA PUEDE SALIR A NOMBRE DE «sistema».
+   *
+   * Este es el defecto que dejó a Rodizio meses sin un solo corte de caja
+   * registrado, y merece contarse entero porque no se parecía a lo que era:
+   *
+   * `abrir()` sí fijaba el actor —`actuarComo(cajeroId)`, ahí mismo— pero
+   * `cerrar()` NO. Dentro de la misma sesión del navegador daba igual: el
+   * contexto de la fábrica seguía teniendo al cajero de la apertura. El problema
+   * aparece en cuanto el POS se recarga entre la apertura y el cierre, que es lo
+   * normal: se abre a las once de la mañana y se cierra a las dos de la
+   * madrugada. Tras la recarga el store se rehidrata desde los eventos, pero el
+   * contexto de la fábrica vuelve a su valor inicial: `sistema`.
+   *
+   * `sistema` no está en el padrón, así que el Hub rechazaba el `caja_cerrada`
+   * por permisos. Y como el rechazo era silencioso, la pantalla decía que el
+   * turno había cerrado. En la base del Hub: dos aperturas, cero cierres.
+   *
+   * Eso explica también por qué eran las APERTURAS las que sí llegaban: son las
+   * únicas que fijan el actor justo antes de emitir.
+   */
+  private sinActor(empleadoId?: ID): string | null {
+    /*
+     * ESTRICTA A PROPÓSITO: no vale el actor que quedó en la fábrica.
+     *
+     * La primera versión caía de vuelta a `fabrica.empleadoActual` si no le
+     * pasaban un id. Parecía prudente y era el mismo error con otra cara: un
+     * id VIEJO —el de quien abrió la caja hace catorce horas— pasaba la
+     * comprobación, y el evento salía firmado por alguien que ya se fue a su
+     * casa. La bitácora es una firma, no un relleno.
+     *
+     * Quien llama siempre sabe quién actúa: lo tiene en la sesión.
+     */
+    if (empleadoId && empleadoId !== "sistema") return null;
+    return "Inicia sesión para operar la caja: el corte tiene que ir firmado";
+  }
+
   private emitir(evento: EventoCaja): void {
     this.eventos = [...this.eventos, evento];
     void this.almacen?.eventos.anexar([evento]).catch((causa) => {
@@ -99,11 +137,22 @@ class StoreCaja {
     return pos.todosLosEventos.filter((e) => e.ts >= sesion.abierta_ts && e.ts <= hasta);
   }
 
+  /**
+   * Los gastos en efectivo que salieron del cajón durante el turno.
+   *
+   * Es la pieza que faltaba para que el arqueo cuadrara: pagar el gas con el
+   * dinero de la caja bajaba el cajón de verdad y no bajaba el esperado, así
+   * que el cajero contaba bien y el sistema le marcaba un faltante.
+   */
+  private gastosDelTurno(sesion: EstadoCaja): RegistroEgreso[] {
+    return egresos.enEfectivoEntre(sesion.abierta_ts, sesion.cerrada_ts ?? Date.now());
+  }
+
   /** El corte en vivo del turno abierto, para verlo antes de cerrar. */
   get corteEnVivo(): CorteCaja | null {
     const sesion = this.activa;
     if (!sesion) return null;
-    return calcularCorte(sesion, this.eventosDelTurno(sesion));
+    return calcularCorte(sesion, this.eventosDelTurno(sesion), this.gastosDelTurno(sesion));
   }
 
   // --- Corte de un período ---------------------------------------------------------------
@@ -120,7 +169,14 @@ class StoreCaja {
   cortePorRango(desde: number, hasta: number): CortePeriodo {
     const turnos = this.sesiones
       .filter((s) => turnoEnRango(s, desde, hasta))
-      .map((sesion) => ({ sesion, corte: calcularCorte(sesion, this.eventosDelTurno(sesion)) }));
+      .map((sesion) => ({
+        sesion,
+        corte: calcularCorte(
+          sesion,
+          this.eventosDelTurno(sesion),
+          this.gastosDelTurno(sesion),
+        ),
+      }));
 
     return consolidarCortes(turnos, egresosEn(egresos.registros, { desde, hasta }), {
       desde,
@@ -186,6 +242,8 @@ class StoreCaja {
 
   abrir(cajeroId: ID, fondoInicial: Centavos): ResultadoCaja {
     if (this.activa) return { ok: false, error: "Ya hay un turno de caja abierto" };
+    const veto = this.sinActor(cajeroId);
+    if (veto) return { ok: false, error: veto };
     if (!Number.isFinite(fondoInicial) || fondoInicial < 0) {
       return { ok: false, error: "El fondo inicial no puede ser negativo" };
     }
@@ -217,6 +275,9 @@ class StoreCaja {
   ): ResultadoCaja {
     const sesion = this.activa;
     if (!sesion) return { ok: false, error: "No hay un turno abierto" };
+    // `movimiento_efectivo` también lo revalida el Hub: mismo riesgo, misma guarda.
+    const veto = this.sinActor(empleadoId);
+    if (veto) return { ok: false, error: veto };
     if (!Number.isFinite(monto) || monto <= 0) {
       return { ok: false, error: "Escribe un monto mayor que cero" };
     }
@@ -244,14 +305,30 @@ class StoreCaja {
    * cierre con su sello: si se sellara antes de declarar, el sello no incluiría
    * la cifra que más se revisa.
    */
-  async cerrar(declarado: Centavos, cajeroNombre: string): Promise<ResultadoCaja> {
+  async cerrar(
+    declarado: Centavos,
+    cajeroNombre: string,
+    cajeroId?: ID,
+  ): Promise<ResultadoCaja> {
     const sesion = this.activa;
     if (!sesion) return { ok: false, error: "No hay un turno abierto" };
+
+    /*
+     * EL ACTOR, ANTES DE NADA.
+     *
+     * Se fija aquí y no se da por hecho que lo dejó puesto `abrir()`: entre
+     * abrir y cerrar pasa un turno entero y el POS se recarga. Ver la nota de
+     * `sinActor`, que es el defecto que esto cierra.
+     */
+    const veto = this.sinActor(cajeroId);
+    if (veto) return { ok: false, error: veto };
+    if (cajeroId) this.actuarComo(cajeroId);
+
     if (!Number.isFinite(declarado) || declarado < 0) {
       return { ok: false, error: "El efectivo contado no puede ser negativo" };
     }
 
-    const corte = calcularCorte(sesion, this.eventosDelTurno(sesion));
+    const corte = calcularCorte(sesion, this.eventosDelTurno(sesion), this.gastosDelTurno(sesion));
     const cerrada_ts = Date.now();
     const diferencia = diferenciaArqueo(corte, declarado);
 

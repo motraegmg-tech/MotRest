@@ -23,7 +23,7 @@
  *      para todos, apagarlo dejaría también al contador sin datos.
  *
  * DÓNDE VIVE. En el Hub del local, en la red del restaurante. No es una API en
- * internet: quien la consuma tiene que estar en la red o entrar por el relay.
+ * internet: quien la consuma tiene que estar en la red del local.
  * Publicar los datos de un restaurante en internet para comodidad de su contador
  * es un intercambio que nadie hizo a conciencia.
  */

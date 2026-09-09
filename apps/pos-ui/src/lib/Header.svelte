@@ -147,7 +147,7 @@
   }
   .chip.acento {
     background: var(--acento);
-    color: #fff;
+    color: var(--sobre-acento);
   }
   .chip.enlace {
     background: #eef1ed;
@@ -199,7 +199,7 @@
     height: 2rem;
     border-radius: 50%;
     background: var(--acento);
-    color: #fff;
+    color: var(--sobre-acento);
     display: flex;
     align-items: center;
     justify-content: center;
@@ -257,7 +257,7 @@
   .pendiente {
     margin-left: 0.4rem;
     background: var(--acento);
-    color: #fff;
+    color: var(--sobre-acento);
     border-radius: var(--r-pill);
     padding: 0.05rem 0.4rem;
     font-size: 0.66rem;

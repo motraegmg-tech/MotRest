@@ -47,13 +47,13 @@
   let error = $state("");
 
   /*
-   * La clave del relay no se rellena con la guardada: no se puede leer.
+   * La credencial de la nube no se rellena con la guardada: no se puede leer.
    * Vacío significa «dejar la que haya», y escribir algo la sustituye. Es la
    * misma regla que con cualquier contraseña, y evita el accidente de que abrir
    * la ficha para corregir el teléfono borre el enlace del local.
    */
-  let claveRelay = $state("");
-  const tieneEnlace = $derived(central.tieneEnlaceRelay(cliente.id));
+  let credencialNube = $state("");
+  const tieneEnlace = $derived(central.tieneEnlaceNube(cliente.id));
 
   // --- Mudanza a otra computadora ---
   let diasRespaldo = $state(7);
@@ -91,8 +91,8 @@
       return;
     }
 
-    if (claveRelay.trim()) {
-      const enlace = await central.fijarClaveRelay(cliente.id, claveRelay);
+    if (credencialNube.trim()) {
+      const enlace = await central.fijarCredencialNube(cliente.id, credencialNube);
       if (!enlace.ok) {
         error = enlace.error;
         return;
@@ -158,12 +158,12 @@
     {/if}
 
     <label>
-      Clave del relay de este local
+      Credencial de la nube de este local
       <input
-        bind:value={claveRelay}
+        bind:value={credencialNube}
         spellcheck="false"
         autocomplete="off"
-        placeholder={tieneEnlace ? "Ya está puesta — escriba solo para sustituirla" : "La que emitió «padron alta» para este restaurante"}
+        placeholder={tieneEnlace ? "Ya está puesta — escriba solo para sustituirla" : "La que devolvió «alta-nube» para este restaurante"}
       />
       <small>
         {#if tieneEnlace}

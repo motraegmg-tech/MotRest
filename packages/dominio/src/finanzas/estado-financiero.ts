@@ -1,0 +1,233 @@
+/**
+ * El estado financiero del mes: un solo documento con todo el dinero.
+ *
+ * ## Qué pidió Gonzalo
+ *
+ * «Que den un estado financiero de lo que fue el mes seleccionado, que diga
+ * gastos desglosados, ingresos, y todo tipo de movimiento económico que hubo
+ * durante el mes.» Esto es esa estructura; el PDF solo la dibuja.
+ *
+ * ## Las tres preguntas que responde, en este orden
+ *
+ * 1. **¿Cuánto entró?** La venta del mes, con IVA y sin él, y por dónde se
+ *    cobró.
+ * 2. **¿Cuánto salió y en qué?** Los gastos categoría por categoría, y dentro
+ *    de cada una, renglón por renglón.
+ * 3. **¿Ganamos, y cuánto dinero quedó?** Son dos preguntas distintas y por eso
+ *    van en dos bloques distintos —ver abajo—.
+ *
+ * ## Por qué el resultado y el dinero NO son el mismo número
+ *
+ * Es la confusión que más dinero le cuesta a un restaurante, y el informe la
+ * separa a propósito:
+ *
+ * - El **resultado** dice si el negocio gana. La compra de cien kilos de queso
+ *   no lo empeora: ese queso es inventario, y se vuelve costo conforme se vende.
+ * - El **flujo** dice cuánto dinero queda. Esa misma compra sí lo baja: los
+ *   pesos salieron de la caja el martes.
+ *
+ * Un mes puede cerrar con utilidad y con menos dinero que al empezar (se
+ * surtió la despensa), o al revés (se cobró de un mes anterior). Enseñar un
+ * solo número obligaría a elegir cuál de las dos verdades ocultar.
+ */
+import { sumar, type Centavos } from "../comun/dinero.js";
+import type { ID } from "../comun/ids.js";
+import type { EstadoComanda } from "../comanda/reducers.js";
+import type { RegistroCfdi } from "../fiscal/eventos.js";
+import type { EstadoCaja } from "../caja/reducers.js";
+import { cuentasCerradasEn, resumenVentas } from "../inteligencia/reportes.js";
+import { reporteContable, type ReporteContable } from "./contador.js";
+import {
+  CATEGORIAS_EGRESO,
+  categoriaDe,
+  cuentasPorPagar,
+  egresosEn,
+  totalPorPagar,
+  type CategoriaEgreso,
+  type RegistroEgreso,
+} from "./egresos.js";
+import { calcularResultado, type ResultadoPeriodo } from "./egresos.js";
+import { resumenDeFlujo, type ResumenFlujo } from "./flujo.js";
+import type { EventoTesoreria } from "./tesoreria.js";
+
+/** Un gasto concreto, tal como se lista debajo de su categoría. */
+export interface GastoDetallado {
+  ts: number;
+  concepto: string;
+  proveedor?: string;
+  forma_pago: string;
+  monto: Centavos;
+  /** false = se registró en el mes pero todavía se debe. */
+  pagado: boolean;
+  folio_comprobante?: string;
+}
+
+/** Una categoría de gasto con sus renglones dentro. */
+export interface BloqueGastos {
+  categoria: CategoriaEgreso;
+  nombre: string;
+  total: Centavos;
+  /**
+   * ¿Se resta al resultado?
+   *
+   * Solo las compras de insumos dicen que no, y el informe lo escribe en el
+   * papel: un lector que vea «compras 48 000» restadas de la utilidad y luego
+   * no cuadre el total pensará que el sistema se equivocó.
+   */
+  afectaResultado: boolean;
+  renglones: GastoDetallado[];
+}
+
+export interface EstadoFinanciero {
+  desde: number;
+  hasta: number;
+  /** Nombre del local, para el encabezado del papel. */
+  local: string;
+  emitido_ts: number;
+
+  /** Lo vendido y cómo se cobró. Ya lo calculaba el reporte del contador. */
+  ventas: ReporteContable;
+
+  /** Los gastos del mes, agrupados y detallados. */
+  gastos: BloqueGastos[];
+  total_gastos: Centavos;
+
+  /** Ingreso − costo − gastos operativos. La utilidad. */
+  resultado: ResultadoPeriodo;
+
+  /** Cuánto dinero entró y salió, y con cuánto se cerró el mes. */
+  flujo: ResumenFlujo;
+
+  /** Lo que se debía al cerrar el mes. */
+  por_pagar: Centavos;
+  documentos_por_pagar: number;
+
+  /** Los cortes de caja del mes y sus diferencias. */
+  cortes: {
+    turnos: number;
+    turnos_abiertos: number;
+    declarado: Centavos;
+    esperado: Centavos;
+    diferencia: Centavos;
+  };
+}
+
+export interface FuentesEstadoFinanciero {
+  local: string;
+  comandas: readonly EstadoComanda[];
+  egresos: readonly RegistroEgreso[];
+  cfdis: readonly RegistroCfdi[];
+  sesiones: readonly EstadoCaja[];
+  tesoreria: readonly EventoTesoreria[];
+}
+
+/**
+ * ¿Qué turnos pertenecen al mes?
+ *
+ * Por la APERTURA, igual que en el corte por fechas: un turno que abre el 31 a
+ * las 20:00 y cierra el 1 a las 2:00 es del 31. Cambiar el criterio entre dos
+ * pantallas que enseñan lo mismo es la forma más segura de que nadie confíe en
+ * ninguna de las dos.
+ */
+function turnosDelPeriodo(
+  sesiones: readonly EstadoCaja[],
+  desde: number,
+  hasta: number,
+): EstadoCaja[] {
+  return sesiones.filter((s) => s.abierta_ts >= desde && s.abierta_ts < hasta);
+}
+
+export function armarEstadoFinanciero(
+  fuentes: FuentesEstadoFinanciero,
+  rango: { desde: number; hasta: number },
+  ahora: number = Date.now(),
+): EstadoFinanciero {
+  const cerradas = cuentasCerradasEn(fuentes.comandas, rango);
+  const delMes = egresosEn(fuentes.egresos, rango);
+
+  const ventas = reporteContable(cerradas, fuentes.cfdis, delMes, rango);
+
+  const gastos: BloqueGastos[] = CATEGORIAS_EGRESO.map((def) => {
+    const suyos = delMes.filter((e) => e.categoria === def.id);
+    return {
+      categoria: def.id,
+      nombre: def.nombre,
+      afectaResultado: def.afectaResultado,
+      total: sumar(...suyos.map((e) => e.monto)),
+      renglones: suyos.map((e) => ({
+        ts: e.ts,
+        concepto: e.concepto,
+        proveedor: e.proveedor,
+        forma_pago: e.forma_pago,
+        monto: e.monto,
+        pagado: e.pagado,
+        folio_comprobante: e.folio_comprobante,
+      })),
+    };
+  }).filter((b) => b.renglones.length > 0);
+
+  /*
+   * El costo sale de `resumenVentas`, la MISMA función que usa la pantalla del
+   * resultado diario. Recalcularlo aquí con otra aritmética garantizaría que
+   * algún día el informe del mes y la pantalla del día dijeran cosas distintas,
+   * sin forma de saber cuál miente.
+   */
+  const resultado = calcularResultado(resumenVentas(cerradas), delMes);
+
+  const flujo = resumenDeFlujo(
+    {
+      comandas: fuentes.comandas,
+      egresos: fuentes.egresos,
+      sesiones: fuentes.sesiones,
+      tesoreria: fuentes.tesoreria,
+    },
+    rango,
+  );
+
+  const turnos = turnosDelPeriodo(fuentes.sesiones, rango.desde, rango.hasta);
+  const cerrados = turnos.filter((t) => t.cerrada);
+
+  return {
+    desde: rango.desde,
+    hasta: rango.hasta,
+    local: fuentes.local,
+    emitido_ts: ahora,
+    ventas,
+    gastos,
+    total_gastos: sumar(...gastos.map((g) => g.total)),
+    resultado,
+    flujo,
+    por_pagar: totalPorPagar(fuentes.egresos),
+    documentos_por_pagar: cuentasPorPagar(fuentes.egresos).length,
+    cortes: {
+      turnos: turnos.length,
+      turnos_abiertos: turnos.length - cerrados.length,
+      declarado: sumar(...cerrados.map((t) => t.declarado ?? (0 as Centavos))),
+      esperado: sumar(...cerrados.map((t) => t.resumen?.efectivo_esperado ?? (0 as Centavos))),
+      diferencia: sumar(...cerrados.map((t) => t.diferencia ?? (0 as Centavos))),
+    },
+  };
+}
+
+/** Los gastos de un proveedor concreto dentro del estado, para la vista de deuda. */
+export function gastosDeProveedor(
+  estado: EstadoFinanciero,
+  proveedor: string,
+): GastoDetallado[] {
+  const buscado = proveedor.trim().toLowerCase();
+  return estado.gastos
+    .flatMap((b) => b.renglones)
+    .filter((r) => (r.proveedor ?? "").trim().toLowerCase() === buscado);
+}
+
+/** El nombre legible de una categoría, para quien solo tenga el id. */
+export function nombreCategoriaGasto(id: CategoriaEgreso): string {
+  return categoriaDe(id).nombre;
+}
+
+/** Identificador corto y estable del informe, para nombrar el archivo. */
+export function folioDelEstado(estado: EstadoFinanciero, sucursal?: ID): string {
+  const d = new Date(estado.desde);
+  const mes = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+  return sucursal ? `${mes}-${sucursal.slice(0, 6)}` : mes;
+}

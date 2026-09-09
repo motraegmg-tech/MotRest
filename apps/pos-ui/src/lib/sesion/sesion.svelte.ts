@@ -427,6 +427,56 @@ class Sesion {
     }
   }
 
+  /**
+   * Adopta las credenciales que guarda el Hub, que es la fuente.
+   *
+   * EL FALLO QUE ESTO CIERRA: vivían **solo** en la terminal donde se creó cada
+   * usuario. Un mesero dado de alta en la caja no podía entrar desde ninguna
+   * tableta del salón, y al reinstalar MotRest —que registra una terminal
+   * nueva— todos los PIN dejaban de valer a la vez, sin más pista que
+   * «credencial inválida».
+   *
+   * LO DEL HUB MANDA, y no se fusiona con lo de aquí. Si un PIN se restableció
+   * en otra terminal, el viejo tiene que dejar de servir en esta: quedarse con
+   * el local «por si acaso» convertiría un restablecimiento en una credencial
+   * que sigue abriendo, que es lo contrario de restablecer.
+   *
+   * Lo que SÍ se conserva es la del soporte de MOTRAE: se deriva de la licencia
+   * y no vive en el Hub.
+   */
+  async adoptarCredencialesDelHub(delHub: Record<string, unknown[]>): Promise<void> {
+    const soporte = this.credenciales.get(USUARIO_SOPORTE_ID);
+    const fusionadas = new Map<ID, Credencial[]>(
+      Object.entries(delHub) as [ID, Credencial[]][],
+    );
+    if (soporte) fusionadas.set(USUARIO_SOPORTE_ID, soporte);
+
+    /*
+     * Un Hub que todavía no tiene ninguna es un Hub recién actualizado, no un
+     * Hub que las perdió. Vaciar aquí dejaría al local fuera de su sistema
+     * mientras se sube la primera.
+     */
+    if (fusionadas.size === (soporte ? 1 : 0)) return;
+
+    this.credenciales = fusionadas;
+    await this.guardarSecretos();
+  }
+
+  /** Lo enchufa el arranque; sin él, las credenciales solo vivirían aquí. */
+  alPublicarCredencial: ((usuarioId: ID, credenciales: Credencial[]) => void) | null = null;
+
+  /**
+   * Sube al Hub la credencial de un usuario, para que valga en todas partes.
+   *
+   * Nunca viaja el PIN: solo su derivación PBKDF2 con sal, que es lo único que
+   * se guarda en ningún sitio. Sin enlace no pasa nada — queda local y sube en
+   * cuanto alguien la vuelva a tocar con red.
+   */
+  private publicarCredencialEnElHub(usuarioId: ID): void {
+    if (usuarioId === USUARIO_SOPORTE_ID) return;
+    const suyas = this.credenciales.get(usuarioId);
+    if (suyas) this.alPublicarCredencial?.(usuarioId, suyas);
+  }
   private async guardarSecretos(): Promise<void> {
     if (!this.almacen) return;
     try {
@@ -714,6 +764,7 @@ class Sesion {
       });
     }
     this.emitir("credencial_cambiada", { usuario_id: id, tipo_credencial: "pin" });
+    this.publicarCredencialEnElHub(id);
 
     // La provisión de MOTRAE queda como ya aplicada: reemitir la misma licencia
     // por cobro no puede volver a pisar el PIN que el responsable acaba de elegir.
@@ -1292,6 +1343,23 @@ class Sesion {
       rol_id: nuevo.rol_id,
       permisos: nuevo.permisos,
     });
+    /*
+     * Y la línea de bitácora de que esta cuenta ya tiene PIN.
+     *
+     * FALTABA. `usuario_creado` no lleva credencial por diseño —el hash no
+     * viaja en el registro—, así que sin este evento no quedaba constancia de
+     * quién le puso el PIN inicial a quién. El alta del responsable sí lo
+     * emitía; esta no, y era la misma operación.
+     *
+     * Se ve al revisar la bitácora tras un movimiento raro: sin esta línea,
+     * una cuenta aparece de la nada y ya operando.
+     */
+    this.emitir("credencial_cambiada", {
+      usuario_id: id,
+      tipo_credencial: "pin",
+      autorizador_id: actor.id,
+    });
+    this.publicarCredencialEnElHub(id);
     await this.guardarSecretos();
     return { ok: true };
   }
@@ -1439,6 +1507,7 @@ class Sesion {
     }
 
     this.emitir("credencial_cambiada", { usuario_id: usuario.id, tipo_credencial: tipo });
+    this.publicarCredencialEnElHub(usuario.id);
     await this.guardarSecretos();
     return { ok: true };
   }
@@ -1537,6 +1606,7 @@ class Sesion {
           tipo_credencial: tipo,
           autorizador_id: autorizador.id,
         });
+        this.publicarCredencialEnElHub(objetivoId);
         await this.guardarSecretos();
         return { ok: true };
       }

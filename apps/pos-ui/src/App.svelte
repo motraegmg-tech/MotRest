@@ -8,6 +8,7 @@
   import Sidebar from "./lib/nav/Sidebar.svelte";
   import { MODULO_POR_CLAVE, MODULOS } from "./lib/nav/modulos";
   import { rutas } from "./lib/nav/rutas.svelte";
+  import { modoCocina } from "./lib/nav/modo-cocina.svelte";
   import { orientacion } from "./lib/nav/orientacion.svelte";
   import Clientes from "./lib/modulos/Clientes.svelte";
   import Reservas from "./lib/modulos/clientes/Reservas.svelte";
@@ -16,6 +17,7 @@
   import Compras from "./lib/modulos/Compras.svelte";
   import Finanzas from "./lib/modulos/Finanzas.svelte";
   import Canales from "./lib/modulos/finanzas/Canales.svelte";
+  import Dinero from "./lib/modulos/finanzas/Dinero.svelte";
   import Grupo from "./lib/modulos/finanzas/Grupo.svelte";
   import Inteligencia from "./lib/modulos/Inteligencia.svelte";
   import Comparativo from "./lib/modulos/inteligencia/Comparativo.svelte";
@@ -25,6 +27,7 @@
   import Bitacora from "./lib/modulos/admin/Bitacora.svelte";
   import Catalogo from "./lib/modulos/admin/Catalogo.svelte";
   import Hub from "./lib/modulos/admin/Hub.svelte";
+  import Licencia from "./lib/modulos/admin/Licencia.svelte";
   import Impresoras from "./lib/modulos/admin/Impresoras.svelte";
   import MensajesAlCliente from "./lib/modulos/admin/MensajesAlCliente.svelte";
   import Salones from "./lib/modulos/admin/Salones.svelte";
@@ -43,6 +46,7 @@
   import { sync } from "./lib/sync.svelte";
   import { actualizaciones } from "./lib/actualizaciones.svelte";
   import { caja } from "./lib/caja.svelte";
+  import { pos } from "./lib/pos.svelte";
   import { failover } from "./lib/failover.svelte";
   import { licencia } from "./lib/licencia.svelte";
   import { modoAbierto } from "./lib/modo-abierto.svelte";
@@ -167,7 +171,7 @@
     que entra por la izquierda, y el botón de las tres rayas lo llama.
     En horizontal nada de esto se activa: el menú sigue fijo, como siempre.
   -->
-  {#if orientacion.vertical}
+  {#if orientacion.vertical && !modoCocina.activo}
     <button
       class="hamburguesa"
       aria-label={orientacion.menuAbierto ? "Cerrar el menú" : "Abrir el menú"}
@@ -180,7 +184,7 @@
     </button>
   {/if}
 
-  {#if orientacion.vertical && orientacion.menuAbierto}
+  {#if orientacion.vertical && orientacion.menuAbierto && !modoCocina.activo}
     <!--
       El velo cierra al tocar fuera. Es un botón y no un div para que exista
       para el teclado y para un lector de pantalla: un `div` con `onclick` es
@@ -193,12 +197,24 @@
     ></button>
   {/if}
 
-  <div class="carril" class:abierto={orientacion.menuAbierto}>
-    <Sidebar />
-  </div>
+  <!--
+    LA TABLET DE COCINA NO LLEVA CARRIL NI BARRA.
+
+    Son 15rem de ancho y 4rem de alto que en esa pantalla nadie va a tocar —ahí
+    no se navega, se mira— y que le faltan a las comandas, que es lo único que
+    importa. En la caja y en el escritorio el carril sigue puesto: ahí el
+    gerente sí entra al tablero y luego se va a Finanzas.
+  -->
+  {#if !modoCocina.activo}
+    <div class="carril" class:abierto={orientacion.menuAbierto}>
+      <Sidebar />
+    </div>
+  {/if}
 
   <div class="main">
-    <Header onAbrirAcceso={() => (mostrarAcceso = true)} />
+    {#if !modoCocina.activo}
+      <Header onAbrirAcceso={() => (mostrarAcceso = true)} />
+    {/if}
 
     {#if !permitido}
       <div class="sin-acceso">
@@ -230,7 +246,9 @@
         <Inteligencia />
       {/if}
     {:else if modulo.clave === "finanzas"}
-      {#if seccion === "canales"}
+      {#if seccion === "dinero"}
+        <Dinero />
+      {:else if seccion === "canales"}
         <Canales />
       {:else if seccion === "grupo"}
         <Grupo />
@@ -252,6 +270,8 @@
         <MensajesAlCliente />
       {:else if seccion === "hub"}
         <Hub />
+      {:else if seccion === "licencia"}
+        <Licencia />
       {:else}
         <Usuarios />
       {/if}
@@ -381,10 +401,21 @@
   lateral se queda puesto mientras haya algo pendiente (ver Sidebar).
 -->
 {#if actualizaciones.avisar && actualizaciones.version}
+  <!--
+    Lo que hay abierto viaja al diálogo, no se queda aquí.
+
+    Desde que el sistema dejó de prohibir instalar fuera de la madrugada, el
+    turno de caja y las mesas abiertas ya no deciden nada: son lo que se le
+    enseña a quien va a confirmar. La cifra se lee en el momento de pintar el
+    aviso, así que si cierran la caja mientras el diálogo está puesto, el aviso
+    desaparece solo.
+  -->
   <AvisoActualizacion
     version={actualizaciones.version.version}
     notas={actualizaciones.version.notas}
     obligatoria={actualizaciones.obligatoria}
+    turnoAbierto={caja.activa !== undefined}
+    mesasAbiertas={pos.comandasAbiertas.length}
     onDecidir={(eleccion) => actualizaciones.decidir(eleccion)}
   />
 {/if}

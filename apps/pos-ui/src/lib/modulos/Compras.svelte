@@ -200,11 +200,29 @@
   let folioProveedor = $state("");
   let notaRecepcion = $state("");
 
+  /*
+   * CÓMO SE PAGÓ LA ENTREGA.
+   *
+   * Recibir mercancía movía el almacén y nada más: entraban cien kilos de queso
+   * y el sistema seguía creyendo que el restaurante tenía el mismo dinero. Ahora
+   * la recepción genera su gasto, y aquí se dice cuándo sale ese dinero.
+   *
+   * Decisión de Gonzalo: se PREGUNTA, no se asume. Un restaurante le paga al
+   * proveedor el viernes aunque la entrega llegue el lunes, y dar por pagado
+   * todo lo que entra dejaría el saldo mal toda la semana.
+   */
+  let pagoRecepcion = $state(true);
+  let formaRecepcion = $state("efectivo");
+  let venceRecepcion = $state("");
+
   function abrirRecepcion(orden: OrdenCompra) {
     limpiarMensajes();
     recibiendo = orden.orden_id;
     folioProveedor = "";
     notaRecepcion = "";
+    pagoRecepcion = true;
+    formaRecepcion = "efectivo";
+    venceRecepcion = "";
     // Se precarga lo que falta y el costo pactado: lo normal es que llegue eso.
     const cantidades: Record<string, string> = {};
     const costos: Record<string, string> = {};
@@ -230,13 +248,23 @@
     const r = compras.recibir(orden.orden_id, recibidas, {
       folioProveedor,
       nota: notaRecepcion,
+      pagado: pagoRecepcion,
+      formaPago: formaRecepcion,
+      venceTs:
+        !pagoRecepcion && venceRecepcion
+          ? new Date(`${venceRecepcion}T12:00`).getTime()
+          : undefined,
     });
     if (!r.ok) {
       error = r.error ?? "No se pudo registrar la recepción";
       return;
     }
     recibiendo = null;
-    aviso = "Mercancía recibida: ya entró al almacén con esta orden como referencia.";
+    // Se dice lo que pasó con el DINERO, no solo con el almacén: es la mitad
+    // que hasta ahora no ocurría, y quien recibe tiene que saber que ocurrió.
+    aviso = pagoRecepcion
+      ? "Mercancía recibida: entró al almacén y el gasto ya bajó el dinero del restaurante."
+      : "Mercancía recibida: entró al almacén y quedó como cuenta por pagar en Finanzas.";
   }
 
   function cancelar(orden: OrdenCompra) {
@@ -527,11 +555,61 @@
                       <input bind:value={notaRecepcion} placeholder="Faltaron 2 kg, vino más caro…" />
                     </label>
                   </div>
+
+                  <!--
+                    EL DINERO. Recibir mercancía ya no es solo un movimiento de
+                    almacén: genera su gasto y baja el saldo del restaurante. Lo
+                    único que hay que decidir aquí es CUÁNDO sale.
+                  -->
+                  <div class="pago-entrega">
+                    <div class="opciones-pago">
+                      <button
+                        class="opcion"
+                        class:on={pagoRecepcion}
+                        onclick={() => (pagoRecepcion = true)}
+                      >
+                        Se paga ahora
+                      </button>
+                      <button
+                        class="opcion"
+                        class:on={!pagoRecepcion}
+                        onclick={() => (pagoRecepcion = false)}
+                      >
+                        Queda a crédito
+                      </button>
+                    </div>
+
+                    {#if pagoRecepcion}
+                      <label>
+                        <span>¿Con qué se paga?</span>
+                        <select bind:value={formaRecepcion}>
+                          <option value="efectivo">Efectivo</option>
+                          <option value="transferencia">Transferencia</option>
+                          <option value="tarjeta_debito">Tarjeta</option>
+                        </select>
+                      </label>
+                      <p class="pista-pago">
+                        {formaRecepcion === "efectivo"
+                          ? "Sale del cajón, y el corte de este turno lo va a descontar."
+                          : "Sale del banco: el efectivo del cajón no se toca."}
+                      </p>
+                    {:else}
+                      <label>
+                        <span>¿Cuándo se paga?</span>
+                        <input type="date" bind:value={venceRecepcion} />
+                      </label>
+                      <p class="pista-pago">
+                        El gasto cuenta desde hoy, pero el dinero no se mueve hasta
+                        liquidarlo. Queda en <b>Finanzas → Cuentas por pagar</b>.
+                      </p>
+                    {/if}
+                  </div>
+
                   <div class="botones">
                     <span class="total">Importe <b>{mxn(importeRecepcion(orden))}</b></span>
                     <button class="secundario" onclick={() => (recibiendo = null)}>Cancelar</button>
                     <button class="principal" onclick={() => confirmarRecepcion(orden)}>
-                      Recibir y cargar al almacén
+                      {pagoRecepcion ? "Recibir y pagar" : "Recibir a crédito"}
                     </button>
                   </div>
                 </div>
@@ -761,6 +839,58 @@
 </div>
 
 <style>
+  /* --- Cómo se paga la entrega --- */
+  .pago-entrega {
+    margin-top: 0.8rem;
+    padding: 0.75rem 0.85rem;
+    background: #faf9f8;
+    border-radius: 10px;
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+  }
+  .opciones-pago {
+    display: flex;
+    gap: 0.4rem;
+  }
+  .opcion {
+    border: 1.5px solid var(--borde);
+    border-radius: 999px;
+    padding: 0.35rem 0.85rem;
+    font-size: 0.8rem;
+    font-weight: 600;
+    color: var(--gris);
+    background: #fff;
+  }
+  .opcion.on {
+    border-color: var(--acento);
+    color: var(--acento-texto);
+    background: #fff7f0;
+  }
+  .pago-entrega label {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+    max-width: 14rem;
+  }
+  .pago-entrega label span {
+    font-size: 0.76rem;
+    font-weight: 600;
+    color: var(--gris);
+  }
+  .pago-entrega select,
+  .pago-entrega input {
+    padding: 0.5rem 0.6rem;
+    border: 1.5px solid var(--borde);
+    border-radius: 8px;
+    font: inherit;
+    background: #fff;
+  }
+  .pista-pago {
+    font-size: 0.78rem;
+    line-height: 1.45;
+    color: var(--gris);
+  }
   .seccion {
     flex: 1;
     overflow-y: auto;
@@ -769,12 +899,6 @@
     flex-direction: column;
     gap: 1.1rem;
     max-width: 70rem;
-  }
-  .encabezado {
-    display: flex;
-    align-items: flex-start;
-    gap: 1rem;
-    flex-wrap: wrap;
   }
   .encabezado > div:first-child {
     flex: 1;
@@ -790,29 +914,12 @@
     color: var(--gris);
     max-width: 38rem;
   }
-  .pestanas {
-    display: flex;
-    gap: 0.3rem;
-    background: var(--fondo);
-    border: 1px solid var(--borde);
-    border-radius: var(--r-md);
-    padding: 0.2rem;
-  }
   .pestanas button {
     padding: 0.4rem 0.85rem;
     border-radius: var(--r-sm);
     font-size: 0.83rem;
     font-weight: 600;
     color: var(--gris);
-  }
-  .pestanas button.on {
-    background: var(--acento);
-    color: #fff;
-  }
-  .indicadores {
-    display: flex;
-    gap: 1rem;
-    flex-wrap: wrap;
   }
   .dato {
     flex: 1;
@@ -883,9 +990,6 @@
   .num {
     text-align: right;
     white-space: nowrap;
-  }
-  .tenue {
-    color: var(--gris);
   }
   .alerta {
     color: var(--peligro);
@@ -996,7 +1100,7 @@
   }
   .principal {
     background: var(--acento);
-    color: #fff;
+    color: var(--sobre-acento);
     border-radius: var(--r-md);
     padding: 0.65rem 1.2rem;
     font-family: var(--font-titulo);
@@ -1054,7 +1158,7 @@
   .estado.abierta,
   .estado.parcial {
     background: var(--acento);
-    color: #fff;
+    color: var(--sobre-acento);
   }
   .estado.recibida {
     background: #eef7e8;
@@ -1122,7 +1226,7 @@
   }
   .soltar:hover {
     border-color: var(--acento);
-    color: var(--acento);
+    color: var(--acento-texto);
   }
   .soltar input {
     display: block;

@@ -162,6 +162,127 @@ fn restaurar_secretos(app: AppHandle, respaldo: Vec<u8>) -> Result<(), String> {
     escribir_cifrado(&app, &respaldo)
 }
 
+/// Lo que la ventana recibe de una llamada a la nube. Sin cabeceras de más.
+#[derive(serde::Serialize)]
+struct RespuestaNube {
+    estado: u16,
+    cuerpo: String,
+    /// Solo esta cabecera, y solo porque de ella sale el total de un conteo.
+    content_range: Option<String>,
+}
+
+/// Habla con la nube de MotRest **desde Rust**, no desde la webview.
+///
+/// POR QUÉ EXISTE, y no es una preferencia de estilo: Supabase **rechaza** una
+/// llave de servicio si la petición trae `User-Agent` de navegador. Contesta
+/// `401 Forbidden use of secret API key in browser`. La interfaz de Central
+/// corre en una webview, así que cada llamada suya llegaba con esa cabecera y
+/// era rechazada.
+///
+/// Y el control tiene razón. Esa llave se salta **todas** las políticas RLS:
+/// quien la tenga lee el padrón entero de MOTRAE y puede repartir licencias. No
+/// tiene nada que hacer en un contexto donde el contenido web podría leerla.
+///
+/// Así que la llave se lee aquí, del almacén que ya protege DPAPI, y no viaja a
+/// la ventana. La ventana dice **qué** quiere pedir; nunca **con qué**.
+#[tauri::command]
+async fn nube_peticion(
+    app: AppHandle,
+    metodo: String,
+    ruta: String,
+    cuerpo: Option<String>,
+    // `bytes` es el instalador, cuando lo que se sube no es JSON.
+    bytes: Option<Vec<u8>>,
+    prefer: Option<String>,
+    upsert: Option<bool>,
+) -> Result<RespuestaNube, String> {
+    /*
+     * La ruta se comprueba contra una lista blanca.
+     *
+     * La ventana elige el camino, y aunque sea nuestra propia interfaz, esto
+     * impide que un `../` o una ruta absoluta acaben mandando la llave de
+     * servicio a otro sitio. Es la misma regla que el Hub aplica a la URL de un
+     * manifiesto firmado: decir qué instalar no autoriza a pedirlo donde sea.
+     */
+    if !ruta.starts_with("/rest/v1/") && !ruta.starts_with("/storage/v1/") {
+        return Err(format!("Ruta no permitida para la nube: {ruta}"));
+    }
+    if ruta.contains("..") {
+        return Err("La ruta de la nube no puede subir de directorio".into());
+    }
+
+    let secretos = cargar_secretos(app)?.ok_or("Todavía no hay secretos guardados en Central")?;
+    let json: serde_json::Value = serde_json::from_str(&secretos)
+        .map_err(|causa| format!("El almacén de Central no es JSON: {causa}"))?;
+
+    let base = json["nube_url"]
+        .as_str()
+        .unwrap_or("")
+        .trim_end_matches('/')
+        .to_string();
+    let llave = json["nube_servicio"].as_str().unwrap_or("").to_string();
+    if base.is_empty() || llave.is_empty() {
+        return Err("Falta la dirección de la nube o su llave de servicio (ver Llaves)".into());
+    }
+    if !base.starts_with("https://") {
+        return Err("La dirección de la nube tiene que ser https://".into());
+    }
+
+    let cliente = reqwest::Client::builder()
+        // Explícito, y NO uno de navegador: es justo lo que distingue esta
+        // llamada de la que Supabase rechaza.
+        .user_agent("MotRest-Central")
+        .build()
+        .map_err(|causa| format!("No se pudo preparar la conexión: {causa}"))?;
+
+    let verbo = reqwest::Method::from_bytes(metodo.as_bytes())
+        .map_err(|_| format!("Método HTTP inválido: {metodo}"))?;
+
+    let mut peticion = cliente
+        .request(verbo, format!("{base}{ruta}"))
+        .header("apikey", &llave)
+        .bearer_auth(&llave);
+
+    if let Some(p) = prefer {
+        peticion = peticion.header("prefer", p);
+    }
+    if upsert == Some(true) {
+        // Volver a publicar una versión reemplaza su archivo. Sin esto, un
+        // segundo intento tras un fallo a medias daría «ya existe» y habría que
+        // ir a borrarlo a mano al panel de Supabase.
+        peticion = peticion.header("x-upsert", "true");
+    }
+    if let Some(b) = bytes {
+        peticion = peticion
+            .header("content-type", "application/octet-stream")
+            .body(b);
+    } else if let Some(c) = cuerpo {
+        peticion = peticion.header("content-type", "application/json").body(c);
+    }
+
+    let respuesta = peticion
+        .send()
+        .await
+        .map_err(|causa| format!("No se pudo hablar con la nube: {causa}"))?;
+
+    let estado = respuesta.status().as_u16();
+    let content_range = respuesta
+        .headers()
+        .get("content-range")
+        .and_then(|v| v.to_str().ok())
+        .map(|v| v.to_string());
+    let cuerpo = respuesta
+        .text()
+        .await
+        .map_err(|causa| format!("No se pudo leer la respuesta de la nube: {causa}"))?;
+
+    Ok(RespuestaNube {
+        estado,
+        cuerpo,
+        content_range,
+    })
+}
+
 pub fn ejecutar() {
     tauri::Builder::default()
         .invoke_handler(tauri::generate_handler![
@@ -169,6 +290,7 @@ pub fn ejecutar() {
             cargar_secretos,
             respaldo_de_secretos,
             restaurar_secretos,
+            nube_peticion,
         ])
         .run(tauri::generate_context!())
         .expect("No se pudo arrancar MotRest Central");

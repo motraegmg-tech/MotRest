@@ -7,8 +7,6 @@
   import { fecha } from "../lib/formato";
 
   let repositorio = $state(central.secretos.repositorio);
-  let relayUrl = $state(central.secretos.relay_url ?? "");
-  let relayClaveAdmin = $state("");
   let nubeUrl = $state(central.secretos.nube_url ?? "");
   let nubeServicio = $state("");
   let repositorioCargado = "";
@@ -52,15 +50,11 @@
     error = "";
     const cambios: {
       repositorio: string;
-      relay_url?: string;
-      relay_clave_admin?: string;
       nube_url?: string;
       nube_servicio?: string;
     } = {
       repositorio,
     };
-    if (relayUrl.trim()) cambios.relay_url = relayUrl.trim();
-    if (relayClaveAdmin.trim()) cambios.relay_clave_admin = relayClaveAdmin.trim();
     if (nubeUrl.trim()) cambios.nube_url = nubeUrl.trim();
     if (nubeServicio.trim()) cambios.nube_servicio = nubeServicio.trim();
     const resultado = await central.guardarConfiguracion(cambios);
@@ -357,20 +351,6 @@
     </label>
     <div class="dos">
       <label>
-        URL del Relay
-        <input bind:value={relayUrl} spellcheck="false" placeholder="https://relay.motrae.com" />
-      </label>
-      <label>
-        Clave de administración del Relay
-        <input
-          type="password"
-          bind:value={relayClaveAdmin}
-          placeholder={central.secretos.relay_url ? "Guardada (escriba para cambiar)" : ""}
-        />
-      </label>
-    </div>
-    <div class="dos">
-      <label>
         URL de la nube (Supabase)
         <input bind:value={nubeUrl} spellcheck="false" placeholder="https://xxxx.supabase.co" />
       </label>
@@ -389,7 +369,7 @@
       </label>
     </div>
     <button class="primario" disabled={!puedeEditarSecretos} onclick={guardar}>
-      Guardar canal, relay y nube
+      Guardar canal y nube
     </button>
   {/if}
 

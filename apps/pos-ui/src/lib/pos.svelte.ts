@@ -86,6 +86,13 @@ class TiendaPOS {
    */
   mesaActiva = $state<ID>("");
   mensaje = $state<string>("");
+  /**
+   * La acción que deshace lo último, mientras el aviso siga en pantalla.
+   *
+   * Vive junto al mensaje y no aparte porque son la misma cosa: el aviso dice
+   * qué pasó y esto ofrece revertirlo. Se limpia con él.
+   */
+  deshacer = $state<{ etiqueta: string; hacer: () => void | Promise<void> } | null>(null);
   /** Cuenta ya liberada cuyo ticket interno espera la decisión de propina. */
   propinaPendiente = $state<{ mesa_id: ID; orden_id: ID } | null>(null);
   private temporizador: ReturnType<typeof setTimeout> | undefined;
@@ -182,8 +189,56 @@ class TiendaPOS {
 
   private flash(texto: string): void {
     this.mensaje = texto;
+    this.deshacer = null;
     if (this.temporizador) clearTimeout(this.temporizador);
     this.temporizador = setTimeout(() => (this.mensaje = ""), 2600);
+  }
+
+  /**
+   * Aviso con salida.
+   *
+   * ## Por qué deshacer y no preguntar «¿seguro?»
+   *
+   * Preguntar antes cuesta un toque en CADA operación, incluidas las miles que
+   * salen bien, y a los dos días nadie lee el diálogo: se pulsa «sí» por
+   * reflejo, que es lo mismo que no preguntar pero más lento. Deshacer después
+   * cuesta cero cuando todo va bien y salva el caso raro, que es el que
+   * importa.
+   *
+   * ## Por qué SOLO para el traspaso, y no para el cobro
+   *
+   * Deshacer un traspaso es mover un renglón de vuelta: una operación que el
+   * sistema ya sabe hacer y que deja su propio rastro en la bitácora.
+   *
+   * Un cobro es otra cosa. Revertirlo en silencio, sin motivo y sin firma,
+   * sería exactamente el agujero que `reabrirCuenta` existe para tapar: la
+   * forma de que el dinero de una cuenta cobrada desaparezca sin que quede
+   * quién ni por qué. Ahí la fricción es la funcionalidad, y se queda.
+   */
+  private flashConDeshacer(
+    texto: string,
+    etiqueta: string,
+    hacer: () => void | Promise<void>,
+  ): void {
+    this.mensaje = texto;
+    if (this.temporizador) clearTimeout(this.temporizador);
+    /*
+     * Ocho segundos y no los 2.6 del aviso normal: aquí hay que leer, entender
+     * que uno se equivocó y alcanzar el botón, con una tableta en la mano.
+     */
+    this.deshacer = {
+      etiqueta,
+      hacer: async () => {
+        this.deshacer = null;
+        this.mensaje = "";
+        if (this.temporizador) clearTimeout(this.temporizador);
+        await hacer();
+      },
+    };
+    this.temporizador = setTimeout(() => {
+      this.mensaje = "";
+      this.deshacer = null;
+    }, 8000);
   }
 
   // --- Proyección de la mesa activa ---------------------------------------------
@@ -380,6 +435,21 @@ class TiendaPOS {
   /** La cuenta en curso de una mesa cualquiera, no solo la activa. */
   comandaDeMesa(mesaId: ID): EstadoComanda | null {
     return ultimaSentada(this.logs[mesaId] ?? []);
+  }
+
+  /**
+   * A nombre de quién está esta mesa, si es que tiene nombre.
+   *
+   * Pasa por `mesaPrincipalDe` porque una mesa unida no tiene cuenta propia:
+   * la 4 pegada a la 3 comparte el nombre de la 3, y leerlo de su propio log
+   * —que está vacío— haría que el nombre desapareciera justo al juntar mesas,
+   * que es cuando hay más gente y más falta hace saber de quién es.
+   *
+   * Devuelve cadena vacía y no `null` para que la plantilla pueda usarlo
+   * directamente sin comparar contra nada.
+   */
+  nombreDeCuenta(mesaId: ID): string {
+    return this.comandaDeMesa(this.mesaPrincipalDe(mesaId))?.a_nombre_de ?? "";
   }
 
   /**
@@ -1201,6 +1271,88 @@ class TiendaPOS {
   }
 
   /**
+   * Corrige la FORMA de un cobro ya registrado. El importe no se toca.
+   *
+   * ## Qué arregla
+   *
+   * El cliente pagó con tarjeta y el cajero tecleó efectivo. El dinero está
+   * completo y la venta es correcta: lo único mal es por dónde dice el sistema
+   * que entró. Y eso descuadra las dos cuentas a la vez — el cajón espera unos
+   * billetes que nunca existieron y al banco le falta el cargo.
+   *
+   * Antes la única salida era cancelar la venta entera y volver a cobrarla, lo
+   * que deja una devolución falsa en la bitácora y, si la cuenta ya se facturó,
+   * obliga a cancelar un CFDI sin motivo real.
+   *
+   * ## Por qué pide autorización
+   *
+   * Porque mueve dinero entre el cajón y el banco sin que nadie cuente un
+   * billete, y esa es también la forma más limpia de justificar un faltante de
+   * caja. Se pide el mismo permiso que para deshacer un cobro, y el hecho queda
+   * en la bitácora marcado en alerta, con el antes, el después y el motivo.
+   *
+   * El importe NO se puede cambiar aquí a propósito: cobrar de más o de menos
+   * no es un error de captura, es otra venta, y para eso está la cancelación.
+   */
+  async corregirFormaDePago(
+    ordenId: ID,
+    pagoId: ID,
+    forma: FormaPago,
+    motivo: string,
+    referencia?: string,
+  ): Promise<boolean> {
+    const mesaId = this.mesaDeOrden(ordenId);
+    if (!mesaId) return false;
+
+    const comanda = this.sentadasDe(mesaId, this.logs[mesaId] ?? []).find(
+      (c) => c.orden_id === ordenId,
+    );
+    if (!comanda) return false;
+
+    if (comanda.cancelada) {
+      this.flash("Esta venta está cancelada: no hay cobro que corregir");
+      return false;
+    }
+
+    const pago = comanda.pagos.find((p) => p.id === pagoId);
+    if (!pago) return false;
+    if (pago.forma === forma) {
+      this.flash("Ese cobro ya estaba registrado con esa forma de pago");
+      return false;
+    }
+
+    const limpio = motivo.trim();
+    if (limpio.length < 3) {
+      this.flash("Escribe por qué se corrige la forma de cobro");
+      return false;
+    }
+
+    const permiso = await autorizacion.solicitar(
+      "pos.cuenta.reabrir",
+      undefined,
+      `corregir la forma de cobro de la cuenta ${ordenId.slice(-8).toUpperCase()}`,
+    );
+    if (!permiso.ok) return false;
+
+    this.sincronizarActor();
+    this.emitir(
+      mesaId,
+      fabrica.crear("pago_corregido", ordenId, {
+        orden_id: ordenId,
+        pago_id: pagoId,
+        forma_anterior: pago.forma,
+        forma,
+        referencia: referencia?.trim() || undefined,
+        motivo: limpio,
+        autorizador_id: permiso.autorizador_id ?? sesion.usuarioActual?.id,
+      }),
+    );
+
+    this.flash("Forma de cobro corregida");
+    return true;
+  }
+
+  /**
    * Registra un AJUSTE de propina. El evento es un incremento, no un total: el
    * reducer suma lo que llegue, así que corregir a la baja exige un negativo.
    *
@@ -1297,7 +1449,23 @@ class TiendaPOS {
         de_orden_id: origen,
       }),
     );
-    this.flash(`"${renglon.descripcion}" traspasado a la mesa ${plano.nombreMesa(aMesaId)}`);
+    /*
+     * El traspaso era de un toque y sin retorno: se tocaba la mesa destino en
+     * una rejilla de botones pequeños y el renglón se iba. Errar de mesa
+     * obligaba a ir a la otra cuenta, encontrar el renglón y traerlo de vuelta
+     * —con el comensal delante—.
+     */
+    const volver = this.mesaActiva;
+    this.flashConDeshacer(
+      `"${renglon.descripcion}" traspasado a la mesa ${plano.nombreMesa(aMesaId)}`,
+      "Deshacer",
+      async () => {
+        // Se hace el camino inverso desde la mesa destino, que es donde el
+        // renglón está ahora.
+        this.mesaActiva = aMesaId;
+        await this.traspasarRenglon(renglonId, volver);
+      },
+    );
   }
 
   // --- Cobro -------------------------------------------------------------------------------
@@ -1506,6 +1674,16 @@ class TiendaPOS {
         ...(local.qrAdicionalParaTicket ? [local.qrAdicionalParaTicket] : []),
       ],
       mesa: plano.etiquetaMesas(mesasDeComanda(comanda)),
+      /*
+       * A nombre de quién va la cuenta, en la pre-cuenta y en el ticket.
+       *
+       * El dato existía desde el principio y ya llegaba a la comanda de cocina,
+       * pero no al papel que se entrega al comensal. Servía entonces para que
+       * la cocina supiera de quién era la bolsa, y no para lo que el mesero
+       * necesita: repartir tres cuentas en una sala llena sin preguntar de
+       * quién es cada una.
+       */
+      a_nombre_de: comanda.a_nombre_de,
       mesero: sesion.nombreDe(comanda.mesero_id),
       propina: t.propina,
       pagos: comanda.pagos.map((p) => ({
@@ -1577,6 +1755,9 @@ class TiendaPOS {
       folio: comanda.orden_id.slice(-8).toUpperCase(),
       ts: Date.now(),
       mesa: plano.etiquetaMesas(mesasDeComanda(comanda)),
+      // La copia que archiva el restaurante también, o al reclamar una cuenta
+      // no habría forma de saber de quién era.
+      a_nombre_de: comanda.a_nombre_de,
       mesero: sesion.nombreDe(comanda.mesero_id),
       propina: t.propina,
       pagos: comanda.pagos.map((p) => ({

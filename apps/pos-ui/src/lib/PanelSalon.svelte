@@ -13,6 +13,8 @@
    * plano cuando la columna del POS se queda chica.
    */
   import { capacidadDe } from "@motrest/dominio";
+  import Icono from "./Icono.svelte";
+  import { ICONO_MESA } from "./iconos-de-estado";
   import { rutas } from "./nav/rutas.svelte";
   import { plano } from "./plano.svelte";
   import { pos } from "./pos.svelte";
@@ -197,12 +199,37 @@
           style="grid-column: {mesa.columna + 1} / span {mesa.ancho};
                  grid-row: {mesa.fila + 1} / span {mesa.alto}"
           onclick={() => tocar(mesa.id)}
-          title="Mesa {mesa.nombre} · {capacidadDe(mesa)} comensales{unida
+          title="Mesa {mesa.nombre} · {capacidadDe(mesa)} comensales{pos.nombreDeCuenta(mesa.id)
+            ? ` · a nombre de ${pos.nombreDeCuenta(mesa.id)}`
+            : ''}{unida
             ? ` · unida a la cuenta de la ${plano.nombreMesa(pos.mesaPrincipalDe(mesa.id))}`
             : ''}"
         >
           <span class="nombre">{mesa.nombre}</span>
+          <!--
+            DE QUIÉN ES LA MESA.
+
+            Cuando la cuenta lleva nombre, se ve aquí. Es la diferencia entre
+            «mesa 7» y «los Ramírez»: el mesero que cruza el salón sabe a quién
+            va a atender antes de llegar, y quien recibe el turno de otro no
+            tiene que preguntar. Solo se pinta si hay nombre — la inmensa
+            mayoría de las mesas no lo tendrán, y un hueco vacío en cada una
+            solo quitaría sitio.
+          -->
+          {#if pos.nombreDeCuenta(mesa.id)}
+            <span class="cliente">{pos.nombreDeCuenta(mesa.id)}</span>
+          {/if}
           <small>
+            <!--
+              El icono acompaña al texto, no lo sustituye. Con la mesa
+              seleccionada el fondo se vuelve naranja y el relleno de color
+              pelearía con él, así que ahí hereda el color del rótulo.
+            -->
+            <Icono
+              nombre={unida ? "juntar-mesas" : ICONO_MESA[estado]}
+              tam={13}
+              color={mesa.id !== pos.mesaActiva}
+            />
             {#if unida}unida
             {:else if estado === "libre"}{capacidadDe(mesa)} pers.
             {:else if estado === "cuenta"}en cocina
@@ -229,10 +256,20 @@
     {/if}
   {/if}
 
+  <!--
+    LA LEYENDA YA NO ES DE COLORES.
+
+    Eran tres cuadritos y nada más: rojo, naranja y gris. Rojo contra naranja es
+    el par que un daltonismo rojo-verde no separa, y el gris de «libre» ni
+    siquiera era el color real de una mesa libre —que es blanca con borde—, así
+    que la leyenda explicaba algo que no estaba en el plano.
+
+    Con el icono de cada estado, la leyenda dice lo mismo que la mesa.
+  -->
   <div class="leyenda">
-    <span><i style="background: var(--peligro)"></i>Ocupada · en servicio</span>
-    <span><i style="background: var(--acento)"></i>Enviada a cocina</span>
-    <span><i style="background: #dde3da"></i>Libre</span>
+    <span><Icono nombre="mesa-ocupada" tam={15} color />Ocupada · en servicio</span>
+    <span><Icono nombre="mesa-cocina" tam={15} color />Enviada a cocina</span>
+    <span><Icono nombre="mesa-libre" tam={15} color />Libre</span>
   </div>
 </section>
 
@@ -333,7 +370,7 @@
     padding: 0.1rem 0.5rem;
     font-size: 0.7rem;
     font-weight: 700;
-    color: var(--acento);
+    color: var(--acento-texto);
     white-space: nowrap;
   }
   .chico {
@@ -349,7 +386,7 @@
   }
   .chico:hover {
     border-color: var(--acento);
-    color: var(--acento);
+    color: var(--acento-texto);
   }
   .areas {
     display: flex;
@@ -370,7 +407,7 @@
   .area.on {
     background: var(--acento);
     border-color: var(--acento);
-    color: #fff;
+    color: var(--sobre-acento);
   }
 
   /* --- Buscar y filtrar ------------------------------------------------- */
@@ -413,7 +450,7 @@
     padding: 0.05rem 0.45rem;
     font-size: 0.7rem;
     font-weight: 700;
-    color: #fff;
+    color: var(--sobre-acento);
   }
   .limpiar {
     border: none;
@@ -448,8 +485,8 @@
     color: var(--pizarra);
   }
   .filtros button.libre.on {
-    border-color: var(--exito);
-    color: var(--exito);
+    border-color: var(--exito-texto);
+    color: var(--exito-texto);
   }
   .filtros button.ocupada.on {
     border-color: var(--peligro);
@@ -457,7 +494,7 @@
   }
   .filtros button.cuenta.on {
     border-color: var(--acento);
-    color: var(--acento);
+    color: var(--acento-texto);
   }
 
   /* --- El plano ---------------------------------------------------------- */
@@ -520,8 +557,27 @@
     font-weight: 700;
     line-height: 1;
   }
+  /*
+   * El nombre por encima del estado y por debajo del número: es lo segundo que
+   * se busca en una mesa ocupada, después de saber cuál es. Se recorta con
+   * puntos suspensivos porque «Familia Hernández Gutiérrez» no cabe en una
+   * mesa de 4rem y partirlo en dos líneas descuadraría la rejilla entera.
+   */
+  .mesa .cliente {
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: var(--t-xs);
+    font-weight: 600;
+    line-height: 1.1;
+  }
   .mesa small {
-    font-size: 0.6rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.22rem;
+    font-size: var(--t-xs);
     font-weight: 500;
     line-height: 1;
     text-align: center;
@@ -543,7 +599,7 @@
   .mesa.sel {
     background: var(--acento);
     border-color: var(--acento);
-    color: #fff;
+    color: var(--sobre-acento);
     box-shadow: var(--sombra-md);
   }
   .mesa.apagada {
@@ -570,11 +626,6 @@
     display: flex;
     align-items: center;
     gap: 0.5rem;
-  }
-  .leyenda i {
-    width: 0.75rem;
-    height: 0.75rem;
-    border-radius: 4px;
   }
 
   /* --- El plano ampliado -------------------------------------------------- */
@@ -636,7 +687,7 @@
   }
   .zoom button:hover {
     border-color: var(--acento);
-    color: var(--acento);
+    color: var(--acento-texto);
   }
   .cerrar {
     border: 1.5px solid var(--acento);
@@ -646,7 +697,7 @@
     font-family: var(--font-titulo);
     font-size: 0.82rem;
     font-weight: 600;
-    color: #fff;
+    color: var(--sobre-acento);
     cursor: pointer;
   }
   .modal-cuerpo {

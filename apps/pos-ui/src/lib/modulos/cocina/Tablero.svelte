@@ -14,6 +14,8 @@
     etiquetaSemaforo,
     proyectarTablero,
   } from "@motrest/dominio";
+  import Icono from "../../Icono.svelte";
+  import { ICONO_SEMAFORO } from "../../iconos-de-estado";
   import { menu } from "../../menu.svelte";
   import { plano } from "../../plano.svelte";
   import { pos } from "../../pos.svelte";
@@ -119,7 +121,16 @@
             </span>
             <span class="tiempo">{minutos(ticket.minutos)}</span>
           </div>
-          <p class="mesero">{sesion.nombreDe(ticket.mesero_id)} · {etiquetaSemaforo(ticket.semaforo)}</p>
+          <!--
+            El semáforo llevaba su palabra pero no su forma, y esta pantalla se
+            mira a dos metros, de lado y con vapor encima. El icono cambia de
+            silueta entre un estado y otro —cronómetro, reloj de arena,
+            triángulo, campana—, así que se distingue antes de leerlo.
+          -->
+          <p class="mesero">
+            <Icono nombre={ICONO_SEMAFORO[ticket.semaforo]} tam={16} color />
+            {sesion.nombreDe(ticket.mesero_id)} · {etiquetaSemaforo(ticket.semaforo)}
+          </p>
 
           <ul class="platillos">
             {#each ticket.renglones as renglon (renglon.renglon_id)}
@@ -283,7 +294,7 @@
   .est.on {
     background: var(--acento);
     border-color: var(--acento);
-    color: #fff;
+    color: var(--sobre-acento);
   }
   .est .cuenta {
     background: rgba(0, 0, 0, 0.3);
@@ -359,9 +370,19 @@
   .ticket.advertencia .tiempo {
     color: var(--acento-2);
   }
+  /*
+   * ESTA PANTALLA SE LEE A DOS METROS.
+   *
+   * El cocinero no está sentado frente a ella: pasa, mira de reojo con las
+   * manos ocupadas y sigue. Los tamaños de aquí no son los del POS —donde el
+   * cajero tiene la cara a 40 cm— sino los de un letrero.
+   */
   .mesero {
-    font-size: 0.8rem;
-    color: #8a969c;
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    font-size: var(--t-xs);
+    color: var(--gris-claro);
     margin-bottom: 0.6rem;
   }
   .platillos {
@@ -500,7 +521,7 @@
   .accion.primaria {
     background: var(--acento);
     border-color: var(--acento);
-    color: #fff;
+    color: var(--sobre-acento);
   }
   /*
    * Cuando «Listo» se queda solo, ocupa el renglón entero y crece.

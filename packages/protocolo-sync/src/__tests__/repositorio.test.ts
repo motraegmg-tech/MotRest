@@ -147,6 +147,82 @@ describe.each(implementaciones)("repositorio de eventos (%s)", (_nombre, crear) 
     await almacen.eventos.limpiar();
     expect(await almacen.eventos.contar()).toBe(0);
   });
+  // --- El evento que el Hub rechaza ------------------------------------------------
+  //
+  // Lo que se prueba aquí es el defecto que dejó a Rodizio meses sin un solo
+  // corte de caja: un evento rechazado que se quedaba en el outbox y se
+  // reenviaba en cada reconexión, para siempre y en silencio.
+
+  it("saca del outbox lo que el Hub rechazó", async () => {
+    const lote = eventos(3);
+    await almacen.eventos.anexar(lote);
+    expect(await almacen.eventos.pendientes()).toHaveLength(3);
+
+    await almacen.eventos.rechazar([lote[1]!.id], "Empleado desconocido: sistema");
+
+    // Ya no se reintenta: es lo que corta el bucle.
+    const pendientes = await almacen.eventos.pendientes();
+    expect(pendientes).toHaveLength(2);
+    expect(pendientes.map((e) => e.id)).not.toContain(lote[1]!.id);
+  });
+
+  it("NO lo borra: el evento sigue en el log y en la proyección", async () => {
+    const lote = eventos(2);
+    await almacen.eventos.anexar(lote);
+    await almacen.eventos.rechazar([lote[0]!.id], "sin permiso");
+
+    expect(await almacen.eventos.contar()).toBe(2);
+    const todos = await almacen.eventos.leerTodos();
+    expect(todos.map((e) => e.id)).toContain(lote[0]!.id);
+  });
+
+  it("guarda el motivo que dio el Hub, para poder enseñarlo", async () => {
+    const lote = eventos(1);
+    await almacen.eventos.anexar(lote);
+    await almacen.eventos.rechazar([lote[0]!.id], "Empleado desconocido: sistema");
+
+    const rechazados = await almacen.eventos.rechazados();
+    expect(rechazados).toHaveLength(1);
+    expect(rechazados[0]!.motivo).toBe("Empleado desconocido: sistema");
+    expect(rechazados[0]!.evento.id).toBe(lote[0]!.id);
+  });
+
+  it("reabrirOutbox NO resucita lo rechazado", async () => {
+    /*
+     * `reabrirOutbox` es para cuando el Hub perdió su historia y hay que
+     * reenviárselo todo. Un evento rechazado por permisos lo va a rechazar
+     * igual el Hub nuevo —el defecto está en el evento—, así que devolverlo al
+     * outbox reabriría el bucle que esto vino a cerrar.
+     */
+    const lote = eventos(2);
+    await almacen.eventos.anexar(lote);
+    await almacen.eventos.confirmar([{ id: lote[0]!.id, seq: 1 }]);
+    await almacen.eventos.rechazar([lote[1]!.id], "sin permiso");
+
+    await almacen.eventos.reabrirOutbox();
+
+    const pendientes = await almacen.eventos.pendientes();
+    expect(pendientes.map((e) => e.id)).toEqual([lote[0]!.id]);
+  });
+
+  it("si el Hub acaba aceptándolo, deja de estar rechazado", async () => {
+    // Pasa tras corregir los permisos del usuario y reenviarlo a mano.
+    const lote = eventos(1);
+    await almacen.eventos.anexar(lote);
+    await almacen.eventos.rechazar([lote[0]!.id], "sin permiso");
+    await almacen.eventos.confirmar([{ id: lote[0]!.id, seq: 7 }]);
+
+    expect(await almacen.eventos.rechazados()).toHaveLength(0);
+    expect(await almacen.eventos.pendientes()).toHaveLength(0);
+  });
+
+  it("rechazar un id que no existe no rompe nada", async () => {
+    await almacen.eventos.anexar(eventos(1));
+    await almacen.eventos.rechazar(["no-existe"], "sin permiso");
+    expect(await almacen.eventos.rechazados()).toHaveLength(0);
+    expect(await almacen.eventos.pendientes()).toHaveLength(1);
+  });
+
 });
 
 describe.each(implementaciones)("almacén de estado (%s)", (_nombre, crear) => {
@@ -267,4 +343,40 @@ describe("persistencia real entre recargas (IndexedDB)", () => {
     expect(await almacen.estado.cargar("provisiones_responsable")).toEqual({ aplicada: true });
     almacen.cerrar();
   });
+  /**
+   * EL BUCLE NO PUEDE VOLVER AL REINICIAR.
+   *
+   * Es la propiedad de la que depende todo el arreglo de Rodizio. El apartado
+   * vive en la base, no en memoria: si se perdiera al cerrar el POS, el evento
+   * volvería al outbox en cada arranque y el bucle de rechazos se reanudaría
+   * cada mañana — que es exactamente lo que llevaba meses pasando.
+   */
+  it("lo rechazado sigue apartado tras reiniciar el POS", async () => {
+    const factory = new IDBFactory();
+
+    // El día del defecto: el corte se emite y el Hub lo rechaza.
+    const antes = await almacenIndexedDB(factory);
+    const lote = eventos(3);
+    await antes.eventos.anexar(lote);
+    await antes.eventos.rechazar([lote[1]!.id], "Empleado desconocido: sistema");
+    antes.cerrar();
+
+    // A la mañana siguiente se abre el POS.
+    const despues = await almacenIndexedDB(factory);
+
+    // No vuelve al outbox: no se reenvía, no lo rechazan, no se cae a isla.
+    const pendientes = await despues.eventos.pendientes();
+    expect(pendientes).toHaveLength(2);
+    expect(pendientes.map((e: EventoBase) => e.id)).not.toContain(lote[1]!.id);
+
+    // Y el motivo sigue ahí para poder enseñarlo.
+    const rechazados = await despues.eventos.rechazados();
+    expect(rechazados).toHaveLength(1);
+    expect(rechazados[0]!.motivo).toBe("Empleado desconocido: sistema");
+
+    // El evento NO se perdió: sigue en el log y en la proyección local.
+    expect(await despues.eventos.contar()).toBe(3);
+    despues.cerrar();
+  });
+
 });

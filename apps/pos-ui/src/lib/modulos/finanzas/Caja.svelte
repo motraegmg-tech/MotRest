@@ -7,11 +7,48 @@
    * en efectivo ± retiros) contra lo que el cajero contó. La diferencia se sella
    * e imprime: un corte sin sello es una hoja que cualquiera puede rehacer.
    */
-  import { pesos, sumar, type MotivoMovimientoCaja } from "@motrest/dominio";
+  import { pesos, sumar, turnoOlvidado, type MotivoMovimientoCaja } from "@motrest/dominio";
   import { caja } from "../../caja.svelte";
   import { impresion } from "../../impresion.svelte";
   import { mxn, hora } from "../../formato";
   import { sesion } from "../../sesion/sesion.svelte";
+  import { sync } from "../../sync.svelte";
+
+  /*
+   * EL TURNO QUE NADIE CERRÓ.
+   *
+   * En Rodizio la caja no se cierra nunca: hay dos aperturas y CERO cierres en
+   * la base del Hub. Y no es olvido —esa fue la primera hipótesis y era falsa—:
+   * el `caja_cerrada` sale a nombre de `sistema`, que no está en el padrón, y
+   * el Hub lo rechaza por permisos una y otra vez. El cajero cierra, la pantalla
+   * dice que cerró, y el corte nunca llega a existir.
+   *
+   * Este aviso NO arregla ese defecto, que sigue abierto y es de otro sitio. Lo
+   * que hace es que deje de ser invisible: mientras el turno siga abierto, las
+   * cifras de abajo son la suma de varias jornadas revueltas y el esperado no se
+   * puede cuadrar contra ningún cajón de una sola noche. Hasta ahora nada en la
+   * pantalla lo decía.
+   *
+   * `ahora` avanza solo para que el aviso aparezca sin recargar la pantalla.
+   * Cada diez minutos basta: lo que se vigila son horas.
+   */
+  let ahora = $state(Date.now());
+  $effect(() => {
+    const t = setInterval(() => (ahora = Date.now()), 600_000);
+    return () => clearInterval(t);
+  });
+
+  const olvidado = $derived(turnoOlvidado(caja.sesiones, ahora));
+
+  /**
+   * Lo que el Hub rechazó en esta sesión.
+   *
+   * Aparece aquí porque el rechazo que importaba era justo el del corte, y
+   * porque esta es la pantalla donde alguien va a notar que algo no cuadra.
+   * Antes no se enseñaba en ninguna parte: la terminal daba el turno por
+   * cerrado, el Hub no lo tenía, y las dos cosas convivían meses.
+   */
+  const rechazados = $derived(sync.rechazados);
 
   const puedeAbrir = $derived(sesion.puedeOperar("caja.sesion.abrir"));
   const puedeMover = $derived(sesion.puedeOperar("caja.retiro.registrar"));
@@ -77,7 +114,7 @@
   async function cerrar() {
     error = "";
     const nombre = sesion.usuarioActual?.nombre ?? "Cajero";
-    const r = await caja.cerrar(declarado, nombre);
+    const r = await caja.cerrar(declarado, nombre, sesion.usuarioActual?.id);
     if (!r.ok) { error = r.error ?? ""; return; }
     cerrando = false;
     declaradoTexto = "";
@@ -96,6 +133,23 @@
     {/if}
   </div>
 
+  <!--
+    EL HUB RECHAZÓ ALGO. Va antes que cualquier cifra, y en rojo: significa
+    que esta terminal y el Hub NO dicen lo mismo, y todo lo que se lea abajo
+    puede ser cierto aquí y no existir en la caja del local.
+  -->
+  {#each rechazados as r (r.evento_id)}
+    <div class="rechazado" role="alert">
+      <b>El Hub no aceptó un movimiento de caja.</b>
+      <p>{r.motivo}</p>
+      <p class="que-hacer">
+        Quedó guardado en esta terminal pero NO en el Hub del local, así que
+        no lo ven las demás cajas ni sale en los reportes. Vuelve a hacerlo con
+        la sesión iniciada; si se repite, avisa a MOTRAE con este texto.
+      </p>
+    </div>
+  {/each}
+
   {#if !activa}
     <p class="nota">
       No hay ningún turno abierto. Abre la caja con el efectivo del fondo para
@@ -113,6 +167,31 @@
       <p class="nota">Tu perfil no puede abrir la caja.</p>
     {/if}
   {:else if corte}
+    <!--
+      EL AVISO DEL TURNO OLVIDADO. Va arriba del todo y no en una esquina: si el
+      turno lleva días abierto, ninguna de las cifras de abajo significa lo que
+      parece — son la suma de varias jornadas revueltas.
+    -->
+    {#if olvidado}
+      <div class="olvidado" role="alert">
+        <b>Este turno lleva {olvidado.horas} horas abierto.</b>
+        <p>
+          Se abrió el {new Date(olvidado.sesion.abierta_ts).toLocaleDateString("es-MX", {
+            weekday: "long",
+            day: "numeric",
+            month: "long",
+          })} a las {hora(olvidado.sesion.abierta_ts)} y nadie lo ha cerrado. Todo lo
+          cobrado desde entonces está sumado aquí, así que estas cifras son de
+          varios días juntos y el efectivo esperado ya no se puede cuadrar contra
+          <b>ningún</b> cajón de una sola noche.
+        </p>
+        <p>
+          Ciérrelo con lo que haya ahora en la caja y abra uno nuevo: a partir de
+          ahí los cortes vuelven a cuadrar día por día.
+        </p>
+      </div>
+    {/if}
+
     <!-- Corte en vivo del turno abierto -->
     <!--
       Se muestra lo COBRADO por forma —lo que de verdad entró por cada canal— y
@@ -147,11 +226,40 @@
           <b class="resta">−{mxn(corte.devoluciones)}</b>
         </div>
       {/if}
+      <!--
+        LOS GASTOS PAGADOS DEL CAJÓN.
+
+        Es el renglón que faltaba. Antes un gasto registrado en Finanzas no
+        tocaba el corte, así que pagar el gas con el dinero de la caja aparecía
+        como un faltante al cerrar: el cajero contaba bien y el sistema le decía
+        que le faltaban ochocientos pesos. Se enseña desglosado porque quien
+        cuadra la caja necesita poder señalar de dónde salió cada peso que no
+        está en el cajón.
+      -->
+      {#if corte.gastosEfectivo > 0}
+        <div>
+          <span>
+            Gastos pagados en efectivo ({corte.gastos.length})
+          </span>
+          <b class="resta">−{mxn(corte.gastosEfectivo)}</b>
+        </div>
+      {/if}
       <div class="destacado">
         <span>Efectivo esperado en el cajón</span>
         <b>{mxn(corte.efectivoEsperado)}</b>
       </div>
     </div>
+
+    {#if corte.gastos.length > 0}
+      <ul class="gastos-turno">
+        {#each corte.gastos as g (g.ts)}
+          <li>
+            <span>{hora(g.ts)} · {g.concepto}</span>
+            <b>−{mxn(g.monto)}</b>
+          </li>
+        {/each}
+      </ul>
+    {/if}
 
     <div class="cifras desglose">
       <div><span>De eso, venta del restaurante</span><b>{mxn(corte.totalVendido)}</b></div>
@@ -195,6 +303,21 @@
 
     {#if movAbierto && puedeMover}
       <div class="panel">
+        <!--
+          EL AVISO DE LA DOBLE RESTA.
+
+          Ahora que el gasto SÍ baja el efectivo esperado, registrar además un
+          retiro por el mismo pago lo descuenta dos veces y el corte marca un
+          faltante que no existe. Antes el retiro a mano era la única forma de
+          que el cajón cuadrara; hoy es justo lo que lo descuadra, y quien lleva
+          años haciéndolo así no tiene por qué adivinarlo.
+        -->
+        <p class="nota aviso-doble">
+          <b>¿Es un gasto?</b> No lo registres aquí: captúralo en
+          <b>Registrar un gasto</b> y el cajón lo descuenta solo. Hacer las dos
+          cosas resta el dinero dos veces. Este panel es para lo que NO es un
+          gasto: llevar dinero a la caja fuerte o traer cambio del banco.
+        </p>
         <div class="fila">
           <label>
             <span>Tipo</span>
@@ -209,7 +332,7 @@
           </label>
           <label class="ancho">
             <span>Concepto</span>
-            <input bind:value={movConcepto} placeholder="A la caja fuerte, pago de contado…" />
+            <input bind:value={movConcepto} placeholder="A la caja fuerte, cambio del banco…" />
           </label>
         </div>
         <div class="botones">
@@ -288,6 +411,77 @@
 {/if}
 
 <style>
+  /* El Hub rechazó un evento: la terminal y el Hub no dicen lo mismo. */
+  .rechazado {
+    background: #fdf2f0;
+    border: 1.5px solid #e0392b;
+    border-radius: 10px;
+    padding: 0.85rem 1rem;
+    margin-bottom: 0.9rem;
+    font-size: 0.86rem;
+    line-height: 1.55;
+  }
+  .rechazado b {
+    color: #8a2018;
+  }
+  .rechazado p {
+    margin-top: 0.3rem;
+    color: var(--pizarra);
+  }
+  .rechazado .que-hacer {
+    font-size: 0.8rem;
+    color: var(--gris);
+  }
+  .aviso-doble {
+    background: #fffaf5;
+    border: 1px solid var(--acento);
+    border-radius: 8px;
+    padding: 0.6rem 0.75rem;
+    margin-bottom: 0.7rem;
+    line-height: 1.5;
+  }
+  .aviso-doble b {
+    color: var(--acento-texto);
+  }
+  /* El turno que se quedó abierto de un día anterior. */
+  .olvidado {
+    background: #fdf2f0;
+    border: 1.5px solid #e0392b;
+    border-radius: 10px;
+    padding: 0.85rem 1rem;
+    margin-bottom: 0.9rem;
+    font-size: 0.86rem;
+    line-height: 1.55;
+  }
+  .olvidado b {
+    color: #8a2018;
+  }
+  .olvidado p {
+    margin-top: 0.35rem;
+    color: var(--pizarra);
+  }
+  /* Los gastos que salieron del cajón, uno por uno. */
+  .gastos-turno {
+    list-style: none;
+    margin: 0.35rem 0 0.6rem;
+    padding: 0.5rem 0.7rem;
+    background: #faf9f8;
+    border-radius: 8px;
+    display: flex;
+    flex-direction: column;
+    gap: 0.2rem;
+  }
+  .gastos-turno li {
+    display: flex;
+    justify-content: space-between;
+    gap: 0.75rem;
+    font-size: 0.8rem;
+    color: var(--gris);
+  }
+  .gastos-turno b {
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+  }
   .tarjeta {
     background: var(--superficie, #fff);
     border: 1px solid var(--borde);
@@ -350,7 +544,7 @@
   }
   .desglose .aviso span,
   .desglose .aviso b {
-    color: var(--acento);
+    color: var(--acento-texto);
   }
   .destacado {
     border-top: 1.5px solid var(--borde);
@@ -360,7 +554,7 @@
   .destacado b {
     font-size: 1.3rem;
     font-family: var(--font-titulo);
-    color: var(--acento);
+    color: var(--acento-texto);
   }
   .nota {
     margin-top: 0.8rem;
@@ -466,7 +660,7 @@
   .principal {
     background: var(--acento);
     border-color: var(--acento);
-    color: #fff;
+    color: var(--sobre-acento);
   }
   .secundario {
     color: var(--pizarra);

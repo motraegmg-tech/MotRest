@@ -305,14 +305,14 @@
   }
   .mesero.yo {
     border-color: var(--acento);
-    color: var(--acento);
+    color: var(--acento-texto);
   }
   .sin-rol {
     font-style: italic;
   }
   .tuya {
     background: var(--acento);
-    color: #fff;
+    color: var(--sobre-acento);
     border-radius: var(--r-pill);
     padding: 0.12rem 0.6rem;
     font-size: 0.7rem;
@@ -327,7 +327,7 @@
     text-decoration: underline;
   }
   .editar-rol:hover {
-    color: var(--acento);
+    color: var(--acento-texto);
   }
   .duplicada {
     margin: 0.75rem 0 0;
@@ -395,7 +395,7 @@
   }
   .estado.cuenta {
     background: var(--claro);
-    color: var(--acento);
+    color: var(--acento-texto);
   }
   .centro {
     flex: 1;
@@ -441,7 +441,7 @@
   }
   .consumo .q {
     font-weight: 700;
-    color: var(--acento);
+    color: var(--acento-texto);
     min-width: 1.8rem;
   }
   .consumo .n {
@@ -471,7 +471,7 @@
   }
   .principal {
     background: var(--acento);
-    color: #fff;
+    color: var(--sobre-acento);
     border-radius: var(--r-lg);
     padding: 1rem 1.5rem;
     font-family: var(--font-titulo);
@@ -545,7 +545,7 @@
     background: var(--claro);
   }
   .juntable.on b {
-    color: var(--acento);
+    color: var(--acento-texto);
   }
   .juntable:disabled {
     opacity: 0.4;
@@ -556,7 +556,7 @@
     color: var(--gris);
   }
   .capacidad b {
-    color: var(--acento);
+    color: var(--acento-texto);
   }
   .recordatorio {
     font-size: 0.82rem;
@@ -565,7 +565,7 @@
     line-height: 1.5;
   }
   .recordatorio b {
-    color: var(--acento);
+    color: var(--acento-texto);
   }
   .recordatorio.tenue {
     font-size: 0.76rem;

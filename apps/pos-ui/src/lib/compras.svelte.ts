@@ -16,7 +16,9 @@ import {
   proyectarProveedores,
   streamCompras,
   sugerirCompra,
+  sumar,
   uuidv7,
+  type Centavos,
   type EventoCompra,
   type ID,
   type Insumo,
@@ -27,8 +29,31 @@ import {
   type SugerenciaCompra,
 } from "@motrest/dominio";
 import type { Almacen } from "@motrest/protocolo-sync";
+import { egresos } from "./egresos.svelte";
 import { inventario } from "./inventario.svelte";
 import { SUCURSAL_ID, obtenerDeviceId } from "./presentacion";
+
+/** Lo que se captura al recibir una entrega, incluido cómo se pagó. */
+export interface DatosRecepcion {
+  folioProveedor?: string;
+  nota?: string;
+  /**
+   * false = quedó a crédito. El gasto existe desde hoy y el dinero sale el día
+   * que se liquide, desde Finanzas → Cuentas por pagar.
+   */
+  pagado?: boolean;
+  /** Con qué se pagó, o con qué se pagará. */
+  formaPago?: string;
+  /** Fecha comprometida de pago, en las entregas a crédito. */
+  venceTs?: number;
+  /**
+   * true = no generar el gasto.
+   *
+   * Para la entrega que ya se capturó a mano en Finanzas y no debe contarse dos
+   * veces. Es la excepción y por eso hay que pedirla explícitamente.
+   */
+  sinGasto?: boolean;
+}
 
 class StoreCompras {
   private eventos = $state.raw<EventoCompra[]>([]);
@@ -159,7 +184,7 @@ class StoreCompras {
   recibir(
     ordenId: ID,
     recibidas: LineaRecibida[],
-    opciones: { folioProveedor?: string; nota?: string } = {},
+    opciones: DatosRecepcion = {},
   ): { ok: boolean; error?: string } {
     const orden = this.ordenes.find((o) => o.orden_id === ordenId);
     if (!orden) return { ok: false, error: "No se encontró la orden" };
@@ -188,7 +213,66 @@ class StoreCompras {
         m.referencia,
       );
     }
+
+    this.registrarGastoDeRecepcion(orden, utiles, opciones);
     return { ok: true };
+  }
+
+  /**
+   * EL DINERO SALE AL RECIBIR, y no cuando alguien se acuerde de capturarlo.
+   *
+   * Hasta ahora recibir mercancía movía el almacén y nada más: entraban cien
+   * kilos de queso y el sistema seguía creyendo que el restaurante tenía el
+   * mismo dinero. Era el hueco que Gonzalo señaló.
+   *
+   * Se pregunta al recibir si se pagó o quedó a crédito —decisión suya— porque
+   * es como opera un restaurante con sus proveedores: si el pago del viernes se
+   * apuntara el lunes de la entrega, el saldo estaría mal toda la semana.
+   *
+   * Las líneas NO se le pasan al gasto aunque las tenga: el almacén ya se movió
+   * arriba con la recepción, y volver a mandarlas haría entrar la mercancía dos
+   * veces.
+   */
+  private registrarGastoDeRecepcion(
+    orden: OrdenCompra,
+    recibidas: readonly LineaRecibida[],
+    opciones: DatosRecepcion,
+  ): void {
+    if (opciones.sinGasto) return;
+
+    const importe = sumar(
+      ...recibidas.map((l) => (l.cantidad * l.costo_unitario) as Centavos),
+    );
+    // Una recepción sin costo pactado no es un gasto de cero: es una compra sin
+    // precio capturado, y un renglón de cero pesos en finanzas solo estorba.
+    if (importe <= 0) return;
+
+    const proveedor = this.nombreProveedor(orden.proveedor_id);
+    const r = egresos.registrar(
+      {
+        categoria: "insumos",
+        concepto: `Compra a ${proveedor}`,
+        monto: importe,
+        forma_pago: opciones.formaPago ?? "efectivo",
+        proveedor,
+        proveedor_id: orden.proveedor_id,
+        orden_id: orden.orden_id,
+        folio_comprobante: opciones.folioProveedor?.trim() || undefined,
+        pagado: opciones.pagado !== false,
+        vence_ts: opciones.venceTs,
+      },
+      this.empleadoActual,
+    );
+
+    if (!r.ok) {
+      /*
+       * La mercancía YA entró al almacén y la recepción ya está asentada: no se
+       * puede deshacer nada aquí. Se avisa por consola y la compra queda sin su
+       * gasto, que se puede capturar a mano desde Finanzas. Callarlo dejaría un
+       * descuadre invisible entre el almacén y el dinero.
+       */
+      console.error("La recepción no generó su gasto en finanzas:", r.error);
+    }
   }
 
   cancelarOrden(ordenId: ID, motivo: string): { ok: boolean; error?: string } {
