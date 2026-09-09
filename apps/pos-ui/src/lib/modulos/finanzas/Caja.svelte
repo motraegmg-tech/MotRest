@@ -7,11 +7,31 @@
    * en efectivo ± retiros) contra lo que el cajero contó. La diferencia se sella
    * e imprime: un corte sin sello es una hoja que cualquiera puede rehacer.
    */
-  import { pesos, sumar, type MotivoMovimientoCaja } from "@motrest/dominio";
+  import { pesos, sumar, turnoOlvidado, type MotivoMovimientoCaja } from "@motrest/dominio";
   import { caja } from "../../caja.svelte";
   import { impresion } from "../../impresion.svelte";
   import { mxn, hora } from "../../formato";
   import { sesion } from "../../sesion/sesion.svelte";
+
+  /*
+   * EL TURNO QUE NADIE CERRÓ.
+   *
+   * En Rodizio la caja no se cierra nunca: hay cero cortes cerrados en la base.
+   * No es mala fe — nadie se acuerda a las dos de la mañana— pero el resultado
+   * es que el turno del jueves sigue abierto el lunes acumulando la venta de
+   * cuatro días, y ese corte ya no se puede arquear contra nada: nadie va a
+   * contar el cajón de hace cuatro noches.
+   *
+   * `ahora` avanza solo para que el aviso aparezca sin recargar la pantalla.
+   * Cada diez minutos basta: lo que se vigila son horas.
+   */
+  let ahora = $state(Date.now());
+  $effect(() => {
+    const t = setInterval(() => (ahora = Date.now()), 600_000);
+    return () => clearInterval(t);
+  });
+
+  const olvidado = $derived(turnoOlvidado(caja.sesiones, ahora));
 
   const puedeAbrir = $derived(sesion.puedeOperar("caja.sesion.abrir"));
   const puedeMover = $derived(sesion.puedeOperar("caja.retiro.registrar"));
@@ -113,6 +133,31 @@
       <p class="nota">Tu perfil no puede abrir la caja.</p>
     {/if}
   {:else if corte}
+    <!--
+      EL AVISO DEL TURNO OLVIDADO. Va arriba del todo y no en una esquina: si el
+      turno lleva días abierto, ninguna de las cifras de abajo significa lo que
+      parece — son la suma de varias jornadas revueltas.
+    -->
+    {#if olvidado}
+      <div class="olvidado" role="alert">
+        <b>Este turno lleva {olvidado.horas} horas abierto.</b>
+        <p>
+          Se abrió el {new Date(olvidado.sesion.abierta_ts).toLocaleDateString("es-MX", {
+            weekday: "long",
+            day: "numeric",
+            month: "long",
+          })} a las {hora(olvidado.sesion.abierta_ts)} y nadie lo ha cerrado. Todo lo
+          cobrado desde entonces está sumado aquí, así que estas cifras son de
+          varios días juntos y el efectivo esperado ya no se puede cuadrar contra
+          <b>ningún</b> cajón de una sola noche.
+        </p>
+        <p>
+          Ciérrelo con lo que haya ahora en la caja y abra uno nuevo: a partir de
+          ahí los cortes vuelven a cuadrar día por día.
+        </p>
+      </div>
+    {/if}
+
     <!-- Corte en vivo del turno abierto -->
     <!--
       Se muestra lo COBRADO por forma —lo que de verdad entró por cada canal— y
@@ -147,11 +192,40 @@
           <b class="resta">−{mxn(corte.devoluciones)}</b>
         </div>
       {/if}
+      <!--
+        LOS GASTOS PAGADOS DEL CAJÓN.
+
+        Es el renglón que faltaba. Antes un gasto registrado en Finanzas no
+        tocaba el corte, así que pagar el gas con el dinero de la caja aparecía
+        como un faltante al cerrar: el cajero contaba bien y el sistema le decía
+        que le faltaban ochocientos pesos. Se enseña desglosado porque quien
+        cuadra la caja necesita poder señalar de dónde salió cada peso que no
+        está en el cajón.
+      -->
+      {#if corte.gastosEfectivo > 0}
+        <div>
+          <span>
+            Gastos pagados en efectivo ({corte.gastos.length})
+          </span>
+          <b class="resta">−{mxn(corte.gastosEfectivo)}</b>
+        </div>
+      {/if}
       <div class="destacado">
         <span>Efectivo esperado en el cajón</span>
         <b>{mxn(corte.efectivoEsperado)}</b>
       </div>
     </div>
+
+    {#if corte.gastos.length > 0}
+      <ul class="gastos-turno">
+        {#each corte.gastos as g (g.ts)}
+          <li>
+            <span>{hora(g.ts)} · {g.concepto}</span>
+            <b>−{mxn(g.monto)}</b>
+          </li>
+        {/each}
+      </ul>
+    {/if}
 
     <div class="cifras desglose">
       <div><span>De eso, venta del restaurante</span><b>{mxn(corte.totalVendido)}</b></div>
@@ -288,6 +362,45 @@
 {/if}
 
 <style>
+  /* El turno que se quedó abierto de un día anterior. */
+  .olvidado {
+    background: #fdf2f0;
+    border: 1.5px solid #e0392b;
+    border-radius: 10px;
+    padding: 0.85rem 1rem;
+    margin-bottom: 0.9rem;
+    font-size: 0.86rem;
+    line-height: 1.55;
+  }
+  .olvidado b {
+    color: #8a2018;
+  }
+  .olvidado p {
+    margin-top: 0.35rem;
+    color: var(--pizarra);
+  }
+  /* Los gastos que salieron del cajón, uno por uno. */
+  .gastos-turno {
+    list-style: none;
+    margin: 0.35rem 0 0.6rem;
+    padding: 0.5rem 0.7rem;
+    background: #faf9f8;
+    border-radius: 8px;
+    display: flex;
+    flex-direction: column;
+    gap: 0.2rem;
+  }
+  .gastos-turno li {
+    display: flex;
+    justify-content: space-between;
+    gap: 0.75rem;
+    font-size: 0.8rem;
+    color: var(--gris);
+  }
+  .gastos-turno b {
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+  }
   .tarjeta {
     background: var(--superficie, #fff);
     border: 1px solid var(--borde);

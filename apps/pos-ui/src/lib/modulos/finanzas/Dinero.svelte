@@ -29,18 +29,24 @@
    * que deja de significar nada el día que alguien lo cuadra a mano.
    */
   import {
+    CATEGORIAS_EGRESO,
     CLASES_AJUSTE,
     CUENTAS_TESORERIA,
     DENOMINACIONES,
     cambioDisponible,
+    desempenoDeCajeros,
     pesos,
     totalDelConteo,
+    type CategoriaEgreso,
     type ClaseAjuste,
     type ConteoDenominaciones,
     type CuentaTesoreria,
+    type Presupuestos,
   } from "@motrest/dominio";
   import Icono from "../../Icono.svelte";
-  import { hora, mxn } from "../../formato";
+  import { caja } from "../../caja.svelte";
+  import { egresos } from "../../egresos.svelte";
+  import { hora, mxn, pct } from "../../formato";
   import { local } from "../../local.svelte";
   import { sesion } from "../../sesion/sesion.svelte";
   import { tesoreria } from "../../tesoreria.svelte";
@@ -191,6 +197,58 @@
     errorAjuste = "";
   }
 
+  // --- Presupuesto por categoría --------------------------------------------------------
+
+  /*
+   * Los techos se fijan aquí y se vigilan en la pantalla del resultado.
+   *
+   * Van en esta pantalla porque decidir cuánto se puede gastar al mes es una
+   * decisión de dinero, no de captura: quien la toma es el mismo que mira los
+   * saldos, no el que registra el recibo de la luz.
+   */
+  let editandoPresupuesto = $state(false);
+  let techos = $state<Record<string, string>>({});
+
+  const seguimiento = $derived(
+    egresos.seguimiento({
+      desde: new Date(new Date().getFullYear(), new Date().getMonth(), 1).getTime(),
+      hasta: new Date(new Date().getFullYear(), new Date().getMonth() + 1, 1).getTime(),
+    }),
+  );
+
+  function abrirPresupuesto() {
+    const actuales = egresos.presupuestos;
+    const texto: Record<string, string> = {};
+    for (const c of CATEGORIAS_EGRESO) {
+      const monto = actuales[c.id];
+      texto[c.id] = monto ? (monto / 100).toFixed(2) : "";
+    }
+    techos = texto;
+    editandoPresupuesto = true;
+  }
+
+  function guardarPresupuesto() {
+    const limpios: Presupuestos = {};
+    for (const [id, texto] of Object.entries(techos)) {
+      const monto = pesos(Number(texto) || 0);
+      if (monto > 0) limpios[id as CategoriaEgreso] = monto;
+    }
+    egresos.guardarPresupuestos(limpios);
+    editandoPresupuesto = false;
+  }
+
+  // --- Faltantes y sobrantes por cajero -------------------------------------------------
+
+  /*
+   * El patrón, no el incidente.
+   *
+   * Un faltante suelto es ruido: todo el mundo se equivoca dando cambio. Lo que
+   * dice algo es quien falta SIEMPRE y nunca sobra. Por eso se enseñan las dos
+   * direcciones por separado en vez de la resta: un cajero con +300 y −300 tiene
+   * neto cero y seiscientos pesos de desorden.
+   */
+  const cajeros = $derived(desempenoDeCajeros(caja.sesiones, rango));
+
   function confirmarAjuste() {
     errorAjuste = "";
     const magnitud = pesos(Math.abs(Number(ajusteMonto) || 0));
@@ -323,6 +381,7 @@
 
       {#if historico.length === 0}
         <p class="faltante">No hubo movimientos de dinero en este período.</p>
+        <!-- El resto de la tabla se omite: no hay nada que ordenar. -->
       {:else}
         <div class="marco-tabla">
           <table>
@@ -363,6 +422,134 @@
         </div>
       {/if}
     </section>
+    <!--
+      FALTANTES Y SOBRANTES POR CAJERO.
+
+      Es el control clásico que hasta ahora no se podía consultar: las
+      diferencias de arqueo quedaban selladas turno por turno y nadie las miraba
+      juntas. No acusa a nadie —ordena y cuenta—; la conversación la tiene el
+      dueño con los números delante.
+    -->
+    {#if cajeros.length > 0}
+      <section class="tarjeta">
+        <div class="cabecera-tarjeta">
+          <h2>Cómo cuadra cada cajero</h2>
+          <span class="tenue">{cajeros.length} con turnos cerrados en el período</span>
+        </div>
+
+        <div class="marco-tabla">
+          <table>
+            <thead>
+              <tr>
+                <th>Cajero</th>
+                <th class="num">Turnos</th>
+                <th class="num">Cuadró</th>
+                <th class="num">Faltó</th>
+                <th class="num">Sobró</th>
+                <th class="num">Descuadre</th>
+              </tr>
+            </thead>
+            <tbody>
+              {#each cajeros as c (c.cajero_id)}
+                <tr>
+                  <td><b>{sesion.nombreDe(c.cajero_id)}</b></td>
+                  <td class="num tenue">{c.turnos}</td>
+                  <td class="num tenue">{pct(c.precision)}</td>
+                  <td class="num" class:sale={c.veces_faltante > 0}>
+                    {c.veces_faltante > 0 ? mxn(c.total_faltante) : "—"}
+                    {#if c.veces_faltante > 0}
+                      <small class="veces">{c.veces_faltante} ×</small>
+                    {/if}
+                  </td>
+                  <td class="num tenue">
+                    {c.veces_sobrante > 0 ? mxn(c.total_sobrante) : "—"}
+                  </td>
+                  <td class="num"><b>{mxn(c.descuadre_total)}</b></td>
+                </tr>
+              {/each}
+            </tbody>
+          </table>
+        </div>
+
+        <p class="pie-tabla">
+          El <b>descuadre</b> suma faltantes y sobrantes sin restarlos: quien
+          alterna +300 y −300 tiene diferencia neta cero y seiscientos pesos de
+          desorden. Un faltante suelto es normal; el patrón es lo que importa.
+        </p>
+      </section>
+    {/if}
+
+    <!--
+      PRESUPUESTO DEL MES. Un techo por categoría, con aviso al 80 %. Enterarse
+      el día 31 de que se rebasó no sirve de nada: el dinero ya se fue.
+    -->
+    {#if puedeMover}
+      <section class="tarjeta">
+        <div class="cabecera-tarjeta">
+          <h2>Presupuesto del mes</h2>
+          {#if !editandoPresupuesto}
+            <button class="mini" onclick={abrirPresupuesto}>
+              {seguimiento.techo_total > 0 ? "Cambiar techos" : "Fijar techos"}
+            </button>
+          {/if}
+        </div>
+
+        {#if editandoPresupuesto}
+          <p class="explica-tarjeta">
+            Cuánto se puede gastar al mes en cada cosa. Dejarlo en blanco es no
+            vigilar esa categoría. El aviso no bloquea nada: informa para poder
+            decidir a tiempo si el pedido de esta semana espera.
+          </p>
+          <div class="techos">
+            {#each CATEGORIAS_EGRESO as c (c.id)}
+              <label>
+                <span>{c.nombre}</span>
+                <input
+                  inputmode="decimal"
+                  placeholder="sin techo"
+                  value={techos[c.id] ?? ""}
+                  oninput={(e) => (techos = { ...techos, [c.id]: e.currentTarget.value })}
+                />
+              </label>
+            {/each}
+          </div>
+          <div class="botones">
+            <button class="secundario" onclick={() => (editandoPresupuesto = false)}>
+              Cancelar
+            </button>
+            <button class="principal" onclick={guardarPresupuesto}>Guardar</button>
+          </div>
+        {:else if seguimiento.categorias.length === 0}
+          <p class="faltante">
+            Todavía no hay techos fijados ni gasto capturado este mes.
+          </p>
+        {:else}
+          {#each seguimiento.categorias as c (c.categoria)}
+            <div class="renglon-techo">
+              <div class="rotulo-techo">
+                <span>{c.nombre}</span>
+                <b class:excede={c.estado === "excedido"}>
+                  {mxn(c.gastado)}
+                  {#if c.techo > 0}<small> / {mxn(c.techo)}</small>{/if}
+                </b>
+              </div>
+              {#if c.techo > 0}
+                <div class="pista-barra">
+                  <i
+                    class:cerca={c.estado === "cerca"}
+                    class:excedido={c.estado === "excedido"}
+                    style="width: {Math.min(100, Math.round(c.consumido * 100))}%"
+                  ></i>
+                </div>
+              {:else}
+                <p class="sin-techo">Sin techo fijado.</p>
+              {/if}
+            </div>
+          {/each}
+        {/if}
+      </section>
+    {/if}
+
   {/if}
 </div>
 
@@ -526,6 +713,92 @@
 {/if}
 
 <style>
+  /* --- Cajeros y presupuesto --- */
+  .explica-tarjeta {
+    font-size: 0.85rem;
+    line-height: 1.5;
+    color: var(--gris);
+    margin-bottom: 0.7rem;
+  }
+  .pie-tabla {
+    margin-top: 0.7rem;
+    font-size: 0.78rem;
+    line-height: 1.5;
+    color: var(--gris);
+  }
+  .veces {
+    display: block;
+    font-size: 0.68rem;
+    color: var(--gris);
+  }
+  .techos {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(11rem, 1fr));
+    gap: 0.6rem;
+    margin-bottom: 0.8rem;
+  }
+  .techos label {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+  }
+  .techos span {
+    font-size: 0.76rem;
+    font-weight: 600;
+    color: var(--gris);
+  }
+  .techos input {
+    padding: 0.5rem 0.6rem;
+    border: 1.5px solid var(--borde);
+    border-radius: var(--r-sm);
+    font: inherit;
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+  }
+  .renglon-techo {
+    margin-bottom: 0.75rem;
+  }
+  .rotulo-techo {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 0.75rem;
+    font-size: 0.86rem;
+    margin-bottom: 0.28rem;
+  }
+  .rotulo-techo b {
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+  }
+  .rotulo-techo b.excede {
+    color: var(--peligro);
+  }
+  .rotulo-techo small {
+    font-weight: 500;
+    color: var(--gris);
+  }
+  .pista-barra {
+    height: 0.45rem;
+    border-radius: 999px;
+    background: #eeebe8;
+    overflow: hidden;
+  }
+  .pista-barra i {
+    display: block;
+    height: 100%;
+    background: #9aa0a6;
+  }
+  .pista-barra i.cerca {
+    background: var(--acento);
+  }
+  .pista-barra i.excedido {
+    background: var(--peligro);
+  }
+  .sin-techo {
+    font-size: 0.74rem;
+    color: var(--gris);
+    font-style: italic;
+  }
   .seccion {
     flex: 1;
     overflow-y: auto;
