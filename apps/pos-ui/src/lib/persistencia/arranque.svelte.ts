@@ -20,7 +20,9 @@ import {
   type EventoReserva,
   type EventoPrenomina,
   type EventoSocio,
+  type EventoTesoreria,
   TIPOS_EVENTO_SOCIO,
+  TIPOS_EVENTO_TESORERIA,
 } from "@motrest/dominio";
 import { almacenEnMemoria, almacenIndexedDB, type Almacen } from "@motrest/protocolo-sync";
 import { asignaciones } from "../asignaciones.svelte";
@@ -28,6 +30,7 @@ import { asistencia } from "../asistencia.svelte";
 import { caja } from "../caja.svelte";
 import { clientes } from "../clientes.svelte";
 import { egresos } from "../egresos.svelte";
+import { tesoreria } from "../tesoreria.svelte";
 import { compras } from "../compras.svelte";
 import { opiniones } from "../opiniones.svelte";
 import { reservas } from "../reservas.svelte";
@@ -109,7 +112,10 @@ const TIPOS_RESERVA = new Set([
   "reserva_cancelada",
   "reserva_no_llego",
 ]);
-const TIPOS_EGRESO = new Set(["egreso_registrado", "egreso_anulado"]);
+const TIPOS_EGRESO = new Set(["egreso_registrado", "egreso_pagado", "egreso_anulado"]);
+
+/** Depósitos al banco y ajustes justificados del saldo (M5). */
+const TIPOS_TESORERIA = new Set<string>(TIPOS_EVENTO_TESORERIA);
 
 /** Eventos de compras (proveedores y ordenes). */
 const TIPOS_COMPRA = new Set([
@@ -269,6 +275,11 @@ class Arranque {
             TIPOS_ASISTENCIA.has((e as EventoAsistencia).tipo),
           ) as EventoAsistencia[],
         );
+        tesoreria.hidratar(
+          ordenados.filter((e) =>
+            TIPOS_TESORERIA.has((e as EventoTesoreria).tipo),
+          ) as EventoTesoreria[],
+        );
         egresos.hidratar(
           ordenados.filter((e) =>
             TIPOS_EGRESO.has((e as EventoEgreso).tipo),
@@ -326,6 +337,8 @@ class Arranque {
       menu.conectarAlmacen(almacen);
       asistencia.conectarAlmacen(almacen);
       egresos.conectarAlmacen(almacen);
+      await egresos.hidratarPresupuestos(almacen);
+      tesoreria.conectarAlmacen(almacen);
       compras.conectarAlmacen(almacen);
       caja.conectarAlmacen(almacen);
       clientes.conectarAlmacen(almacen);
@@ -402,6 +415,7 @@ class Arranque {
     await fiscal.hidratar([], almacen);
     inventario.hidratar([]);
     egresos.hidratar([]);
+    tesoreria.hidratar([]);
     compras.hidratar([]);
     caja.hidratar([]);
     clientes.hidratar([]);
@@ -476,6 +490,11 @@ class Arranque {
       TIPOS_EGRESO.has((e as EventoEgreso).tipo),
     ) as EventoEgreso[];
     if (salidas.length > 0) egresos.integrar(salidas);
+
+    const dinero = ordenados.filter((e) =>
+      TIPOS_TESORERIA.has((e as EventoTesoreria).tipo),
+    ) as EventoTesoreria[];
+    if (dinero.length > 0) tesoreria.integrar(dinero);
 
     const compra = ordenados.filter((e) =>
       TIPOS_COMPRA.has((e as EventoCompra).tipo),

@@ -71,6 +71,49 @@
     const r = menu.borrarCategoria(id);
     aviso = r.ok ? "" : `${nombre}: ${r.problemas[0]?.mensaje ?? "no se pudo eliminar"}`;
   }
+
+  // --- Editar una categoría ------------------------------------------------------
+  //
+  // Pedido de Gonzalo. Hasta ahora una categoría se podía crear y borrar, pero
+  // no corregir: para arreglarle una falta de ortografía había que crear otra,
+  // mover los platillos uno por uno y borrar la vieja. Y el ORDEN —el de las
+  // pestañas del POS— quedaba fijado por el orden en que se crearon, para
+  // siempre.
+
+  /** La categoría que se está renombrando, o null. */
+  let editandoCat = $state<string | null>(null);
+  let nombreCat = $state("");
+
+  function abrirEdicionCat(id: string, nombre: string) {
+    editandoCat = id;
+    nombreCat = nombre;
+    aviso = "";
+  }
+
+  function guardarCat() {
+    if (!editandoCat) return;
+    const r = menu.renombrarCategoria(editandoCat, nombreCat);
+    if (r.ok) {
+      editandoCat = null;
+      aviso = "";
+    } else {
+      aviso = r.problemas[0]?.mensaje ?? "No se pudo renombrar";
+    }
+  }
+
+  function moverCat(id: string, direccion: "sube" | "baja") {
+    menu.moverCategoria(id, direccion);
+  }
+
+  /**
+   * ¿Es la primera o la última? Decide qué flecha se apaga.
+   *
+   * Se mira contra `menu.categorias` —la carta completa— y NO contra `grupos`,
+   * que puede venir filtrado por la búsqueda. Con un filtro puesto, la primera
+   * categoría visible casi nunca es la primera de la carta, y apagarle la
+   * flecha de subir sería mentir.
+   */
+  const ordenCat = $derived(menu.categorias.map((c) => c.id));
 </script>
 
 <div class="seccion">
@@ -155,15 +198,64 @@
   {#each grupos as grupo (grupo.categoria.id)}
     <section class="grupo">
       <div class="titulo-grupo">
-        <h2>{grupo.categoria.nombre}</h2>
-        <span class="cuantos">{grupo.productos.length}</span>
-        {#if permisos.editarProductos && menu.cuantosEnCategoria(grupo.categoria.id) === 0}
-          <button
-            class="borrar-cat"
-            onclick={() => borrarCategoria(grupo.categoria.id, grupo.categoria.nombre)}
-          >
-            Eliminar categoría
-          </button>
+        {#if editandoCat === grupo.categoria.id}
+          <!--
+            Se edita EN SITIO y no en un diálogo: renombrar una categoría es
+            cambiar una palabra, y sacar una ventana modal para eso hace que
+            corregir tres categorías seguidas sea un viaje de nueve clics.
+          -->
+          <input
+            class="editar-cat"
+            bind:value={nombreCat}
+            onkeydown={(e) => {
+              if (e.key === "Enter") guardarCat();
+              if (e.key === "Escape") editandoCat = null;
+            }}
+          />
+          <button class="cat-accion principal-cat" onclick={guardarCat}>Guardar</button>
+          <button class="cat-accion" onclick={() => (editandoCat = null)}>Cancelar</button>
+        {:else}
+          <h2>{grupo.categoria.nombre}</h2>
+          <span class="cuantos">{grupo.productos.length}</span>
+
+          {#if permisos.editarProductos}
+            {@const i = ordenCat.indexOf(grupo.categoria.id)}
+            <div class="cat-acciones">
+              <button
+                class="cat-accion"
+                onclick={() => abrirEdicionCat(grupo.categoria.id, grupo.categoria.nombre)}
+              >
+                Renombrar
+              </button>
+              <button
+                class="cat-accion flecha"
+                disabled={i <= 0}
+                onclick={() => moverCat(grupo.categoria.id, "sube")}
+                aria-label="Subir {grupo.categoria.nombre}"
+                title="Subir en la carta"
+              >↑</button>
+              <button
+                class="cat-accion flecha"
+                disabled={i < 0 || i >= ordenCat.length - 1}
+                onclick={() => moverCat(grupo.categoria.id, "baja")}
+                aria-label="Bajar {grupo.categoria.nombre}"
+                title="Bajar en la carta"
+              >↓</button>
+              <!--
+                Eliminar solo aparece cuando la categoría está VACÍA. Un botón
+                que se ve y siempre falla es peor que uno que no está: invita a
+                pulsarlo y luego explica por qué no.
+              -->
+              {#if menu.cuantosEnCategoria(grupo.categoria.id) === 0}
+                <button
+                  class="cat-accion borrar-cat"
+                  onclick={() => borrarCategoria(grupo.categoria.id, grupo.categoria.nombre)}
+                >
+                  Eliminar
+                </button>
+              {/if}
+            </div>
+          {/if}
         {/if}
       </div>
 
@@ -234,6 +326,47 @@
 </div>
 
 <style>
+  .cat-acciones {
+    display: flex;
+    gap: 0.3rem;
+    align-items: center;
+  }
+  .cat-accion {
+    border: 1.5px solid var(--borde);
+    border-radius: 8px;
+    padding: 0.25rem 0.6rem;
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: var(--gris);
+    background: #fff;
+  }
+  .cat-accion:hover:not(:disabled) {
+    border-color: var(--acento);
+    color: var(--acento-texto);
+  }
+  .cat-accion:disabled {
+    opacity: 0.35;
+  }
+  .cat-accion.flecha {
+    padding: 0.25rem 0.5rem;
+    font-size: 0.85rem;
+    line-height: 1;
+  }
+  .cat-accion.principal-cat {
+    border-color: var(--acento);
+    background: var(--acento);
+    color: var(--sobre-acento);
+  }
+  .editar-cat {
+    flex: 1;
+    max-width: 18rem;
+    padding: 0.35rem 0.6rem;
+    border: 1.5px solid var(--acento);
+    border-radius: 8px;
+    font-family: var(--font-titulo);
+    font-size: 1rem;
+    font-weight: 600;
+  }
   .seccion {
     flex: 1;
     overflow-y: auto;

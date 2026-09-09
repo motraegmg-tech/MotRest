@@ -63,6 +63,10 @@ export * from "./inteligencia/simulador.js";
 export * from "./inteligencia/benchmarking.js";
 export * from "./finanzas/egresos.js";
 export * from "./finanzas/contador.js";
+export * from "./finanzas/tesoreria.js";
+export * from "./finanzas/flujo.js";
+export * from "./finanzas/estado-financiero.js";
+export * from "./finanzas/presupuesto.js";
 
 // Compras (M4)
 export * from "./compras/eventos.js";

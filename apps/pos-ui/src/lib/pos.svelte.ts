@@ -1271,6 +1271,88 @@ class TiendaPOS {
   }
 
   /**
+   * Corrige la FORMA de un cobro ya registrado. El importe no se toca.
+   *
+   * ## Qué arregla
+   *
+   * El cliente pagó con tarjeta y el cajero tecleó efectivo. El dinero está
+   * completo y la venta es correcta: lo único mal es por dónde dice el sistema
+   * que entró. Y eso descuadra las dos cuentas a la vez — el cajón espera unos
+   * billetes que nunca existieron y al banco le falta el cargo.
+   *
+   * Antes la única salida era cancelar la venta entera y volver a cobrarla, lo
+   * que deja una devolución falsa en la bitácora y, si la cuenta ya se facturó,
+   * obliga a cancelar un CFDI sin motivo real.
+   *
+   * ## Por qué pide autorización
+   *
+   * Porque mueve dinero entre el cajón y el banco sin que nadie cuente un
+   * billete, y esa es también la forma más limpia de justificar un faltante de
+   * caja. Se pide el mismo permiso que para deshacer un cobro, y el hecho queda
+   * en la bitácora marcado en alerta, con el antes, el después y el motivo.
+   *
+   * El importe NO se puede cambiar aquí a propósito: cobrar de más o de menos
+   * no es un error de captura, es otra venta, y para eso está la cancelación.
+   */
+  async corregirFormaDePago(
+    ordenId: ID,
+    pagoId: ID,
+    forma: FormaPago,
+    motivo: string,
+    referencia?: string,
+  ): Promise<boolean> {
+    const mesaId = this.mesaDeOrden(ordenId);
+    if (!mesaId) return false;
+
+    const comanda = this.sentadasDe(mesaId, this.logs[mesaId] ?? []).find(
+      (c) => c.orden_id === ordenId,
+    );
+    if (!comanda) return false;
+
+    if (comanda.cancelada) {
+      this.flash("Esta venta está cancelada: no hay cobro que corregir");
+      return false;
+    }
+
+    const pago = comanda.pagos.find((p) => p.id === pagoId);
+    if (!pago) return false;
+    if (pago.forma === forma) {
+      this.flash("Ese cobro ya estaba registrado con esa forma de pago");
+      return false;
+    }
+
+    const limpio = motivo.trim();
+    if (limpio.length < 3) {
+      this.flash("Escribe por qué se corrige la forma de cobro");
+      return false;
+    }
+
+    const permiso = await autorizacion.solicitar(
+      "pos.cuenta.reabrir",
+      undefined,
+      `corregir la forma de cobro de la cuenta ${ordenId.slice(-8).toUpperCase()}`,
+    );
+    if (!permiso.ok) return false;
+
+    this.sincronizarActor();
+    this.emitir(
+      mesaId,
+      fabrica.crear("pago_corregido", ordenId, {
+        orden_id: ordenId,
+        pago_id: pagoId,
+        forma_anterior: pago.forma,
+        forma,
+        referencia: referencia?.trim() || undefined,
+        motivo: limpio,
+        autorizador_id: permiso.autorizador_id ?? sesion.usuarioActual?.id,
+      }),
+    );
+
+    this.flash("Forma de cobro corregida");
+    return true;
+  }
+
+  /**
    * Registra un AJUSTE de propina. El evento es un incremento, no un total: el
    * reducer suma lo que llegue, así que corregir a la baja exige un negativo.
    *

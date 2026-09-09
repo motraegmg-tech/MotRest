@@ -186,6 +186,7 @@ describe("diferencia del arqueo", () => {
     ventas: {}, totalVendido: CERO,
     propinasPorForma: {}, propinas: CERO,
     efectivoVentas: CERO, fondoInicial: CERO, movimientos: CERO,
+    gastosEfectivo: CERO, gastos: [],
     efectivoEsperado: pesos(esperado), cuentasCerradas: 0,
     devoluciones: CERO, ventasCanceladas: 0,
   });

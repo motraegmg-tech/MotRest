@@ -14,6 +14,16 @@
  */
 import {
   agregarCategoria,
+  agregarCategoriaInsumo,
+  categoriasDeInsumoEnUso,
+  eliminarCategoriaInsumo,
+  insumosEnCategoria,
+  moverCategoria,
+  moverInsumosDeCategoria,
+  recolorearCategoria,
+  renombrarCategoria,
+  renombrarCategoriaInsumo,
+  validarCategoriaInsumo,
   type CartaImportada,
   agregarEstacion,
   agregarInsumo,
@@ -345,6 +355,42 @@ class StoreMenu {
     return SIN_PROBLEMAS;
   }
 
+  /**
+   * Renombra una categoría de la carta.
+   *
+   * La función del dominio existía desde siempre y NADIE la llamaba: se podía
+   * crear una categoría y borrarla, pero no corregirle una falta de ortografía.
+   * La única salida era crear otra, mover los platillos uno por uno y borrar la
+   * vieja.
+   */
+  renombrarCategoria(categoriaId: ID, nombre: string): ResultadoMenu {
+    if (!this.datos || !this.permisos.editarProductos) return { ok: false, problemas: [] };
+    const problemas = validarCategoria(nombre, this.datos, categoriaId);
+    if (bloquean(problemas)) return { ok: false, problemas };
+    this.aplicar((m) => renombrarCategoria(m, categoriaId, nombre));
+    return SIN_PROBLEMAS;
+  }
+
+  /** Cambia el color con que la categoría se distingue en el POS. */
+  recolorearCategoria(categoriaId: ID, color: string | undefined): ResultadoMenu {
+    if (!this.datos || !this.permisos.editarProductos) return { ok: false, problemas: [] };
+    this.aplicar((m) => recolorearCategoria(m, categoriaId, color));
+    return SIN_PROBLEMAS;
+  }
+
+  /**
+   * Sube o baja una categoría en la carta.
+   *
+   * El orden es el de las pestañas del POS: quien atiende quiere las bebidas
+   * donde siempre. Hasta ahora quedaban en el orden en que se crearon, para
+   * siempre.
+   */
+  moverCategoria(categoriaId: ID, direccion: "sube" | "baja"): ResultadoMenu {
+    if (!this.datos || !this.permisos.editarProductos) return { ok: false, problemas: [] };
+    this.aplicar((m) => moverCategoria(m, categoriaId, direccion));
+    return SIN_PROBLEMAS;
+  }
+
   borrarCategoria(categoriaId: ID): ResultadoMenu {
     if (!this.datos || !this.permisos.editarProductos) return { ok: false, problemas: [] };
     if (productosEnCategoria(this.datos, categoriaId) > 0) {
@@ -422,6 +468,83 @@ class StoreMenu {
 
   get estaciones(): EstacionKds[] {
     return [...(this.datos?.estaciones ?? [])].sort((a, b) => a.orden - b.orden);
+  }
+
+  // --- Categorías de insumo -----------------------------------------------------------
+  //
+  // La categoría del insumo era texto libre en su ficha: se podía escribir y
+  // nada más. No había dónde ver los insumos de «Lácteos», ni forma de
+  // renombrarla, y «Lacteos» y «lácteos» eran dos categorías para el sistema y
+  // una sola para el almacenista.
+
+  /**
+   * Las categorías que existen: las declaradas y las que ya estaban escritas.
+   *
+   * La unión importa. Un local que lleva meses capturando insumos tiene sus
+   * categorías dentro de las fichas y ninguna en el catálogo; enseñar solo las
+   * declaradas le mostraría una lista vacía con la despensa llena.
+   */
+  get categoriasInsumo(): string[] {
+    return this.datos ? categoriasDeInsumoEnUso(this.datos) : [];
+  }
+
+  insumosDe(categoria: string): Insumo[] {
+    return this.datos ? insumosEnCategoria(this.datos, categoria) : [];
+  }
+
+  /** Insumos que no tienen categoría puesta. Se enseñan aparte para poder ubicarlos. */
+  get insumosSinCategoria(): Insumo[] {
+    return this.insumos.filter((i) => !i.categoria?.trim());
+  }
+
+  crearCategoriaInsumo(nombre: string): ResultadoMenu {
+    const veto = this.soloAdmin();
+    if (veto || !this.datos) return veto ?? { ok: false, problemas: [] };
+
+    const problemas = validarCategoriaInsumo(nombre, this.datos);
+    if (bloquean(problemas)) return { ok: false, problemas };
+    this.aplicar((m) => agregarCategoriaInsumo(m, nombre));
+    return SIN_PROBLEMAS;
+  }
+
+  /** Renombra la categoría Y la reescribe en cada insumo que la llevaba. */
+  renombrarCategoriaInsumo(anterior: string, nuevo: string): ResultadoMenu {
+    const veto = this.soloAdmin();
+    if (veto || !this.datos) return veto ?? { ok: false, problemas: [] };
+
+    const problemas = validarCategoriaInsumo(nuevo, this.datos, anterior);
+    if (bloquean(problemas)) return { ok: false, problemas };
+    this.aplicar((m) => renombrarCategoriaInsumo(m, anterior, nuevo));
+    return SIN_PROBLEMAS;
+  }
+
+  borrarCategoriaInsumo(categoria: string): ResultadoMenu {
+    const veto = this.soloAdmin();
+    if (veto || !this.datos) return veto ?? { ok: false, problemas: [] };
+
+    const dentro = insumosEnCategoria(this.datos, categoria);
+    if (dentro.length > 0) {
+      return {
+        ok: false,
+        problemas: [
+          {
+            campo: "categoria",
+            mensaje: `Tiene ${dentro.length} insumo(s). Muévelos a otra categoría primero.`,
+            gravedad: "error",
+          },
+        ],
+      };
+    }
+    this.aplicar((m) => eliminarCategoriaInsumo(m, categoria));
+    return SIN_PROBLEMAS;
+  }
+
+  /** Mueve todos los insumos de una categoría a otra, para poder vaciar la vieja. */
+  moverInsumosDeCategoria(desde: string, hacia: string): ResultadoMenu {
+    const veto = this.soloAdmin();
+    if (veto || !this.datos) return veto ?? { ok: false, problemas: [] };
+    this.aplicar((m) => moverInsumosDeCategoria(m, desde, hacia));
+    return SIN_PROBLEMAS;
   }
 
   /** Recetas que se romperían al borrar un insumo. */

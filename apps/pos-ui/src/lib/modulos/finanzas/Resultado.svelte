@@ -14,9 +14,12 @@
     CATEGORIAS_EGRESO,
     CERO,
     FORMAS_PAGO,
+    armarEstadoFinanciero,
+    avisoDe,
     cuentasCerradasEn,
     detalleCsv,
     egresosEn,
+    formatearCantidad,
     pesos,
     reporteContable,
     resumenCsv,
@@ -24,11 +27,17 @@
     sumar,
     type CategoriaEgreso,
     type Centavos,
+    type LineaEgresoInsumo,
   } from "@motrest/dominio";
+  import { estadoFinancieroPdf, nombreArchivoEstado } from "@motrest/impresion";
+  import { caja } from "../../caja.svelte";
   import { egresos } from "../../egresos.svelte";
   import { fiscal } from "../../fiscal.svelte";
+  import { licencia } from "../../licencia.svelte";
   import { local } from "../../local.svelte";
+  import { menu } from "../../menu.svelte";
   import { pos } from "../../pos.svelte";
+  import { tesoreria } from "../../tesoreria.svelte";
   import { mxn, hora } from "../../formato";
   import { sesion } from "../../sesion/sesion.svelte";
 
@@ -53,16 +62,27 @@
    * Se usa un Blob y no una petición al Hub: el reporte se arma con datos que
    * la terminal ya tiene, así que no hay razón para que el archivo viaje por la
    * red ni para que dependa de que el Hub esté encendido.
+   *
+   * ## Por qué el enlace se mete al DOM y la URL se libera con retraso
+   *
+   * Antes no se hacía ninguna de las dos cosas, y por eso las descargas «no
+   * funcionaban»: el `<a>` suelto y el `revokeObjectURL` en la línea siguiente
+   * al `click()` dejaban al navegador sin el blob antes de que llegara a
+   * guardarlo. En el WebView de la caja fallaba en silencio — ni archivo ni
+   * error—, que es la peor forma de fallar.
    */
-  function descargar(nombre: string, contenido: string): void {
-    const url = URL.createObjectURL(
-      new Blob([contenido], { type: "text/csv;charset=utf-8" }),
-    );
+  function descargar(nombre: string, contenido: BlobPart, tipo: string): void {
+    const url = URL.createObjectURL(new Blob([contenido], { type: tipo }));
     const a = document.createElement("a");
     a.href = url;
     a.download = nombre;
+    a.rel = "noopener";
+    document.body.appendChild(a);
     a.click();
-    URL.revokeObjectURL(url);
+    a.remove();
+    // Un minuto de margen: el guardado es asíncrono y liberar el blob antes de
+    // que termine cancela la descarga sin decir nada.
+    setTimeout(() => URL.revokeObjectURL(url), 60_000);
   }
 
   function reporteDelMes() {
@@ -78,12 +98,52 @@
     };
   }
 
+  /**
+   * El estado financiero del mes, en PDF.
+   *
+   * Lo pidió Gonzalo: «que den un estado financiero de lo que fue el mes
+   * seleccionado, que diga gastos desglosados, ingresos, y todo tipo de
+   * movimiento económico». Se arma con el dominio y se dibuja con el generador
+   * propio del paquete de impresión — sin librerías, para que el instalador de
+   * cada restaurante no engorde ni dependa de nadie.
+   */
+  function estadoDelMes() {
+    return armarEstadoFinanciero(
+      {
+        local: local.fichaParaTicket(licencia.licencia?.nombre ?? "Mi restaurante").nombre,
+        comandas: pos.todasLasComandas,
+        egresos: egresos.registros,
+        cfdis: fiscal.registros,
+        sesiones: caja.sesiones,
+        tesoreria: tesoreria.todosLosEventos,
+      },
+      rangoMes,
+    );
+  }
+
+  function exportarEstadoPdf() {
+    const estado = estadoDelMes();
+    descargar(
+      nombreArchivoEstado(estado),
+      estadoFinancieroPdf(estado) as unknown as BlobPart,
+      "application/pdf",
+    );
+  }
+
   function exportarResumen() {
-    descargar(`motrest-resumen-${mesElegido}.csv`, resumenCsv(reporteDelMes().reporte));
+    descargar(
+      `motrest-resumen-${mesElegido}.csv`,
+      resumenCsv(reporteDelMes().reporte),
+      "text/csv;charset=utf-8",
+    );
   }
 
   function exportarDetalle() {
-    descargar(`motrest-detalle-${mesElegido}.csv`, detalleCsv(reporteDelMes().cuentas));
+    descargar(
+      `motrest-detalle-${mesElegido}.csv`,
+      detalleCsv(reporteDelMes().cuentas),
+      "text/csv;charset=utf-8",
+    );
   }
 
   /*
@@ -145,25 +205,93 @@
   let proveedor = $state("");
   let error = $state("");
 
+  /** false = se recibió a crédito y el dinero sale el día que se pague. */
+  let pagado = $state(true);
+  let venceTexto = $state("");
+
   const categoriaElegida = $derived(CATEGORIAS_EGRESO.find((c) => c.id === categoria));
+
+  /*
+   * LA COMPRA DE INSUMOS, DENTRO DEL MISMO GASTO.
+   *
+   * Es el pedido de Gonzalo: poder registrar la compra de insumos aquí, como
+   * ya se hacía en Inventario, y que ese gasto reste al dinero. Se activa al
+   * elegir la categoría «Compra de insumos» y no antes: un formulario que
+   * enseña renglones de almacén para capturar el recibo de la luz solo estorba.
+   */
+  const esCompraInsumos = $derived(categoria === "insumos");
+
+  interface RenglonCompra {
+    insumo_id: string;
+    /** En la unidad base del insumo, tal como se lleva el almacén. */
+    cantidad: string;
+    /** Lo que costó ESTE renglón completo, en pesos. */
+    importe: string;
+  }
+
+  let renglones = $state<RenglonCompra[]>([]);
+
+  function agregarRenglon() {
+    renglones = [...renglones, { insumo_id: menu.insumos[0]?.id ?? "", cantidad: "", importe: "" }];
+  }
+
+  function quitarRenglon(i: number) {
+    renglones = renglones.filter((_, n) => n !== i);
+  }
+
+  const lineas = $derived.by<LineaEgresoInsumo[]>(() =>
+    renglones
+      .map((r) => ({
+        insumo_id: r.insumo_id,
+        cantidad: Number(r.cantidad) || 0,
+        importe: pesos(Number(r.importe) || 0),
+      }))
+      .filter((l) => l.insumo_id && l.cantidad > 0),
+  );
+
+  /** La suma de los renglones. Es la que manda cuando hay mercancía capturada. */
+  const totalLineas = $derived(sumar(...lineas.map((l) => l.importe)));
+
+  /*
+   * Con renglones capturados el monto lo pone la suma, no el dedo.
+   *
+   * Que el total del gasto y el de la mercancía puedan diferir es pedir que un
+   * día difieran: el almacén diría que entraron 14 000 pesos de queso y
+   * finanzas que salieron 1 400.
+   */
+  const montoFinal = $derived(
+    lineas.length > 0 ? totalLineas : pesos(Number(montoTexto) || 0),
+  );
+
+  function insumoDe(id: string) {
+    return menu.insumos.find((i) => i.id === id);
+  }
 
   function limpiar() {
     concepto = "";
     montoTexto = "";
     proveedor = "";
     error = "";
+    renglones = [];
+    pagado = true;
+    venceTexto = "";
   }
 
   function guardar() {
-    const monto = pesos(Number(montoTexto) || 0);
-    egresos.actuarComo(sesion.usuarioActual?.id ?? "sistema");
-    const r = egresos.registrar({
-      categoria,
-      concepto,
-      monto,
-      forma_pago: formaPago,
-      proveedor,
-    });
+    error = "";
+    const r = egresos.registrar(
+      {
+        categoria,
+        concepto,
+        monto: montoFinal,
+        forma_pago: formaPago,
+        proveedor,
+        pagado,
+        vence_ts: !pagado && venceTexto ? new Date(`${venceTexto}T12:00`).getTime() : undefined,
+        lineas: esCompraInsumos ? lineas : undefined,
+      },
+      sesion.usuarioActual?.id,
+    );
     if (r.ok) {
       limpiar();
       abierto = false;
@@ -178,6 +306,48 @@
     egresos.actuarComo(sesion.usuarioActual?.id ?? "sistema");
     egresos.anular(id, motivo, sesion.usuarioActual?.id);
   }
+
+  // --- Cuentas por pagar ---------------------------------------------------------------
+
+  const porPagar = $derived(egresos.porPagar);
+  const vencidas = $derived(egresos.vencidas());
+
+  let liquidando = $state<string | null>(null);
+  let formaLiquidacion = $state("transferencia");
+  let refLiquidacion = $state("");
+
+  function liquidar() {
+    if (!liquidando) return;
+    const r = egresos.pagar(liquidando, formaLiquidacion, {
+      referencia: refLiquidacion,
+      autorizadorId: sesion.usuarioActual?.id,
+    });
+    if (r.ok) {
+      liquidando = null;
+      refLiquidacion = "";
+    }
+  }
+
+  function fechaCorta(ts?: number): string {
+    if (ts === undefined) return "sin fecha";
+    return new Date(ts).toLocaleDateString("es-MX", { day: "2-digit", month: "short" });
+  }
+
+  // --- Presupuesto del mes -------------------------------------------------------------
+
+  /*
+   * Se sigue contra el MES NATURAL y no contra la jornada: un techo de gasto es
+   * mensual por definición, y compararlo con lo gastado hoy no diría nada.
+   */
+  const mesEnCurso = $derived.by(() => {
+    const d = new Date();
+    return {
+      desde: new Date(d.getFullYear(), d.getMonth(), 1).getTime(),
+      hasta: new Date(d.getFullYear(), d.getMonth() + 1, 1).getTime(),
+    };
+  });
+
+  const presupuesto = $derived(egresos.seguimiento(mesEnCurso));
 </script>
 
 <!--
@@ -306,7 +476,15 @@
       </label>
       <label>
         <span>Monto</span>
-        <input bind:value={montoTexto} inputmode="decimal" placeholder="0.00" />
+        <input
+          bind:value={montoTexto}
+          inputmode="decimal"
+          placeholder="0.00"
+          disabled={lineas.length > 0}
+        />
+        {#if lineas.length > 0}
+          <small class="pista">Lo pone la suma de la mercancía: {mxn(totalLineas)}</small>
+        {/if}
       </label>
       <label class="ancho">
         <span>Concepto</span>
@@ -317,8 +495,13 @@
         <select bind:value={formaPago}>
           <option value="efectivo">Efectivo</option>
           <option value="transferencia">Transferencia</option>
-          <option value="tarjeta">Tarjeta</option>
+          <option value="tarjeta_debito">Tarjeta</option>
         </select>
+        <small class="pista">
+          {formaPago === "efectivo"
+            ? "Sale del cajón: baja el efectivo y el corte lo descuenta."
+            : "Sale del banco: no toca el efectivo del cajón."}
+        </small>
       </label>
       <label>
         <span>Proveedor (opcional)</span>
@@ -326,9 +509,97 @@
       </label>
     </div>
 
+    <!--
+      PAGADO O A CRÉDITO. La diferencia no es contable: es la que decide si el
+      dinero baja hoy o el día que se liquide. Un restaurante que compra a
+      crédito y lo apunta como pagado tiene el saldo mal toda la semana.
+    -->
+    <div class="cuando-paga">
+      <label class="check">
+        <input type="checkbox" bind:checked={pagado} />
+        <span>Ya se pagó</span>
+      </label>
+      {#if pagado}
+        <p class="pista">El dinero sale ahora y baja el saldo del restaurante.</p>
+      {:else}
+        <p class="pista">
+          Queda como <b>cuenta por pagar</b>. El gasto cuenta desde hoy, pero el
+          dinero no se mueve hasta que se liquide.
+        </p>
+        <label class="vence">
+          <span>¿Cuándo se paga?</span>
+          <input type="date" bind:value={venceTexto} />
+        </label>
+      {/if}
+    </div>
+
+    <!--
+      LA MERCANCÍA, DENTRO DEL MISMO GASTO.
+
+      Es lo que convierte «registrar el gasto del queso» y «dar entrada al
+      queso» en un solo acto. Antes eran dos pantallas y la segunda se olvidaba,
+      así que el almacén decía una cosa y la despensa otra.
+    -->
+    {#if esCompraInsumos}
+      <div class="mercancia">
+        <div class="cab-mercancia">
+          <h3>¿Qué entró al almacén?</h3>
+          <button class="mini" onclick={agregarRenglon} disabled={menu.insumos.length === 0}>
+            Agregar insumo
+          </button>
+        </div>
+
+        {#if menu.insumos.length === 0}
+          <p class="pista">
+            Todavía no hay insumos dados de alta. Se capturan en Administración →
+            Catálogo. Sin ellos el gasto se registra igual, solo que sin cargar
+            el almacén.
+          </p>
+        {:else if renglones.length === 0}
+          <p class="pista">
+            Opcional. Si captura la mercancía, entra sola al inventario y el
+            monto del gasto lo pone la suma de los renglones.
+          </p>
+        {:else}
+          {#each renglones as r, i (i)}
+            {@const ins = insumoDe(r.insumo_id)}
+            <div class="renglon">
+              <select bind:value={r.insumo_id}>
+                {#each menu.insumos as insumo (insumo.id)}
+                  <option value={insumo.id}>{insumo.nombre}</option>
+                {/each}
+              </select>
+              <label class="cant">
+                <input bind:value={r.cantidad} inputmode="decimal" placeholder="0" />
+                <span>{ins?.unidad_base ?? ""}</span>
+              </label>
+              <input
+                class="importe"
+                bind:value={r.importe}
+                inputmode="decimal"
+                placeholder="Importe"
+              />
+              <button class="quitar" onclick={() => quitarRenglon(i)} aria-label="Quitar">×</button>
+            </div>
+            {#if ins && Number(r.cantidad) > 0}
+              <p class="entrada">
+                Entran {formatearCantidad(Number(r.cantidad), ins.unidad_base)} de {ins.nombre}
+              </p>
+            {/if}
+          {/each}
+          <p class="total-mercancia">
+            Total de la compra: <b>{mxn(totalLineas)}</b>
+          </p>
+        {/if}
+      </div>
+    {/if}
+
     {#if categoriaElegida && !categoriaElegida.afectaResultado}
       <p class="aviso-cat">
         {categoriaElegida.descripcion}
+        {#if pagado}
+          Sí baja el dinero del restaurante: salió de la caja hoy.
+        {/if}
       </p>
     {/if}
 
@@ -336,9 +607,108 @@
 
     <div class="botones">
       <button class="secundario" onclick={() => { abierto = false; limpiar(); }}>Cancelar</button>
-      <button class="principal" onclick={guardar}>Guardar gasto</button>
+      <button class="principal" onclick={guardar}>
+        {pagado ? "Guardar gasto" : "Guardar como pendiente"}
+      </button>
     </div>
   </section>
+{/if}
+
+<!--
+  CUENTAS POR PAGAR. Nace de las compras a crédito: sin esta lista, la deuda con
+  el proveedor solo vivía en la cabeza del dueño y en el cuaderno del almacén.
+-->
+{#if puedeVerCostos && porPagar.length > 0}
+  <section class="tarjeta">
+    <div class="cabecera-tarjeta">
+      <h2>Cuentas por pagar</h2>
+      <span class="cuentas">
+        {mxn(egresos.totalPorPagar)} en {porPagar.length}
+        {porPagar.length === 1 ? "documento" : "documentos"}
+      </span>
+    </div>
+
+    {#if vencidas.length > 0}
+      <p class="alerta-sup" role="alert">
+        <b>{vencidas.length} {vencidas.length === 1 ? "cuenta venció" : "cuentas vencieron"}.</b>
+        La fecha comprometida ya pasó.
+      </p>
+    {/if}
+
+    <table>
+      <thead>
+        <tr><th>Vence</th><th>Concepto</th><th>Proveedor</th><th class="num">Monto</th><th></th></tr>
+      </thead>
+      <tbody>
+        {#each porPagar as d (d.egreso_id)}
+          <tr class:vencida={d.vence_ts !== undefined && d.vence_ts < Date.now()}>
+            <td>{fechaCorta(d.vence_ts)}</td>
+            <td>{d.concepto}</td>
+            <td>{d.proveedor ?? "—"}</td>
+            <td class="num">{mxn(d.monto)}</td>
+            <td>
+              {#if puedeRegistrar}
+                <button class="mini" onclick={() => (liquidando = d.egreso_id)}>Pagar</button>
+              {/if}
+            </td>
+          </tr>
+        {/each}
+      </tbody>
+    </table>
+  </section>
+{/if}
+
+<!--
+  PRESUPUESTO DEL MES. Solo aparece cuando hay algo que decir: una tarjeta que
+  repite «vas bien» todos los días deja de leerse a la semana.
+-->
+{#if puedeVerCostos && presupuesto.alertas.length > 0}
+  <section class="tarjeta presupuesto">
+    <h2>Presupuesto del mes</h2>
+    {#each presupuesto.alertas as a (a.categoria)}
+      <div class="barra-presupuesto" class:excedido={a.estado === "excedido"}>
+        <div class="rotulo-presupuesto">
+          <span>{avisoDe(a)}</span>
+          <b>{mxn(a.gastado)} / {mxn(a.techo)}</b>
+        </div>
+        <div class="pista-barra">
+          <i style="width: {Math.min(100, Math.round(a.consumido * 100))}%"></i>
+        </div>
+      </div>
+    {/each}
+    <p class="nota">
+      Los techos se fijan en Caja y dinero. El aviso no bloquea nada: informa
+      para que se pueda decidir a tiempo si el pedido de esta semana espera.
+    </p>
+  </section>
+{/if}
+
+{#if liquidando}
+  <div class="velo" role="presentation" onclick={() => (liquidando = null)}></div>
+  <div class="dialogo-pago" role="dialog" aria-modal="true" aria-label="Pagar una cuenta">
+    <h2>Pagar la cuenta</h2>
+    <p class="nota">
+      Aquí es donde sale el dinero. El gasto ya contaba desde que se recibió la
+      mercancía, así que esto no lo vuelve a restar del resultado: solo baja el
+      saldo.
+    </p>
+    <label>
+      <span>¿Con qué se paga?</span>
+      <select bind:value={formaLiquidacion}>
+        <option value="efectivo">Efectivo</option>
+        <option value="transferencia">Transferencia</option>
+        <option value="tarjeta_debito">Tarjeta</option>
+      </select>
+    </label>
+    <label>
+      <span>Referencia (opcional)</span>
+      <input bind:value={refLiquidacion} placeholder="Folio de la transferencia" />
+    </label>
+    <div class="botones">
+      <button class="secundario" onclick={() => (liquidando = null)}>Cancelar</button>
+      <button class="principal" onclick={liquidar}>Registrar el pago</button>
+    </div>
+  </div>
 {/if}
 
 <!--
@@ -347,20 +717,24 @@
 -->
 {#if puedeVerCostos}
   <section class="tarjeta">
-    <h2>Reporte para el contador</h2>
+    <h2>Cierre del mes</h2>
     <p class="nota">
-      Lo que pide cada mes: venta, IVA trasladado, cómo se cobró, comprobantes
-      emitidos y —el número que busca primero— <b>lo vendido que no se facturó</b>,
-      que es la base de la factura global. Las propinas van aparte, porque no son
-      ingreso del negocio.
+      El <b>estado financiero</b> es el documento completo del mes: ingresos,
+      gastos desglosados uno por uno, el resultado y todos los movimientos de
+      dinero. Es lo que se entrega al contador, al banco o a un socio. Los dos
+      archivos de hoja de cálculo siguen ahí para quien los prefiera abrir en
+      Excel.
     </p>
     <div class="fila-contador">
       <label>
         <span>Mes</span>
         <input type="month" bind:value={mesElegido} />
       </label>
-      <button class="mini" onclick={exportarResumen}>Descargar resumen</button>
-      <button class="mini" onclick={exportarDetalle}>Descargar detalle</button>
+      <button class="principal" onclick={exportarEstadoPdf}>
+        Descargar estado financiero (PDF)
+      </button>
+      <button class="mini" onclick={exportarResumen}>Resumen (CSV)</button>
+      <button class="mini" onclick={exportarDetalle}>Detalle (CSV)</button>
     </div>
   </section>
 {/if}
@@ -638,5 +1012,234 @@
   }
   .fila-contador input {
     padding: 0.5rem 0.65rem;
+  }
+
+  /* --- Compra de insumos dentro del gasto --- */
+  .pista {
+    font-size: 0.76rem;
+    line-height: 1.4;
+    color: var(--gris);
+  }
+  .cuando-paga {
+    margin-top: 0.85rem;
+    padding: 0.7rem 0.85rem;
+    background: #faf9f8;
+    border-radius: 10px;
+    display: flex;
+    flex-direction: column;
+    gap: 0.35rem;
+  }
+  .check {
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    gap: 0.5rem;
+    font-size: 0.9rem;
+    font-weight: 600;
+  }
+  .check input {
+    width: 1.05rem;
+    height: 1.05rem;
+    accent-color: var(--acento);
+  }
+  .vence {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+    max-width: 12rem;
+  }
+  .vence span {
+    font-size: 0.76rem;
+    font-weight: 600;
+    color: var(--gris);
+  }
+  .vence input {
+    padding: 0.5rem 0.6rem;
+    border: 1.5px solid var(--borde);
+    border-radius: 8px;
+    font: inherit;
+  }
+  .mercancia {
+    margin-top: 0.85rem;
+    padding: 0.85rem;
+    border: 1px dashed var(--borde);
+    border-radius: 10px;
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+  }
+  .cab-mercancia {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+  }
+  .cab-mercancia h3 {
+    flex: 1;
+    font-size: 0.92rem;
+    font-weight: 650;
+  }
+  .renglon {
+    display: flex;
+    gap: 0.4rem;
+    align-items: center;
+  }
+  .renglon select {
+    flex: 1;
+    min-width: 8rem;
+    padding: 0.5rem 0.55rem;
+    border: 1.5px solid var(--borde);
+    border-radius: 8px;
+    font: inherit;
+    background: #fff;
+  }
+  .renglon .cant {
+    display: flex;
+    align-items: center;
+    gap: 0.3rem;
+    flex: none;
+  }
+  .renglon .cant input {
+    width: 5rem;
+    text-align: right;
+  }
+  .renglon .cant span {
+    font-size: 0.76rem;
+    color: var(--gris);
+    min-width: 2rem;
+  }
+  .renglon input {
+    padding: 0.5rem 0.55rem;
+    border: 1.5px solid var(--borde);
+    border-radius: 8px;
+    font: inherit;
+    font-variant-numeric: tabular-nums;
+  }
+  .renglon .importe {
+    width: 7rem;
+    text-align: right;
+  }
+  .quitar {
+    flex: none;
+    width: 1.9rem;
+    height: 1.9rem;
+    border-radius: 8px;
+    border: 1.5px solid var(--borde);
+    background: #fff;
+    font-size: 1.1rem;
+    line-height: 1;
+    color: var(--gris);
+  }
+  .quitar:hover {
+    border-color: #e0392b;
+    color: #e0392b;
+  }
+  .entrada {
+    font-size: 0.75rem;
+    color: var(--acento-texto);
+    padding-left: 0.25rem;
+    margin-top: -0.25rem;
+  }
+  .total-mercancia {
+    font-size: 0.88rem;
+    text-align: right;
+    padding-top: 0.35rem;
+    border-top: 1px solid var(--borde);
+  }
+  .total-mercancia b {
+    font-family: var(--font-titulo);
+    font-size: 1.05rem;
+  }
+
+  /* --- Cuentas por pagar --- */
+  .alerta-sup {
+    font-size: 0.85rem;
+    line-height: 1.45;
+    color: #8a2018;
+    background: #fdf2f0;
+    border: 1px solid #e0392b;
+    border-radius: 8px;
+    padding: 0.55rem 0.7rem;
+    margin-bottom: 0.7rem;
+  }
+  tr.vencida td {
+    background: #fdf6f5;
+  }
+
+  /* --- Presupuesto --- */
+  .barra-presupuesto {
+    margin-bottom: 0.7rem;
+  }
+  .rotulo-presupuesto {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 0.75rem;
+    font-size: 0.84rem;
+    margin-bottom: 0.3rem;
+  }
+  .rotulo-presupuesto b {
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+    color: var(--gris);
+    font-weight: 600;
+  }
+  .pista-barra {
+    height: 0.45rem;
+    border-radius: 999px;
+    background: #eeebe8;
+    overflow: hidden;
+  }
+  .pista-barra i {
+    display: block;
+    height: 100%;
+    background: var(--acento);
+  }
+  .barra-presupuesto.excedido .pista-barra i {
+    background: #e0392b;
+  }
+
+  /* --- Diálogo de pago --- */
+  .velo {
+    position: fixed;
+    inset: 0;
+    background: rgba(20, 24, 26, 0.55);
+    z-index: 60;
+  }
+  .dialogo-pago {
+    position: fixed;
+    z-index: 61;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    width: min(28rem, calc(100vw - 2rem));
+    background: #fff;
+    border-radius: 14px;
+    padding: 1.4rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.7rem;
+    box-shadow: var(--sombra-lg);
+  }
+  .dialogo-pago h2 {
+    font-size: 1.1rem;
+    font-weight: 700;
+  }
+  .dialogo-pago label {
+    display: flex;
+    flex-direction: column;
+    gap: 0.3rem;
+  }
+  .dialogo-pago label span {
+    font-size: 0.8rem;
+    font-weight: 600;
+    color: var(--pizarra);
+  }
+  .dialogo-pago input,
+  .dialogo-pago select {
+    padding: 0.6rem 0.7rem;
+    border: 1.5px solid var(--borde);
+    border-radius: 8px;
+    font: inherit;
+    background: #fff;
   }
 </style>

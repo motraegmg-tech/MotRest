@@ -26,11 +26,14 @@
    * separa una corrección de un desfalco.
    */
   import {
+    FORMAS_PAGO_MANUALES,
     etiquetaFormaPago,
     mesasDeComanda,
     totalesComanda,
     type Centavos,
     type EstadoComanda,
+    type FormaPago,
+    type Pago,
   } from "@motrest/dominio";
   import { hora, mxn } from "../../formato";
   import { plano } from "../../plano.svelte";
@@ -114,6 +117,61 @@
     if (ok) cancelando = null;
     else error = "No se canceló: falta la autorización o la venta ya estaba cancelada";
   }
+
+  // --- Corregir la forma de cobro -------------------------------------------------
+
+  /**
+   * Pedido de Gonzalo: poder cambiar si el cobro fue en efectivo, transferencia
+   * o tarjeta.
+   *
+   * Se corrige UN cobro concreto y no «la cuenta»: una mesa puede haberse
+   * pagado mitad con tarjeta y mitad en efectivo, y ahí lo que está mal es solo
+   * una de las dos mitades. Por eso el diálogo lista los pagos por separado.
+   */
+  let corrigiendo = $state<Fila | null>(null);
+  let pagoElegido = $state<Pago | null>(null);
+  let formaNueva = $state<FormaPago>("efectivo");
+  let motivoCorreccion = $state("");
+  let referenciaCorreccion = $state("");
+  let errorCorreccion = $state("");
+
+  function abrirCorreccion(fila: Fila) {
+    corrigiendo = fila;
+    pagoElegido = fila.comanda.pagos[0] ?? null;
+    formaNueva = pagoElegido?.forma ?? "efectivo";
+    motivoCorreccion = "";
+    referenciaCorreccion = "";
+    errorCorreccion = "";
+  }
+
+  function elegirPago(pago: Pago) {
+    pagoElegido = pago;
+    formaNueva = pago.forma;
+  }
+
+  async function confirmarCorreccion() {
+    if (!corrigiendo || !pagoElegido) return;
+    errorCorreccion = "";
+
+    if (formaNueva === pagoElegido.forma) {
+      errorCorreccion = "Elige una forma de pago distinta de la que ya tenía";
+      return;
+    }
+    if (motivoCorreccion.trim().length < 3) {
+      errorCorreccion = "Escribe por qué se corrige: queda en la bitácora";
+      return;
+    }
+
+    const ok = await pos.corregirFormaDePago(
+      corrigiendo.comanda.orden_id,
+      pagoElegido.id,
+      formaNueva,
+      motivoCorreccion,
+      referenciaCorreccion,
+    );
+    if (ok) corrigiendo = null;
+    else errorCorreccion = "No se corrigió: falta la autorización";
+  }
 </script>
 
 <section class="tarjeta">
@@ -162,7 +220,18 @@
             <td class="tenue">{f.mesero}</td>
             <td class="num">{mxn(f.total)}</td>
             <td class="num tenue">{f.propina > 0 ? mxn(f.propina) : "—"}</td>
-            <td class="tenue">{f.formas}</td>
+            <td class="tenue">
+              {f.formas}
+              <!--
+                Un cobro corregido lo dice. Un cambio de forma de pago que no se
+                ve es indistinguible de un cuadre hecho a mano sobre el dinero
+                de la caja, y quien revisa el corte tiene que poder notarlo sin
+                abrir la bitácora.
+              -->
+              {#if f.comanda.pagos.some((p) => p.forma_original)}
+                <small class="corregido">corregido</small>
+              {/if}
+            </td>
             <td>
               {#if f.estado === "cancelada"}
                 <span class="marca anulada">Cancelada</span>
@@ -179,6 +248,9 @@
             </td>
             <td class="acciones">
               {#if puedeCancelar && f.estado !== "cancelada"}
+                {#if f.comanda.pagos.length > 0}
+                  <button class="mini" onclick={() => abrirCorreccion(f)}>Cambiar cobro</button>
+                {/if}
                 <button class="mini peligro" onclick={() => abrir(f)}>Cancelar venta</button>
               {/if}
             </td>
@@ -246,7 +318,132 @@
   </div>
 {/if}
 
+
+<!--
+  CORREGIR LA FORMA DE COBRO.
+
+  Se lista pago por pago porque una cuenta puede haberse pagado con dos formas
+  y solo una estar mal. El importe se enseña pero no se puede tocar: cobrar de
+  mas o de menos no es un error de captura, es otra venta.
+-->
+{#if corrigiendo && pagoElegido}
+  <div class="velo" role="presentation" onclick={() => (corrigiendo = null)}></div>
+  <div class="dialogo" role="dialog" aria-modal="true" aria-label="Corregir la forma de cobro">
+    <h2>Cambiar la forma de cobro</h2>
+    <p class="quien">
+      Mesa {corrigiendo.mesa} · folio {corrigiendo.folio} · {mxn(corrigiendo.total)}
+    </p>
+    <p class="explica">
+      El dinero cobrado no cambia: cambia por dónde entró. Corregirlo mueve el
+      importe entre el efectivo del cajón y el banco, así que el corte de este
+      turno vuelve a cuadrar solo. Un corte ya sellado no se toca —su papel está
+      firmado—, pero el saldo del restaurante sí se corrige.
+    </p>
+
+    {#if corrigiendo.comanda.pagos.length > 1}
+      <div class="pagos">
+        <span class="rotulo">¿Cuál de los cobros?</span>
+        {#each corrigiendo.comanda.pagos as pago (pago.id)}
+          <button
+            class="pago"
+            class:on={pagoElegido?.id === pago.id}
+            onclick={() => elegirPago(pago)}
+          >
+            <b>{mxn(pago.monto)}</b>
+            <span>{etiquetaFormaPago(pago.forma)}</span>
+          </button>
+        {/each}
+      </div>
+    {/if}
+
+    <label>
+      <span>Se apuntó como <b>{etiquetaFormaPago(pagoElegido.forma)}</b>, y en realidad fue</span>
+      <select bind:value={formaNueva}>
+        {#each FORMAS_PAGO_MANUALES as f (f.valor)}
+          <option value={f.valor}>{f.etiqueta}</option>
+        {/each}
+      </select>
+    </label>
+
+    <label>
+      <span>Referencia (opcional)</span>
+      <input bind:value={referenciaCorreccion} placeholder="Autorización de la terminal" />
+    </label>
+
+    <label>
+      <span>¿Por qué se corrige?</span>
+      <input
+        bind:value={motivoCorreccion}
+        placeholder="El cliente pagó con tarjeta y se tecleó efectivo"
+      />
+    </label>
+
+    {#if pagoElegido.forma_original}
+      <p class="ya-corregido">
+        Este cobro ya se había corregido antes: se registró originalmente como
+        {etiquetaFormaPago(pagoElegido.forma_original)}.
+      </p>
+    {/if}
+
+    {#if errorCorreccion}<p class="error" role="alert">{errorCorreccion}</p>{/if}
+
+    <div class="botones">
+      <button class="secundario" onclick={() => (corrigiendo = null)}>Cancelar</button>
+      <button class="principal" onclick={confirmarCorreccion}>Corregir el cobro</button>
+    </div>
+  </div>
+{/if}
+
 <style>
+  .corregido {
+    display: block;
+    font-size: 0.7rem;
+    font-style: italic;
+    color: var(--acento-texto);
+  }
+  .pagos {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.4rem;
+    align-items: center;
+  }
+  .pagos .rotulo {
+    flex-basis: 100%;
+    font-size: 0.8rem;
+    font-weight: 600;
+    color: var(--pizarra);
+  }
+  .pago {
+    border: 1.5px solid var(--borde);
+    border-radius: 10px;
+    padding: 0.45rem 0.7rem;
+    background: #fff;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.1rem;
+  }
+  .pago.on {
+    border-color: var(--acento);
+    background: #fff7f0;
+  }
+  .pago b {
+    font-family: var(--font-titulo);
+    font-size: 0.95rem;
+  }
+  .pago span {
+    font-size: 0.72rem;
+    color: var(--gris);
+  }
+  .ya-corregido {
+    font-size: 0.8rem;
+    line-height: 1.45;
+    color: var(--acento-texto);
+    background: #fffaf5;
+    border: 1px solid var(--acento);
+    border-radius: 8px;
+    padding: 0.5rem 0.65rem;
+  }
   .tarjeta {
     background: var(--superficie, #fff);
     border: 1px solid var(--borde);

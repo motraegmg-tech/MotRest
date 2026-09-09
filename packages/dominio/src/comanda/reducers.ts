@@ -8,12 +8,32 @@ import type { Devolucion, EventoComanda, FormaPago } from "./eventos.js";
 import { estaActivo, type EstadoRenglon, type RenglonComanda } from "./renglon.js";
 
 export interface Pago {
+  /**
+   * El `id` del evento que lo registró.
+   *
+   * Es lo que permite señalar UN cobro concreto cuando una cuenta se pagó con
+   * dos tarjetas y hay que corregir solo una. Sin identidad, la única forma de
+   * apuntar a un pago era su posición en la lista, y esa cambia en cuanto los
+   * eventos llegan de otra terminal en distinto orden.
+   */
+  id: ID;
   monto: Centavos;
   forma: FormaPago;
   recibido?: Centavos;
   referencia?: string;
   /** A qué socio se le carga el consumo, cuando la forma es `socio`. */
   socio_id?: ID;
+  /**
+   * La forma con la que se apuntó al cobrar, si después se corrigió.
+   *
+   * Presente = este cobro se enmendó. La pantalla lo dice y el papel también:
+   * un cambio de forma de pago que no se ve es indistinguible de un cuadre
+   * hecho a mano sobre el dinero de la caja.
+   */
+  forma_original?: FormaPago;
+  /** Por qué se corrigió y quién lo autorizó. */
+  motivo_correccion?: string;
+  corregido_por?: ID;
 }
 
 export interface Descuento {
@@ -316,6 +336,7 @@ export function aplicarEvento(
         pagos: [
           ...estado.pagos,
           {
+            id: ev.id,
             monto: ev.monto,
             forma: ev.forma,
             recibido: ev.recibido,
@@ -323,6 +344,28 @@ export function aplicarEvento(
             socio_id: ev.socio_id,
           },
         ],
+      };
+
+    case "pago_corregido":
+      return {
+        ...estado,
+        pagos: estado.pagos.map((p) =>
+          p.id === ev.pago_id
+            ? {
+                ...p,
+                forma: ev.forma,
+                referencia: ev.referencia ?? p.referencia,
+                /*
+                 * La forma original se guarda la PRIMERA vez y ya no se pisa.
+                 * Si un pago se corrige dos veces, lo que interesa es con qué
+                 * se cobró de verdad al principio, no el paso intermedio.
+                 */
+                forma_original: p.forma_original ?? p.forma,
+                motivo_correccion: ev.motivo,
+                corregido_por: ev.autorizador_id ?? ev.empleado_id,
+              }
+            : p,
+        ),
       };
 
     case "orden_identificada":

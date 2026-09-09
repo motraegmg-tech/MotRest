@@ -21,8 +21,8 @@
   import { menu } from "../../menu.svelte";
   import { rutas } from "../../nav/rutas.svelte";
 
-  type Vista = "insumos" | "estaciones" | "carta";
-  const VISTAS: Vista[] = ["insumos", "estaciones", "carta"];
+  type Vista = "insumos" | "categorias" | "estaciones" | "carta";
+  const VISTAS: Vista[] = ["insumos", "categorias", "estaciones", "carta"];
 
   /*
    * La pestaña se puede pedir desde la URL (`…/catalogo?ver=estaciones`).
@@ -92,6 +92,67 @@
 
   function borrarInsumo(id: string) {
     problemas = menu.borrarInsumo(id).problemas;
+  }
+
+  // --- Categorías de insumo -----------------------------------------------------------
+  //
+  // Pedido de Gonzalo: «ahorita sí se puede llenar qué categoría es el insumo,
+  // pero no hay un apartado donde se puedan ver todos los productos de esa
+  // categoría, ni agregar, editar, o eliminar categoría».
+  //
+  // El campo sigue siendo texto en la ficha del insumo —convertirlo en un id
+  // obligaría a migrar todo lo capturado en los locales que ya operan— pero
+  // ahora existe el catálogo de las que hay, y renombrar una las reescribe
+  // todas de golpe.
+
+  let categoriaNueva = $state("");
+  /** La categoría que se está renombrando, por su nombre actual. */
+  let catEditando = $state<string | null>(null);
+  let catNombre = $state("");
+  /** Cuál está desplegada, para ver sus insumos. */
+  let catAbierta = $state<string | null>(null);
+  /** A dónde se mueven los insumos de una categoría que se quiere vaciar. */
+  let catDestino = $state("");
+
+  const categorias = $derived(menu.categoriasInsumo);
+  const sinCategoria = $derived(menu.insumosSinCategoria);
+
+  function crearCategoria() {
+    const r = menu.crearCategoriaInsumo(categoriaNueva);
+    problemas = r.problemas;
+    if (r.ok) categoriaNueva = "";
+  }
+
+  function abrirEdicionCategoria(nombre: string) {
+    catEditando = nombre;
+    catNombre = nombre;
+    problemas = [];
+  }
+
+  function guardarCategoria() {
+    if (!catEditando) return;
+    const r = menu.renombrarCategoriaInsumo(catEditando, catNombre);
+    problemas = r.problemas;
+    if (r.ok) {
+      // La desplegada sigue el nuevo nombre: si no, el panel abierto se
+      // quedaría apuntando a una categoría que ya no existe y se vería vacío.
+      if (catAbierta === catEditando) catAbierta = catNombre.trim();
+      catEditando = null;
+    }
+  }
+
+  function borrarCategoria(nombre: string) {
+    const r = menu.borrarCategoriaInsumo(nombre);
+    problemas = r.problemas;
+    if (r.ok && catAbierta === nombre) catAbierta = null;
+  }
+
+  /** Vacía una categoría moviendo sus insumos a otra, para poder borrarla. */
+  function moverInsumos(desde: string) {
+    if (!catDestino.trim()) return;
+    const r = menu.moverInsumosDeCategoria(desde, catDestino);
+    problemas = r.problemas;
+    if (r.ok) catDestino = "";
   }
 
   function limpiarEstacion() {
@@ -165,6 +226,9 @@
     <div class="pestanas">
       <button class:on={vista === "insumos"} onclick={() => { vista = "insumos"; problemas = []; }}>
         Insumos
+      </button>
+      <button class:on={vista === "categorias"} onclick={() => { vista = "categorias"; problemas = []; }}>
+        Categorías
       </button>
       <button class:on={vista === "estaciones"} onclick={() => { vista = "estaciones"; problemas = []; }}>
         Estaciones
@@ -283,6 +347,163 @@
         </tbody>
       </table>
     </section>
+  {:else if vista === "categorias"}
+    <!--
+      LAS CATEGORÍAS DE INSUMO, con sus insumos dentro.
+
+      Antes la categoría solo se podía escribir en la ficha del insumo, y ahí se
+      quedaba: no había forma de ver qué había en «Lácteos», ni de corregir un
+      nombre mal tecleado. Renombrar aquí reescribe la categoría en todos sus
+      insumos de una vez.
+    -->
+    {#if puedeEditar}
+      <section class="tarjeta">
+        <h2>Nueva categoría</h2>
+        <div class="fila-cat">
+          <input bind:value={categoriaNueva} placeholder="Lácteos, cárnicos, abarrotes…" />
+          <button
+            class="principal"
+            onclick={crearCategoria}
+            disabled={categoriaNueva.trim().length < 2}
+          >
+            Agregar
+          </button>
+        </div>
+      </section>
+    {/if}
+
+    <section class="tarjeta">
+      <h2>Categorías ({categorias.length})</h2>
+
+      {#if categorias.length === 0}
+        <p class="pista">
+          Todavía no hay ninguna. Se crean aquí o se van formando solas conforme
+          se escriba una categoría al dar de alta un insumo.
+        </p>
+      {:else}
+        <div class="lista-cat">
+          {#each categorias as cat (cat)}
+            {@const dentro = menu.insumosDe(cat)}
+            <div class="cat">
+              <div class="cab-cat">
+                {#if catEditando === cat}
+                  <input
+                    class="editar-cat"
+                    bind:value={catNombre}
+                    onkeydown={(e) => {
+                      if (e.key === "Enter") guardarCategoria();
+                      if (e.key === "Escape") catEditando = null;
+                    }}
+                  />
+                  <button class="mini principal-mini" onclick={guardarCategoria}>Guardar</button>
+                  <button class="mini" onclick={() => (catEditando = null)}>Cancelar</button>
+                {:else}
+                  <button
+                    class="nombre-cat"
+                    onclick={() => (catAbierta = catAbierta === cat ? null : cat)}
+                  >
+                    <span class="flecha">{catAbierta === cat ? "▾" : "▸"}</span>
+                    <b>{cat}</b>
+                    <span class="cuantos">{dentro.length}</span>
+                  </button>
+                  {#if puedeEditar}
+                    <button class="mini" onclick={() => abrirEdicionCategoria(cat)}>Renombrar</button>
+                    <!--
+                      Eliminar solo cuando está VACÍA. Un insumo cuya categoría
+                      desaparece no se rompe —el campo es texto— pero queda
+                      colgando de un nombre que ya no sale en ninguna lista.
+                    -->
+                    {#if dentro.length === 0}
+                      <button class="mini peligro" onclick={() => borrarCategoria(cat)}>
+                        Eliminar
+                      </button>
+                    {/if}
+                  {/if}
+                {/if}
+              </div>
+
+              {#if catAbierta === cat}
+                <div class="dentro">
+                  {#if dentro.length === 0}
+                    <p class="pista">Sin insumos. Se puede eliminar.</p>
+                  {:else}
+                    <table>
+                      <thead>
+                        <tr>
+                          <th>Insumo</th>
+                          <th class="num">Existencia</th>
+                          <th class="num">Costo</th>
+                          <th></th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {#each dentro as i (i.id)}
+                          <tr>
+                            <td>{i.nombre}</td>
+                            <td class="num">
+                              {formatearCantidad(inventario.cantidad(i.id), i.unidad_base)}
+                            </td>
+                            <td class="num">{mxn(i.costo_unitario)} / {i.unidad_base}</td>
+                            <td>
+                              {#if puedeEditar}
+                                <button
+                                  class="mini"
+                                  onclick={() => { vista = "insumos"; editarInsumo(i.id); }}
+                                >
+                                  Editar
+                                </button>
+                              {/if}
+                            </td>
+                          </tr>
+                        {/each}
+                      </tbody>
+                    </table>
+
+                    {#if puedeEditar}
+                      <!--
+                        Para poder BORRAR una categoría hay que vaciarla primero,
+                        y moverlos de uno en uno por la ficha de cada insumo era
+                        el trabajo que hacía que nadie ordenara nunca la despensa.
+                      -->
+                      <div class="mover">
+                        <span>Mover estos {dentro.length} insumos a:</span>
+                        <input bind:value={catDestino} placeholder="Otra categoría" list="cats" />
+                        <button
+                          class="mini"
+                          onclick={() => moverInsumos(cat)}
+                          disabled={catDestino.trim().length < 2}
+                        >
+                          Mover
+                        </button>
+                      </div>
+                    {/if}
+                  {/if}
+                </div>
+              {/if}
+            </div>
+          {/each}
+        </div>
+      {/if}
+
+      <datalist id="cats">
+        {#each categorias as c (c)}<option value={c}></option>{/each}
+      </datalist>
+
+      <!--
+        Los que no tienen categoría se enseñan aparte y NO como una categoría
+        más: son los que se van a perder de vista, y esconderlos en el conteo
+        haría creer que la despensa está ordenada cuando no lo está.
+      -->
+      {#if sinCategoria.length > 0}
+        <div class="sin-cat">
+          <b>{sinCategoria.length} insumo(s) sin categoría</b>
+          <p class="pista">
+            {sinCategoria.map((i) => i.nombre).join(", ")}
+          </p>
+        </div>
+      {/if}
+    </section>
+
   {:else if vista === "estaciones"}
     {#if puedeEditar}
       <section class="tarjeta">
@@ -496,6 +717,140 @@
 </div>
 
 <style>
+  /* --- Categorías de insumo --- */
+  .fila-cat {
+    display: flex;
+    gap: 0.5rem;
+  }
+  .fila-cat input {
+    flex: 1;
+    max-width: 22rem;
+    padding: 0.6rem 0.7rem;
+    border: 1.5px solid var(--borde);
+    border-radius: 8px;
+    font: inherit;
+  }
+  .lista-cat {
+    display: flex;
+    flex-direction: column;
+    gap: 0.4rem;
+  }
+  .cat {
+    border: 1px solid var(--borde);
+    border-radius: 10px;
+    overflow: hidden;
+  }
+  .cab-cat {
+    display: flex;
+    align-items: center;
+    gap: 0.45rem;
+    padding: 0.55rem 0.7rem;
+    background: #faf9f8;
+  }
+  .nombre-cat {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    background: none;
+    border: none;
+    text-align: left;
+    font: inherit;
+    color: var(--pizarra);
+  }
+  .nombre-cat .flecha {
+    color: var(--gris);
+    font-size: 0.8rem;
+    width: 0.8rem;
+  }
+  .nombre-cat b {
+    font-family: var(--font-titulo);
+    font-size: 0.98rem;
+  }
+  .nombre-cat .cuantos {
+    font-size: 0.72rem;
+    font-weight: 700;
+    color: var(--gris);
+    background: #fff;
+    border: 1px solid var(--borde);
+    border-radius: 999px;
+    padding: 0.05rem 0.45rem;
+  }
+  .editar-cat {
+    flex: 1;
+    padding: 0.4rem 0.6rem;
+    border: 1.5px solid var(--acento);
+    border-radius: 8px;
+    font-family: var(--font-titulo);
+    font-size: 0.98rem;
+    font-weight: 600;
+  }
+  .dentro {
+    padding: 0.6rem 0.7rem 0.8rem;
+  }
+  .dentro table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.85rem;
+  }
+  .dentro th {
+    text-align: left;
+    font-size: 0.68rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--gris);
+    padding: 0.3rem 0.4rem;
+    border-bottom: 1px solid var(--borde);
+  }
+  .dentro td {
+    padding: 0.4rem;
+    border-bottom: 1px solid #f2f0ee;
+  }
+  .dentro .num {
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+  }
+  .mover {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+    margin-top: 0.7rem;
+    padding-top: 0.6rem;
+    border-top: 1px dashed var(--borde);
+    font-size: 0.8rem;
+    color: var(--gris);
+  }
+  .mover input {
+    padding: 0.4rem 0.55rem;
+    border: 1.5px solid var(--borde);
+    border-radius: 8px;
+    font: inherit;
+  }
+  .sin-cat {
+    margin-top: 0.9rem;
+    padding: 0.7rem 0.85rem;
+    background: #fffaf5;
+    border: 1px solid var(--acento);
+    border-radius: 10px;
+    font-size: 0.85rem;
+  }
+  .sin-cat b {
+    color: var(--acento-texto);
+  }
+  .mini.principal-mini {
+    border-color: var(--acento);
+    background: var(--acento);
+    color: var(--sobre-acento);
+  }
+  .mini.peligro {
+    color: #e0392b;
+  }
+  .mini.peligro:hover {
+    border-color: #e0392b;
+  }
   .seccion {
     flex: 1;
     overflow-y: auto;

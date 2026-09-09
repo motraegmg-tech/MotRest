@@ -159,11 +159,19 @@ export const MODULOS: EntradaModulo[] = [
     operativo: true,
     secciones: [
       { clave: "facturacion", titulo: "Facturación", icono: "facturacion", permiso: "fin.factura.emitir" },
+      /*
+       * VA AQUÍ, entre facturación y los canales, por pedido de Gonzalo — y la
+       * posición tiene su lógica: es la pantalla del dinero propio, y las dos
+       * de al lado hablan de dinero de terceros (el SAT arriba, las apps de
+       * reparto abajo). El permiso es `fin.corte.ver`, el mismo que ya decide
+       * quién puede mirar la caja.
+       */
+      { clave: "dinero", titulo: "Caja y dinero", icono: "efectivo", permiso: "fin.corte.ver" },
       { clave: "canales", titulo: "Canales y apps", icono: "canales", permiso: "fin.corte.ver" },
       { clave: "grupo", titulo: "El grupo", icono: "grupo", permiso: "fin.corte.ver" },
     ],
     resumen:
-      "Corte del día, facturación CFDI 4.0, egresos, estado de resultados y enlace contable.",
+      "Corte del día, el dinero del restaurante, facturación CFDI 4.0, egresos y estado de resultados.",
     funciones: [
       "Emisión y timbrado CFDI 4.0 desde el POS",
       "Autofactura del cliente por QR del ticket",

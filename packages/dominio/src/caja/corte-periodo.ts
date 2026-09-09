@@ -24,6 +24,7 @@ import type { ID } from "../comun/ids.js";
 import type { FormaPago } from "../comanda/eventos.js";
 import type { CategoriaEgreso, RegistroEgreso } from "../finanzas/egresos.js";
 import { CATEGORIAS_EGRESO } from "../finanzas/egresos.js";
+import { esPagoEnEfectivo } from "../finanzas/tesoreria.js";
 import type { CorteCaja, EstadoCaja } from "./reducers.js";
 import type { VentasPorForma } from "./eventos.js";
 
@@ -99,6 +100,24 @@ export interface CortePeriodo {
   /** Gastos registrados en Finanzas dentro del rango. */
   gastos: GastoPorCategoria[];
   total_gastos: Centavos;
+  /**
+   * De esos gastos, los que se pagaron EN EFECTIVO.
+   *
+   * `efectivo_esperado` ya los tiene descontados —cada turno resta los suyos al
+   * calcularse—, así que este renglón está para EXPLICAR la resta, no para
+   * volver a hacerla. Restarlo otra vez sobre el esperado dejaría el corte con
+   * un faltante del doble del gasto.
+   */
+  gastos_efectivo: Centavos;
+  /**
+   * Gastos en efectivo que cayeron cuando NO había ningún turno abierto.
+   *
+   * Son los que ningún corte pudo descontar, porque no hubo cajón al que
+   * cargárselos. Salieron del dinero del restaurante igualmente y el saldo de
+   * tesorería sí los cuenta; aquí se señalan para que quien cuadre el papel
+   * sepa por qué la caja y el saldo global no dicen lo mismo.
+   */
+  gastos_fuera_de_turno: Centavos;
 
   /** Cuentas cerradas: las transacciones del período. */
   cuentas_cerradas: number;
@@ -222,6 +241,24 @@ export function consolidarCortes(
     monto: sumar(...egresos.filter((e) => e.categoria === def.id).map((e) => e.monto)),
   })).filter((g) => g.monto > 0);
 
+  /*
+   * Un gasto cae «dentro de un turno» si salió el dinero mientras ese cajón
+   * estaba abierto. Se mide contra la ventana real de cada sesión —de la
+   * apertura al cierre, o hasta el final del rango si sigue abierta— porque es
+   * exactamente el criterio con el que su corte lo descontó.
+   */
+  const enEfectivo = egresos.filter((e) => esPagoEnEfectivo(e.forma_pago));
+  const ventanas = ordenados.map(({ sesion }) => ({
+    desde: sesion.abierta_ts,
+    hasta: sesion.cerrada_ts ?? rango.hasta,
+  }));
+  const dentroDeTurno = (ts: number) => ventanas.some((v) => ts >= v.desde && ts <= v.hasta);
+
+  const gastos_efectivo = sumar(...enEfectivo.map((e) => e.monto));
+  const gastos_fuera_de_turno = sumar(
+    ...enEfectivo.filter((e) => !dentroDeTurno(e.pagado_ts ?? e.ts)).map((e) => e.monto),
+  );
+
   return {
     desde: rango.desde,
     hasta: rango.hasta,
@@ -237,6 +274,8 @@ export function consolidarCortes(
     total_movimientos,
     gastos,
     total_gastos: sumar(...gastos.map((g) => g.monto)),
+    gastos_efectivo,
+    gastos_fuera_de_turno,
     cuentas_cerradas,
     efectivo_ventas,
     efectivo_esperado,

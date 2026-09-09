@@ -27,6 +27,7 @@ import {
   type EstadoCaja,
   type EventoCaja,
   type EventoComanda,
+  type RegistroEgreso,
   type ID,
   type MotivoMovimientoCaja,
   type ResumenCorte,
@@ -99,11 +100,22 @@ class StoreCaja {
     return pos.todosLosEventos.filter((e) => e.ts >= sesion.abierta_ts && e.ts <= hasta);
   }
 
+  /**
+   * Los gastos en efectivo que salieron del cajón durante el turno.
+   *
+   * Es la pieza que faltaba para que el arqueo cuadrara: pagar el gas con el
+   * dinero de la caja bajaba el cajón de verdad y no bajaba el esperado, así
+   * que el cajero contaba bien y el sistema le marcaba un faltante.
+   */
+  private gastosDelTurno(sesion: EstadoCaja): RegistroEgreso[] {
+    return egresos.enEfectivoEntre(sesion.abierta_ts, sesion.cerrada_ts ?? Date.now());
+  }
+
   /** El corte en vivo del turno abierto, para verlo antes de cerrar. */
   get corteEnVivo(): CorteCaja | null {
     const sesion = this.activa;
     if (!sesion) return null;
-    return calcularCorte(sesion, this.eventosDelTurno(sesion));
+    return calcularCorte(sesion, this.eventosDelTurno(sesion), this.gastosDelTurno(sesion));
   }
 
   // --- Corte de un período ---------------------------------------------------------------
@@ -120,7 +132,14 @@ class StoreCaja {
   cortePorRango(desde: number, hasta: number): CortePeriodo {
     const turnos = this.sesiones
       .filter((s) => turnoEnRango(s, desde, hasta))
-      .map((sesion) => ({ sesion, corte: calcularCorte(sesion, this.eventosDelTurno(sesion)) }));
+      .map((sesion) => ({
+        sesion,
+        corte: calcularCorte(
+          sesion,
+          this.eventosDelTurno(sesion),
+          this.gastosDelTurno(sesion),
+        ),
+      }));
 
     return consolidarCortes(turnos, egresosEn(egresos.registros, { desde, hasta }), {
       desde,
@@ -251,7 +270,7 @@ class StoreCaja {
       return { ok: false, error: "El efectivo contado no puede ser negativo" };
     }
 
-    const corte = calcularCorte(sesion, this.eventosDelTurno(sesion));
+    const corte = calcularCorte(sesion, this.eventosDelTurno(sesion), this.gastosDelTurno(sesion));
     const cerrada_ts = Date.now();
     const diferencia = diferenciaArqueo(corte, declarado);
 
