@@ -52,6 +52,14 @@ export interface OpcionesCliente {
   crearSocket?: (url: string) => SocketLike;
   /** Se llama con los eventos que llegan de otros dispositivos. */
   alRecibir?: (eventos: EventoBase[]) => void;
+  /**
+   * El Hub rechazó un evento y ya no se va a reintentar.
+   *
+   * Existe para que el rechazo se pueda ENSEÑAR. Sin esto, un hecho que la
+   * terminal cree haber guardado se queda fuera del Hub para siempre y la
+   * única forma de enterarse es leer la bitácora del servidor por SSH.
+   */
+  alRechazar?: (eventoId: string, motivo: string) => void;
   /** Se llama con los catálogos que llegan del Hub (menú, plano, impresoras). */
   alRecibirCatalogos?: (catalogos: Catalogo[]) => void;
   /** Se llama con la lista de terminales del local. */
@@ -317,15 +325,45 @@ export class ClienteSync {
         break;
       }
 
-      case "error":
-        // Un rechazo del Hub no puede detener la operación: se avisa y se
-        // sigue vendiendo en isla.
+      case "error": {
+        /*
+         * UN RECHAZO POR PERMISOS NO SE REINTENTA.
+         *
+         * Es determinista: el mismo evento, con el mismo emisor, lo va a
+         * rechazar siempre. Mientras siguiera en el outbox se reenviaba en cada
+         * reconexión, se rechazaba otra vez y la terminal volvía a caer a isla
+         * —un bucle cada pocos minutos, durante meses, sin nada en pantalla—.
+         *
+         * Es exactamente lo que le pasó a Rodizio: su `caja_cerrada` salía a
+         * nombre de `sistema`, el Hub lo rechazaba, y el local operó sin un solo
+         * corte de caja registrado sin que nadie lo supiera.
+         *
+         * Ahora se aparta del outbox, se guarda el motivo que dio el Hub y se
+         * avisa hacia arriba para poder enseñarlo. El evento NO se borra: sigue
+         * en el log y en la proyección de esta terminal.
+         */
+        if (mensaje.codigo === "permiso_denegado" && mensaje.evento_id) {
+          await this.opciones.almacen.eventos.rechazar([mensaje.evento_id], mensaje.mensaje);
+          this.opciones.alRechazar?.(mensaje.evento_id, mensaje.mensaje);
+          /*
+           * Y NO se cae a isla por esto.
+           *
+           * El enlace está sano: el Hub contestó, y contestó que ese evento no
+           * pasa. Tirar la conexión por un evento que ya se apartó dejaría al
+           * local sin sincronizar el resto de la operación por un solo renglón
+           * mal firmado.
+           */
+          break;
+        }
+
+        // Cualquier otro rechazo sí es motivo para seguir en isla.
         this.avisar("isla", mensaje.mensaje);
         if (mensaje.codigo === "no_emparejado" || mensaje.codigo === "version_incompatible") {
           this.cerradoAPropósito = true;
           this.socket?.close();
         }
         break;
+      }
 
       case "pong":
         break;

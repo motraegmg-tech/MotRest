@@ -13,7 +13,13 @@
 import { createRequire } from "node:module";
 import type { DatabaseSync as TipoDatabaseSync } from "node:sqlite";
 import type { EventoBase, ID } from "@motrest/dominio";
-import type { Ack, Almacen, RepositorioEstado, RepositorioEventos } from "./repositorio.js";
+import type {
+  Ack,
+  Almacen,
+  EventoRechazado,
+  RepositorioEstado,
+  RepositorioEventos,
+} from "./repositorio.js";
 
 /**
  * `node:sqlite` se carga por `require` y no con un `import` estático.
@@ -260,6 +266,24 @@ export class LogHub implements RepositorioEventos {
 
   async reabrirOutbox(): Promise<void> {
     // Tampoco: el Hub no le reenvía a nadie, él ES la referencia.
+  }
+
+  /*
+   * El rechazo tampoco aplica aquí, y por la misma razón: el Hub es QUIEN
+   * rechaza. Un evento que llega a este log ya pasó la revalidación de
+   * permisos; los que no la pasan nunca se escriben.
+   *
+   * Van vacíos y no lanzando: `LogHub` cumple el mismo contrato que el almacén
+   * de la terminal para poder compartir código de sincronización, y una mitad
+   * del contrato que revienta obligaría a preguntar «¿de qué lado estoy?» en
+   * cada llamada.
+   */
+  async rechazar(_ids: readonly ID[], _motivo: string): Promise<void> {
+    // No aplica en el Hub.
+  }
+
+  async rechazados(): Promise<EventoRechazado[]> {
+    return [];
   }
 
   async contar(): Promise<number> {

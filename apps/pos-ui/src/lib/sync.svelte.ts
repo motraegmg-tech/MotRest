@@ -64,6 +64,16 @@ class StoreSync {
   url = $state<string>("");
   /** Cuántos eventos llegaron de otras terminales en esta sesión. */
   recibidos = $state(0);
+
+  /**
+   * Lo que el Hub RECHAZÓ y esta terminal se guardó para siempre.
+   *
+   * Es el aviso que le faltó a Rodizio: sus cortes de caja se rechazaban uno
+   * tras otro y la única forma de saberlo era leer la bitácora del Hub por
+   * SSH. Un hecho que la caja cree haber guardado y el Hub no tiene es una
+   * discrepancia que hay que ver el mismo día, no meses después.
+   */
+  rechazados = $state<{ evento_id: string; motivo: string; ts: number }[]>([]);
   /** true = esta terminal se emparejó en este arranque, desde la URL. */
   emparejadoAhora = $state(false);
   /** Catálogos adoptados del local (menú, plano) en esta sesión. */
@@ -344,6 +354,9 @@ class StoreSync {
       catalogosLocales: () => this.catalogosLocales(),
       alRecibirCatalogos: (catalogos) => this.aplicarCatalogos(catalogos),
       alRecibirTerminales: (terminales) => (this.terminales = terminales),
+      alRechazar: (evento_id, motivo) => {
+        this.rechazados = [{ evento_id, motivo, ts: Date.now() }, ...this.rechazados];
+      },
       alRecibirCredenciales: (credenciales) => this.alLlegarCredenciales?.(credenciales),
       alEncontrarLocalVacio: () => this.alLocalVacio?.(),
       alDetectarRelojDesfasado: (ms) => {

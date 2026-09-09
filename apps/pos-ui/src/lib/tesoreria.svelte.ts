@@ -100,8 +100,18 @@ class StoreTesoreria {
    * otra en las demás, sin nada en pantalla que lo explique.
    */
   private sinActor(empleadoId?: ID): string | null {
-    const quien = empleadoId ?? this.fabrica.empleadoActual;
-    if (quien && quien !== "sistema") return null;
+    /*
+     * ESTRICTA A PROPÓSITO: no vale el actor que quedó en la fábrica.
+     *
+     * La primera versión caía de vuelta a `fabrica.empleadoActual` si no le
+     * pasaban un id. Parecía prudente y era el mismo error con otra cara: un
+     * id VIEJO —el de quien abrió la caja hace catorce horas— pasaba la
+     * comprobación, y el evento salía firmado por alguien que ya se fue a su
+     * casa. La bitácora es una firma, no un relleno.
+     *
+     * Quien llama siempre sabe quién actúa: lo tiene en la sesión.
+     */
+    if (empleadoId && empleadoId !== "sistema") return null;
     return "Inicia sesión para mover el dinero del restaurante";
   }
 

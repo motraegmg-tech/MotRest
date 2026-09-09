@@ -3,10 +3,18 @@
  * Sirve para pruebas y para el modo efímero (sin almacenamiento disponible).
  */
 import { compararEventos, type EventoBase, type ID } from "@motrest/dominio";
-import type { Ack, Almacen, RepositorioEstado, RepositorioEventos } from "./repositorio.js";
+import type {
+  Ack,
+  Almacen,
+  EventoRechazado,
+  RepositorioEstado,
+  RepositorioEventos,
+} from "./repositorio.js";
 
 export class RepositorioEventosMemoria implements RepositorioEventos {
   private porId = new Map<string, EventoBase>();
+  /** Los que el Hub rechazó: fuera del outbox pero dentro del log. */
+  private rechazadosPorId = new Map<string, { motivo: string; ts: number }>();
 
   async anexar(eventos: readonly EventoBase[]): Promise<void> {
     for (const ev of eventos) {
@@ -27,7 +35,9 @@ export class RepositorioEventosMemoria implements RepositorioEventos {
 
   async pendientes(limite?: number): Promise<EventoBase[]> {
     const sinConfirmar = [...this.porId.values()]
-      .filter((ev) => ev.seq === undefined)
+      // Lo rechazado sale del outbox: reintentarlo es un bucle, no tolerancia
+      // a fallos. Ver la nota de `rechazar` en el contrato.
+      .filter((ev) => ev.seq === undefined && !this.rechazadosPorId.has(ev.id))
       .sort(compararEventos);
     return limite === undefined ? sinConfirmar : sinConfirmar.slice(0, limite);
   }
@@ -36,7 +46,26 @@ export class RepositorioEventosMemoria implements RepositorioEventos {
     for (const ack of acks) {
       const ev = this.porId.get(ack.id);
       if (ev) this.porId.set(ack.id, { ...ev, seq: ack.seq });
+      // Un rechazo deja de valer si el Hub acaba aceptando el evento: puede
+      // pasar tras corregir los permisos del usuario y reenviarlo a mano.
+      this.rechazadosPorId.delete(ack.id);
     }
+  }
+
+  async rechazar(ids: readonly ID[], motivo: string): Promise<void> {
+    const ts = Date.now();
+    for (const id of ids) {
+      if (this.porId.has(id)) this.rechazadosPorId.set(id, { motivo, ts });
+    }
+  }
+
+  async rechazados(): Promise<EventoRechazado[]> {
+    const salida: EventoRechazado[] = [];
+    for (const [id, { motivo, ts }] of this.rechazadosPorId) {
+      const evento = this.porId.get(id);
+      if (evento) salida.push({ evento, motivo, ts });
+    }
+    return salida.sort((a, b) => b.ts - a.ts);
   }
 
   async reabrirOutbox(): Promise<void> {
@@ -45,6 +74,14 @@ export class RepositorioEventosMemoria implements RepositorioEventos {
       const { seq: _viejo, ...sinSeq } = ev;
       this.porId.set(id, sinSeq);
     }
+    /*
+     * Los rechazados NO se resucitan.
+     *
+     * `reabrirOutbox` existe para cuando el Hub perdió su historia y hay que
+     * reenviárselo todo. Un evento rechazado por permisos lo va a rechazar
+     * igual el Hub nuevo —el defecto está en el evento, no en el Hub—, así que
+     * devolverlo al outbox solo reabriría el bucle.
+     */
   }
 
   async contar(): Promise<number> {

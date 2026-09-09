@@ -93,7 +93,7 @@ beforeAll(async () => {
   await pos.cobrarTodo("efectivo");
 
   // Un retiro, que es lo que más se olvida al reconstruir un turno.
-  caja.movimiento("retiro", pesos(300), "Pago al de las tortillas");
+  caja.movimiento("retiro", pesos(300), "Pago al de las tortillas", sesion.usuarioActual!.id);
 });
 
 describe("se va la luz a media operación", () => {

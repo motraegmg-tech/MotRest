@@ -14,6 +14,15 @@
  */
 import type { EventoBase, ID } from "@motrest/dominio";
 
+/** Un evento que el Hub no aceptó, con el porqué que dio. */
+export interface EventoRechazado {
+  evento: EventoBase;
+  /** El mensaje del Hub, tal cual. Es lo que permite arreglarlo sin depurar. */
+  motivo: string;
+  /** Cuándo se supo. */
+  ts: number;
+}
+
 export interface Ack {
   id: string;
   /** Secuencia total que asignó el Hub. */
@@ -35,6 +44,38 @@ export interface RepositorioEventos {
 
   /** Marca eventos como confirmados por el Hub, con su secuencia total. */
   confirmar(acks: readonly Ack[]): Promise<void>;
+
+  /**
+   * Saca del outbox un evento que el Hub rechazó DEFINITIVAMENTE.
+   *
+   * ## Por qué hace falta un tercer estado
+   *
+   * El outbox tenía dos: pendiente y confirmado. Un evento que el Hub rechaza
+   * por permisos no es ninguno de los dos, y tratarlo como pendiente es lo que
+   * produjo el peor defecto silencioso que ha tenido este sistema:
+   *
+   * En Rodizio, un `caja_cerrada` emitido a nombre de `sistema` —que no está en
+   * el padrón— se rechaza siempre. Como nunca se confirma, sigue en el outbox;
+   * en cada reconexión se reenvía, lo vuelven a rechazar, la terminal cae a
+   * isla, reconecta y vuelve a empezar. Cada pocos minutos, durante meses. Y
+   * mientras tanto el corte de caja del local **no existe** en el Hub y nadie
+   * se enteró.
+   *
+   * Un rechazo por permisos es DETERMINISTA: el mismo evento con el mismo
+   * emisor va a fallar siempre. Reintentar no es tolerancia a fallos, es un
+   * bucle. Aquí se aparta, se guarda el motivo y se puede enseñar.
+   *
+   * NO se marca como confirmado, y esa distinción importa: `reabrirOutbox()`
+   * devuelve al outbox todo lo confirmado, así que confundirlos resucitaría el
+   * bucle en cuanto el Hub cambiara de disco.
+   *
+   * El evento NO se borra: sigue en el log local y en la proyección de esta
+   * terminal. Lo único que se pierde es el reintento inútil.
+   */
+  rechazar(ids: readonly ID[], motivo: string): Promise<void>;
+
+  /** Lo que el Hub rechazó, para poder enseñarlo en vez de esconderlo. */
+  rechazados(): Promise<EventoRechazado[]>;
 
   /**
    * Devuelve TODO el log al outbox, como si nada estuviera confirmado.

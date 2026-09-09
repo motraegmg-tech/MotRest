@@ -106,7 +106,7 @@ describe("un servicio de viernes", () => {
 
   it("un retiro a la caja fuerte baja lo esperado", () => {
     const antes = caja.corteEnVivo!.efectivoEsperado;
-    const r = caja.movimiento("retiro", pesos(500), "A la caja fuerte");
+    const r = caja.movimiento("retiro", pesos(500), "A la caja fuerte", sesion.usuarioActual!.id);
     expect(r.ok).toBe(true);
     expect(caja.corteEnVivo!.efectivoEsperado).toBe(antes - pesos(500));
   });
@@ -133,7 +133,7 @@ describe("un servicio de viernes", () => {
   it("cierra el turno con un arqueo que cuadra", async () => {
     const esperado = caja.corteEnVivo!.efectivoEsperado;
 
-    const r = await caja.cerrar(esperado, "Gonzalo");
+    const r = await caja.cerrar(esperado, "Gonzalo", sesion.usuarioActual!.id);
     expect(r.ok).toBe(true);
 
     const cerrada = caja.sesiones.find((s) => s.cerrada);
@@ -147,7 +147,7 @@ describe("un servicio de viernes", () => {
     caja.abrir(sesion.usuarioActual!.id, pesos(1000));
     const esperado = caja.corteEnVivo!.efectivoEsperado;
 
-    await caja.cerrar(restar(esperado, pesos(50)), "Gonzalo");
+    await caja.cerrar(restar(esperado, pesos(50)), "Gonzalo", sesion.usuarioActual!.id);
 
     const ultima = caja.sesiones.find((s) => s.cerrada)!;
     expect(ultima.resumen?.diferencia).toBe(pesos(-50));

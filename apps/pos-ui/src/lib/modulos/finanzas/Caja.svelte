@@ -12,6 +12,7 @@
   import { impresion } from "../../impresion.svelte";
   import { mxn, hora } from "../../formato";
   import { sesion } from "../../sesion/sesion.svelte";
+  import { sync } from "../../sync.svelte";
 
   /*
    * EL TURNO QUE NADIE CERRÓ.
@@ -38,6 +39,16 @@
   });
 
   const olvidado = $derived(turnoOlvidado(caja.sesiones, ahora));
+
+  /**
+   * Lo que el Hub rechazó en esta sesión.
+   *
+   * Aparece aquí porque el rechazo que importaba era justo el del corte, y
+   * porque esta es la pantalla donde alguien va a notar que algo no cuadra.
+   * Antes no se enseñaba en ninguna parte: la terminal daba el turno por
+   * cerrado, el Hub no lo tenía, y las dos cosas convivían meses.
+   */
+  const rechazados = $derived(sync.rechazados);
 
   const puedeAbrir = $derived(sesion.puedeOperar("caja.sesion.abrir"));
   const puedeMover = $derived(sesion.puedeOperar("caja.retiro.registrar"));
@@ -103,7 +114,7 @@
   async function cerrar() {
     error = "";
     const nombre = sesion.usuarioActual?.nombre ?? "Cajero";
-    const r = await caja.cerrar(declarado, nombre);
+    const r = await caja.cerrar(declarado, nombre, sesion.usuarioActual?.id);
     if (!r.ok) { error = r.error ?? ""; return; }
     cerrando = false;
     declaradoTexto = "";
@@ -121,6 +132,23 @@
       <span class="turno">Turno abierto · {hora(activa.abierta_ts)}</span>
     {/if}
   </div>
+
+  <!--
+    EL HUB RECHAZÓ ALGO. Va antes que cualquier cifra, y en rojo: significa
+    que esta terminal y el Hub NO dicen lo mismo, y todo lo que se lea abajo
+    puede ser cierto aquí y no existir en la caja del local.
+  -->
+  {#each rechazados as r (r.evento_id)}
+    <div class="rechazado" role="alert">
+      <b>El Hub no aceptó un movimiento de caja.</b>
+      <p>{r.motivo}</p>
+      <p class="que-hacer">
+        Quedó guardado en esta terminal pero NO en el Hub del local, así que
+        no lo ven las demás cajas ni sale en los reportes. Vuelve a hacerlo con
+        la sesión iniciada; si se repite, avisa a MOTRAE con este texto.
+      </p>
+    </div>
+  {/each}
 
   {#if !activa}
     <p class="nota">
@@ -383,6 +411,27 @@
 {/if}
 
 <style>
+  /* El Hub rechazó un evento: la terminal y el Hub no dicen lo mismo. */
+  .rechazado {
+    background: #fdf2f0;
+    border: 1.5px solid #e0392b;
+    border-radius: 10px;
+    padding: 0.85rem 1rem;
+    margin-bottom: 0.9rem;
+    font-size: 0.86rem;
+    line-height: 1.55;
+  }
+  .rechazado b {
+    color: #8a2018;
+  }
+  .rechazado p {
+    margin-top: 0.3rem;
+    color: var(--pizarra);
+  }
+  .rechazado .que-hacer {
+    font-size: 0.8rem;
+    color: var(--gris);
+  }
   .aviso-doble {
     background: #fffaf5;
     border: 1px solid var(--acento);
