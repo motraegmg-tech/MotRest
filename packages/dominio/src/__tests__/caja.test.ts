@@ -284,3 +284,48 @@ describe("historial de sesiones", () => {
     expect(sesionAbierta(cerrado)).toBeUndefined();
   });
 });
+
+// --- El turno viejo que se quedó abierto -------------------------------------------------
+
+describe("un turno abierto de hace meses deja de estorbar", () => {
+  /*
+   * De esto depende la decisión de Gonzalo sobre Rodizio (9-sep-2026): no
+   * reparar la base y dejar que el histórico arranque limpio desde el primer
+   * corte bueno.
+   *
+   * En el Hub quedó un `caja_abierta` de agosto sin su cierre —el cierre se
+   * rechazaba por firmarse como `sistema`—. La pregunta es si ese turno
+   * fantasma va a envenenar la operación de aquí en adelante, y la respuesta
+   * es que no: en cuanto se abre un turno nuevo, el viejo deja de ser «el
+   * turno activo» para todas las terminales y para el aviso de turno olvidado.
+   *
+   * Si esta prueba se rompe, la decisión de no reparar la base deja de ser
+   * válida y hay que volver a mirarla.
+   */
+  const AGOSTO = new Date("2026-08-14T18:00:00Z").getTime();
+  const HOY = new Date("2026-09-20T17:00:00Z").getTime();
+
+  const abrirEn = (sesion_id: string, ts: number): EventoCaja => ({
+    ...abrir(sesion_id, 1500),
+    ts,
+  });
+
+  const eventos = [abrirEn("s-agosto", AGOSTO), abrirEn("s-hoy", HOY)];
+
+  it("el turno activo es el MÁS RECIENTE, no el fantasma", () => {
+    expect(sesionAbierta(eventos)?.sesion_id).toBe("s-hoy");
+  });
+
+  it("el corte del turno nuevo no arrastra la venta de agosto", () => {
+    // Se calcula sobre la sesión de hoy: su ventana empieza hoy.
+    const activa = sesionAbierta(eventos)!;
+    expect(activa.abierta_ts).toBe(HOY);
+  });
+
+  it("el turno fantasma sigue en el histórico, que es donde debe estar", () => {
+    // No se pierde ni se esconde: quien consulte agosto lo va a encontrar.
+    const todas = proyectarSesiones(eventos);
+    expect(todas).toHaveLength(2);
+    expect(todas.some((s) => s.sesion_id === "s-agosto" && !s.cerrada)).toBe(true);
+  });
+});

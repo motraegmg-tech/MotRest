@@ -343,4 +343,40 @@ describe("persistencia real entre recargas (IndexedDB)", () => {
     expect(await almacen.estado.cargar("provisiones_responsable")).toEqual({ aplicada: true });
     almacen.cerrar();
   });
+  /**
+   * EL BUCLE NO PUEDE VOLVER AL REINICIAR.
+   *
+   * Es la propiedad de la que depende todo el arreglo de Rodizio. El apartado
+   * vive en la base, no en memoria: si se perdiera al cerrar el POS, el evento
+   * volvería al outbox en cada arranque y el bucle de rechazos se reanudaría
+   * cada mañana — que es exactamente lo que llevaba meses pasando.
+   */
+  it("lo rechazado sigue apartado tras reiniciar el POS", async () => {
+    const factory = new IDBFactory();
+
+    // El día del defecto: el corte se emite y el Hub lo rechaza.
+    const antes = await almacenIndexedDB(factory);
+    const lote = eventos(3);
+    await antes.eventos.anexar(lote);
+    await antes.eventos.rechazar([lote[1]!.id], "Empleado desconocido: sistema");
+    antes.cerrar();
+
+    // A la mañana siguiente se abre el POS.
+    const despues = await almacenIndexedDB(factory);
+
+    // No vuelve al outbox: no se reenvía, no lo rechazan, no se cae a isla.
+    const pendientes = await despues.eventos.pendientes();
+    expect(pendientes).toHaveLength(2);
+    expect(pendientes.map((e: EventoBase) => e.id)).not.toContain(lote[1]!.id);
+
+    // Y el motivo sigue ahí para poder enseñarlo.
+    const rechazados = await despues.eventos.rechazados();
+    expect(rechazados).toHaveLength(1);
+    expect(rechazados[0]!.motivo).toBe("Empleado desconocido: sistema");
+
+    // El evento NO se perdió: sigue en el log y en la proyección local.
+    expect(await despues.eventos.contar()).toBe(3);
+    despues.cerrar();
+  });
+
 });
