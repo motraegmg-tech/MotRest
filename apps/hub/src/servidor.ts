@@ -150,8 +150,34 @@ const PERMISO_POR_EVENTO: Partial<Record<string, Accion>> = {
    * para deshacer un cobro, así que el permiso es el correcto y no un atajo.
    */
   venta_cancelada: "pos.cuenta.reabrir",
+  /*
+   * Corregir la forma de un cobro pide el MISMO permiso que deshacerlo, por la
+   * misma razón que `venta_cancelada`: los permisos de cada usuario se congelan
+   * al darlo de alta, así que una acción nueva no le llegaría a nadie que ya
+   * esté registrado y el botón saldría a producción sin que nadie pudiera
+   * pulsarlo. Y encaja: cambiar «efectivo» por «tarjeta» mueve dinero entre el
+   * cajón y el banco sin que nadie cuente un billete, que es exactamente la
+   * clase de decisión que se le confía a quien puede reabrir una cuenta.
+   */
+  pago_corregido: "pos.cuenta.reabrir",
   caja_cerrada: "caja.corte.sellar",
   movimiento_efectivo: "caja.retiro.registrar",
+  /*
+   * EL DINERO DEL RESTAURANTE, revalidado en el servidor.
+   *
+   * La pantalla ya comprueba estos permisos, pero esa comprobación vive en la
+   * terminal y una terminal se puede manipular. Estos cuatro eventos son los
+   * que mueven el saldo, así que el Hub los vuelve a comprobar contra la
+   * identidad que él mismo guarda.
+   *
+   * Se reutilizan acciones que YA existen —ninguna nueva— por la razón de
+   * arriba: un permiso recién inventado no lo tendría ningún usuario dado de
+   * alta, y esto pasaría de defender a bloquear el trabajo del restaurante.
+   */
+  egreso_registrado: "fin.egreso.registrar",
+  egreso_pagado: "fin.egreso.registrar",
+  saldo_ajustado: "caja.corte.sellar",
+  traspaso_registrado: "caja.corte.sellar",
   conteo_registrado: "inv.conteo.cerrar",
   usuario_creado: "admin.usuario.crear",
   usuario_actualizado: "admin.usuario.editar",

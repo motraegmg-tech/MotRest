@@ -269,6 +269,21 @@
 
     {#if movAbierto && puedeMover}
       <div class="panel">
+        <!--
+          EL AVISO DE LA DOBLE RESTA.
+
+          Ahora que el gasto SÍ baja el efectivo esperado, registrar además un
+          retiro por el mismo pago lo descuenta dos veces y el corte marca un
+          faltante que no existe. Antes el retiro a mano era la única forma de
+          que el cajón cuadrara; hoy es justo lo que lo descuadra, y quien lleva
+          años haciéndolo así no tiene por qué adivinarlo.
+        -->
+        <p class="nota aviso-doble">
+          <b>¿Es un gasto?</b> No lo registres aquí: captúralo en
+          <b>Registrar un gasto</b> y el cajón lo descuenta solo. Hacer las dos
+          cosas resta el dinero dos veces. Este panel es para lo que NO es un
+          gasto: llevar dinero a la caja fuerte o traer cambio del banco.
+        </p>
         <div class="fila">
           <label>
             <span>Tipo</span>
@@ -283,7 +298,7 @@
           </label>
           <label class="ancho">
             <span>Concepto</span>
-            <input bind:value={movConcepto} placeholder="A la caja fuerte, pago de contado…" />
+            <input bind:value={movConcepto} placeholder="A la caja fuerte, cambio del banco…" />
           </label>
         </div>
         <div class="botones">
@@ -362,6 +377,17 @@
 {/if}
 
 <style>
+  .aviso-doble {
+    background: #fffaf5;
+    border: 1px solid var(--acento);
+    border-radius: 8px;
+    padding: 0.6rem 0.75rem;
+    margin-bottom: 0.7rem;
+    line-height: 1.5;
+  }
+  .aviso-doble b {
+    color: var(--acento-texto);
+  }
   /* El turno que se quedó abierto de un día anterior. */
   .olvidado {
     background: #fdf2f0;
