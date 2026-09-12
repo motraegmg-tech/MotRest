@@ -121,3 +121,56 @@ caja de verdad:
    silencio dentro del WebView.
 
 Ver `leer-la-base-del-hub-en-sitio` y `acceso-ssh-a-rodizio` en la memoria del proyecto.
+
+---
+
+## 6. El defecto de la retención: borrar historial se llevaba el saldo
+
+Apareció al estrenar la retención real (la que de verdad borra) y es el más caro de
+todos los que han salido en esta tanda, porque **no falla: miente**.
+
+**Qué pasaba.** El saldo del restaurante no se guarda en ningún sitio: se DERIVA sumando
+los cobros de las comandas. La retención borra del disco las cuentas más viejas que el
+plazo elegido —3 meses por defecto— y se aplica sola al abrir la aplicación. Al borrarlas
+se iban sus cobros con ellas. Medido: un local con 55 000 pesos de saldo pasaba a 5 000
+tras retirar cien cuentas. Nadie ve un error; ve un saldo más pequeño.
+
+**El arreglo: el arrastre.** Lo que aportaba el historial retirado queda guardado como dos
+movimientos sintéticos —efectivo y banco, `arrastre:efectivo` y `arrastre:banco`— que el
+flujo suma antes que nada. Así lo recogen el saldo, el historial de saldos y el resumen
+del período sin que ninguno tenga que saber que hubo una purga.
+
+**Por qué el arrastre NO se sincroniza.** Es un dato de ESTE disco, no un hecho del
+restaurante. Cada terminal purga por su cuenta y a su ritmo; si el arrastre viajara como
+evento, la terminal que todavía conserva esas comandas lo sumaría ADEMÁS de los cobros
+originales. Vive en el almacén local bajo `arrastre_purga`.
+
+**El segundo agujero, más difícil de ver.** Si el Hub pierde historia —cambian el disco de
+la caja, reinstalan, restauran un respaldo viejo, ponen otro Hub— la terminal detecta que
+el Hub retrocedió, pone su cursor de sincronización en cero y vuelve a pedirlo todo. Las
+comandas ya retiradas REGRESAN, y el arrastre guardado sigue ahí: el dinero contado dos
+veces. Se cierra arrastrando solo lo posterior a la fecha ya arrastrada; esa fecha solo
+avanza, así que lo ya contado no se recuenta.
+
+**Y los informes.** Un estado financiero de un mes ya retirado no salía con error: salía
+con números pequeños, que es peor, porque se firma y se le entrega al contador. Ahora se
+marca incompleto, lo dice en una banda antes de las cifras y lo repite en la cabecera de
+cada hoja —un informe se fotocopia y se archiva suelto—, y Ventas por día lista esas
+jornadas con su etiqueta en vez de dejar que desaparezcan como si el local hubiera
+cerrado.
+
+**Qué comprobar en la caja instalada:**
+
+1. Anotar el saldo de Finanzas → Caja y dinero **antes** de tocar nada.
+2. Bajar la retención a 3 meses en Ventas por día y aplicarla.
+3. El saldo tiene que quedar **idéntico**. Si baja, el arrastre no se guardó.
+4. Cerrar y volver a abrir la aplicación: sigue idéntico (el arrastre se rehidrata).
+5. Descargar el estado financiero de un mes ya retirado: tiene que traer la banda
+   «Informe incompleto» arriba del todo.
+
+**Si un local ya purgó con la versión rota** (la 1.5.1 empaquetada el 12-sep a las 13:43
+lleva la retención sin arrastre), su saldo quedó bajo y actualizar no lo repara: esas
+cuentas ya no están en la terminal. Se corrige a mano en Finanzas → Caja y dinero →
+«Ajustar con justificación», poniendo el saldo real y explicando por qué. Antes de
+suponerlo, mirar cuántos días de historial declara Ventas por día: si son menos de los
+que lleva abierto el local, hubo purga.
