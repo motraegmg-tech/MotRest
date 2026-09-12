@@ -233,7 +233,20 @@ class TiendaPOS {
    * había nada bastante viejo, o lo que había todavía no está a salvo en el
    * Hub —y en ese caso NO se toca—.
    */
-  async purgarHistorial(mesesRetencion: number): Promise<ResultadoPurga> {
+  /**
+   * Retira del disco el historial más viejo que el plazo elegido.
+   *
+   * `yaArrastradoHasta` es la fecha que ya cubre el arrastre guardado, y no
+   * es un adorno: si el Hub pierde historia, la terminal vuelve a pedirlo
+   * todo desde cero y las comandas ya retiradas REGRESAN. Al purgarlas otra
+   * vez, su dinero se sumaría al arrastre que ya lo contenía y el saldo
+   * saldría del doble. Lo anterior a esa fecha ya está contado: se retira,
+   * pero no se vuelve a arrastrar.
+   */
+  async purgarHistorial(
+    mesesRetencion: number,
+    yaArrastradoHasta = 0,
+  ): Promise<ResultadoPurga> {
     const almacen = this.almacen;
     if (!almacen) return SIN_PURGA;
 
@@ -265,7 +278,17 @@ class TiendaPOS {
     const retiradas = this.todasLasComandas.filter(
       (c) => idsRetirados.has(c.orden_id) && !sobreviven.has(c.orden_id),
     );
-    const dinero = dineroDeComandas(retiradas);
+
+    /*
+     * Solo aporta al arrastre lo que todavía no estaba dentro de él. Ver la
+     * explicación de `yaArrastradoHasta` arriba: son las cuentas que vuelven
+     * del Hub después de una pérdida de historia.
+     */
+    const dinero = dineroDeComandas(
+      retiradas.filter(
+        (c) => (c.cancelada_ts ?? c.cerrada_ts ?? c.abierta_ts) > yaArrastradoHasta,
+      ),
+    );
 
     /*
      * La memoria se rehace desde el disco YA purgado, en vez de quitar a mano

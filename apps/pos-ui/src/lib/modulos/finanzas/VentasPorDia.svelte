@@ -185,7 +185,7 @@
     limpiando = true;
     limpiado = null;
     try {
-      const purga = await pos.purgarHistorial(local.retencionMeses);
+      const purga = await pos.purgarHistorial(local.retencionMeses, tesoreria.historialRetiradoHasta);
       // El dinero de lo retirado se arrastra, o el saldo se cae por ese importe.
       await tesoreria.sumarArrastre(purga.arrastre, arranque.repositorio);
       limpiado = purga.retirados;

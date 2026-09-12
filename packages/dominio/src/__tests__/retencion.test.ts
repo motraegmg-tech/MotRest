@@ -13,6 +13,7 @@ import { FabricaEventos } from "../evento.js";
 import type { EventoComanda } from "../comanda/eventos.js";
 import { proyectarComanda } from "../comanda/reducers.js";
 import { diasDeHistorial, ordenesPurgables } from "../comanda/retencion.js";
+import { dineroDeComandas } from "../finanzas/flujo.js";
 
 const CTX = { device_id: "dev-1", empleado_id: "usr-1", sucursal_id: "suc-1" };
 const f = () => new FabricaEventos<EventoComanda>(CTX);
@@ -148,5 +149,47 @@ describe("la ventana se mide desde el DESENLACE", () => {
 
     // Abrió hace 200 días pero se cobró hace 10: se conserva.
     expect(ordenesPurgables([comanda], 3, HOY).ordenes).toEqual([]);
+  });
+});
+
+describe("el dinero retirado no se cuenta dos veces", () => {
+  /**
+   * La regla que aplica el POS al purgar: solo aporta al arrastre lo que
+   * todavía no estaba dentro de él.
+   *
+   * Existe por un camino real: si el Hub pierde historia —cambian el disco de
+   * la caja, restauran un respaldo viejo, ponen otro Hub— la terminal vuelve a
+   * pedirlo todo desde cero y las comandas ya retiradas REGRESAN. Al purgarlas
+   * otra vez, su dinero se sumaría al arrastre que ya lo contenía.
+   */
+  const aportanAlArrastre = (comandas: ReturnType<typeof cuenta>[], yaArrastradoHasta: number) =>
+    dineroDeComandas(
+      comandas.filter((c) => (c.cancelada_ts ?? c.cerrada_ts ?? c.abierta_ts) > yaArrastradoHasta),
+    );
+
+  it("la primera purga arrastra todo lo que se lleva", () => {
+    const viejas = [cuenta("v-1", 200, "cobrada"), cuenta("v-2", 150, "cobrada")];
+    expect(aportanAlArrastre(viejas, 0).efectivo).toBe(pesos(400));
+  });
+
+  it("las mismas cuentas de vuelta del Hub NO vuelven a aportar", () => {
+    const viejas = [cuenta("v-1", 200, "cobrada"), cuenta("v-2", 150, "cobrada")];
+    const { hasta } = ordenesPurgables(viejas, 3, HOY);
+
+    // Segunda purga de lo mismo: su dinero ya está dentro del arrastre.
+    expect(aportanAlArrastre(viejas, hasta).efectivo).toBe(pesos(0));
+  });
+
+  it("pero una cuenta MÁS NUEVA que lo ya arrastrado sí aporta", () => {
+    /*
+     * Es lo que evita pasarse de listo y dejar de arrastrar para siempre: el
+     * plazo avanza, y la purga del mes que viene se lleva cuentas que la
+     * anterior no tocó.
+     */
+    const viejas = [cuenta("v-1", 200, "cobrada"), cuenta("v-2", 150, "cobrada")];
+    const { hasta } = ordenesPurgables(viejas, 3, HOY);
+    const nueva = cuenta("v-3", 100, "cobrada");
+
+    expect(aportanAlArrastre([...viejas, nueva], hasta).efectivo).toBe(pesos(200));
   });
 });

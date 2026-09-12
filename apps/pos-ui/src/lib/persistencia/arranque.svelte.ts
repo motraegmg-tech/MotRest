@@ -339,7 +339,7 @@ class Arranque {
        * usable ya; la purga termina cuando termine.
        */
       await tesoreria.hidratarArrastre(almacen);
-      void pos.purgarHistorial(local.retencionMeses).then(async (purga) => {
+      void pos.purgarHistorial(local.retencionMeses, tesoreria.historialRetiradoHasta).then(async (purga) => {
         if (purga.retirados === 0) return;
         /*
          * EL ARRASTRE VA ANTES QUE EL AVISO.
