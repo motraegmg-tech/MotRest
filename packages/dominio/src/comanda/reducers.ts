@@ -567,8 +567,28 @@ export function mesasDeComanda(estado: EstadoComanda): ID[] {
 
 export function agruparPorMesa(
   eventos: readonly EventoComanda[],
+  /**
+   * Órdenes cuya mesa YA se conoce, de fuera de este lote.
+   *
+   * ## El defecto que este parámetro cierra
+   *
+   * Solo `orden_creada` dice a qué mesa pertenece una orden; el resto de los
+   * eventos —agregar un platillo, cobrar, cerrar— llevan únicamente el
+   * `orden_id`. Sin este mapa, la única forma de ubicarlos era que su
+   * `orden_creada` viniera EN EL MISMO LOTE.
+   *
+   * Al rehidratar desde el disco eso siempre se cumple: llega el log entero.
+   * En la sincronización en vivo, **no**. La tablet abre la mesa y el Hub
+   * reparte ese evento; después el mesero agrega un platillo y el Hub reparte
+   * un lote con ese solo evento. La caja lo recibía, no sabía de qué mesa era y
+   * lo **descartaba en silencio**: el platillo estaba en el disco pero no en la
+   * pantalla, y solo aparecía al reiniciar el POS.
+   *
+   * Es exactamente «las comandas de las tabletas no se ven en la computadora».
+   */
+  conocidas?: ReadonlyMap<ID, ID>,
 ): Record<ID, EventoComanda[]> {
-  const ordenAMesa = new Map<ID, ID>();
+  const ordenAMesa = new Map<ID, ID>(conocidas);
   const porMesa: Record<ID, EventoComanda[]> = {};
 
   for (const ev of eventos) {
@@ -579,6 +599,42 @@ export function agruparPorMesa(
   }
 
   return porMesa;
+}
+
+/**
+ * A qué mesa pertenece cada orden, según un log ya conocido.
+ *
+ * Es lo que se le pasa a `agruparPorMesa` para que pueda ubicar un evento
+ * suelto que llega por sincronización.
+ */
+export function mesaPorOrden(
+  logs: Record<ID, readonly EventoComanda[]>,
+): Map<ID, ID> {
+  const mapa = new Map<ID, ID>();
+  for (const eventos of Object.values(logs)) {
+    for (const ev of eventos) {
+      if (ev.tipo === "orden_creada") mapa.set(ev.orden_id, ev.mesa_id);
+    }
+  }
+  return mapa;
+}
+
+/**
+ * Los eventos que NO se pudieron ubicar en ninguna mesa.
+ *
+ * Existe para que descartarlos deje de ser invisible. Un evento huérfano es
+ * siempre un síntoma —un lote fuera de orden, un `orden_creada` que se perdió—
+ * y callárselo fue lo que hizo que este defecto durara meses sin diagnóstico.
+ */
+export function huerfanosDeMesa(
+  eventos: readonly EventoComanda[],
+  conocidas?: ReadonlyMap<ID, ID>,
+): EventoComanda[] {
+  const ordenAMesa = new Map<ID, ID>(conocidas);
+  for (const ev of eventos) {
+    if (ev.tipo === "orden_creada") ordenAMesa.set(ev.orden_id, ev.mesa_id);
+  }
+  return eventos.filter((ev) => !ordenAMesa.has(ev.orden_id));
 }
 
 /** ¿Hay algo ya enviado a cocina en esta comanda? */

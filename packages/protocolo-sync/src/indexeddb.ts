@@ -207,6 +207,38 @@ export class RepositorioEventosIDB implements RepositorioEventos {
     await alTerminar(tx);
   }
 
+  async purgarStreams(streamIds: readonly ID[]): Promise<number> {
+    const objetivo = new Set(streamIds);
+    if (objetivo.size === 0) return 0;
+
+    /*
+     * Primero se mira QUÉ se puede tirar y solo después se tira.
+     *
+     * Una cuenta con algo sin confirmar se salta ENTERA: lo pendiente es un
+     * hecho que aún no existe en el Hub, y media cuenta borrada deja
+     * renglones que ya no se pueden ubicar en ninguna mesa.
+     */
+    const filas = await this.filas();
+    const conPendientes = new Set<string>();
+    for (const fila of filas) {
+      if (objetivo.has(fila.stream_id) && fila.confirmado !== CONFIRMADO) {
+        conPendientes.add(fila.stream_id);
+      }
+    }
+
+    const aRetirar = filas.filter(
+      (f) => objetivo.has(f.stream_id) && !conPendientes.has(f.stream_id),
+    );
+    if (aRetirar.length === 0) return 0;
+
+    const tx = this.bd.transaction(TIENDA_EVENTOS, "readwrite");
+    const tienda = tx.objectStore(TIENDA_EVENTOS);
+    for (const fila of aRetirar) tienda.delete(fila.id);
+    await alTerminar(tx);
+
+    return aRetirar.length;
+  }
+
   async contar(): Promise<number> {
     const tx = this.bd.transaction(TIENDA_EVENTOS, "readonly");
     return promesa(tx.objectStore(TIENDA_EVENTOS).count());

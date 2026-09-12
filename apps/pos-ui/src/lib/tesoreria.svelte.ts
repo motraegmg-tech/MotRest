@@ -13,6 +13,7 @@
  */
 import {
   FabricaEventos,
+  CERO,
   arquear,
   compararEventos,
   conSaldoArrastrado,
@@ -20,8 +21,10 @@ import {
   movimientosEn,
   resumenDeFlujo,
   saldosDe,
+  sumar,
   uuidv7,
   type Arqueo,
+  type ArrastreDePurga,
   type Centavos,
   type CuentaTesoreria,
   type ClaseAjuste,
@@ -40,6 +43,9 @@ import { pos } from "./pos.svelte";
 import { SUCURSAL_ID, obtenerDeviceId } from "./presentacion";
 
 /** Stream al que van los movimientos de tesorería de una sucursal. */
+/** Dónde vive el arrastre del historial retirado, en esta terminal. */
+export const CLAVE_ARRASTRE = "arrastre_purga";
+
 export function streamTesoreria(sucursal: ID): ID {
   return `tesoreria:${sucursal}`;
 }
@@ -115,6 +121,57 @@ class StoreTesoreria {
     return "Inicia sesión para mover el dinero del restaurante";
   }
 
+  // --- El arrastre del historial retirado --------------------------------------------
+
+  /**
+   * Lo que aportaba al saldo el historial que la retención ya borró.
+   *
+   * Es estado LOCAL y no un evento, y esa distinción es la que evita un
+   * defecto feo: cada terminal purga por su cuenta y a su ritmo, así que un
+   * evento se replicaría a las demás y la que todavía conserva esas comandas
+   * sumaría el arrastre ADEMÁS de los cobros originales. Esto describe qué le
+   * falta a ESTE disco, no un hecho del restaurante.
+   */
+  private arrastre = $state.raw<ArrastreDePurga | null>(null);
+
+  async hidratarArrastre(almacen: Almacen): Promise<void> {
+    const guardado = await almacen.estado.cargar<ArrastreDePurga>(CLAVE_ARRASTRE);
+    if (guardado) this.arrastre = guardado;
+  }
+
+  /**
+   * Suma lo que acaba de retirar una purga.
+   *
+   * Se ACUMULA, no se reemplaza: el local purga cada vez que abre, y quedarse
+   * solo con lo último olvidaría todo lo retirado en purgas anteriores.
+   */
+  async sumarArrastre(nuevo: ArrastreDePurga, almacen: Almacen | null): Promise<void> {
+    if (nuevo.efectivo === 0 && nuevo.banco === 0) return;
+
+    const previo = this.arrastre;
+    const total: ArrastreDePurga = {
+      efectivo: sumar(previo?.efectivo ?? CERO, nuevo.efectivo),
+      banco: sumar(previo?.banco ?? CERO, nuevo.banco),
+      // La fecha más reciente de lo retirado: es hasta dónde llega el hueco.
+      hasta: Math.max(previo?.hasta ?? 0, nuevo.hasta),
+    };
+
+    this.arrastre = total;
+    await almacen?.estado.guardar(CLAVE_ARRASTRE, total).catch((causa) => {
+      console.error("No se pudo guardar el arrastre de la purga", causa);
+    });
+  }
+
+  /** Hasta qué fecha se retiró historial de esta terminal. 0 = nada. */
+  get historialRetiradoHasta(): number {
+    return this.arrastre?.hasta ?? 0;
+  }
+
+  /** Lo retirado, para los informes que arman su propio flujo. */
+  get arrastreDePurga(): ArrastreDePurga | undefined {
+    return this.arrastre ?? undefined;
+  }
+
   /** Los eventos propios, para que el arranque los pueda volcar al Hub. */
   get todosLosEventos(): EventoTesoreria[] {
     return this.eventos;
@@ -135,6 +192,7 @@ class StoreTesoreria {
       egresos: egresos.registros,
       sesiones: caja.sesiones,
       tesoreria: this.eventos,
+      arrastre: this.arrastre ?? undefined,
     };
   }
 

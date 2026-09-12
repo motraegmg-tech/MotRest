@@ -34,7 +34,10 @@
   } from "@motrest/dominio";
   import { egresos } from "../../egresos.svelte";
   import { fiscal } from "../../fiscal.svelte";
+  import { diasDeHistorial, ordenesPurgables } from "@motrest/dominio";
   import { local, MESES_RETENCION, type MesesRetencion } from "../../local.svelte";
+  import { arranque } from "../../persistencia/arranque.svelte";
+  import { tesoreria } from "../../tesoreria.svelte";
   import { mxn } from "../../formato";
   import { pos } from "../../pos.svelte";
 
@@ -84,7 +87,18 @@
     base: Centavos;
     iva: Centavos;
     propinas: Centavos;
+    /**
+     * true = esta jornada cae en lo que la retención ya borró del disco.
+     *
+     * Sin esto la jornada desaparecería de la lista —se filtran las que no
+     * tienen movimiento— y un martes con veinte mil pesos de venta se leería
+     * como un martes cerrado.
+     */
+    retirada: boolean;
   }
+
+  /** Hasta qué fecha se retiró historial de ESTA computadora. 0 = nada. */
+  const retiradoHasta = $derived(tesoreria.historialRetiradoHasta);
 
   const filas = $derived.by<Fila[]>(() =>
     jornadas.map(({ rango, etiqueta, esHoy }) => {
@@ -113,12 +127,22 @@
         base: reporte.subtotal,
         iva: sumar(reporte.iva, reporte.ieps),
         propinas: reporte.propinas,
+        retirada: retiradoHasta > 0 && rango.desde < retiradoHasta,
       };
     }),
   );
 
-  /** Solo se listan las jornadas con movimiento: un local cerrado no es un renglón. */
-  const conMovimiento = $derived(filas.filter((f) => f.cuentas > 0 || f.esHoy));
+  /**
+   * Solo se listan las jornadas con movimiento: un local cerrado no es un renglón.
+   *
+   * Las retiradas SÍ se listan aunque salgan en cero, y con su etiqueta. Un
+   * renglón que falta se lee como «ese día no se vendió»; uno que dice
+   * «historial retirado» se lee como lo que es.
+   */
+  const conMovimiento = $derived(filas.filter((f) => f.cuentas > 0 || f.esHoy || f.retirada));
+
+  /** ¿El bloque que se está mirando toca lo ya retirado? */
+  const bloqueIncompleto = $derived(conMovimiento.some((f) => f.retirada));
 
   const totales = $derived.by(() => ({
     efectivo: sumar(...conMovimiento.map((f) => f.efectivo)),
@@ -139,6 +163,42 @@
    */
   const eventosGuardados = $derived(pos.todosLosEventos.length);
   const espacioAprox = $derived(Math.max(1, Math.round((eventosGuardados * 400) / 1024 / 1024)));
+
+  /** Cuántos días de historial hay de verdad. Dice más que un número de registros. */
+  const dias = $derived(diasDeHistorial(pos.todasLasComandas));
+
+  /**
+   * Cuántas cuentas se retirarían AHORA con el ajuste elegido.
+   *
+   * Se enseña antes de tocar nada. Cambiar la retención borra del disco, y
+   * un botón que borra sin decir cuánto es un botón que nadie se atreve a
+   * pulsar — o peor, que alguien pulsa sin saber.
+   */
+  const porRetirar = $derived(
+    ordenesPurgables(pos.todasLasComandas, local.retencionMeses).ordenes.length,
+  );
+
+  let limpiando = $state(false);
+  let limpiado = $state<number | null>(null);
+
+  async function aplicarRetencion() {
+    limpiando = true;
+    limpiado = null;
+    try {
+      const purga = await pos.purgarHistorial(local.retencionMeses, tesoreria.historialRetiradoHasta);
+      // El dinero de lo retirado se arrastra, o el saldo se cae por ese importe.
+      await tesoreria.sumarArrastre(purga.arrastre, arranque.repositorio);
+      limpiado = purga.retirados;
+    } finally {
+      limpiando = false;
+    }
+  }
+
+  /** Cambiar el ajuste NO borra en el acto: se elige, se ve, y se aplica. */
+  function elegirRetencion(meses: MesesRetencion) {
+    local.fijarRetencion(meses);
+    limpiado = null;
+  }
 </script>
 
 <section class="tarjeta">
@@ -159,6 +219,15 @@
     </div>
   </div>
 
+  {#if bloqueIncompleto}
+    <p class="aviso-retirado">
+      Estas jornadas alcanzan historial que ya se retiró de esta computadora. Lo anterior al
+      <b>{new Date(retiradoHasta).toLocaleDateString("es-MX", { day: "2-digit", month: "long", year: "numeric" })}</b>
+      se borró por la retención elegida abajo. No es que no se vendiera: el detalle ya no está.
+      El dinero del restaurante sí sigue completo.
+    </p>
+  {/if}
+
   <div class="marco-tabla">
     <table>
       <thead>
@@ -176,10 +245,18 @@
       </thead>
       <tbody>
         {#each conMovimiento as f (f.rango.desde)}
+          {#if f.retirada && f.cuentas === 0}
+            <!-- Sin cuentas y dentro de lo retirado: no hay nada que sumar, solo que explicar. -->
+            <tr class="retirada">
+              <td><b>{f.etiqueta}</b></td>
+              <td class="num vacio-retirado" colspan="8">historial retirado de esta computadora</td>
+            </tr>
+          {:else}
           <tr class:hoy={f.esHoy}>
             <td>
               <b>{f.etiqueta}</b>
               {#if f.esHoy}<small class="marca-hoy">en curso</small>{/if}
+              {#if f.retirada}<small class="marca-parcial">parcial</small>{/if}
             </td>
             <td class="num">{f.cuentas}</td>
             <td class="num">{f.efectivo > 0 ? mxn(f.efectivo) : "—"}</td>
@@ -190,6 +267,7 @@
             <td class="num tenue">{mxn(f.iva)}</td>
             <td class="num tenue">{f.propinas > 0 ? mxn(f.propinas) : "—"}</td>
           </tr>
+          {/if}
         {:else}
           <tr><td colspan="9" class="vacio">No hay ventas en estas jornadas.</td></tr>
         {/each}
@@ -230,7 +308,7 @@
           <button
             class="mini"
             class:on={local.retencionMeses === meses}
-            onclick={() => local.fijarRetencion(meses as MesesRetencion)}
+            onclick={() => elegirRetencion(meses as MesesRetencion)}
           >
             {meses < 12 ? `${meses} meses` : meses === 12 ? "1 año" : "2 años"}
           </button>
@@ -240,15 +318,82 @@
     <p class="aviso-disco">
       <b>Esto se guarda en el disco de esta computadora</b>, no en internet:
       cuanto más historial conserve, más espacio ocupa y más tarda un respaldo.
-      Ahora mismo hay <b>{eventosGuardados.toLocaleString("es-MX")}</b> registros
-      de operación, aproximadamente <b>{espacioAprox} MB</b>. Tres meses es el
-      mínimo —es lo que su contador necesita para cerrar un trimestre—; dos años
-      permiten comparar temporadas completas.
+      Ahora mismo hay <b>{dias}</b> días de historial: {eventosGuardados.toLocaleString("es-MX")}
+      registros de operación, aproximadamente <b>{espacioAprox} MB</b>. Tres meses
+      es el mínimo —es lo que su contador necesita para cerrar un trimestre—; dos
+      años permiten comparar temporadas completas.
     </p>
+
+    <!--
+      APLICAR ES UN ACTO APARTE, y a propósito.
+
+      Elegir «3 meses» en un local con dos años guardados borraría veintiún
+      meses de historial de un clic, sin decir cuántos. Aquí se elige, se ve
+      cuántas cuentas se van, y solo entonces se aplica.
+    -->
+    <div class="aplicar">
+      {#if porRetirar > 0}
+        <span>
+          Hay <b>{porRetirar.toLocaleString("es-MX")}</b>
+          {porRetirar === 1 ? "cuenta más vieja" : "cuentas más viejas"} que
+          {local.retencionMeses < 12
+            ? `${local.retencionMeses} meses`
+            : local.retencionMeses === 12
+              ? "1 año"
+              : "2 años"}.
+        </span>
+        <button class="mini" onclick={aplicarRetencion} disabled={limpiando}>
+          {limpiando ? "Liberando…" : "Liberar espacio ahora"}
+        </button>
+      {:else}
+        <span class="al-dia">No hay nada más viejo que retirar.</span>
+      {/if}
+
+      {#if limpiado !== null}
+        <p class="resultado-limpieza" role="status">
+          {#if limpiado > 0}
+            Se retiraron <b>{limpiado.toLocaleString("es-MX")}</b> registros del disco.
+          {:else}
+            No se retiró nada: lo que queda todavía no está guardado en el Hub, y
+            hasta que lo esté no se toca.
+          {/if}
+        </p>
+      {/if}
+    </div>
   </div>
 </section>
 
 <style>
+  .aplicar {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 0.6rem;
+    margin-top: 0.7rem;
+    padding-top: 0.7rem;
+    border-top: 1px dashed var(--borde);
+    font-size: 0.82rem;
+    color: var(--gris);
+  }
+  .aplicar > span {
+    flex: 1;
+    min-width: 14rem;
+  }
+  .aplicar b {
+    color: var(--pizarra);
+  }
+  .al-dia {
+    font-style: italic;
+  }
+  .resultado-limpieza {
+    flex-basis: 100%;
+    padding: 0.5rem 0.65rem;
+    border-radius: 8px;
+    background: #f2f8ef;
+    border: 1px solid #57ad30;
+    color: var(--pizarra);
+    line-height: 1.45;
+  }
   .tarjeta {
     background: var(--superficie, #fff);
     border: 1px solid var(--borde);
@@ -381,6 +526,29 @@
     display: flex;
     gap: 0.35rem;
     flex-wrap: wrap;
+  }
+  .aviso-retirado {
+    font-size: 0.82rem;
+    line-height: 1.55;
+    color: var(--pizarra);
+    background: var(--claro);
+    border-left: 3px solid var(--naranja);
+    border-radius: var(--r-sm);
+    padding: 0.65rem 0.8rem;
+    margin: 0 0 0.75rem;
+  }
+  tr.retirada td {
+    color: var(--tenue);
+  }
+  .vacio-retirado {
+    text-align: left;
+    font-size: 0.8rem;
+    font-style: italic;
+  }
+  .marca-parcial {
+    margin-left: 0.35rem;
+    font-size: 0.7rem;
+    color: var(--tenue);
   }
   .aviso-disco {
     font-size: 0.82rem;

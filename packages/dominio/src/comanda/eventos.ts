@@ -411,3 +411,42 @@ export type EventoComanda =
     });
 
 export type TipoEventoComanda = EventoComanda["tipo"];
+
+/**
+ * Todos los tipos de evento de comanda, en una lista enumerable.
+ *
+ * La necesitan el arranque —para repartir el log entre los stores— y la purga
+ * por retención. Estaba escrita a mano en `arranque.svelte.ts` y era una copia
+ * que nadie obligaba a mantener al día: agregar un evento nuevo y olvidarse de
+ * añadirlo allí lo dejaba fuera del reparto **en silencio**, que es como el POS
+ * se habría quedado sin ver una clase entera de hechos.
+ *
+ * Aquí va tipada como `TipoEventoComanda[]`, así que si mañana falta uno, lo
+ * dice el compilador y no el restaurante.
+ */
+export const TIPOS_EVENTO_COMANDA: TipoEventoComanda[] = [
+  "orden_creada",
+  "item_agregado",
+  "item_modificado",
+  "item_cancelado",
+  "item_transferido",
+  "item_recibido",
+  "orden_identificada",
+  "items_enviados",
+  "item_en_marcha",
+  "item_listo",
+  "item_entregado",
+  "cambio_visto",
+  "descuento_aplicado",
+  "descuento_retirado",
+  "cortesia_otorgada",
+  "cortesia_retirada",
+  "propina_registrada",
+  "pago_registrado",
+  "pago_corregido",
+  "cuenta_cerrada",
+  "cuenta_reabierta",
+  "orden_anulada",
+  "venta_cancelada",
+  "ticket_reimpreso",
+];

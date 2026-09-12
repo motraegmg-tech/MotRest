@@ -565,20 +565,55 @@ function limpiarRegistrosViejos(): void {
 }
 
 /**
- * Direcciones IPv4 del equipo en la red del local.
+ * Direcciones del equipo en la red del local, IPv4 **e IPv6**.
  *
- * Sirven para dos cosas: componer el enlace de emparejamiento y meterlas en el
- * certificado, para que el navegador no se queje además de que el nombre no
- * coincide.
+ * Sirven para tres cosas: componer el enlace de emparejamiento, meterlas en el
+ * certificado —para que el navegador no se queje además de que el nombre no
+ * coincide— y autorizar el `Host` de las peticiones que llegan.
+ *
+ * ## Por qué también IPv6, y no es un adorno
+ *
+ * Esto solo enumeraba IPv4, y por eso el Hub **rechazaba su propia dirección
+ * IPv6** con «Host no autorizado». En una red normal da igual; en una que aísla
+ * a los clientes entre sí por IPv4 —como la de Rodizio, donde el equipo
+ * responde al ping y tiene todos los puertos cerrados por IPv4 pero abiertos
+ * por IPv6— resulta que IPv6 es **el único camino**, y era justo el que MotRest
+ * cerraba. Desde el teléfono no se veía el Hub por mucho que estuviera bien.
+ *
+ * El servidor ya escuchaba en las dos pilas; lo que faltaba era admitirlas.
+ *
+ * ## Las link-local quedan fuera a propósito
+ *
+ * Una `fe80::…` no funciona sin decir además POR QUÉ interfaz sale
+ * (`%wifi`), y ese sufijo no cabe en una URL de navegador. Ofrecerla en el QR
+ * sería dar un enlace que no abre. Para el soporte por SSH sigue sirviendo, y
+ * ahí se escribe a mano.
  */
 function direccionesLan(): string[] {
   const encontradas: string[] = [];
   for (const interfaces of Object.values(networkInterfaces())) {
     for (const red of interfaces ?? []) {
-      if (red.family === "IPv4" && !red.internal) encontradas.push(red.address);
+      if (red.internal) continue;
+      if (red.family === "IPv4") {
+        encontradas.push(red.address);
+      } else if (red.family === "IPv6" && !red.address.toLowerCase().startsWith("fe80:")) {
+        encontradas.push(red.address);
+      }
     }
   }
   return encontradas;
+}
+
+/**
+ * La dirección tal como viaja en una URL y en la cabecera `Host`.
+ *
+ * IPv6 va entre corchetes: `[fdd9::1]`. No es cosmético — es lo que devuelve
+ * `url.hostname`, así que sin los corchetes la lista de autorizados nunca
+ * casaría con lo que manda el navegador, y el Hub seguiría rechazando su propia
+ * dirección.
+ */
+function comoHost(direccion: string): string {
+  return direccion.includes(":") ? `[${direccion}]` : direccion;
 }
 
 /** Clave bajo la que se guardan los catálogos replicados. */
@@ -656,7 +691,7 @@ function enlacesEmparejamiento(): { etiqueta: string; url: string }[] {
    * queda de alternativa para cuando la IP cambie, que es cuando sirve.
    */
   return [
-    ...direccionesLan().map((ip) => ({ etiqueta: ip, url: enlace(ip) })),
+    ...direccionesLan().map((ip) => ({ etiqueta: comoHost(ip), url: enlace(comoHost(ip)) })),
     { etiqueta: `${NOMBRE_RED}.local`, url: enlace(`${NOMBRE_RED}.local`) },
   ];
 }
@@ -830,6 +865,36 @@ if (sellador.listo) {
  * el local y cuántas terminales están conectadas. Es lo que se necesita para
  * saber, desde fuera, si el servicio está vivo.
  */
+/**
+ * Las direcciones del equipo, recalculadas cuando hace falta.
+ *
+ * Antes se resolvían UNA vez al arrancar y se guardaban. Bastaba con que el
+ * router renovara el DHCP, o con reconectar el wifi, para que la lista de
+ * autorizados se quedara con una dirección que ya no era la del equipo: a
+ * partir de ahí el Hub rechazaba la buena con «Host no autorizado» y solo se
+ * arreglaba reiniciándolo. Desde fuera se ve como que el Hub «a veces no se
+ * ve», que es la clase de fallo que nadie consigue reproducir.
+ *
+ * Se relee con una caché corta: `networkInterfaces()` es una llamada al
+ * sistema y esto corre en cada petición, pero cinco segundos bastan para que
+ * un cambio de IP se note enseguida sin preguntar mil veces por minuto.
+ */
+const CACHE_LAN_MS = 5_000;
+let lanCache: { direcciones: string[]; ts: number } | null = null;
+
+function lanActual(): string[] {
+  const ahora = Date.now();
+  if (lanCache && ahora - lanCache.ts < CACHE_LAN_MS) return lanCache.direcciones;
+  const direcciones = direccionesLan();
+  lanCache = { direcciones, ts: ahora };
+  return direcciones;
+}
+
+/** Lo que el equipo acepta como `Host`: sus direcciones en forma de URL. */
+function hostsPropios(): string[] {
+  return lanActual().map(comoHost);
+}
+
 const lan = direccionesLan();
 /** Se resuelve en `arrancar()`, junto con el resto de lo asíncrono. */
 let tls: CertificadoTls;
@@ -985,7 +1050,7 @@ function atenderInterno(peticion: IncomingMessage, respuesta: ServerResponse): v
     puerto: peticion.socket.localPort || (seguro ? PUERTO : PUERTO_LOCAL),
     seguro,
     nombreRed: NOMBRE_RED,
-    direccionesLan: lan,
+    direccionesLan: hostsPropios(),
     esLocal,
   });
   if (!autoridad) {

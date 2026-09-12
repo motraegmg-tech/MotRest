@@ -44,6 +44,61 @@ describe("Host del Hub", () => {
   });
 });
 
+/*
+ * IPv6: EL CAMINO QUE EL HUB SE CERRABA A SÍ MISMO.
+ *
+ * `direccionesLan()` solo enumeraba IPv4, así que la lista de autorizados nunca
+ * contenía una dirección IPv6 y el Hub respondía «Host no autorizado» a su
+ * propia dirección. En una red normal no se nota; en una que aísla a los
+ * clientes por IPv4 —como la de Rodizio— IPv6 es el ÚNICO camino, y desde el
+ * teléfono el Hub no se veía por mucho que estuviera funcionando.
+ */
+describe("Host por IPv6", () => {
+  const CON_IPV6: ConfiguracionHostHub = {
+    puerto: 8787,
+    seguro: true,
+    nombreRed: "motrest",
+    // Tal como las anuncia el Hub: entre corchetes, que es la forma de URL.
+    direccionesLan: ["192.168.1.40", "[fdd9:1618:bd3f:46d9::9cb0]", "[2806:268:1481:f60::185]"],
+    esLocal: false,
+  };
+
+  it("acepta una dirección IPv6 propia", () => {
+    expect(autoridadDelHub("[fdd9:1618:bd3f:46d9::9cb0]:8787", CON_IPV6)).toMatchObject({
+      host: "[fdd9:1618:bd3f:46d9::9cb0]",
+      puerto: 8787,
+    });
+  });
+
+  it("los corchetes NO son cosmética: sin ellos no casaría nunca", () => {
+    /*
+     * `url.hostname` devuelve el IPv6 CON corchetes. Si la lista los guardara
+     * sin ellos, la comparación fallaría siempre y el arreglo no serviría de
+     * nada — que es justo el error fácil de cometer aquí.
+     */
+    const sinCorchetes: ConfiguracionHostHub = {
+      ...CON_IPV6,
+      direccionesLan: ["fdd9:1618:bd3f:46d9::9cb0"],
+    };
+    expect(autoridadDelHub("[fdd9:1618:bd3f:46d9::9cb0]:8787", sinCorchetes)).toBeNull();
+  });
+
+  it("sigue rechazando una IPv6 que NO es del equipo", () => {
+    expect(autoridadDelHub("[fdd9:1618:bd3f:46d9::dead]:8787", CON_IPV6)).toBeNull();
+  });
+
+  it("y sigue exigiendo el puerto correcto", () => {
+    expect(autoridadDelHub("[fdd9:1618:bd3f:46d9::9cb0]:9999", CON_IPV6)).toBeNull();
+  });
+
+  it("la autoridad conserva los corchetes, para poder componer el origen", () => {
+    const a = autoridadDelHub("[fdd9:1618:bd3f:46d9::9cb0]:8787", CON_IPV6)!;
+    // Sin esto, el origen saldría `https://fdd9:...:8787` y ningún navegador lo
+    // reconocería como el suyo.
+    expect(origenDelHub(true, a)).toBe("https://[fdd9:1618:bd3f:46d9::9cb0]:8787");
+  });
+});
+
 describe("origen y cabeceras", () => {
   const autoridad = autoridadDelHub("motrest.local:8787", RED)!;
 

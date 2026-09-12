@@ -30,6 +30,12 @@
    */
   import {
     CATEGORIAS_EGRESO,
+    armarEstadoFinanciero,
+    cuentasCerradasEn,
+    detalleCsv,
+    egresosEn,
+    reporteContable,
+    resumenCsv,
     CLASES_AJUSTE,
     CUENTAS_TESORERIA,
     DENOMINACIONES,
@@ -43,9 +49,13 @@
     type CuentaTesoreria,
     type Presupuestos,
   } from "@motrest/dominio";
+  import { estadoFinancieroPdf, nombreArchivoEstado } from "@motrest/impresion";
   import Icono from "../../Icono.svelte";
   import { caja } from "../../caja.svelte";
   import { egresos } from "../../egresos.svelte";
+  import { fiscal } from "../../fiscal.svelte";
+  import { licencia } from "../../licencia.svelte";
+  import { pos } from "../../pos.svelte";
   import { hora, mxn, pct } from "../../formato";
   import { local } from "../../local.svelte";
   import { sesion } from "../../sesion/sesion.svelte";
@@ -62,6 +72,8 @@
    */
   const puedeVer = $derived(sesion.puedeVer("fin.corte.ver"));
   const puedeMover = $derived(sesion.puedeOperar("caja.corte.sellar"));
+  /* El estado financiero enseña costos y utilidad: mismo permiso que antes. */
+  const puedeVerCostos = $derived(sesion.puedeVer("fin.costo.ver"));
 
   const saldos = $derived(tesoreria.saldos);
 
@@ -195,6 +207,144 @@
     ajusteMonto = "";
     ajusteJustifica = "";
     errorAjuste = "";
+  }
+
+  // --- Cierre del mes -------------------------------------------------------------------
+  //
+  // Vive aquí y no en la pantalla del resultado (pedido de Gonzalo), y encaja:
+  // el estado financiero es el documento del DINERO del mes, y esta es la
+  // pantalla del dinero. En la otra quedaba junto a la venta del día, que
+  // responde una pregunta distinta.
+
+  /** El mes que se exporta. Por defecto el corriente. */
+  let mesElegido = $state(new Date().toISOString().slice(0, 7));
+
+  const rangoMes = $derived.by(() => {
+    const [anio, mes] = mesElegido.split("-").map(Number);
+    return {
+      desde: new Date(anio ?? 2026, (mes ?? 1) - 1, 1).getTime(),
+      hasta: new Date(anio ?? 2026, mes ?? 1, 1).getTime(),
+    };
+  });
+
+  /**
+   * EL AVISO DE QUE SÍ SE DESCARGÓ.
+   *
+   * Pedido de Gonzalo: «descarga pero no avisa». Y no es un capricho de
+   * cortesía — el navegador guarda el archivo sin abrir nada, así que pulsar el
+   * botón y que no pase NADA visible es indistinguible de que haya fallado. La
+   * reacción natural es volver a pulsar, y acabar con cuatro copias del mismo
+   * PDF sin saber si alguna sirvió.
+   *
+   * Se dice el nombre del archivo a propósito: es lo que permite encontrarlo en
+   * la carpeta de descargas sin adivinar.
+   */
+  let aviso = $state<{ texto: string; detalle: string; mal: boolean } | null>(null);
+  let generando = $state(false);
+  let temporizador: ReturnType<typeof setTimeout> | undefined;
+
+  function avisar(texto: string, detalle: string, mal = false) {
+    aviso = { texto, detalle, mal };
+    clearTimeout(temporizador);
+    // Un error se queda puesto: hay algo que hacer. Un acuse se va solo.
+    if (!mal) temporizador = setTimeout(() => (aviso = null), 8000);
+  }
+
+  /**
+   * Descarga un archivo generado en el navegador.
+   *
+   * El `<a>` se mete al DOM y la URL se libera con retraso. Sin las dos cosas
+   * el navegador se queda sin el blob antes de guardarlo, y dentro del WebView
+   * de la caja fallaba en silencio — ni archivo ni error, que es la peor forma
+   * de fallar.
+   */
+  function descargar(nombre: string, contenido: BlobPart, tipo: string): void {
+    const url = URL.createObjectURL(new Blob([contenido], { type: tipo }));
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = nombre;
+    a.rel = "noopener";
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 60_000);
+  }
+
+  function reporteDelMes() {
+    const cuentas = cuentasCerradasEn(pos.todasLasComandas, rangoMes);
+    return {
+      cuentas,
+      reporte: reporteContable(
+        cuentas,
+        fiscal.registros,
+        egresosEn(egresos.registros, rangoMes),
+        rangoMes,
+      ),
+    };
+  }
+
+  function estadoDelMes() {
+    return armarEstadoFinanciero(
+      {
+        local: local.fichaParaTicket(licencia.licencia?.nombre ?? "Mi restaurante").nombre,
+        comandas: pos.todasLasComandas,
+        egresos: egresos.registros,
+        cfdis: fiscal.registros,
+        sesiones: caja.sesiones,
+        tesoreria: tesoreria.todosLosEventos,
+        // Sin esto el informe de un mes viejo saldría en ceros y con el dinero
+        // desplomado, porque sus cuentas ya no están en el disco.
+        arrastre: tesoreria.arrastreDePurga,
+      },
+      rangoMes,
+    );
+  }
+
+  /**
+   * Arma el PDF y lo descarga.
+   *
+   * Va en dos tiempos —«Generando…» y luego el acuse— porque un mes con
+   * ochocientas cuentas tarda un momento en dibujarse. Sin el primer aviso, ese
+   * silencio se lee como que el botón no hizo nada.
+   */
+  async function exportarEstadoPdf() {
+    generando = true;
+    aviso = null;
+    // Un respiro para que el navegador pinte «Generando…» antes de bloquearse
+    // dibujando el PDF. Sin él, el aviso aparecería cuando ya no hace falta.
+    await new Promise((r) => setTimeout(r, 20));
+
+    try {
+      const estado = estadoDelMes();
+      const nombre = nombreArchivoEstado(estado);
+      descargar(nombre, estadoFinancieroPdf(estado) as unknown as BlobPart, "application/pdf");
+      avisar(
+        "Estado financiero descargado",
+        `${nombre} · ${estado.ventas.cuentas} cuentas y ${estado.flujo.movimientos.length} movimientos`,
+      );
+    } catch (causa) {
+      console.error("No se pudo generar el estado financiero", causa);
+      avisar(
+        "No se pudo generar el estado financiero",
+        "Vuelve a intentarlo. Si se repite, avisa a MOTRAE.",
+        true,
+      );
+    } finally {
+      generando = false;
+    }
+  }
+
+  function exportarResumen() {
+    const nombre = `motrest-resumen-${mesElegido}.csv`;
+    descargar(nombre, resumenCsv(reporteDelMes().reporte), "text/csv;charset=utf-8");
+    avisar("Resumen descargado", nombre);
+  }
+
+  function exportarDetalle() {
+    const nombre = `motrest-detalle-${mesElegido}.csv`;
+    const { cuentas } = reporteDelMes();
+    descargar(nombre, detalleCsv(cuentas), "text/csv;charset=utf-8");
+    avisar("Detalle descargado", `${nombre} · ${cuentas.length} cuentas`);
   }
 
   // --- Presupuesto por categoría --------------------------------------------------------
@@ -355,6 +505,51 @@
           empezamos», y a partir de ahí la cifra será la real.
         </p>
       </div>
+    {/if}
+
+    <!--
+      CIERRE DEL MES. Va aquí, con el resto del dinero, y no junto a la venta
+      del día: el estado financiero es el documento del mes, no del turno.
+    -->
+    {#if puedeVerCostos}
+      <section class="tarjeta">
+        <h2>Cierre del mes</h2>
+        <p class="explica-tarjeta">
+          El <b>estado financiero</b> es el documento completo del mes: ingresos,
+          gastos desglosados uno por uno, el resultado y todos los movimientos de
+          dinero. Es lo que se entrega al contador, al banco o a un socio. Los dos
+          archivos de hoja de cálculo siguen ahí para quien los prefiera abrir en
+          Excel.
+        </p>
+
+        <div class="fila-cierre">
+          <label>
+            <span>Mes</span>
+            <input type="month" bind:value={mesElegido} />
+          </label>
+          <button class="principal" onclick={exportarEstadoPdf} disabled={generando}>
+            {generando ? "Generando…" : "Descargar estado financiero (PDF)"}
+          </button>
+          <button class="mini" onclick={exportarResumen} disabled={generando}>
+            Resumen (CSV)
+          </button>
+          <button class="mini" onclick={exportarDetalle} disabled={generando}>
+            Detalle (CSV)
+          </button>
+        </div>
+
+        <!--
+          EL ACUSE. El navegador guarda el archivo sin abrir nada, así que pulsar
+          el botón y que no pase nada visible es indistinguible de que falle. Se
+          dice el nombre del archivo para poder encontrarlo sin adivinar.
+        -->
+        {#if aviso}
+          <p class="acuse" class:mal={aviso.mal} role="status">
+            <b>{aviso.texto}</b>
+            <span>{aviso.detalle}</span>
+          </p>
+        {/if}
+      </section>
     {/if}
 
     <!-- Movimiento del período -->
@@ -713,6 +908,59 @@
 {/if}
 
 <style>
+  /* --- Cierre del mes --- */
+  .fila-cierre {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-end;
+    gap: 0.6rem;
+  }
+  .fila-cierre label {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+  }
+  .fila-cierre label span {
+    font-size: 0.76rem;
+    font-weight: 600;
+    color: var(--gris);
+  }
+  .fila-cierre input {
+    padding: 0.55rem 0.65rem;
+    border: 1.5px solid var(--borde);
+    border-radius: var(--r-sm);
+    font: inherit;
+  }
+  .fila-cierre button:disabled {
+    opacity: 0.55;
+  }
+  .acuse {
+    margin-top: 0.8rem;
+    padding: 0.6rem 0.8rem;
+    border-radius: var(--r-sm);
+    background: #f2f8ef;
+    border: 1px solid #57ad30;
+    font-size: 0.85rem;
+    line-height: 1.5;
+    display: flex;
+    flex-direction: column;
+    gap: 0.1rem;
+  }
+  .acuse b {
+    color: #2f6b1c;
+  }
+  .acuse span {
+    color: var(--gris);
+    font-size: 0.78rem;
+    word-break: break-all;
+  }
+  .acuse.mal {
+    background: #fdf2f0;
+    border-color: #e0392b;
+  }
+  .acuse.mal b {
+    color: #8a2018;
+  }
   /* --- Cajeros y presupuesto --- */
   .explica-tarjeta {
     font-size: 0.85rem;

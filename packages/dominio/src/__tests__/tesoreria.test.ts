@@ -36,7 +36,13 @@ import {
   totalDelConteo,
   type EventoTesoreria,
 } from "../finanzas/tesoreria.js";
-import { conSaldoArrastrado, flujoDeDinero, resumenDeFlujo, saldosDelRestaurante } from "../finanzas/flujo.js";
+import {
+  conSaldoArrastrado,
+  dineroDeComandas,
+  flujoDeDinero,
+  resumenDeFlujo,
+  saldosDelRestaurante,
+} from "../finanzas/flujo.js";
 
 const CTX = { device_id: "dev-1", empleado_id: "usr-gerente", sucursal_id: "suc-1" };
 
@@ -454,5 +460,98 @@ describe("corrección de la forma de cobro", () => {
     expect(corte.efectivoEsperado).toBe(pesos(1000));
     expect(corte.cobrado.tarjeta_credito).toBe(pesos(433));
     expect(corte.cobrado.efectivo ?? CERO).toBe(CERO);
+  });
+});
+
+// --- El arrastre de la purga ----------------------------------------------------------
+//
+// EL DEFECTO QUE ESTO CIERRA, medido antes de arreglarlo: un local con seis
+// meses de operación tenía 55 000 pesos de saldo y pasaba a 5 000 al retirar
+// cien cuentas viejas. El saldo se calcula sumando los cobros; si se borran las
+// cuentas, se borran sus cobros.
+//
+// Se encontró porque Gonzalo preguntó qué significaba «limpiar el historial».
+
+describe("purgar el historial NO puede mover el saldo", () => {
+  const DIA = 86_400_000;
+  const HOY = Date.parse("2026-09-12T20:00:00Z");
+
+  function cuenta(id: string, haceDias: number, monto: number, forma: "efectivo" | "tarjeta_credito") {
+    const ts = HOY - haceDias * DIA;
+    return proyectarComanda([
+      { ...fComanda().crear("orden_creada", id, { orden_id: id, mesa_id: "m1", abierta_ts: ts }), ts },
+      { ...fComanda().crear("pago_registrado", id, { orden_id: id, monto: pesos(monto), forma }), ts },
+      { ...fComanda().crear("cuenta_cerrada", id, { orden_id: id }), ts },
+    ]);
+  }
+
+  const viejas = [
+    cuenta("v1", 200, 500, "efectivo"),
+    cuenta("v2", 180, 300, "tarjeta_credito"),
+    cuenta("v3", 150, 200, "efectivo"),
+  ];
+  const recientes = [cuenta("r1", 5, 400, "efectivo")];
+  const todas = [...viejas, ...recientes];
+
+  const vacio = { egresos: [], sesiones: [], tesoreria: [] as EventoTesoreria[] };
+
+  it("sin arrastre el saldo se desploma: es el defecto", () => {
+    const antes = saldosDelRestaurante({ ...vacio, comandas: todas });
+    const despues = saldosDelRestaurante({ ...vacio, comandas: recientes });
+
+    expect(antes.efectivo).toBe(pesos(1_100));
+    // Se cae por el importe de lo purgado. Esto es lo que NO puede pasar.
+    expect(despues.efectivo).toBe(pesos(400));
+  });
+
+  it("CON arrastre el saldo queda idéntico", () => {
+    const antes = saldosDelRestaurante({ ...vacio, comandas: todas });
+
+    // Lo que aportaban las que se retiran: es exactamente lo que se arrastra.
+    const retirado = dineroDeComandas(viejas);
+    const despues = saldosDelRestaurante({
+      ...vacio,
+      comandas: recientes,
+      arrastre: { efectivo: retirado.efectivo, banco: retirado.banco, hasta: HOY - 150 * DIA },
+    });
+
+    expect(despues.efectivo).toBe(antes.efectivo);
+    expect(despues.banco).toBe(antes.banco);
+    expect(despues.total).toBe(antes.total);
+  });
+
+  it("respeta la cuenta de cada peso: el efectivo por su lado y el banco por el suyo", () => {
+    const retirado = dineroDeComandas(viejas);
+    // 500 + 200 en efectivo, 300 con tarjeta.
+    expect(retirado.efectivo).toBe(pesos(700));
+    expect(retirado.banco).toBe(pesos(300));
+  });
+
+  it("el arrastre se ve en el histórico, no es un número que aparece de la nada", () => {
+    const movimientos = flujoDeDinero({
+      ...vacio,
+      comandas: recientes,
+      arrastre: { efectivo: pesos(700), banco: pesos(300), hasta: HOY - 150 * DIA },
+    });
+
+    const arrastres = movimientos.filter((m) => m.origen === "arrastre");
+    expect(arrastres).toHaveLength(2);
+    expect(arrastres[0]?.concepto).toContain("Historial retirado");
+    // Y explica de dónde sale, como cualquier ajuste.
+    expect(arrastres[0]?.justificacion).toBeTruthy();
+  });
+
+  it("va ANTES de lo que sobrevive: es un saldo de apertura", () => {
+    const movimientos = flujoDeDinero({
+      ...vacio,
+      comandas: recientes,
+      arrastre: { efectivo: pesos(700), banco: pesos(300), hasta: HOY - 150 * DIA },
+    });
+    expect(movimientos[0]?.origen).toBe("arrastre");
+  });
+
+  it("sin arrastre no aparece ningún renglón de más", () => {
+    const movimientos = flujoDeDinero({ ...vacio, comandas: recientes });
+    expect(movimientos.some((m) => m.origen === "arrastre")).toBe(false);
   });
 });

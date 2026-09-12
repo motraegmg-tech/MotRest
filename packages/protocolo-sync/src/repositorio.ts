@@ -90,6 +90,23 @@ export interface RepositorioEventos {
    */
   reabrirOutbox(): Promise<void>;
 
+  /**
+   * Retira del disco los eventos de unos agregados, por retención.
+   *
+   * ## La regla que hace esto seguro
+   *
+   * **Nunca se borra lo que el Hub no ha confirmado.** Un evento que sigue en
+   * el outbox es un hecho que todavía no existe en ninguna otra parte: tirarlo
+   * lo perdería para siempre y sin rastro. Si una sola cuenta del lote tiene
+   * algo pendiente, esa cuenta se salta entera —media cuenta borrada es peor
+   * que ninguna, porque deja renglones que ya no se pueden ubicar—.
+   *
+   * Devuelve cuántos eventos se retiraron de verdad, que es lo que la pantalla
+   * puede enseñar. Cero es una respuesta legítima: significa que no había nada
+   * suficientemente viejo, o que lo que había aún no está a salvo en el Hub.
+   */
+  purgarStreams(streamIds: readonly ID[]): Promise<number>;
+
   /** Cuántos eventos hay guardados. */
   contar(): Promise<number>;
 

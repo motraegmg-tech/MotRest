@@ -51,7 +51,15 @@ export type TipoDocumento =
   | "precuenta"
   | "corte"
   | "prueba"
-  | "factura";
+  | "factura"
+  /**
+   * El pulso que abre el cajón de efectivo.
+   *
+   * No imprime nada: son cinco bytes que le dicen a la impresora que cierre
+   * el contacto del cajón. Va por la misma cola porque comparte el cable y
+   * el orden importa —el cajón se abre con el ticket, no antes ni después—.
+   */
+  | "cajon";
 
 export type EstadoTrabajo = "pendiente" | "imprimiendo" | "impreso" | "fallido";
 
@@ -137,6 +145,13 @@ export interface ResultadoEnvio {
 
 /** Quien sabe hablar con una impresora concreta. */
 export interface Transporte {
+  /**
+   * true = no habla con ningún aparato; hace de papel en la pantalla.
+   *
+   * Hace falta declararlo porque hay trabajos que NO tienen sentido
+   * simulados: un pulso al cajón de efectivo o abre el cajón o no hizo nada.
+   */
+  simulado?: boolean;
   puede(impresora: Impresora): boolean;
   enviar(impresora: Impresora, datos: Uint8Array): Promise<ResultadoEnvio>;
 }
@@ -206,6 +221,18 @@ export class ColaImpresion {
    * El orden importa: las comandas de una misma mesa tienen que salir como se
    * capturaron, o la cocina arma los tiempos al revés.
    */
+  /**
+   * ¿Hay un transporte de VERDAD para esta impresora?
+   *
+   * Lo pregunta quien no puede conformarse con el simulado. Un ticket que
+   * solo se previsualiza sigue sirviendo —se lee en pantalla—; un cajón que
+   * solo se previsualiza no abre nada, y marcarlo como hecho enseñaría en la
+   * pantalla de impresoras un cajón abierto que nunca se abrió.
+   */
+  hayTransporteReal(impresora: Impresora): boolean {
+    return this.transportes.some((t) => !t.simulado && t.puede(impresora));
+  }
+
   async procesar(impresoras: readonly Impresora[]): Promise<void> {
     if (this.procesando) return;
     this.procesando = true;
@@ -236,6 +263,23 @@ export class ColaImpresion {
           // papel» y «solo se pudo previsualizar», y quien está en la caja
           // necesita saber cuál de las dos ocurrió.
           this.marcar(trabajo.id, "impreso", { simulado: resultado.simulado === true });
+          continue;
+        }
+
+        /*
+         * EL PULSO DEL CAJÓN NO SE REINTENTA.
+         *
+         * Reintentar tiene sentido con un papel: sale tarde pero sale, y el
+         * ticket sigue valiendo. Abrir un cajón es un acto FÍSICO en un sitio
+         * donde hay o no hay alguien. Un pulso que falla ahora y se cuela un
+         * minuto después abre el cajón cuando el cajero ya se fue a atender
+         * otra mesa, y lo deja abierto sin que nadie lo sepa.
+         *
+         * Si falla, falla: el cajero lo abre con la llave, que es lo que hacía
+         * antes de que esto existiera.
+         */
+        if (trabajo.documento === "cajon") {
+          this.marcar(trabajo.id, "fallido", { ultimo_error: resultado.error });
           continue;
         }
 
@@ -287,6 +331,9 @@ export class ColaImpresion {
  * forma de abrir un socket TCP al puerto 9100.
  */
 export class TransporteSimulado implements Transporte {
+  /** Hace de papel en la pantalla: no hay aparato al otro lado. */
+  readonly simulado = true;
+
   impresos: { impresora: ID; datos: Uint8Array }[] = [];
 
   puede(): boolean {

@@ -7,7 +7,14 @@
 import {
   CERO,
   FabricaEventos,
+  TIPOS_EVENTO_COMANDA,
   agruparPorMesa,
+  dineroDeComandas,
+  type ArrastreDePurga,
+  esPagoEnEfectivo,
+  ordenesPurgables,
+  huerfanosDeMesa,
+  mesaPorOrden,
   compararEventos,
   construirRenglon,
   desglosarConTasas,
@@ -46,6 +53,7 @@ import { menu } from "./menu.svelte";
 import { configurador } from "./configurador.svelte";
 import { inventario } from "./inventario.svelte";
 import { plano } from "./plano.svelte";
+import type { DatosPrecuenta } from "@motrest/impresion";
 import { impresion } from "./impresion.svelte";
 import { EMPLEADO_ACTUAL, SUCURSAL_ID, datosLocal, obtenerDeviceId } from "./presentacion";
 import { local } from "./local.svelte";
@@ -56,6 +64,31 @@ import { sesion } from "./sesion/sesion.svelte";
 import { sync } from "./sync.svelte";
 
 export type EstadoMesa = "libre" | "ocupada" | "cuenta";
+
+/** Lo que dejó una purga por retención. */
+export interface ResultadoPurga {
+  /** Eventos retirados del disco. */
+  retirados: number;
+  /** Cuentas completas que se fueron. */
+  cuentas: number;
+  /**
+   * El dinero que aportaban, para que el saldo no se mueva.
+   *
+   * Quien llama tiene que dárselo a tesorería. No lo hace este store porque
+   * tesorería depende de él —lee sus comandas— y llamarla desde aquí cerraría
+   * el círculo.
+   */
+  arrastre: ArrastreDePurga;
+}
+
+const SIN_PURGA: ResultadoPurga = {
+  retirados: 0,
+  cuentas: 0,
+  arrastre: { efectivo: CERO, banco: CERO, hasta: 0 },
+};
+
+/** Qué eventos pertenecen a una comanda. Sale del dominio para no divergir. */
+const TIPOS_DE_COMANDA = new Set<string>(TIPOS_EVENTO_COMANDA);
 
 const fabrica = new FabricaEventos<EventoComanda>({
   device_id: obtenerDeviceId(),
@@ -144,7 +177,34 @@ class TiendaPOS {
    * renglones en la pantalla aunque la cuenta del Hub estuviera bien.
    */
   integrar(eventos: readonly EventoComanda[]): void {
-    const porMesa = agruparPorMesa(eventos);
+    /*
+     * SE UBICAN CON LO QUE ESTA TERMINAL YA SABE, no solo con el lote.
+     *
+     * Solo `orden_creada` dice a qué mesa va una orden. El resto —agregar un
+     * platillo, cobrar, cerrar— lleva únicamente el `orden_id`. Sin este mapa,
+     * un lote que trae solo «se agregó una pizza» no se podía ubicar y se
+     * descartaba en silencio.
+     *
+     * Que es justo lo que pasaba con las tabletas: abrían la mesa (ese evento
+     * sí llegaba y se pintaba), y a partir de ahí todo lo que agregaban se caía
+     * por el camino. Quedaba en el disco, así que al reiniciar el POS aparecía
+     * de golpe — y por eso parecía cosa de la red.
+     */
+    const porMesa = agruparPorMesa(eventos, mesaPorOrden(this.logs));
+
+    /*
+     * Y si algo sigue sin ubicarse, se DICE. Un huérfano es siempre un síntoma,
+     * y callárselo fue lo que hizo que este defecto durara meses sin que nadie
+     * pudiera diagnosticarlo.
+     */
+    const huerfanos = huerfanosDeMesa(eventos, mesaPorOrden(this.logs));
+    if (huerfanos.length > 0) {
+      console.warn(
+        `Llegaron ${huerfanos.length} evento(s) de comanda sin mesa conocida:`,
+        [...new Set(huerfanos.map((e) => e.orden_id))],
+      );
+    }
+
     const siguiente = { ...this.logs };
 
     for (const [mesaId, entrantes] of Object.entries(porMesa)) {
@@ -156,6 +216,94 @@ class TiendaPOS {
     }
 
     this.logs = siguiente;
+  }
+
+  /**
+   * Retira del disco el historial más viejo que la retención elegida.
+   *
+   * El restaurante ya podía ELEGIR cuánto conservar —la opción y su
+   * advertencia llevaban tiempo en la pantalla de ventas— pero nadie borraba
+   * nada: era un ajuste decorativo. Esto es lo que le da efecto.
+   *
+   * Se llama al arrancar y al cambiar el ajuste, nunca en mitad del servicio:
+   * recorrer el log entero mientras alguien cobra sería pagar una limpieza
+   * con la fluidez de la caja.
+   *
+   * Devuelve cuántos eventos se retiraron. Cero es respuesta legítima: no
+   * había nada bastante viejo, o lo que había todavía no está a salvo en el
+   * Hub —y en ese caso NO se toca—.
+   */
+  /**
+   * Retira del disco el historial más viejo que el plazo elegido.
+   *
+   * `yaArrastradoHasta` es la fecha que ya cubre el arrastre guardado, y no
+   * es un adorno: si el Hub pierde historia, la terminal vuelve a pedirlo
+   * todo desde cero y las comandas ya retiradas REGRESAN. Al purgarlas otra
+   * vez, su dinero se sumaría al arrastre que ya lo contenía y el saldo
+   * saldría del doble. Lo anterior a esa fecha ya está contado: se retira,
+   * pero no se vuelve a arrastrar.
+   */
+  async purgarHistorial(
+    mesesRetencion: number,
+    yaArrastradoHasta = 0,
+  ): Promise<ResultadoPurga> {
+    const almacen = this.almacen;
+    if (!almacen) return SIN_PURGA;
+
+    const { ordenes, hasta } = ordenesPurgables(this.todasLasComandas, mesesRetencion);
+    if (ordenes.length === 0) return SIN_PURGA;
+
+    const retirados = await almacen.eventos.purgarStreams(ordenes);
+    if (retirados === 0) return SIN_PURGA;
+
+    /*
+     * EL DINERO DE LO RETIRADO SE ARRASTRA, o el saldo se desploma.
+     *
+     * El saldo del restaurante se calcula sumando los cobros. Al borrar las
+     * cuentas viejas se van sus cobros con ellas: medido antes de arreglarlo,
+     * un local con seis meses de operación pasaba de 55 000 pesos de saldo a
+     * 5 000 al retirar cien cuentas.
+     *
+     * Se calcula sobre lo que DE VERDAD se fue, no sobre lo que se pidió
+     * retirar: el almacén se salta las cuentas con algo sin confirmar, y
+     * arrastrar el dinero de una cuenta que sigue en el disco lo contaría dos
+     * veces.
+     */
+    const idsRetirados = new Set(ordenes);
+    const sobreviven = new Set(
+      ((await almacen.eventos.leerTodos()) as EventoComanda[])
+        .filter((e) => idsRetirados.has(e.stream_id))
+        .map((e) => e.stream_id),
+    );
+    const retiradas = this.todasLasComandas.filter(
+      (c) => idsRetirados.has(c.orden_id) && !sobreviven.has(c.orden_id),
+    );
+
+    /*
+     * Solo aporta al arrastre lo que todavía no estaba dentro de él. Ver la
+     * explicación de `yaArrastradoHasta` arriba: son las cuentas que vuelven
+     * del Hub después de una pérdida de historia.
+     */
+    const dinero = dineroDeComandas(
+      retiradas.filter(
+        (c) => (c.cancelada_ts ?? c.cerrada_ts ?? c.abierta_ts) > yaArrastradoHasta,
+      ),
+    );
+
+    /*
+     * La memoria se rehace desde el disco YA purgado, en vez de quitar a mano
+     * lo que se cree haber borrado. El almacén pudo saltarse cuentas con algo
+     * pendiente, y solo él sabe cuáles: descontarlas aquí por nuestra cuenta
+     * dejaría la pantalla enseñando menos de lo que de verdad hay guardado.
+     */
+    const quedan = (await almacen.eventos.leerTodos()) as EventoComanda[];
+    this.hidratar(quedan.filter((e) => TIPOS_DE_COMANDA.has(e.tipo)));
+
+    return {
+      retirados,
+      cuentas: retiradas.length,
+      arrastre: { efectivo: dinero.efectivo, banco: dinero.banco, hasta },
+    };
   }
 
   // --- Emisión ------------------------------------------------------------------
@@ -175,6 +323,18 @@ class TiendaPOS {
         console.error("No se pudo guardar el evento", causa);
         this.flash("Aviso: el último cambio no se pudo guardar en el dispositivo");
       });
+  }
+
+  /**
+   * Abre el cajón y lo dice en pantalla.
+   *
+   * Va por aquí y no llamando a `impresion` desde cada sitio para que el
+   * aviso sea uno solo: si el cajón NO se abrió —no hay, o esta terminal no
+   * es la caja— el cajero tiene que enterarse ahí mismo, no descubrirlo
+   * tirando del cajón con las manos ocupadas.
+   */
+  private abrirCajon(motivo: string): void {
+    if (impresion.abrirCajon(motivo)) this.flash("Cajón abierto");
   }
 
   private sincronizarActor(): void {
@@ -1186,6 +1346,73 @@ class TiendaPOS {
   }
 
   /**
+   * El papel de CUALQUIER cuenta, para poder mirarlo desde Finanzas.
+   *
+   * `reimprimirTicket` solo sabía del ticket de la mesa activa, que sirve
+   * mientras el comensal está sentado y no después: quien revisa lo cobrado del
+   * día lo hace desde Finanzas, con la mesa ya libre y ocupada por otros.
+   *
+   * Devuelve los DATOS, no imprime. Mirar un ticket no es reimprimirlo: la
+   * reimpresión queda anotada en la bitácora porque es un vector de fraude
+   * conocido —se cobra, se entrega el papel, se reimprime y se vuelve a cobrar
+   * con él—, y ensuciar ese registro cada vez que alguien echa un vistazo lo
+   * dejaría sin servir para detectar nada.
+   */
+  datosDelTicket(ordenId: ID): DatosPrecuenta | null {
+    const comanda = this.todasLasComandas.find((c) => c.orden_id === ordenId);
+    if (!comanda) return null;
+
+    const t = totalesComanda(comanda);
+
+    return {
+      ...this.datosComunesDelPapel(comanda, t),
+      folio: comanda.orden_id.slice(-8).toUpperCase(),
+      // La hora del COBRO, no la de ahora: es el papel de aquel momento.
+      ts: comanda.cerrada_ts ?? comanda.abierta_ts,
+      local: local.fichaParaTicket(datosLocal.nombre),
+      textos: local.textosTicket,
+      /*
+       * Sin códigos QR a propósito.
+       *
+       * El del ticket impreso invita a opinar y caduca; el otro lo pone el
+       * local. Ninguno de los dos sirve en una pantalla que alguien mira días
+       * después para revisar un cobro, y pintarlos solo estorbaría lo que sí se
+       * viene a leer: los renglones y cómo se pagó.
+       */
+      qrs: [],
+      mesa: plano.etiquetaMesas(mesasDeComanda(comanda)),
+      a_nombre_de: comanda.a_nombre_de,
+      mesero: sesion.nombreDe(comanda.mesero_id),
+      propina: t.propina,
+      pagos: comanda.pagos.map((p) => ({
+        forma: etiquetaFormaPago(p.forma),
+        monto: p.monto,
+      })),
+      cambio: t.cambio,
+    };
+  }
+
+  /**
+   * Vuelve a imprimir el ticket de una cuenta cualquiera, y lo deja anotado.
+   *
+   * A diferencia de mirarlo, esto SÍ cuenta como reimpresión: sale papel, y el
+   * papel es lo que se puede usar para cobrar dos veces.
+   */
+  async reimprimirTicketDe(ordenId: ID): Promise<boolean> {
+    const mesaId = this.mesaDeOrden(ordenId);
+    const comanda = this.todasLasComandas.find((c) => c.orden_id === ordenId);
+    if (!mesaId || !comanda) return false;
+
+    const numero = (comanda.reimpresiones ?? 0) + 1;
+    this.sincronizarActor();
+    this.emitir(mesaId, fabrica.crear("ticket_reimpreso", ordenId, { orden_id: ordenId, numero }));
+
+    await this.imprimirTicketCliente(comanda, totalesComanda(comanda), numero);
+    this.flash(`Ticket reimpreso (copia ${numero})`);
+    return true;
+  }
+
+  /**
    * Cancela una venta ya cobrada: devuelve el dinero y libera la mesa.
    *
    * Es la salida que faltaba. Hasta ahora un cobro equivocado solo se podía
@@ -1260,6 +1487,15 @@ class TiendaPOS {
     if (this.propinaPendiente?.orden_id === ordenId) {
       this.propinaPendiente = null;
       this.guardarPropinaPendiente();
+    }
+
+    /*
+     * Si se devuelve EFECTIVO, el cajón se abre: hay que sacar los billetes.
+     * Una devolución a tarjeta se reversa en la terminal bancaria y el cajón
+     * no pinta nada ahí.
+     */
+    if (devoluciones.some((d) => esPagoEnEfectivo(d.forma))) {
+      this.abrirCajon(`Devolución de la mesa ${plano.nombreMesa(mesaId)}`);
     }
 
     this.flash(
@@ -1733,6 +1969,22 @@ class TiendaPOS {
     // La cortesía también entrega comprobante al cliente, aunque no entre dinero.
     if (cortesiaTotal) await this.imprimirTicketCliente(comanda, t);
     this.emitir(mesaId, fabrica.crear("cuenta_cerrada", ordenId, { orden_id: ordenId }));
+
+    /*
+     * EL CAJÓN SE ABRE SOLO SI HUBO EFECTIVO.
+     *
+     * Decisión de Gonzalo, y es lo que hace un POS de restaurante. Un cobro con
+     * tarjeta o transferencia no tiene billetes que guardar ni cambio que dar:
+     * abrir el cajón ahí lo deja expuesto varias veces por servicio sin que
+     * nadie tenga nada que hacer con él.
+     *
+     * Una cuenta dividida SÍ cuenta si alguna de sus partes fue en efectivo —el
+     * cajero tiene que meter esos billetes igual—, y por eso se mira pago por
+     * pago y no la forma «principal» de la cuenta.
+     */
+    if (comanda.pagos.some((p) => esPagoEnEfectivo(p.forma))) {
+      this.abrirCajon(`Cobro de la mesa ${mesa}`);
+    }
 
     if (t.propina === 0 && !cortesiaTotal) {
       this.propinaPendiente = { mesa_id: mesaId, orden_id: ordenId };
