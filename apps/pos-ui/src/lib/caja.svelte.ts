@@ -295,6 +295,14 @@ class StoreCaja {
         autorizador_id: empleadoId,
       }),
     );
+
+    /*
+     * Sacar dinero a la caja fuerte o meter cambio del banco exige abrir el
+     * cajón sí o sí. Hacerlo a mano justo después de registrarlo es un paso
+     * que sobra, y es de los que se olvidan con las manos llenas de billetes.
+     */
+    impresion.abrirCajon(`${motivo === "retiro" ? "Retiro" : "Ingreso"} de efectivo`);
+
     return { ok: true };
   }
 
@@ -376,6 +384,16 @@ class StoreCaja {
       propinas: corte.propinas,
       cuentas_cerradas: corte.cuentasCerradas,
     };
+    /*
+     * El cajón se abre ANTES de sellar, no después.
+     *
+     * Para cerrar hay que contar los billetes, y contarlos es lo que da la
+     * cifra declarada que se acaba de teclear. Abrirlo al final llegaría
+     * tarde: el cajero ya contó, ya escribió, y lo único que faltaba era
+     * sacar el dinero.
+     */
+    impresion.abrirCajon("Cierre de turno");
+
     const sello = await impresion.corte(cifras, datos);
 
     this.emitir(

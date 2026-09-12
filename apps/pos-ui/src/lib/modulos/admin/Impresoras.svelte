@@ -641,6 +641,45 @@
         </div>
       {/if}
 
+
+      <!--
+        EL CAJÓN DE EFECTIVO.
+
+        Solo se ofrece en la impresora de caja, porque el cajón cuelga de ella:
+        no está conectado a la computadora sino a la impresora, por un cable
+        telefónico. Ofrecerlo en la de cocina invitaría a conectar algo que no
+        existe en ese sitio.
+
+        Se puede apagar: hay locales con impresora de caja y sin cajón, y hay
+        cajones que el dueño prefiere abrir con llave.
+      -->
+      {#if imp.areas.includes("caja")}
+        <div class="cajon">
+          <label class="check-cajon">
+            <input
+              type="checkbox"
+              checked={imp.cajon}
+              disabled={!puedeEditar}
+              onchange={(e) => puedeEditar && impresion.actualizar(imp.id, { cajon: e.currentTarget.checked })}
+            />
+            <span>Tiene un cajón de efectivo conectado</span>
+          </label>
+          {#if imp.cajon}
+            <p class="pista-cajon">
+              Se abre solo al cobrar <b>en efectivo</b>, al registrar un retiro o
+              ingreso, al cerrar el turno y al devolver dinero por una venta
+              cancelada. Con tarjeta o transferencia no se abre: no hay billetes
+              que guardar.
+            </p>
+            {#if puedeEditar}
+              <button class="probar-cajon" onclick={() => impresion.abrirCajon("Prueba")}>
+                Probar: abrir ahora
+              </button>
+            {/if}
+          {/if}
+        </div>
+      {/if}
+
       <div class="areas">
         <span class="etiqueta">Imprime para:</span>
         {#each areas as area (area.id)}
@@ -710,6 +749,43 @@
 {/if}
 
 <style>
+  /* --- Cajón de efectivo --- */
+  .cajon {
+    margin-top: 0.7rem;
+    padding: 0.7rem 0.85rem;
+    background: #faf9f8;
+    border-radius: 10px;
+    display: flex;
+    flex-direction: column;
+    gap: 0.4rem;
+  }
+  .check-cajon {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-size: 0.88rem;
+    font-weight: 600;
+  }
+  .check-cajon input {
+    width: 1.05rem;
+    height: 1.05rem;
+    accent-color: var(--acento);
+  }
+  .pista-cajon {
+    font-size: 0.78rem;
+    line-height: 1.45;
+    color: var(--gris);
+  }
+  .probar-cajon {
+    align-self: flex-start;
+    border: 1.5px solid var(--borde);
+    border-radius: 8px;
+    padding: 0.3rem 0.7rem;
+    font-size: 0.78rem;
+    font-weight: 600;
+    color: var(--pizarra);
+    background: #fff;
+  }
   .seccion {
     flex: 1;
     overflow-y: auto;

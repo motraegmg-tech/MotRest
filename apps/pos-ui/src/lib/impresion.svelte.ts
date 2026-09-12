@@ -21,6 +21,7 @@ import {
 } from "@motrest/dominio";
 import {
   ColaImpresion,
+  Ticket,
   TransporteSimulado,
   comandaCocina,
   corteCaja,
@@ -543,6 +544,47 @@ class StoreImpresion {
     const ticket = precuenta(preparados, impresora.ancho, impresora.modo_qr ?? "nativo");
     this.encolar(impresora, "precuenta", ticket, datos.folio);
     this.vistaPrevia = { titulo: `Cuenta ${datos.folio}`, texto: ticket.aTexto() };
+    return true;
+  }
+
+  /**
+   * Abre el cajón de efectivo, si hay uno conectado.
+   *
+   * ## Cómo se abre un cajón, para quien venga después
+   *
+   * El cajón NO está conectado a la computadora: cuelga de la impresora de
+   * tickets por un cable telefónico. Lo que se manda son cinco bytes ESC/POS
+   * —el pulso `ESC p`— que le dicen a la impresora que cierre ese contacto
+   * durante unos milisegundos, y el solenoide del cajón lo empuja. Por eso esto
+   * vive en la impresión y no en un módulo de hardware aparte.
+   *
+   * ## Las tres condiciones
+   *
+   * 1. Hay una impresora de **caja** configurada.
+   * 2. Esa impresora declara tener cajón (`cajon`). Un local sin cajón no
+   *    manda pulsos a ninguna parte.
+   * 3. Estamos en la computadora de la caja. Desde una tableta el transporte
+   *    real no actúa —la página no la sirve el Hub— así que el pulso caería en
+   *    el simulado y no abriría nada; encolarlo solo ensuciaría la cola con
+   *    trabajos que fingen haberse hecho.
+   *
+   * Devuelve `true` solo si el pulso salió de verdad. Quien llama puede
+   * ignorarlo: que no haya cajón no es un error, es un restaurante que abre la
+   * caja con la llave.
+   */
+  abrirCajon(motivo: string): boolean {
+    const impresora = impresoraPara(this.impresoras, "caja");
+    if (!impresora?.cajon) return false;
+
+    /*
+     * Se comprueba el transporte ANTES de encolar, no después.
+     *
+     * La cola marcaría el trabajo como «impreso (simulado)» y quien mira la
+     * pantalla de impresoras vería un cajón que se abrió y nunca se abrió.
+     */
+    if (!this.cola.hayTransporteReal(impresora)) return false;
+
+    this.encolar(impresora, "cajon", new Ticket(impresora.ancho).abrirCajon(), motivo);
     return true;
   }
 

@@ -9,6 +9,7 @@ import {
   FabricaEventos,
   TIPOS_EVENTO_COMANDA,
   agruparPorMesa,
+  esPagoEnEfectivo,
   ordenesPurgables,
   huerfanosDeMesa,
   mesaPorOrden,
@@ -247,6 +248,18 @@ class TiendaPOS {
         console.error("No se pudo guardar el evento", causa);
         this.flash("Aviso: el último cambio no se pudo guardar en el dispositivo");
       });
+  }
+
+  /**
+   * Abre el cajón y lo dice en pantalla.
+   *
+   * Va por aquí y no llamando a `impresion` desde cada sitio para que el
+   * aviso sea uno solo: si el cajón NO se abrió —no hay, o esta terminal no
+   * es la caja— el cajero tiene que enterarse ahí mismo, no descubrirlo
+   * tirando del cajón con las manos ocupadas.
+   */
+  private abrirCajon(motivo: string): void {
+    if (impresion.abrirCajon(motivo)) this.flash("Cajón abierto");
   }
 
   private sincronizarActor(): void {
@@ -1401,6 +1414,15 @@ class TiendaPOS {
       this.guardarPropinaPendiente();
     }
 
+    /*
+     * Si se devuelve EFECTIVO, el cajón se abre: hay que sacar los billetes.
+     * Una devolución a tarjeta se reversa en la terminal bancaria y el cajón
+     * no pinta nada ahí.
+     */
+    if (devoluciones.some((d) => esPagoEnEfectivo(d.forma))) {
+      this.abrirCajon(`Devolución de la mesa ${plano.nombreMesa(mesaId)}`);
+    }
+
     this.flash(
       devuelto > 0
         ? `Venta cancelada · devolver ${(devuelto / 100).toFixed(2)}`
@@ -1872,6 +1894,22 @@ class TiendaPOS {
     // La cortesía también entrega comprobante al cliente, aunque no entre dinero.
     if (cortesiaTotal) await this.imprimirTicketCliente(comanda, t);
     this.emitir(mesaId, fabrica.crear("cuenta_cerrada", ordenId, { orden_id: ordenId }));
+
+    /*
+     * EL CAJÓN SE ABRE SOLO SI HUBO EFECTIVO.
+     *
+     * Decisión de Gonzalo, y es lo que hace un POS de restaurante. Un cobro con
+     * tarjeta o transferencia no tiene billetes que guardar ni cambio que dar:
+     * abrir el cajón ahí lo deja expuesto varias veces por servicio sin que
+     * nadie tenga nada que hacer con él.
+     *
+     * Una cuenta dividida SÍ cuenta si alguna de sus partes fue en efectivo —el
+     * cajero tiene que meter esos billetes igual—, y por eso se mira pago por
+     * pago y no la forma «principal» de la cuenta.
+     */
+    if (comanda.pagos.some((p) => esPagoEnEfectivo(p.forma))) {
+      this.abrirCajon(`Cobro de la mesa ${mesa}`);
+    }
 
     if (t.propina === 0 && !cortesiaTotal) {
       this.propinaPendiente = { mesa_id: mesaId, orden_id: ordenId };
