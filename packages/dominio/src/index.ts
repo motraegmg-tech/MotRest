@@ -33,6 +33,7 @@ export * from "./comanda/renglon.js";
 export * from "./comanda/eventos.js";
 export * from "./comanda/reducers.js";
 export * from "./comanda/totales.js";
+export * from "./comanda/retencion.js";
 
 // Caja
 export * from "./caja/eventos.js";

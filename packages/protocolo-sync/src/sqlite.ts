@@ -286,6 +286,17 @@ export class LogHub implements RepositorioEventos {
     return [];
   }
 
+  /*
+   * La retención tampoco aplica al Hub, y esta vez importa decir por qué: el
+   * Hub es la copia de referencia del local. Las terminales pueden aligerar su
+   * disco porque lo que tiran sigue estando aquí; si el Hub se purgara a sí
+   * mismo, esa red de seguridad desaparecería y el historial se perdería de
+   * verdad. Si algún día hace falta, será una decisión aparte y consciente.
+   */
+  async purgarStreams(_streamIds: readonly ID[]): Promise<number> {
+    return 0;
+  }
+
   async contar(): Promise<number> {
     const fila = this.db.prepare("SELECT COUNT(*) AS n FROM eventos").get() as { n: number };
     return fila.n;

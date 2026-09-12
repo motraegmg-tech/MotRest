@@ -16,6 +16,9 @@
     FORMAS_PAGO,
     avisoDe,
     cuentasCerradasEn,
+    etiquetaFormaPago,
+    mesasDeComanda,
+    totalesComanda,
     egresosEn,
     formatearCantidad,
     pesos,
@@ -32,7 +35,9 @@
   import { licencia } from "../../licencia.svelte";
   import { local } from "../../local.svelte";
   import { menu } from "../../menu.svelte";
+  import { plano } from "../../plano.svelte";
   import { pos } from "../../pos.svelte";
+  import VisorTicket from "./VisorTicket.svelte";
   import { tesoreria } from "../../tesoreria.svelte";
   import { mxn, hora } from "../../formato";
   import { sesion } from "../../sesion/sesion.svelte";
@@ -89,6 +94,27 @@
       total: sumar(efectivo, tarjeta, digitales, socios) as Centavos,
     };
   });
+
+  // --- Las cuentas de hoy, para poder ver su ticket ---------------------------
+
+  let verCuentas = $state(false);
+  let viendoTicket = $state<string | null>(null);
+
+  const cuentasDeHoy = $derived.by(() =>
+    [...cerradasHoy]
+      // De la más reciente hacia atrás: quien reclama algo reclama lo último.
+      .sort((a, b) => (b.cerrada_ts ?? b.abierta_ts) - (a.cerrada_ts ?? a.abierta_ts))
+      .map((c) => ({
+        orden_id: c.orden_id,
+        folio: c.orden_id.slice(-8).toUpperCase(),
+        mesa: plano.etiquetaMesas(mesasDeComanda(c)),
+        cuando: c.cerrada_ts ?? c.abierta_ts,
+        total: totalesComanda(c).total,
+        formas:
+          [...new Set(c.pagos.map((p) => etiquetaFormaPago(p.forma)))].join(" + ") || "—",
+        corregido: c.pagos.some((p) => p.forma_original),
+      })),
+  );
 
   // --- Captura ---
   let abierto = $state(false);
@@ -305,6 +331,58 @@
     <b>{mxn(reporteHoy.propinas)}</b> de propinas: entraron al cajón y a la
     terminal, pero no son ingreso del negocio, son del personal.
   </p>
+
+  <!--
+    LAS CUENTAS DE HOY, UNA POR UNA.
+
+    La tarjeta daba el total del día y nada más. «Vendimos 38 400» no sirve
+    cuando alguien reclama un cobro: hay que poder bajar hasta la cuenta y ver
+    su ticket. Va plegada porque el total es lo que se consulta a cada rato y el
+    detalle solo cuando hay una pregunta concreta.
+  -->
+  {#if cerradasHoy.length > 0}
+    <button class="desplegar" onclick={() => (verCuentas = !verCuentas)}>
+      <span class="flecha">{verCuentas ? "▾" : "▸"}</span>
+      {verCuentas ? "Ocultar" : "Ver"} las {cerradasHoy.length} cuentas de hoy
+    </button>
+
+    {#if verCuentas}
+      <div class="marco-cuentas">
+        <table class="cuentas-hoy">
+          <thead>
+            <tr>
+              <th>Hora</th>
+              <th>Mesa</th>
+              <th>Folio</th>
+              <th class="num">Total</th>
+              <th>Cobro</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>
+            {#each cuentasDeHoy as c (c.orden_id)}
+              <tr>
+                <td class="tenue">{hora(c.cuando)}</td>
+                <td><b>{c.mesa}</b></td>
+                <td class="folio">{c.folio}</td>
+                <td class="num">{mxn(c.total)}</td>
+                <td class="tenue">
+                  {c.formas}
+                  {#if c.corregido}<small class="corregido">corregido</small>{/if}
+                </td>
+                <td>
+                  <button class="mini" onclick={() => (viendoTicket = c.orden_id)}>
+                    Ver ticket
+                  </button>
+                </td>
+              </tr>
+            {/each}
+          </tbody>
+        </table>
+      </div>
+    {/if}
+  {/if}
+
 </section>
 
 <section class="tarjeta">
@@ -634,7 +712,75 @@
   </section>
 {/if}
 
+
+<!-- El mismo visor que usa la lista de tickets cobrados. -->
+{#if viendoTicket}
+  <VisorTicket ordenId={viendoTicket} onCerrar={() => (viendoTicket = null)} />
+{/if}
+
 <style>
+  /* --- Las cuentas de hoy, plegadas --- */
+  .desplegar {
+    display: flex;
+    align-items: center;
+    gap: 0.45rem;
+    margin-top: 0.9rem;
+    padding: 0.45rem 0;
+    background: none;
+    border: none;
+    font: inherit;
+    font-size: 0.84rem;
+    font-weight: 600;
+    color: var(--acento-texto);
+  }
+  .desplegar .flecha {
+    color: var(--gris);
+    font-size: 0.75rem;
+  }
+  .marco-cuentas {
+    overflow-x: auto;
+    margin-top: 0.2rem;
+  }
+  .cuentas-hoy {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.84rem;
+  }
+  .cuentas-hoy th {
+    text-align: left;
+    font-size: 0.68rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--gris);
+    padding: 0.35rem 0.45rem;
+    border-bottom: 1px solid var(--borde);
+    white-space: nowrap;
+  }
+  .cuentas-hoy td {
+    padding: 0.4rem 0.45rem;
+    border-bottom: 1px solid #f2f0ee;
+    vertical-align: top;
+  }
+  .cuentas-hoy .num {
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+  }
+  .cuentas-hoy .tenue {
+    color: var(--gris);
+  }
+  .cuentas-hoy .folio {
+    font-family: ui-monospace, Consolas, monospace;
+    font-size: 0.76rem;
+    color: var(--gris);
+  }
+  .cuentas-hoy .corregido {
+    display: block;
+    font-size: 0.68rem;
+    font-style: italic;
+    color: var(--acento-texto);
+  }
   .tarjeta {
     background: var(--superficie);
     border: 1px solid var(--borde);

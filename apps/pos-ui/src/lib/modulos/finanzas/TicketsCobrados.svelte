@@ -39,6 +39,7 @@
   import { plano } from "../../plano.svelte";
   import { pos } from "../../pos.svelte";
   import { sesion } from "../../sesion/sesion.svelte";
+  import VisorTicket from "./VisorTicket.svelte";
 
   /** Cuántos tickets se listan. Un servicio completo cabe sin desplazar. */
   const VENTANA = 40;
@@ -117,6 +118,24 @@
     if (ok) cancelando = null;
     else error = "No se canceló: falta la autorización o la venta ya estaba cancelada";
   }
+
+  // --- Ver el ticket ----------------------------------------------------------------
+
+  /**
+   * El papel de un cobro, en pantalla.
+   *
+   * Pedido de Gonzalo: poder ver el ticket de una cuenta concreta. Hasta
+   * ahora la lista decía cuánto y con qué se pagó, pero no QUÉ se vendió; para
+   * resolver una reclamación había que adivinar o volver al salón, donde la
+   * mesa ya está ocupada por otros.
+   *
+   * Se dibuja con la MISMA plantilla que sale por la impresora, así que lo
+   * que se ve en pantalla es literalmente el papel que se entregó. Mirarlo NO
+   * cuenta como reimpresión: esa queda en la bitácora porque es un vector de
+   * fraude conocido, y anotarla cada vez que alguien echa un vistazo la
+   * dejaría sin servir para detectar nada.
+   */
+  let viendo = $state<Fila | null>(null);
 
   // --- Corregir la forma de cobro -------------------------------------------------
 
@@ -247,6 +266,7 @@
               {/if}
             </td>
             <td class="acciones">
+              <button class="mini" onclick={() => (viendo = f)}>Ver ticket</button>
               {#if puedeCancelar && f.estado !== "cancelada"}
                 {#if f.comanda.pagos.length > 0}
                   <button class="mini" onclick={() => abrirCorreccion(f)}>Cambiar cobro</button>
@@ -392,6 +412,20 @@
       <button class="principal" onclick={confirmarCorreccion}>Corregir el cobro</button>
     </div>
   </div>
+{/if}
+
+
+<!-- El visor es compartido con «Venta de hoy»: un solo ticket, no dos copias. -->
+{#if viendo}
+  <VisorTicket
+    ordenId={viendo.comanda.orden_id}
+    onCerrar={() => (viendo = null)}
+    onCambiarCobro={(id) => {
+      const fila = filas.find((f) => f.comanda.orden_id === id);
+      viendo = null;
+      if (fila) abrirCorreccion(fila);
+    }}
+  />
 {/if}
 
 <style>

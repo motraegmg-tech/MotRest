@@ -21,6 +21,7 @@ import {
   type EventoPrenomina,
   type EventoSocio,
   type EventoTesoreria,
+  TIPOS_EVENTO_COMANDA,
   TIPOS_EVENTO_SOCIO,
   TIPOS_EVENTO_TESORERIA,
 } from "@motrest/dominio";
@@ -60,29 +61,16 @@ import { sesion } from "../sesion/sesion.svelte";
 import { sync } from "../sync.svelte";
 
 /** Eventos de comanda reconocidos, para separar el log por familia. */
-const TIPOS_COMANDA = new Set([
-  "orden_creada",
-  "item_agregado",
-  "item_modificado",
-  "item_cancelado",
-  "item_transferido",
-  "item_recibido",
-  "orden_identificada",
-  "items_enviados",
-  "item_en_marcha",
-  "item_listo",
-  "item_entregado",
-  "descuento_aplicado",
-  "cortesia_otorgada",
-  "cortesia_retirada",
-  "propina_registrada",
-  "pago_registrado",
-  "cuenta_cerrada",
-  "cuenta_reabierta",
-  "orden_anulada",
-  "venta_cancelada",
-  "ticket_reimpreso",
-]);
+/**
+ * Los tipos de comanda salen del DOMINIO, no de una copia aquí.
+ *
+ * La copia que había se quedó corta: le faltaban `cambio_visto`,
+ * `descuento_retirado` y `pago_corregido`. Esos eventos llegaban del Hub y
+ * el reparto los tiraba en silencio, así que ni se integraban en vivo ni se
+ * rehidrataban al arrancar. La lista del dominio va tipada, de modo que si
+ * mañana falta uno lo dice el compilador.
+ */
+const TIPOS_COMANDA = new Set<string>(TIPOS_EVENTO_COMANDA);
 
 /** Eventos del ciclo fiscal (CFDI), emisión y cancelación. */
 const TIPOS_FISCALES = new Set([
@@ -338,6 +326,23 @@ class Arranque {
       asistencia.conectarAlmacen(almacen);
       egresos.conectarAlmacen(almacen);
       await egresos.hidratarPresupuestos(almacen);
+
+      /*
+       * LA RETENCIÓN SE APLICA AL ARRANCAR, y solo al arrancar.
+       *
+       * El restaurante ya podía elegir cuánto historial conservar, pero nadie
+       * borraba nada: el ajuste no hacía nada. Aquí es donde surte efecto.
+       *
+       * Va al abrir la aplicación y no en mitad del servicio: recorrer el log
+       * entero mientras alguien cobra sería pagar una limpieza con la fluidez
+       * de la caja. Y no se espera —`void`— porque el POS tiene que estar
+       * usable ya; la purga termina cuando termine.
+       */
+      void pos.purgarHistorial(local.retencionMeses).then((retirados) => {
+        if (retirados > 0) {
+          console.info(`Retención: se retiraron ${retirados} registros de operación antiguos`);
+        }
+      });
       tesoreria.conectarAlmacen(almacen);
       compras.conectarAlmacen(almacen);
       caja.conectarAlmacen(almacen);

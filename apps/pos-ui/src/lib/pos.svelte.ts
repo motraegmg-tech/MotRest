@@ -7,7 +7,9 @@
 import {
   CERO,
   FabricaEventos,
+  TIPOS_EVENTO_COMANDA,
   agruparPorMesa,
+  ordenesPurgables,
   huerfanosDeMesa,
   mesaPorOrden,
   compararEventos,
@@ -48,6 +50,7 @@ import { menu } from "./menu.svelte";
 import { configurador } from "./configurador.svelte";
 import { inventario } from "./inventario.svelte";
 import { plano } from "./plano.svelte";
+import type { DatosPrecuenta } from "@motrest/impresion";
 import { impresion } from "./impresion.svelte";
 import { EMPLEADO_ACTUAL, SUCURSAL_ID, datosLocal, obtenerDeviceId } from "./presentacion";
 import { local } from "./local.svelte";
@@ -58,6 +61,9 @@ import { sesion } from "./sesion/sesion.svelte";
 import { sync } from "./sync.svelte";
 
 export type EstadoMesa = "libre" | "ocupada" | "cuenta";
+
+/** Qué eventos pertenecen a una comanda. Sale del dominio para no divergir. */
+const TIPOS_DE_COMANDA = new Set<string>(TIPOS_EVENTO_COMANDA);
 
 const fabrica = new FabricaEventos<EventoComanda>({
   device_id: obtenerDeviceId(),
@@ -185,6 +191,43 @@ class TiendaPOS {
     }
 
     this.logs = siguiente;
+  }
+
+  /**
+   * Retira del disco el historial más viejo que la retención elegida.
+   *
+   * El restaurante ya podía ELEGIR cuánto conservar —la opción y su
+   * advertencia llevaban tiempo en la pantalla de ventas— pero nadie borraba
+   * nada: era un ajuste decorativo. Esto es lo que le da efecto.
+   *
+   * Se llama al arrancar y al cambiar el ajuste, nunca en mitad del servicio:
+   * recorrer el log entero mientras alguien cobra sería pagar una limpieza
+   * con la fluidez de la caja.
+   *
+   * Devuelve cuántos eventos se retiraron. Cero es respuesta legítima: no
+   * había nada bastante viejo, o lo que había todavía no está a salvo en el
+   * Hub —y en ese caso NO se toca—.
+   */
+  async purgarHistorial(mesesRetencion: number): Promise<number> {
+    const almacen = this.almacen;
+    if (!almacen) return 0;
+
+    const { ordenes } = ordenesPurgables(this.todasLasComandas, mesesRetencion);
+    if (ordenes.length === 0) return 0;
+
+    const retirados = await almacen.eventos.purgarStreams(ordenes);
+    if (retirados === 0) return 0;
+
+    /*
+     * La memoria se rehace desde el disco YA purgado, en vez de quitar a mano
+     * lo que se cree haber borrado. El almacén pudo saltarse cuentas con algo
+     * pendiente, y solo él sabe cuáles: descontarlas aquí por nuestra cuenta
+     * dejaría la pantalla enseñando menos de lo que de verdad hay guardado.
+     */
+    const quedan = (await almacen.eventos.leerTodos()) as EventoComanda[];
+    this.hidratar(quedan.filter((e) => TIPOS_DE_COMANDA.has(e.tipo)));
+
+    return retirados;
   }
 
   // --- Emisión ------------------------------------------------------------------
@@ -1212,6 +1255,73 @@ class TiendaPOS {
     return this.todasLasComandas
       .filter((c) => !c.anulada && (c.pagos.length > 0 || c.cerrada))
       .sort((a, b) => (b.cerrada_ts ?? b.abierta_ts) - (a.cerrada_ts ?? a.abierta_ts));
+  }
+
+  /**
+   * El papel de CUALQUIER cuenta, para poder mirarlo desde Finanzas.
+   *
+   * `reimprimirTicket` solo sabía del ticket de la mesa activa, que sirve
+   * mientras el comensal está sentado y no después: quien revisa lo cobrado del
+   * día lo hace desde Finanzas, con la mesa ya libre y ocupada por otros.
+   *
+   * Devuelve los DATOS, no imprime. Mirar un ticket no es reimprimirlo: la
+   * reimpresión queda anotada en la bitácora porque es un vector de fraude
+   * conocido —se cobra, se entrega el papel, se reimprime y se vuelve a cobrar
+   * con él—, y ensuciar ese registro cada vez que alguien echa un vistazo lo
+   * dejaría sin servir para detectar nada.
+   */
+  datosDelTicket(ordenId: ID): DatosPrecuenta | null {
+    const comanda = this.todasLasComandas.find((c) => c.orden_id === ordenId);
+    if (!comanda) return null;
+
+    const t = totalesComanda(comanda);
+
+    return {
+      ...this.datosComunesDelPapel(comanda, t),
+      folio: comanda.orden_id.slice(-8).toUpperCase(),
+      // La hora del COBRO, no la de ahora: es el papel de aquel momento.
+      ts: comanda.cerrada_ts ?? comanda.abierta_ts,
+      local: local.fichaParaTicket(datosLocal.nombre),
+      textos: local.textosTicket,
+      /*
+       * Sin códigos QR a propósito.
+       *
+       * El del ticket impreso invita a opinar y caduca; el otro lo pone el
+       * local. Ninguno de los dos sirve en una pantalla que alguien mira días
+       * después para revisar un cobro, y pintarlos solo estorbaría lo que sí se
+       * viene a leer: los renglones y cómo se pagó.
+       */
+      qrs: [],
+      mesa: plano.etiquetaMesas(mesasDeComanda(comanda)),
+      a_nombre_de: comanda.a_nombre_de,
+      mesero: sesion.nombreDe(comanda.mesero_id),
+      propina: t.propina,
+      pagos: comanda.pagos.map((p) => ({
+        forma: etiquetaFormaPago(p.forma),
+        monto: p.monto,
+      })),
+      cambio: t.cambio,
+    };
+  }
+
+  /**
+   * Vuelve a imprimir el ticket de una cuenta cualquiera, y lo deja anotado.
+   *
+   * A diferencia de mirarlo, esto SÍ cuenta como reimpresión: sale papel, y el
+   * papel es lo que se puede usar para cobrar dos veces.
+   */
+  async reimprimirTicketDe(ordenId: ID): Promise<boolean> {
+    const mesaId = this.mesaDeOrden(ordenId);
+    const comanda = this.todasLasComandas.find((c) => c.orden_id === ordenId);
+    if (!mesaId || !comanda) return false;
+
+    const numero = (comanda.reimpresiones ?? 0) + 1;
+    this.sincronizarActor();
+    this.emitir(mesaId, fabrica.crear("ticket_reimpreso", ordenId, { orden_id: ordenId, numero }));
+
+    await this.imprimirTicketCliente(comanda, totalesComanda(comanda), numero);
+    this.flash(`Ticket reimpreso (copia ${numero})`);
+    return true;
   }
 
   /**

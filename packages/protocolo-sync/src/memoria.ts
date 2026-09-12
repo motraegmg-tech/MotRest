@@ -84,6 +84,27 @@ export class RepositorioEventosMemoria implements RepositorioEventos {
      */
   }
 
+  async purgarStreams(streamIds: readonly ID[]): Promise<number> {
+    const objetivo = new Set(streamIds);
+    if (objetivo.size === 0) return 0;
+
+    // Las que tengan algo sin confirmar se saltan ENTERAS: media cuenta
+    // borrada deja renglones que ya no se pueden ubicar en ninguna mesa.
+    const conPendientes = new Set<string>();
+    for (const ev of this.porId.values()) {
+      if (objetivo.has(ev.stream_id) && ev.seq === undefined) conPendientes.add(ev.stream_id);
+    }
+
+    let retirados = 0;
+    for (const [id, ev] of [...this.porId]) {
+      if (!objetivo.has(ev.stream_id) || conPendientes.has(ev.stream_id)) continue;
+      this.porId.delete(id);
+      this.rechazadosPorId.delete(id);
+      retirados += 1;
+    }
+    return retirados;
+  }
+
   async contar(): Promise<number> {
     return this.porId.size;
   }

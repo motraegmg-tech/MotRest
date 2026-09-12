@@ -223,6 +223,81 @@ describe.each(implementaciones)("repositorio de eventos (%s)", (_nombre, crear) 
     expect(await almacen.eventos.pendientes()).toHaveLength(1);
   });
 
+  // --- La purga por retención -------------------------------------------------------
+  //
+  // Lo que importa aquí no es lo que se borra, sino LO QUE NO. Un evento que
+  // sigue en el outbox es un hecho que todavía no existe en ninguna otra parte:
+  // tirarlo lo perdería para siempre y sin rastro.
+
+  it("retira los eventos de las cuentas que se le piden", async () => {
+    const vieja = eventos(3, "orden-vieja");
+    const nueva = eventos(2, "orden-nueva");
+    await almacen.eventos.anexar([...vieja, ...nueva]);
+    // Todo confirmado: está a salvo en el Hub.
+    await almacen.eventos.confirmar(
+      [...vieja, ...nueva].map((e, i) => ({ id: e.id, seq: i + 1 })),
+    );
+
+    const retirados = await almacen.eventos.purgarStreams(["orden-vieja"]);
+
+    expect(retirados).toBe(3);
+    expect(await almacen.eventos.contar()).toBe(2);
+    expect((await almacen.eventos.leerStream("orden-vieja"))).toHaveLength(0);
+    expect((await almacen.eventos.leerStream("orden-nueva"))).toHaveLength(2);
+  });
+
+  it("NO retira una cuenta con algo sin confirmar, y la salta ENTERA", async () => {
+    /*
+     * Media cuenta borrada es peor que ninguna: quedan renglones sueltos que ya
+     * no se pueden ubicar en ninguna mesa. Si una sola pieza está pendiente, la
+     * cuenta completa se queda.
+     */
+    const lote = eventos(3, "orden-a-medias");
+    await almacen.eventos.anexar(lote);
+    // Solo dos de los tres llegaron al Hub.
+    await almacen.eventos.confirmar([
+      { id: lote[0]!.id, seq: 1 },
+      { id: lote[1]!.id, seq: 2 },
+    ]);
+
+    const retirados = await almacen.eventos.purgarStreams(["orden-a-medias"]);
+
+    expect(retirados).toBe(0);
+    expect(await almacen.eventos.contar()).toBe(3);
+  });
+
+  it("una cuenta pendiente no impide limpiar las demás", async () => {
+    const buena = eventos(2, "orden-confirmada");
+    const pendiente = eventos(2, "orden-pendiente");
+    await almacen.eventos.anexar([...buena, ...pendiente]);
+    await almacen.eventos.confirmar(buena.map((e, i) => ({ id: e.id, seq: i + 1 })));
+
+    const retirados = await almacen.eventos.purgarStreams([
+      "orden-confirmada",
+      "orden-pendiente",
+    ]);
+
+    expect(retirados).toBe(2);
+    expect((await almacen.eventos.leerStream("orden-pendiente"))).toHaveLength(2);
+  });
+
+  it("purgar una lista vacía no hace nada", async () => {
+    await almacen.eventos.anexar(eventos(2));
+    expect(await almacen.eventos.purgarStreams([])).toBe(0);
+    expect(await almacen.eventos.contar()).toBe(2);
+  });
+
+  it("lo purgado sale también del outbox y de los rechazados", async () => {
+    const lote = eventos(2, "orden-x");
+    await almacen.eventos.anexar(lote);
+    await almacen.eventos.confirmar(lote.map((e, i) => ({ id: e.id, seq: i + 1 })));
+
+    await almacen.eventos.purgarStreams(["orden-x"]);
+
+    expect(await almacen.eventos.pendientes()).toHaveLength(0);
+    expect(await almacen.eventos.rechazados()).toHaveLength(0);
+  });
+
 });
 
 describe.each(implementaciones)("almacén de estado (%s)", (_nombre, crear) => {
