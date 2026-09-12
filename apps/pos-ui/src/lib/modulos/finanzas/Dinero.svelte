@@ -292,6 +292,9 @@
         cfdis: fiscal.registros,
         sesiones: caja.sesiones,
         tesoreria: tesoreria.todosLosEventos,
+        // Sin esto el informe de un mes viejo saldría en ceros y con el dinero
+        // desplomado, porque sus cuentas ya no están en el disco.
+        arrastre: tesoreria.arrastreDePurga,
       },
       rangoMes,
     );

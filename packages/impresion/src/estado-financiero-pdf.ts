@@ -103,7 +103,12 @@ class Maqueta {
       this.y = this.encabezadoPrincipal(pagina);
     } else {
       pagina.texto(MARGEN, 44, this.estado.local, { fuente: "negrita", tamano: 9, gris: 0.45 });
-      pagina.texto(DERECHA, 44, `Estado financiero · ${nombreDelPeriodo(this.estado.desde)}`, {
+      /*
+       * El aviso se repite en cada hoja: un informe se fotocopia, se manda por
+       * partes y se archiva suelto. La página 4 tiene que poder defenderse sola.
+       */
+      const rotulo = `Estado financiero · ${nombreDelPeriodo(this.estado.desde)}`;
+      pagina.texto(DERECHA, 44, this.estado.periodo_incompleto ? `${rotulo} · INCOMPLETO` : rotulo, {
         tamano: 9,
         gris: 0.45,
         alineacion: "derecha",
@@ -245,6 +250,52 @@ class Maqueta {
 }
 
 // --- Las secciones ---------------------------------------------------------------------------
+
+/**
+ * El aviso de que a este período le falta historial.
+ *
+ * ## Por qué es lo primero que se ve
+ *
+ * La retención borra del disco las cuentas más viejas que el plazo elegido. Un
+ * informe de un mes ya retirado no sale con error: sale con números pequeños,
+ * que es mucho peor, porque se puede firmar y entregar sin que nadie sospeche.
+ * Va arriba del todo y antes de las cifras, porque un aviso al pie lo lee quien
+ * ya tomó la decisión.
+ *
+ * El dinero al cierre SÍ es correcto —lo sostiene el arrastre— y el papel lo
+ * dice, para que nadie intente «arreglar» un saldo que está bien.
+ */
+function avisoDeHistorialRetirado(m: Maqueta, estado: EstadoFinanciero): void {
+  if (!estado.periodo_incompleto) return;
+
+  const alto = 68;
+  m.asegurar(alto + 10);
+  const hoja = m.hoja;
+  const y = m.cursor;
+
+  hoja.rectangulo(MARGEN, y, ANCHO_UTIL, alto, 0.93);
+  hoja.rectangulo(MARGEN, y, 3, alto, 0.45);
+
+  hoja.texto(MARGEN + 12, y + 17, "Informe incompleto: a este período le falta historial", {
+    fuente: "negrita",
+    tamano: 9.5,
+  });
+  /*
+   * Los renglones van partidos a mano y medidos —ver la prueba— porque la
+   * maqueta no reparte texto: escribe donde se le dice. Una línea de más se
+   * saldría del papel sin avisar.
+   */
+  const renglones = [
+    `Las cuentas anteriores al ${fechaLarga(estado.historial_retirado_hasta)} se retiraron de esta`,
+    "computadora por la política de retención elegida. La venta y los gastos de abajo son",
+    "solo los que siguen guardados. El dinero al cierre sí es correcto.",
+  ];
+  renglones.forEach((linea, i) => {
+    hoja.texto(MARGEN + 12, y + 31 + i * 12, linea, { tamano: 8, gris: 0.3 });
+  });
+
+  m.avanzar(alto + 10);
+}
 
 /**
  * Las cuatro cifras de arriba.
@@ -580,6 +631,7 @@ export function estadoFinancieroPdf(estado: EstadoFinanciero): Uint8Array {
   );
   const m = new Maqueta(doc, estado);
 
+  avisoDeHistorialRetirado(m, estado);
   tarjetasResumen(m, estado);
   m.espacio(10);
   seccionIngresos(m, estado);

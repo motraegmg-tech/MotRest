@@ -8,7 +8,7 @@
  */
 import { describe, expect, it } from "vitest";
 import type { Centavos, EstadoFinanciero } from "@motrest/dominio";
-import { DocumentoPdf, anchoDeTexto, recortar } from "../pdf.js";
+import { CARTA, DocumentoPdf, anchoDeTexto, recortar } from "../pdf.js";
 import { estadoFinancieroPdf, importe, nombreArchivoEstado } from "../estado-financiero-pdf.js";
 
 const c = (n: number) => n as Centavos;
@@ -233,6 +233,8 @@ function estadoDePrueba(gastos: number): EstadoFinanciero {
     },
     por_pagar: c(4_200_00),
     documentos_por_pagar: 3,
+    historial_retirado_hasta: 0,
+    periodo_incompleto: false,
     cortes: {
       turnos: 26,
       turnos_abiertos: 1,
@@ -272,6 +274,52 @@ describe("estado financiero en PDF", () => {
   it("nombra el archivo con el mes y el local, sin acentos ni espacios", () => {
     const nombre = nombreArchivoEstado(estadoDePrueba(1));
     expect(nombre).toBe("estado-financiero-2026-09-rodizio-pizzas-y-pasta.pdf");
+  });
+
+  it("un mes al que le retiraron historial lo dice ARRIBA, no al pie", () => {
+    /*
+     * Es el papel que alguien le entrega a su contador. Un informe al que le
+     * faltan cuentas no sale con error: sale con números pequeños, y eso se
+     * firma sin sospechar. El aviso tiene que estar antes de las cifras.
+     */
+    const base = estadoDePrueba(3);
+    const texto = comoTexto(
+      estadoFinancieroPdf({
+        ...base,
+        historial_retirado_hasta: base.desde - 5 * 86_400_000,
+        periodo_incompleto: true,
+      }),
+    );
+
+    expect(texto).toContain("Informe incompleto");
+    // Y lo repite en la cabecera de las hojas siguientes: un informe se fotocopia.
+    expect(texto).toContain("INCOMPLETO");
+  });
+
+  it("un mes completo NO lleva el aviso", () => {
+    // Un aviso que sale siempre deja de leerse.
+    expect(comoTexto(estadoFinancieroPdf(estadoDePrueba(3)))).not.toContain("Informe incompleto");
+  });
+
+  it("los renglones del aviso caben en la hoja", () => {
+    /*
+     * La maqueta escribe donde se le dice: no reparte texto ni corta. Una
+     * línea de más se saldría del papel sin que nada fallara, y el aviso
+     * quedaría a medias justo en el documento donde más importa.
+     */
+    const base = estadoDePrueba(1);
+    const util = CARTA.ancho - 54 * 2 - 24;
+    const lineas = [
+      `Las cuentas anteriores al 30 de septiembre de 2026 se retiraron de esta`,
+      "computadora por la política de retención elegida. La venta y los gastos de abajo son",
+      "solo los que siguen guardados. El dinero al cierre sí es correcto.",
+      "Informe incompleto: a este período le falta historial",
+    ];
+
+    for (const linea of lineas) {
+      expect(anchoDeTexto(linea, "normal", 9.5)).toBeLessThan(util);
+    }
+    expect(base.periodo_incompleto).toBe(false);
   });
 
   it("un mes sin nada tampoco rompe el papel", () => {

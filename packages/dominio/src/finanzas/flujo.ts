@@ -41,6 +41,34 @@ import {
   type SaldosTesoreria,
 } from "./tesoreria.js";
 
+/**
+ * El saldo que traía el historial ya retirado del disco de esta terminal.
+ *
+ * ## Por qué existe
+ *
+ * El saldo se calcula sumando los cobros de las comandas. La retención borra
+ * las cuentas más viejas que el plazo elegido, y con ellas se irían sus cobros:
+ * purgar seis meses haría caer el dinero «que debe haber» por el importe de
+ * todo lo vendido en ese tiempo. Medido: 55 000 pesos de saldo pasaban a 5 000
+ * al retirar cien cuentas.
+ *
+ * ## Por qué NO es un evento
+ *
+ * Sería lo natural —un `saldo_ajustado` y listo— y sería un error. Cada
+ * terminal purga por su cuenta y a su ritmo; un evento se replica a todas, así
+ * que la que todavía conserva esas comandas sumaría el arrastre ADEMÁS de los
+ * cobros originales, y su saldo saldría inflado.
+ *
+ * Por eso es estado LOCAL de cada máquina: describe qué le falta a ESTE disco,
+ * no un hecho del restaurante.
+ */
+export interface ArrastreDePurga {
+  efectivo: Centavos;
+  banco: Centavos;
+  /** Hasta qué fecha llega lo retirado. Solo para poder explicarlo en pantalla. */
+  hasta: number;
+}
+
 /** Todo lo que hace falta para reconstruir el dinero del restaurante. */
 export interface FuentesDeFlujo {
   /** Todas las comandas, cerradas y canceladas incluidas. */
@@ -51,6 +79,18 @@ export interface FuentesDeFlujo {
   sesiones: readonly EstadoCaja[];
   /** Depósitos, retiros del banco y ajustes justificados. */
   tesoreria: readonly EventoTesoreria[];
+  /** Lo que aportaba el historial retirado. Ver `ArrastreDePurga`. */
+  arrastre?: ArrastreDePurga;
+}
+
+/**
+ * Cuánto dinero aportan unas comandas, por cuenta.
+ *
+ * Se usa al purgar: es exactamente lo que hay que arrastrar para que el saldo
+ * no se mueva al retirarlas del disco.
+ */
+export function dineroDeComandas(comandas: readonly EstadoComanda[]): SaldosTesoreria {
+  return saldosDe(movimientosDeVentas(comandas));
 }
 
 /**
@@ -160,11 +200,57 @@ function movimientosDeCaja(sesiones: readonly EstadoCaja[]): MovimientoDinero[] 
  */
 export function flujoDeDinero(fuentes: FuentesDeFlujo): MovimientoDinero[] {
   return [
+    ...movimientosDelArrastre(fuentes.arrastre),
     ...movimientosDeVentas(fuentes.comandas),
     ...movimientosDeEgresos(fuentes.egresos),
     ...movimientosDeCaja(fuentes.sesiones),
     ...movimientosDeTesoreria(fuentes.tesoreria),
   ].sort((a, b) => a.ts - b.ts);
+}
+
+/**
+ * El historial retirado, como dos renglones más del flujo.
+ *
+ * Entra por la misma puerta que todo lo demás y no como un número aparte: así
+ * el saldo, el saldo arrastrado del histórico y el resumen del período salen
+ * bien los tres sin que ninguno tenga que acordarse de sumarlo.
+ *
+ * Lleva la fecha de lo último retirado, así que queda ANTES de todo lo que
+ * sobrevive — que es justo donde va un saldo de apertura.
+ */
+function movimientosDelArrastre(arrastre?: ArrastreDePurga): MovimientoDinero[] {
+  if (!arrastre) return [];
+
+  const renglones: MovimientoDinero[] = [];
+  const concepto = "Historial retirado de esta computadora";
+
+  if (arrastre.efectivo !== 0) {
+    renglones.push({
+      id: "arrastre:efectivo",
+      ts: arrastre.hasta,
+      cuenta: "efectivo",
+      origen: "arrastre",
+      concepto,
+      monto: arrastre.efectivo,
+      justificacion:
+        "Saldo que traían las cuentas más viejas que el plazo de conservación elegido.",
+    });
+  }
+
+  if (arrastre.banco !== 0) {
+    renglones.push({
+      id: "arrastre:banco",
+      ts: arrastre.hasta,
+      cuenta: "banco",
+      origen: "arrastre",
+      concepto,
+      monto: arrastre.banco,
+      justificacion:
+        "Saldo que traían las cuentas más viejas que el plazo de conservación elegido.",
+    });
+  }
+
+  return renglones;
 }
 
 /** Los dos saldos del restaurante, ahora mismo. */

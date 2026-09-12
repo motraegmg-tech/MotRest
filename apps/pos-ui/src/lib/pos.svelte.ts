@@ -9,6 +9,8 @@ import {
   FabricaEventos,
   TIPOS_EVENTO_COMANDA,
   agruparPorMesa,
+  dineroDeComandas,
+  type ArrastreDePurga,
   esPagoEnEfectivo,
   ordenesPurgables,
   huerfanosDeMesa,
@@ -62,6 +64,28 @@ import { sesion } from "./sesion/sesion.svelte";
 import { sync } from "./sync.svelte";
 
 export type EstadoMesa = "libre" | "ocupada" | "cuenta";
+
+/** Lo que dejó una purga por retención. */
+export interface ResultadoPurga {
+  /** Eventos retirados del disco. */
+  retirados: number;
+  /** Cuentas completas que se fueron. */
+  cuentas: number;
+  /**
+   * El dinero que aportaban, para que el saldo no se mueva.
+   *
+   * Quien llama tiene que dárselo a tesorería. No lo hace este store porque
+   * tesorería depende de él —lee sus comandas— y llamarla desde aquí cerraría
+   * el círculo.
+   */
+  arrastre: ArrastreDePurga;
+}
+
+const SIN_PURGA: ResultadoPurga = {
+  retirados: 0,
+  cuentas: 0,
+  arrastre: { efectivo: CERO, banco: CERO, hasta: 0 },
+};
 
 /** Qué eventos pertenecen a una comanda. Sale del dominio para no divergir. */
 const TIPOS_DE_COMANDA = new Set<string>(TIPOS_EVENTO_COMANDA);
@@ -209,15 +233,39 @@ class TiendaPOS {
    * había nada bastante viejo, o lo que había todavía no está a salvo en el
    * Hub —y en ese caso NO se toca—.
    */
-  async purgarHistorial(mesesRetencion: number): Promise<number> {
+  async purgarHistorial(mesesRetencion: number): Promise<ResultadoPurga> {
     const almacen = this.almacen;
-    if (!almacen) return 0;
+    if (!almacen) return SIN_PURGA;
 
-    const { ordenes } = ordenesPurgables(this.todasLasComandas, mesesRetencion);
-    if (ordenes.length === 0) return 0;
+    const { ordenes, hasta } = ordenesPurgables(this.todasLasComandas, mesesRetencion);
+    if (ordenes.length === 0) return SIN_PURGA;
 
     const retirados = await almacen.eventos.purgarStreams(ordenes);
-    if (retirados === 0) return 0;
+    if (retirados === 0) return SIN_PURGA;
+
+    /*
+     * EL DINERO DE LO RETIRADO SE ARRASTRA, o el saldo se desploma.
+     *
+     * El saldo del restaurante se calcula sumando los cobros. Al borrar las
+     * cuentas viejas se van sus cobros con ellas: medido antes de arreglarlo,
+     * un local con seis meses de operación pasaba de 55 000 pesos de saldo a
+     * 5 000 al retirar cien cuentas.
+     *
+     * Se calcula sobre lo que DE VERDAD se fue, no sobre lo que se pidió
+     * retirar: el almacén se salta las cuentas con algo sin confirmar, y
+     * arrastrar el dinero de una cuenta que sigue en el disco lo contaría dos
+     * veces.
+     */
+    const idsRetirados = new Set(ordenes);
+    const sobreviven = new Set(
+      ((await almacen.eventos.leerTodos()) as EventoComanda[])
+        .filter((e) => idsRetirados.has(e.stream_id))
+        .map((e) => e.stream_id),
+    );
+    const retiradas = this.todasLasComandas.filter(
+      (c) => idsRetirados.has(c.orden_id) && !sobreviven.has(c.orden_id),
+    );
+    const dinero = dineroDeComandas(retiradas);
 
     /*
      * La memoria se rehace desde el disco YA purgado, en vez de quitar a mano
@@ -228,7 +276,11 @@ class TiendaPOS {
     const quedan = (await almacen.eventos.leerTodos()) as EventoComanda[];
     this.hidratar(quedan.filter((e) => TIPOS_DE_COMANDA.has(e.tipo)));
 
-    return retirados;
+    return {
+      retirados,
+      cuentas: retiradas.length,
+      arrastre: { efectivo: dinero.efectivo, banco: dinero.banco, hasta },
+    };
   }
 
   // --- Emisión ------------------------------------------------------------------

@@ -237,4 +237,64 @@ describe("los cortes del mes en el informe", () => {
     expect(estado.cortes.turnos_abiertos).toBe(0);
     expect(estado.cortes.diferencia).toBe(pesos(-50));
   });
+
+  describe("un mes al que le retiraron historial", () => {
+    /*
+     * El informe es el papel que acaba en manos de un contador. Si la
+     * retención ya borró las cuentas del período, sale con números pequeños
+     * —no con un error—, y eso se firma y se entrega sin sospechar nada.
+     *
+     * Se comprueban las dos mitades del arreglo: que el papel lo DIGA, y que
+     * el dinero al cierre NO se desplome por haber borrado ventas viejas.
+     */
+    const conArrastre = (hasta: number) =>
+      armarEstadoFinanciero(
+        {
+          local: "Rodizio",
+          comandas: [],
+          egresos: [],
+          cfdis: [],
+          sesiones: [],
+          tesoreria: [],
+          arrastre: { efectivo: pesos(20_000), banco: pesos(30_000), hasta },
+        },
+        SEPTIEMBRE,
+        SEPTIEMBRE.hasta,
+      );
+
+    it("se marca como incompleto y dice hasta cuándo", () => {
+      const estado = conArrastre(SEPTIEMBRE.desde + 5 * 86_400_000);
+      expect(estado.periodo_incompleto).toBe(true);
+      expect(estado.historial_retirado_hasta).toBe(SEPTIEMBRE.desde + 5 * 86_400_000);
+    });
+
+    it("el dinero al cierre NO se desploma: el arrastre lo sostiene", () => {
+      // Sin esto el papel diría que el restaurante tiene $0 y alguien lo creería.
+      const estado = conArrastre(SEPTIEMBRE.desde + 5 * 86_400_000);
+      expect(estado.flujo.final.total).toBe(pesos(50_000));
+      expect(estado.flujo.final.efectivo).toBe(pesos(20_000));
+    });
+
+    it("un mes POSTERIOR a lo retirado está completo", () => {
+      /*
+       * Es lo que evita que el aviso salga para siempre. Retirado hasta marzo,
+       * el informe de septiembre tiene todas sus cuentas: avisar ahí enseñaría
+       * a ignorar el aviso justo antes del mes en que sí importa.
+       */
+      const estado = conArrastre(SEPTIEMBRE.desde - 90 * 86_400_000);
+      expect(estado.periodo_incompleto).toBe(false);
+      // Pero el dinero sigue contando lo retirado: el saldo es del restaurante, no del mes.
+      expect(estado.flujo.final.total).toBe(pesos(50_000));
+    });
+
+    it("sin purga alguna, ni aviso ni fecha", () => {
+      const estado = armarEstadoFinanciero(
+        { local: "Rodizio", comandas: [], egresos: [], cfdis: [], sesiones: [], tesoreria: [] },
+        SEPTIEMBRE,
+        SEPTIEMBRE.hasta,
+      );
+      expect(estado.periodo_incompleto).toBe(false);
+      expect(estado.historial_retirado_hasta).toBe(0);
+    });
+  });
 });

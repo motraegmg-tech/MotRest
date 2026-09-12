@@ -338,10 +338,20 @@ class Arranque {
        * de la caja. Y no se espera —`void`— porque el POS tiene que estar
        * usable ya; la purga termina cuando termine.
        */
-      void pos.purgarHistorial(local.retencionMeses).then((retirados) => {
-        if (retirados > 0) {
-          console.info(`Retención: se retiraron ${retirados} registros de operación antiguos`);
-        }
+      await tesoreria.hidratarArrastre(almacen);
+      void pos.purgarHistorial(local.retencionMeses).then(async (purga) => {
+        if (purga.retirados === 0) return;
+        /*
+         * EL ARRASTRE VA ANTES QUE EL AVISO.
+         *
+         * El saldo del restaurante se calcula sumando los cobros, así que
+         * retirar cuentas sin arrastrar su dinero lo desploma. Medido: 55 000
+         * pesos pasaban a 5 000 al purgar cien cuentas.
+         */
+        await tesoreria.sumarArrastre(purga.arrastre, almacen);
+        console.info(
+          `Retención: se retiraron ${purga.cuentas} cuentas (${purga.retirados} registros)`,
+        );
       });
       tesoreria.conectarAlmacen(almacen);
       compras.conectarAlmacen(almacen);

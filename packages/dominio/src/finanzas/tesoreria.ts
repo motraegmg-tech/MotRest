@@ -175,6 +175,19 @@ export const TIPOS_EVENTO_TESORERIA: TipoEventoTesoreria[] = [
 
 /** De dónde salió un renglón del movimiento del dinero. */
 export type OrigenMovimiento =
+  /**
+   * El saldo que traía el historial que se retiró del disco.
+   *
+   * La retención borra de la terminal las cuentas más viejas que el plazo
+   * elegido, y con ellas se irían sus cobros — que son de donde sale el
+   * saldo. Sin este renglón, purgar seis meses haría caer el dinero «que
+   * debe haber» por el importe de todo lo vendido en ese tiempo.
+   *
+   * Es lo que hace la contabilidad al cerrar un período: se arrastra el
+   * saldo y se sigue desde ahí. Aparece en el histórico con su nombre, para
+   * que nadie tenga que adivinar de dónde sale esa cifra de partida.
+   */
+  | "arrastre"
   | "venta"
   | "devolucion"
   | "gasto"

@@ -47,7 +47,7 @@ import {
   type RegistroEgreso,
 } from "./egresos.js";
 import { calcularResultado, type ResultadoPeriodo } from "./egresos.js";
-import { resumenDeFlujo, type ResumenFlujo } from "./flujo.js";
+import { resumenDeFlujo, type ArrastreDePurga, type ResumenFlujo } from "./flujo.js";
 import type { EventoTesoreria } from "./tesoreria.js";
 
 /** Un gasto concreto, tal como se lista debajo de su categoría. */
@@ -102,6 +102,26 @@ export interface EstadoFinanciero {
   por_pagar: Centavos;
   documentos_por_pagar: number;
 
+  /**
+   * Hasta qué fecha se retiró historial de esta computadora, si se retiró.
+   *
+   * La retención borra del disco las cuentas más viejas que el plazo elegido.
+   * Un informe de un mes ya retirado saldría con CERO ventas —no porque no se
+   * vendiera, sino porque el detalle ya no está— y eso es un documento que
+   * alguien podría entregarle a su contador.
+   *
+   * 0 = no se ha retirado nada y el informe está completo.
+   */
+  historial_retirado_hasta: number;
+
+  /**
+   * true = el período pedido cae, entero o en parte, en lo ya retirado.
+   *
+   * Cuando es true el papel lo dice en su cabecera. Un informe incompleto que
+   * no se anuncia como incompleto es peor que no tener informe.
+   */
+  periodo_incompleto: boolean;
+
   /** Los cortes de caja del mes y sus diferencias. */
   cortes: {
     turnos: number;
@@ -119,6 +139,14 @@ export interface FuentesEstadoFinanciero {
   cfdis: readonly RegistroCfdi[];
   sesiones: readonly EstadoCaja[];
   tesoreria: readonly EventoTesoreria[];
+  /**
+   * Lo que aportaba el historial ya retirado de esta computadora.
+   *
+   * Va aquí y no solo como fecha porque el informe lo necesita para DOS cosas
+   * distintas: avisar de que al período le faltan cuentas, y que el «dinero al
+   * cierre» del papel no se desplome por haber borrado las ventas viejas.
+   */
+  arrastre?: ArrastreDePurga;
 }
 
 /**
@@ -180,6 +208,7 @@ export function armarEstadoFinanciero(
       egresos: fuentes.egresos,
       sesiones: fuentes.sesiones,
       tesoreria: fuentes.tesoreria,
+      arrastre: fuentes.arrastre,
     },
     rango,
   );
@@ -197,6 +226,13 @@ export function armarEstadoFinanciero(
     total_gastos: sumar(...gastos.map((g) => g.total)),
     resultado,
     flujo,
+    historial_retirado_hasta: fuentes.arrastre?.hasta ?? 0,
+    /*
+     * Basta con que el período EMPIECE antes de lo retirado: a partir de ahí
+     * le faltan cuentas, aunque el resto del mes esté completo.
+     */
+    periodo_incompleto:
+      (fuentes.arrastre?.hasta ?? 0) > 0 && rango.desde <= (fuentes.arrastre?.hasta ?? 0),
     por_pagar: totalPorPagar(fuentes.egresos),
     documentos_por_pagar: cuentasPorPagar(fuentes.egresos).length,
     cortes: {
