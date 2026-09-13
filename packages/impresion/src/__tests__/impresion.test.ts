@@ -541,14 +541,113 @@ describe("cola de impresión", () => {
       },
     };
 
-    const cola = new ColaImpresion([roto]);
+    // El reloj se adelanta a mano: entre intento e intento hay una espera de
+    // verdad, y sin avanzarlo esta prueba tardaría un minuto real.
+    let reloj = T0;
+    const cola = new ColaImpresion([roto], undefined, () => reloj);
     cola.encolar(trabajo("t1"));
     for (let i = 0; i < MAX_INTENTOS_IMPRESION; i += 1) {
       await cola.procesar([impresora("imp-caja", ["caja"])]);
+      reloj += 60_000;
     }
 
     expect(cola.fallidos).toHaveLength(1);
     expect(cola.pendientes).toHaveLength(0);
+  });
+
+  /*
+   * EL TICKET QUE SE QUEDABA EN LA COLA (Rodizio, sep-2026).
+   *
+   * El síntoma, dicho desde la caja: «mando el ticket y no sale; mando el
+   * siguiente y salen los dos». La causa eran dos cosas juntas —el bucle
+   * recorría una copia de la lista tomada al entrar, y la segunda llamada se
+   * iba de vacío por el candado— así que todo lo encolado mientras había algo
+   * imprimiendo quedaba huérfano hasta que otro documento arrancara la cola.
+   *
+   * Al cobrar salen tres trabajos seguidos y uno por USB tarda ~440 ms: la
+   * ventana no era teórica, era el caso normal.
+   */
+  it("lo encolado mientras imprime entra en la MISMA tanda, no en la siguiente", async () => {
+    const transporte = new TransporteSimulado();
+    // Un envío que tarda deja abierta la ventana en la que antes se perdían.
+    const lento: Transporte = {
+      puede: () => true,
+      async enviar(imp, datos): Promise<ResultadoEnvio> {
+        await new Promise((listo) => setTimeout(listo, 5));
+        return transporte.enviar(imp, datos);
+      },
+    };
+
+    const cola = new ColaImpresion([lento]);
+    cola.encolar({ ...trabajo("t1"), datos: new Uint8Array([1]) });
+    const tanda = cola.procesar([impresora("imp-caja", ["caja"])]);
+
+    // El ticket, el pulso del cajón y la copia interna de un mismo cobro: se
+    // encolan con el primero ya en el cable.
+    cola.encolar({ ...trabajo("t2"), datos: new Uint8Array([2]) });
+    void cola.procesar([impresora("imp-caja", ["caja"])]);
+    cola.encolar({ ...trabajo("t3"), datos: new Uint8Array([3]) });
+    void cola.procesar([impresora("imp-caja", ["caja"])]);
+
+    await tanda;
+
+    expect(transporte.impresos.map((i) => i.datos[0])).toEqual([1, 2, 3]);
+    expect(cola.pendientes).toHaveLength(0);
+  });
+
+  it("una prueba encolada a media tanda encuentra su impresora efímera", async () => {
+    const transporte = new TransporteSimulado();
+    const lento: Transporte = {
+      puede: () => true,
+      async enviar(imp, datos): Promise<ResultadoEnvio> {
+        await new Promise((listo) => setTimeout(listo, 5));
+        return transporte.enviar(imp, datos);
+      },
+    };
+
+    const cola = new ColaImpresion([lento]);
+    cola.encolar(trabajo("t1"));
+    const tanda = cola.procesar([impresora("imp-caja", ["caja"])]);
+
+    // La impresora recién encontrada NO está dada de alta: viaja solo en esta
+    // llamada. Si la lista del bucle en marcha no la recogiera, su trabajo
+    // saldría como «la impresora ya no está configurada».
+    cola.encolar(trabajo("prueba", "imp-efimera"));
+    void cola.procesar([impresora("imp-caja", ["caja"]), impresora("imp-efimera", [])]);
+
+    await tanda;
+
+    expect(cola.fallidos).toHaveLength(0);
+    expect(transporte.impresos).toHaveLength(2);
+  });
+
+  it("un fallo se vuelve a intentar solo cuando vence su espera", async () => {
+    let intentos = 0;
+    const inestable: Transporte = {
+      puede: () => true,
+      async enviar(): Promise<ResultadoEnvio> {
+        intentos += 1;
+        return intentos === 1 ? { ok: false, error: "Sin papel" } : { ok: true };
+      },
+    };
+
+    let reloj = T0;
+    const cola = new ColaImpresion([inestable], undefined, () => reloj);
+    cola.encolar(trabajo("t1"));
+    await cola.procesar([impresora("imp-caja", ["caja"])]);
+
+    // Todavía no toca: el bucle no se come los cinco intentos de un tirón.
+    expect(intentos).toBe(1);
+    expect(cola.proximoIntentoEnMs()).toBe(esperaReintento(0));
+
+    await cola.procesar([impresora("imp-caja", ["caja"])]);
+    expect(intentos).toBe(1);
+
+    reloj += esperaReintento(0);
+    await cola.procesar([impresora("imp-caja", ["caja"])]);
+    expect(intentos).toBe(2);
+    expect(cola.pendientes).toHaveLength(0);
+    expect(cola.proximoIntentoEnMs()).toBeNull();
   });
 
   it("un trabajo fallido se puede reintentar tras arreglar la impresora", async () => {

@@ -180,6 +180,12 @@
 
   {#if plano.area}
     {@const area = plano.area}
+    <!--
+      La caja desplaza en horizontal: las celdas son CUADRADAS, así que un salón
+      ancho no se puede comprimir sin volverse ilegible en esta columna. Antes de
+      llegar a eso, se desplaza.
+    -->
+    <div class="lienzo-caja">
     <div
       class="lienzo"
       style="--columnas: {area.columnas}; --filas: {area.filas}"
@@ -237,6 +243,7 @@
           </small>
         </button>
       {/each}
+    </div>
     </div>
 
     {#if visibles === 0}
@@ -316,6 +323,7 @@
         role="group"
         aria-label="Plano ampliado de {area.nombre}"
       >
+        <!-- El cuerpo del modal desplaza: aquí el lienzo mide lo que pida el zoom. -->
         {#each plano.mesas as mesa (mesa.id)}
           {@const estado = pos.estadoMesa(mesa.id)}
           {@const apagada = atenuada(mesa.nombre, estado)}
@@ -499,13 +507,35 @@
 
   /* --- El plano ---------------------------------------------------------- */
 
-  .lienzo {
-    display: grid;
-    grid-template-columns: repeat(var(--columnas), 1fr);
-    grid-template-rows: repeat(var(--filas), minmax(1.6rem, auto));
-    gap: 0.25rem;
+  /*
+   * LA CELDA ES CUADRADA (pedido de Gonzalo). Ver la nota larga en
+   * `modulos/admin/Salones.svelte`: es el mismo planteamiento, y los dos planos
+   * tienen que coincidir o el salón que se dibuja en Administración no será el
+   * que vea el mesero.
+   */
+  .lienzo-caja {
+    overflow-x: auto;
     margin-top: 0.5rem;
-    padding: 0.5rem;
+  }
+  .lienzo {
+    --celda: 2.9rem;
+    --hueco: 2px;
+    display: grid;
+    grid-template-columns: repeat(var(--columnas), minmax(0, 1fr));
+    grid-template-rows: repeat(var(--filas), minmax(0, 1fr));
+    aspect-ratio: var(--columnas) / var(--filas);
+    width: min(100%, calc(var(--columnas) * var(--celda)));
+    /*
+     * El suelo de la celda en esta columna: 1.7rem.
+     *
+     * Es, a propósito, lo que medían de ANCHO las celdas antes de esto —la
+     * retícula se encogía para caber y el salón habitual de diez columnas entra
+     * igual que entraba—. Lo que cambia es el alto, que ahora vale lo mismo que
+     * el ancho. Solo un plano muy ancho pasa de ahí, y entonces se desplaza en
+     * vez de encogerse hasta ser ilegible; para verlo entero está «Ampliar».
+     */
+    min-width: calc(var(--columnas) * 1.7rem);
+    gap: 0;
     border-radius: var(--r-md);
     /* Retícula de fondo: ancla visual para reconocer el espacio real. */
     background-image:
@@ -514,12 +544,18 @@
     background-size: calc(100% / var(--columnas)) calc(100% / var(--filas));
     background-color: var(--fondo);
   }
+  /*
+   * Ampliado manda el zoom y no el ancho de la columna: la celda mide lo que
+   * diga el zoom, el lienzo lo que sumen sus celdas, y el cuerpo del modal
+   * desplaza si no cabe. `width` sin `min()` a propósito — aquí se vino a mirar
+   * el plano de cerca, no a encajarlo en la pantalla.
+   */
   .lienzo.grande {
-    grid-template-columns: repeat(var(--columnas), minmax(calc(2.6rem * var(--zoom)), 1fr));
-    grid-template-rows: repeat(var(--filas), minmax(calc(2.6rem * var(--zoom)), auto));
-    gap: 0.4rem;
+    --celda: calc(2.9rem * var(--zoom));
+    --hueco: 3px;
+    width: calc(var(--columnas) * var(--celda));
+    min-width: calc(var(--columnas) * var(--celda));
     margin: 0 auto;
-    min-width: min-content;
   }
   .mesa {
     display: flex;
@@ -527,10 +563,13 @@
     align-items: center;
     justify-content: center;
     gap: 0.1rem;
+    /* La separación entre mesas vive aquí: el `gap` rompería el cuadrado. */
+    margin: var(--hueco);
+    overflow: hidden;
+    min-width: 0;
     border: 2px solid var(--borde);
     background: #fff;
     color: var(--gris);
-    min-height: 2.6rem;
     padding: 0.2rem;
     cursor: pointer;
     transition:

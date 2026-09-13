@@ -169,6 +169,12 @@ export const ROLES: Record<RolId, Rol> = {
       p("fin.egreso.registrar", "operar"),
       p("fin.factura.emitir", "operar"),
       p("compras.proveedor.editar", "operar"),
+      /*
+       * Solo "ver": quien arma la raya necesita las jornadas del equipo
+       * delante, pero corregir una checada ajena es del gerente, que es quien
+       * estaba en el turno y sabe lo que pasó.
+       */
+      p("rrhh.checada.ajustar", "ver"),
       p("rrhh.propina.ver", "ver"),
       p("rrhh.propina.ver_local", "ver"),
       p("crm.cliente.ver", "ver"),

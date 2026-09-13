@@ -263,7 +263,12 @@
       </div>
     {/if}
 
-    <!-- Lienzo -->
+    <!--
+      Lienzo. Va dentro de una caja que desplaza en horizontal: la retícula
+      tiene celdas CUADRADAS y un salón muy ancho no puede encogerlas hasta
+      volverlas ilegibles, así que a partir de cierto punto se desplaza.
+    -->
+    <div class="lienzo-caja">
     <div
       class="lienzo"
       class:editable={puedeEditar}
@@ -310,6 +315,7 @@
           <small class="plazas">{capacidadDe(mesa)}p</small>
         </button>
       {/each}
+    </div>
     </div>
 
     <!-- Mesa seleccionada -->
@@ -613,21 +619,63 @@
     background: var(--peligro);
     color: #fff;
   }
+  /*
+   * LA CELDA ES CUADRADA, Y ESO GOBIERNA TODO LO DE AQUÍ (pedido de Gonzalo).
+   *
+   * Antes las columnas eran `1fr` y las filas `minmax(2.2rem, 1fr)`: el ancho lo
+   * repartía el espacio disponible y el alto lo ponía otra cuenta distinta, así
+   * que la celda salía rectangular y una mesa declarada de 1×1 —la cuadrada de
+   * dos personas— se dibujaba como un rectángulo. Peor: una mesa REDONDA salía
+   * ovalada, porque el 50% de radio se calcula sobre cada lado.
+   *
+   * Ahora el lienzo lleva `aspect-ratio: columnas / filas` y reparte ese espacio
+   * en partes iguales, así que alto de celda = ancho de celda a cualquier
+   * tamaño. Las tres piezas que lo sostienen:
+   *
+   *   - `minmax(0, 1fr)` y no `1fr`: con `1fr` a secas el contenido de una mesa
+   *     puede estirar su fila —`1fr` es `minmax(auto, 1fr)`— y ahí se pierde el
+   *     cuadrado. El mínimo de cero se lo impide.
+   *   - `gap: 0` y sin relleno: la separación entre mesas la pone el margen de
+   *     cada mesa. Un hueco entre celdas rompería tanto el cuadrado como la
+   *     retícula de fondo, que se dibuja en porcentajes del lienzo.
+   *   - `width: min(100%, …)`: con espacio de sobra la celda no crece sin
+   *     límite; con poco espacio encoge hasta el mínimo y luego se desplaza.
+   *
+   * Y de paso queda ALINEADA: las líneas de fondo caen exactamente donde
+   * empieza cada celda, que con el relleno y el hueco anteriores nunca ocurría.
+   * Eso también arregla el arrastre —`celdaDesdePuntero` divide el ancho de la
+   * caja entre las columnas, una cuenta que solo es exacta sin relleno—.
+   */
+  .lienzo-caja {
+    overflow-x: auto;
+    padding-bottom: 0.25rem;
+  }
   .lienzo {
+    --celda: 3.25rem;
+    --hueco: 2px;
     display: grid;
-    grid-template-columns: repeat(var(--columnas), 1fr);
-    grid-template-rows: repeat(var(--filas), minmax(2.2rem, 1fr));
-    gap: 0.25rem;
-    padding: 0.5rem;
+    grid-template-columns: repeat(var(--columnas), minmax(0, 1fr));
+    grid-template-rows: repeat(var(--filas), minmax(0, 1fr));
+    aspect-ratio: var(--columnas) / var(--filas);
+    width: min(100%, calc(var(--columnas) * var(--celda)));
+    /* Por debajo de esto no se encoge: se desplaza dentro de su caja. */
+    min-width: calc(var(--columnas) * 2.1rem);
+    gap: 0;
     border-radius: var(--r-lg);
-    border: 1px solid var(--borde);
+    /*
+     * El marco va como sombra interior y no como `border`: con `border-box` un
+     * borde de 1px se come una línea del área de contenido, y entonces el
+     * `aspect-ratio` deja de repartirse sobre el mismo rectángulo que las
+     * celdas. La celda volvería a no ser cuadrada, por poco, y la retícula de
+     * fondo —que se pinta en porcentajes— quedaría corrida ese mismo píxel.
+     */
+    box-shadow: inset 0 0 0 1px var(--borde);
     background-color: var(--fondo);
     background-image:
       linear-gradient(to right, var(--borde) 1px, transparent 1px),
       linear-gradient(to bottom, var(--borde) 1px, transparent 1px);
     background-size: calc(100% / var(--columnas)) calc(100% / var(--filas));
     touch-action: none;
-    min-height: 18rem;
   }
   /*
    * La sombra del destino durante el arrastre. Naranja cuando se puede soltar,
@@ -635,6 +683,8 @@
    */
   .sombra {
     z-index: 0;
+    /* El mismo margen que la mesa: la sombra tiene que caer donde va a caer ella. */
+    margin: var(--hueco);
     border-radius: var(--r-sm);
     border: 2px dashed var(--acento);
     background: rgba(242, 133, 58, 0.14);
@@ -651,12 +701,18 @@
     align-items: center;
     justify-content: center;
     gap: 0.05rem;
+    /* La separación entre mesas vive aquí, no en el `gap` de la retícula. */
+    margin: var(--hueco);
+    /* Un rótulo largo no puede estirar la celda: el cuadrado manda. */
+    overflow: hidden;
+    min-width: 0;
     border: 2px solid var(--acento);
     background: var(--claro);
     color: var(--pizarra);
     font-family: var(--font-titulo);
     font-size: 1rem;
     font-weight: 700;
+    line-height: 1;
   }
   .mesa .rotulo {
     line-height: 1;

@@ -78,6 +78,15 @@ export interface TrabajoImpresion {
   /** Referencia al origen: la orden, el corte. */
   referencia?: ID;
   /**
+   * A partir de cuándo se puede volver a intentar, tras un fallo.
+   *
+   * Ausente = ya mismo. Lo pone el propio fallo con `esperaReintento`, y es lo
+   * que convierte «se reintenta» en algo que ocurre solo: antes la espera se
+   * calculaba y no la miraba nadie, así que un trabajo que fallaba se quedaba
+   * quieto hasta que otro documento arrancara la cola.
+   */
+  proximo_intento_ts?: number;
+  /**
    * Se «imprimió» sin papel: lo atendió el transporte simulado.
    *
    * Existe para que la pantalla no pueda decir «impreso» de algo que nunca
@@ -165,10 +174,25 @@ export interface Transporte {
 export class ColaImpresion {
   private trabajos: TrabajoImpresion[] = [];
   private procesando = false;
+  /**
+   * Las impresoras con las que está trabajando el bucle en marcha.
+   *
+   * Existe porque a la cola se le puede llamar mientras ya está imprimiendo, y
+   * esa llamada trae su propia lista —la prueba de una impresora recién
+   * encontrada añade una efímera que no está dada de alta—. Se unen en vez de
+   * ignorarse: un trabajo suyo encolado a media tanda tiene que encontrar su
+   * impresora, o saldría marcado como «ya no está configurada».
+   */
+  private enCurso: Impresora[] = [];
 
   constructor(
     private transportes: readonly Transporte[],
     private alCambiar?: (trabajos: readonly TrabajoImpresion[]) => void,
+    /**
+     * De dónde saca la hora. Se inyecta para poder probar las esperas entre
+     * reintentos sin que una prueba tarde un minuto de reloj de verdad.
+     */
+    private ahora: () => number = () => Date.now(),
   ) {}
 
   get pendientes(): TrabajoImpresion[] {
@@ -193,7 +217,7 @@ export class ColaImpresion {
   ): TrabajoImpresion {
     const nuevo: TrabajoImpresion = {
       ...trabajo,
-      creado_ts: Date.now(),
+      creado_ts: this.ahora(),
       estado: "pendiente",
       intentos: 0,
     };
@@ -205,7 +229,17 @@ export class ColaImpresion {
   /** Reintenta un trabajo que se rindió, después de arreglar la impresora. */
   reintentar(trabajoId: ID): void {
     this.trabajos = this.trabajos.map((t) =>
-      t.id === trabajoId ? { ...t, estado: "pendiente", intentos: 0, ultimo_error: undefined } : t,
+      t.id === trabajoId
+        ? {
+            ...t,
+            estado: "pendiente",
+            intentos: 0,
+            ultimo_error: undefined,
+            // Quien pulsa «reintentar» acaba de cambiar el rollo: no se le hace
+            // esperar la cuenta atrás que venía de los fallos anteriores.
+            proximo_intento_ts: undefined,
+          }
+        : t,
     );
     this.avisar();
   }
@@ -215,12 +249,6 @@ export class ColaImpresion {
     this.avisar();
   }
 
-  /**
-   * Procesa la cola en orden de llegada.
-   *
-   * El orden importa: las comandas de una misma mesa tienen que salir como se
-   * capturaron, o la cocina arma los tiempos al revés.
-   */
   /**
    * ¿Hay un transporte de VERDAD para esta impresora?
    *
@@ -233,15 +261,72 @@ export class ColaImpresion {
     return this.transportes.some((t) => !t.simulado && t.puede(impresora));
   }
 
+  /** El primer trabajo que toca imprimir ahora mismo, en orden de llegada. */
+  private siguiente(ahora: number): TrabajoImpresion | undefined {
+    return this.trabajos.find(
+      (t) => t.estado === "pendiente" && (t.proximo_intento_ts ?? 0) <= ahora,
+    );
+  }
+
+  /**
+   * Cuánto falta para que un trabajo en espera vuelva a estar listo.
+   *
+   * `null` = no hay nada esperando. Lo consulta quien tenga reloj —el store del
+   * POS— para despertar la cola sola. La cola no se programa a sí misma a
+   * propósito: un temporizador dentro la volvería imposible de probar sin
+   * relojes falsos, y aquí lo que importa es que el orden sea comprobable.
+   */
+  proximoIntentoEnMs(ahora = this.ahora()): number | null {
+    let minimo: number | null = null;
+    for (const t of this.trabajos) {
+      if (t.estado !== "pendiente") continue;
+      const espera = Math.max(0, (t.proximo_intento_ts ?? 0) - ahora);
+      if (minimo === null || espera < minimo) minimo = espera;
+    }
+    return minimo;
+  }
+
+  /**
+   * Procesa la cola en orden de llegada, hasta vaciarla.
+   *
+   * El orden importa: las comandas de una misma mesa tienen que salir como se
+   * capturaron, o la cocina arma los tiempos al revés.
+   *
+   * ## EL TICKET QUE SE QUEDABA EN LA COLA (Rodizio, sep-2026)
+   *
+   * Esto recorría una COPIA de la lista tomada al entrar, y una segunda llamada
+   * se iba de vacío por el candado `procesando`. Entre esas dos cosas, todo
+   * trabajo encolado mientras había uno imprimiendo quedaba huérfano: nadie lo
+   * volvía a mirar hasta que otro documento arrancara la cola otra vez. Y la
+   * ventana no era teórica —un trabajo por USB tarda unos 440 ms en el spooler
+   * de Windows, y al cobrar salen tres seguidos: ticket, pulso del cajón y copia
+   * interna—. De ahí el síntoma exacto que se veía en la caja: «el ticket no
+   * sale, y cuando mando el siguiente salen los dos».
+   *
+   * Ahora se vuelve a mirar la lista REAL después de cada trabajo, así que lo
+   * que llegue a media tanda entra en la misma tanda. Y la llamada que se
+   * encuentra el candado puesto ya no se pierde: aporta sus impresoras al bucle
+   * en marcha, que es quien va a atender su trabajo.
+   */
   async procesar(impresoras: readonly Impresora[]): Promise<void> {
+    /*
+     * La lista más nueva manda, y lo que traía el bucle en marcha se conserva.
+     * Unir y no sustituir es lo que salva a la impresora efímera de una prueba:
+     * no está dada de alta, viaja solo en la llamada que la estrena.
+     */
+    const porId = new Map(this.enCurso.map((i) => [i.id, i]));
+    for (const impresora of impresoras) porId.set(impresora.id, impresora);
+    this.enCurso = [...porId.values()];
+
     if (this.procesando) return;
     this.procesando = true;
 
     try {
-      for (const trabajo of [...this.trabajos]) {
-        if (trabajo.estado !== "pendiente") continue;
+      for (;;) {
+        const trabajo = this.siguiente(this.ahora());
+        if (!trabajo) break;
 
-        const impresora = impresoras.find((i) => i.id === trabajo.impresora_id);
+        const impresora = this.enCurso.find((i) => i.id === trabajo.impresora_id);
         if (!impresora) {
           this.marcar(trabajo.id, "fallido", { ultimo_error: "La impresora ya no está configurada" });
           continue;
@@ -284,13 +369,24 @@ export class ColaImpresion {
         }
 
         const intentos = (this.buscar(trabajo.id)?.intentos ?? 0) + 1;
+        const agotado = intentos >= MAX_INTENTOS_IMPRESION;
         this.trabajos = this.trabajos.map((t) =>
           t.id === trabajo.id
             ? {
                 ...t,
                 intentos,
                 ultimo_error: resultado.error,
-                estado: intentos >= MAX_INTENTOS_IMPRESION ? "fallido" : "pendiente",
+                estado: agotado ? "fallido" : "pendiente",
+                /*
+                 * La espera es lo que impide que el bucle se coma los cinco
+                 * intentos de un tirón contra una impresora sin papel: entre
+                 * uno y otro caben los segundos que tarda alguien en cambiar el
+                 * rollo. El trabajo queda pendiente y con hora, y quien lleva el
+                 * reloj lo despierta.
+                 */
+                proximo_intento_ts: agotado
+                  ? undefined
+                  : this.ahora() + esperaReintento(intentos - 1),
               }
             : t,
         );
@@ -298,6 +394,7 @@ export class ColaImpresion {
       }
     } finally {
       this.procesando = false;
+      this.enCurso = [];
     }
   }
 

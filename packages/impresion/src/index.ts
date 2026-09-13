@@ -7,6 +7,7 @@
  */
 export * from "./escpos.js";
 export * from "./plantillas.js";
+export * from "./logo.js";
 export * from "./sello.js";
 export * from "./cola.js";
 export * from "./pdf.js";

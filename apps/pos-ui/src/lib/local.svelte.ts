@@ -9,6 +9,12 @@
  * mirarlo.
  */
 import { HORA_CORTE_POR_DEFECTO, jornadaDe, type Rango } from "@motrest/dominio";
+import {
+  desempaquetarLogo,
+  type AnchoPapel,
+  type ImagenMonocroma,
+  type MapaLogo,
+} from "@motrest/impresion";
 import type { Almacen } from "@motrest/protocolo-sync";
 
 export const CLAVE_LOCAL = "ajustes_local";
@@ -56,6 +62,28 @@ export interface QrAdicionalTicket {
   url: string;
 }
 
+/**
+ * El logo del restaurante, tal como se guarda.
+ *
+ * Se guarda CONVERTIDO —un mapa de puntos por cada ancho de papel— y además la
+ * imagen ya reducida. Los mapas son lo que se imprime; la imagen sirve para
+ * poder mover el umbral más tarde sin pedirle al restaurante el archivo otra
+ * vez, que es justo lo que nadie encuentra seis meses después.
+ *
+ * Ver `logo-ticket.ts` para la conversión y `@motrest/impresion/logo` para el
+ * formato empaquetado.
+ */
+export interface LogoDelTicket {
+  /** PNG en `data:` URL, ya reducido al ancho máximo de papel. */
+  fuente: string;
+  /** 0..1. Por debajo de este brillo el punto sale negro. */
+  umbral: number;
+  /** Un mapa por ancho de papel: 32 columnas (58 mm) y 42 (80 mm). */
+  mapas: Partial<Record<AnchoPapel, MapaLogo>>;
+  /** Cómo se llamaba el archivo, para poder reconocerlo en la pantalla. */
+  nombre?: string;
+}
+
 export const TEXTOS_TICKET_INICIALES: TextosDelTicket = {
   encabezado: "",
   invitacion_opinion: "¿Cómo estuvo todo? Cuéntanos",
@@ -70,6 +98,7 @@ interface Ajustes {
   textosTicket?: Partial<TextosDelTicket>;
   qrAdicional?: Partial<QrAdicionalTicket>;
   qrResena?: boolean;
+  logo?: LogoDelTicket | null;
 }
 
 class StoreLocal {
@@ -92,6 +121,17 @@ class StoreLocal {
 
   /** Segundo QR opcional, normalmente la ficha del restaurante en Google Maps. */
   qrAdicional = $state<QrAdicionalTicket>({ leyenda: "Danos 5 estrellas en Google Maps", url: "" });
+
+  /**
+   * El logo que va impreso arriba del ticket. `null` = ninguno.
+   *
+   * De fábrica no hay: un logo mal convertido sale como un borrón negro que
+   * gasta rollo, así que lo pone el restaurante mirando la vista previa.
+   *
+   * `$state.raw` y no `$state`: se reemplaza entero cada vez que se cambia, y
+   * así no se envuelve en un proxy —que es lo que IndexedDB no sabe clonar—.
+   */
+  logo = $state.raw<LogoDelTicket | null>(null);
 
   /**
    * ¿Se imprime el QR de reseña en el ticket del comensal?
@@ -133,6 +173,25 @@ class StoreLocal {
     // Se comprueba el tipo y no la verdad del valor: con `if (guardados?.qrResena)`
     // un `false` guardado a propósito se leería como «no hay nada guardado».
     if (typeof guardados?.qrResena === "boolean") this.qrResena = guardados.qrResena;
+    if (guardados?.logo) this.logo = guardados.logo;
+  }
+
+  /**
+   * El logo listo para un papel concreto, o `null` si no hay.
+   *
+   * Nunca se lee `this.logo.mapas` a mano desde fuera: el desempaquetado
+   * comprueba que el mapa sea coherente y devuelve `null` si no lo es, y esa
+   * comprobación tiene que estar en un solo sitio. Un logo corrupto no puede
+   * dejar sin ticket a quien está pagando.
+   */
+  logoParaTicket(ancho: AnchoPapel): ImagenMonocroma | null {
+    return desempaquetarLogo(this.logo?.mapas[ancho]);
+  }
+
+  /** Guarda el logo ya convertido, o lo quita con `null`. */
+  fijarLogo(logo: LogoDelTicket | null): void {
+    this.logo = logo;
+    this.guardar();
   }
 
   /**
@@ -194,6 +253,7 @@ class StoreLocal {
         textosTicket: { ...this.textosTicket },
         qrAdicional: { ...this.qrAdicional },
         qrResena: this.qrResena,
+        logo: this.logo,
       })
       .catch((causa) => {
         console.error("No se pudieron guardar los ajustes del local", causa);

@@ -54,6 +54,21 @@
 
   const equipo = $derived(sesion.usuariosDelLocal);
   const puedeAjustar = $derived(sesion.puedeOperar("rrhh.checada.ajustar"));
+
+  /**
+   * ¿Ve la asistencia DE TODOS, o solo su propio checador?
+   *
+   * Decisión de Gonzalo (sep-2026): un mesero, un cajero o un cocinero entran
+   * aquí a marcar su hora y nada más. A qué hora llegó cada compañero, cuántos
+   * turnos lleva y quién se fue antes es información del gerente, del
+   * responsable del local, de administración y de la dirección — no del equipo.
+   *
+   * Se resuelve con el permiso «Asistencia del equipo» y no con una lista de
+   * roles escrita aquí, así que el restaurante puede dárselo a quien quiera
+   * desde Administración → Usuarios: al encargado del turno de noche, por
+   * ejemplo, en nivel «Ver» y sin dejarle corregir nada.
+   */
+  const puedeVerEquipo = $derived(sesion.puedeVer("rrhh.checada.ajustar"));
   const usuario = $derived(seleccionado ? sesion.usuarioDe(seleccionado) : undefined);
   const proxima = $derived<TipoChecada | null>(
     seleccionado ? asistencia.siguiente(seleccionado) : null,
@@ -564,7 +579,12 @@
       {/if}
     </section>
   {:else}
-  <div class="columnas">
+  <!--
+    Sin el permiso de la asistencia del equipo, el checador se queda solo y
+    ocupa el ancho: una columna vacía al lado parecería una pantalla a medio
+    cargar. Ver `puedeVerEquipo`.
+  -->
+  <div class="columnas" class:solo-checador={!puedeVerEquipo}>
     <!-- Checador -->
     <section class="tarjeta checador">
       <h2>Marcar asistencia</h2>
@@ -616,6 +636,7 @@
     </section>
 
     <!-- Jornadas -->
+    {#if puedeVerEquipo}
     <section class="tarjeta">
       <h2>Jornadas de hoy</h2>
       <table>
@@ -663,6 +684,7 @@
         </p>
       {/if}
     </section>
+    {/if}
   </div>
 
   <!-- Bitácora de checadas -->
@@ -684,6 +706,7 @@
     </div>
   {/snippet}
 
+  {#if puedeVerEquipo}
   <section class="tarjeta">
     <h2>Últimos registros de asistencia</h2>
     {#if !asistencia.hayRegistro}
@@ -706,6 +729,7 @@
     >
       {@render listaChecadas(asistencia.recientes)}
     </VentanaAmplia>
+  {/if}
   {/if}
   {/if}
 </div>
@@ -740,6 +764,11 @@
     .columnas {
       grid-template-columns: 1fr;
     }
+  }
+  /* El checador sin la columna del equipo: se centra y no se estira de más. */
+  .columnas.solo-checador {
+    grid-template-columns: minmax(18rem, 30rem);
+    justify-content: center;
   }
   .tarjeta {
     background: #fff;

@@ -113,8 +113,23 @@
       tocar archivos en el disco.
     </p>
 
+    <!--
+      EL NOMBRE CLAVE, A LA VISTA (pedido de Gonzalo).
+
+      `sucursal_id` —`suc-rodizio-centro`— es con lo que este local se llama en
+      MotRest Central, en el padrón y en cada renovación. Estaba solo dentro del
+      JSON firmado: para saber contra qué local se está trabajando había que
+      abrir el archivo en el disco o adivinarlo por el nombre comercial, que se
+      repite entre sucursales. Va en monoespaciada y se selecciona entero de un
+      clic, porque lo normal es copiarlo o dictarlo por teléfono.
+    -->
     <div class="ficha">
       <span><b>{licencia.licencia?.nombre ?? "sin licencia todavía"}</b></span>
+      {#if licencia.licencia?.sucursal_id}
+        <span class="clave">
+          Nombre clave <code>{licencia.licencia.sucursal_id}</code>
+        </span>
+      {/if}
       <span>{licencia.situacion.mensaje}</span>
     </div>
 
@@ -187,6 +202,19 @@
     border-radius: 8px;
     font-size: 0.85rem;
     margin-bottom: 1rem;
+  }
+  .clave {
+    color: var(--gris);
+  }
+  .clave code {
+    /* `all`: un clic selecciona el identificador completo, listo para pegar. */
+    user-select: all;
+    font-family: ui-monospace, "Cascadia Code", monospace;
+    font-size: 0.8rem;
+    color: var(--pizarra);
+    background: var(--claro);
+    border-radius: var(--r-sm);
+    padding: 0.1rem 0.35rem;
   }
   label {
     display: block;

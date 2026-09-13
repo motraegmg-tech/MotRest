@@ -35,6 +35,23 @@ export interface ImagenMonocroma {
 }
 
 /**
+ * El ticket por piezas, para poder enseñarlo en pantalla completo.
+ *
+ * `aTexto()` sirve para la bitácora y para cotejar importes, pero se come lo
+ * que no es texto: el logo y los códigos QR desaparecen. Eso está bien ahí —un
+ * QR entre renglones de un `<pre>` sería ruido— y mal en una VISTA PREVIA, que
+ * existe justamente para que el restaurante vea el papel antes de gastarlo.
+ *
+ * Las piezas se anotan mientras se arma el ticket y el texto se decodifica de
+ * los MISMOS BYTES que salen por el cable, así que la pantalla no puede decir
+ * una cosa y el rollo otra. Ver `aBloques`.
+ */
+export type BloqueTicket =
+  | { tipo: "texto"; lineas: string[] }
+  | { tipo: "imagen"; imagen: ImagenMonocroma; escala: number; margen: number }
+  | { tipo: "qr"; contenido: string };
+
+/**
  * Tabla de conversión a CP437 para los caracteres del español.
  *
  * Solo se mapea lo que un ticket mexicano necesita de verdad. Lo que no esté
@@ -102,6 +119,16 @@ export function aCP437(texto: string): number[] {
 export class Ticket {
   private bytes: number[] = [];
 
+  /**
+   * Dónde queda cada pieza que no es texto, para la vista previa.
+   *
+   * Se guarda el ÍNDICE en el flujo de bytes, no una copia del contenido
+   * traducida a otra estructura: así la vista previa se arma partiendo el mismo
+   * flujo que se imprime, y no hay dos descripciones del ticket que puedan
+   * separarse con el tiempo.
+   */
+  private marcas: { indice: number; pieza: Exclude<BloqueTicket, { tipo: "texto" }> }[] = [];
+
   constructor(public readonly columnas = 42) {
     // Inicializa la impresora y fija la tabla de caracteres a CP437.
     this.bytes.push(ESC, 0x40);
@@ -160,6 +187,7 @@ export class Ticket {
 
   /** Código QR (modelo 2). Lo usa la autofactura del ticket. */
   qr(contenido: string, tamano = 6): this {
+    this.marcas.push({ indice: this.bytes.length, pieza: { tipo: "qr", contenido } });
     const datos = aCP437(contenido);
     const longitud = datos.length + 3;
     const pL = longitud & 0xff;
@@ -188,6 +216,10 @@ export class Ticket {
    * zona de silencio la cámara no puede distinguir el código del texto.
    */
   imagenMonocroma(imagen: ImagenMonocroma, escala = 4, margen = 4): this {
+    this.marcas.push({
+      indice: this.bytes.length,
+      pieza: { tipo: "imagen", imagen, escala, margen },
+    });
     const ancho = (imagen.ancho + margen * 2) * escala;
     const alto = (imagen.alto + margen * 2) * escala;
     const bytesPorFila = Math.ceil(ancho / 8);
@@ -239,9 +271,47 @@ export class Ticket {
 
   /** Vista legible del contenido, para previsualizar sin gastar papel. */
   aTexto(): string {
+    return this.lineasEntre(0, this.bytes.length).join("\n");
+  }
+
+  /**
+   * El ticket partido en piezas: texto, logo y códigos.
+   *
+   * El texto sale de decodificar los bytes de verdad —los mismos que `aTexto`—
+   * y las imágenes y los QR se recuperan de las marcas anotadas al armarlo. Es
+   * lo que permite pintar en pantalla un ticket COMPLETO, con su logo arriba y
+   * sus códigos donde van, sin escribir en otro sitio una segunda versión del
+   * papel que acabaría diciendo algo distinto.
+   *
+   * LO QUE ESTO DA POR SUPUESTO: que una imagen o un QR empiezan SIEMPRE en una
+   * línea nueva, que es como los usan todas las plantillas. Llamar a `qr()` o a
+   * `imagenMonocroma()` a media línea cerraría aquí esa línea a medias y la vista
+   * previa enseñaría un salto que el papel no tiene. No es un fallo de hoy: es la
+   * condición que hay que mantener si algún día se compone un renglón mixto.
+   */
+  aBloques(): BloqueTicket[] {
+    const bloques: BloqueTicket[] = [];
+    let desde = 0;
+
+    for (const marca of this.marcas) {
+      const lineas = this.lineasEntre(desde, marca.indice);
+      if (lineas.length > 0) bloques.push({ tipo: "texto", lineas });
+      bloques.push(marca.pieza);
+      // Se reanuda EN la marca: los bytes del propio comando los salta el
+      // decodificador, igual que hace `aTexto`.
+      desde = marca.indice;
+    }
+
+    const cola = this.lineasEntre(desde, this.bytes.length);
+    if (cola.length > 0) bloques.push({ tipo: "texto", lineas: cola });
+    return bloques;
+  }
+
+  /** Texto de un trozo del flujo, saltándose los comandos. */
+  private lineasEntre(desde: number, hasta: number): string[] {
     const salida: string[] = [];
     let linea: number[] = [];
-    for (let i = 0; i < this.bytes.length; i += 1) {
+    for (let i = desde; i < hasta; i += 1) {
       const b = this.bytes[i]!;
       // Se saltan las secuencias de control para quedarse solo con el texto.
       if (b === ESC || b === GS) {
@@ -256,7 +326,7 @@ export class Ticket {
       linea.push(b);
     }
     if (linea.length > 0) salida.push(deCP437(linea));
-    return salida.join("\n");
+    return salida;
   }
 }
 

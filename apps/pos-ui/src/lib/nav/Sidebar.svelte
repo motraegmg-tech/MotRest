@@ -11,6 +11,7 @@
   import { actualizaciones } from "../actualizaciones.svelte";
   import Icono from "../Icono.svelte";
   import { sesion } from "../sesion/sesion.svelte";
+  import { VERSION_MOTREST } from "../version";
 
   const visibles = $derived(MODULOS.filter((m) => sesion.puedeVer(m.permiso)));
 
@@ -79,7 +80,19 @@
     </button>
   {/if}
 
-  <div class="foot">MOTRAE · Innovation already in motion</div>
+  <!--
+    LA VERSIÓN VA AQUÍ, JUNTO A LA FIRMA (pedido de Gonzalo).
+
+    Es el dato que se pide en la primera frase de cada llamada a soporte y el
+    que decide si un defecto ya está arreglado en el local que llama. Estaba
+    solo en Administración → Hub, que es una pantalla que un mesero no abre y
+    una tablet del salón ni siquiera puede consultar.
+
+    Sale del empaquetado, no de una consulta al Hub: ver `version.ts`.
+  -->
+  <div class="foot">
+    MOTRAE{#if VERSION_MOTREST}&nbsp;{VERSION_MOTREST}{/if} · Innovation already in motion
+  </div>
 </aside>
 
 <style>

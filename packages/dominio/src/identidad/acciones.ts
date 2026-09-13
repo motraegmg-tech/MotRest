@@ -201,7 +201,27 @@ export const CATALOGO_ACCIONES: GrupoAcciones[] = [
     titulo: "M6 · Personal",
     acciones: [
       def("rrhh.checada.registrar", "m6", "Checar entrada y salida", "Registrar la propia asistencia"),
-      def("rrhh.checada.ajustar", "m6", "Ajustar checadas", "Corregir registros de asistencia de otros", true),
+      /*
+       * ESTA ACCIÓN GOBIERNA TAMBIÉN LO QUE SE VE, y por eso los dos niveles
+       * significan cosas distintas (pedido de Gonzalo, sep-2026):
+       *
+       *   «Ver»     → las jornadas del equipo y la bitácora de checadas.
+       *   «Operar»  → además, corregir un registro olvidado.
+       *
+       * Sin ella, Personal enseña SOLO el checador: quien marca su hora no tiene
+       * por qué saber a qué hora entró y salió cada compañero. Se reutiliza en
+       * lugar de inventar una acción nueva a propósito: las listas de permisos
+       * se materializan al dar de alta al usuario, así que una acción que no
+       * existía entonces no le llega a nadie ya creado, y el panel habría
+       * desaparecido también para el gerente y el dueño del local.
+       */
+      def(
+        "rrhh.checada.ajustar",
+        "m6",
+        "Asistencia del equipo",
+        "Ver las jornadas y los registros de todos; con «Operar», corregirlos",
+        true,
+      ),
       def("rrhh.empleado.editar", "m6", "Gestionar empleados", "Alta y edición de la ficha del personal", true),
       /*
        * DOS ACCIONES, NO UNA CON DOS NIVELES. El nivel "ver" vs "operar" no

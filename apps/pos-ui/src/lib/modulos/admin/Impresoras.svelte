@@ -11,12 +11,16 @@
     enLaCaja,
     type ImpresoraDetectada,
   } from "../../impresion.svelte";
+  import { pesos } from "@motrest/dominio";
+  import { precuenta, type AnchoPapel } from "@motrest/impresion";
   import { menu } from "../../menu.svelte";
   import { hora } from "../../formato";
   import { sesion } from "../../sesion/sesion.svelte";
+  import { licencia } from "../../licencia.svelte";
   import { local } from "../../local.svelte";
+  import { prepararLogo, recalcularLogo } from "../../logo-ticket";
   import { respaldo } from "../../respaldo.svelte";
-  import CodigoQr from "./CodigoQr.svelte";
+  import VistaPreviaTicket from "../../VistaPreviaTicket.svelte";
 
   let nueva = $state("");
   let manual = $state(false);
@@ -101,6 +105,111 @@
   const virtuales = $derived(encontradas.filter((d) => d.virtual));
   let verVirtuales = $state(false);
   const qrAdicionalValido = $derived(local.qrAdicionalParaTicket);
+
+  // --- El logo del ticket ------------------------------------------------------------
+
+  let campoLogo = $state<HTMLInputElement | null>(null);
+  let logoOcupado = $state(false);
+  let errorLogo = $state("");
+
+  async function elegirLogo(evento: Event) {
+    const archivo = (evento.currentTarget as HTMLInputElement).files?.[0];
+    if (!archivo) return;
+    errorLogo = "";
+    logoOcupado = true;
+    const r = await prepararLogo(archivo, local.logo?.umbral);
+    logoOcupado = false;
+    if (!r.ok) {
+      errorLogo = r.error;
+      return;
+    }
+    local.fijarLogo(r.logo);
+    // El campo se limpia para que elegir OTRA VEZ el mismo archivo vuelva a
+    // disparar el cambio: sin esto, quien reemplaza un logo por el mismo nombre
+    // ve que no pasa nada.
+    if (campoLogo) campoLogo.value = "";
+  }
+
+  /**
+   * Recalcula el logo con otra intensidad.
+   *
+   * Va en `onchange` y no en `oninput`: cada recálculo redibuja la imagen dos
+   * veces —una por ancho de papel— y hacerlo en cada píxel del deslizador dejaría
+   * la pantalla pegada mientras se arrastra.
+   */
+  async function cambiarIntensidad(evento: Event) {
+    const actual = local.logo;
+    if (!actual) return;
+    const umbral = Number((evento.currentTarget as HTMLInputElement).value);
+    errorLogo = "";
+    logoOcupado = true;
+    const r = await recalcularLogo(actual, umbral);
+    logoOcupado = false;
+    if (!r.ok) {
+      errorLogo = r.error;
+      return;
+    }
+    local.fijarLogo(r.logo);
+  }
+
+  // --- La vista previa del ticket ----------------------------------------------------
+
+  /**
+   * El ancho de papel con el que se previsualiza.
+   *
+   * Sale de la impresora que tiene el área de caja, que es la que va a sacar
+   * este papel de verdad. Sin ninguna configurada se supone 80 mm, que es lo
+   * normal en una caja.
+   */
+  const anchoPapel = $derived<AnchoPapel>(
+    impresion.impresoras.find((i) => i.activa && i.areas.includes("caja"))?.ancho ?? 42,
+  );
+
+  /**
+   * Un cobro de ejemplo, con lo que de verdad lleva un ticket de Rodizio.
+   *
+   * Importes inventados y plausibles: la vista previa existe para ver el LOGO,
+   * las frases y los códigos, no para cuadrar cuentas. Lo que no se inventa es la
+   * plantilla —es `precuenta()`, la misma que compone los bytes del rollo—, así
+   * que lo que se ve aquí es el papel, no una maqueta parecida.
+   */
+  const ticketDeMuestra = $derived.by(() => {
+    const suma = pesos(486);
+    return precuenta(
+      {
+        folio: "A1B2C3D4",
+        ts: Date.now(),
+        local: local.fichaParaTicket(licencia.licencia?.nombre ?? "TU RESTAURANTE"),
+        textos: local.textosTicket,
+        logo: local.logoParaTicket(anchoPapel) ?? undefined,
+        mesa: "7",
+        mesero: "Lucía",
+        a_nombre_de: "Familia Ramírez",
+        renglones: [
+          { cantidad: 1, descripcion: "Pizza grande mitad y mitad", detalle: "Pepperoni / Hawaiana", importe: pesos(289) },
+          { cantidad: 1, descripcion: "Fettuccine Alfredo", importe: pesos(145) },
+          { cantidad: 2, descripcion: "Refresco 600 ml", importe: pesos(52) },
+        ],
+        suma,
+        descuentos: pesos(0),
+        cortesias: pesos(0),
+        total: suma,
+        propina: pesos(50),
+        pagos: [{ forma: "Efectivo", monto: pesos(600) }],
+        cambio: pesos(64),
+        qrs: [
+          ...(local.qrResena
+            ? [{
+                leyenda: local.textosTicket.invitacion_opinion,
+                url: "https://motrest.local/portal/#/c/VISTA-PREVIA",
+              }]
+            : []),
+          ...(qrAdicionalValido ? [qrAdicionalValido] : []),
+        ],
+      },
+      anchoPapel,
+    ).aBloques();
+  });
 </script>
 
 <div class="seccion">
@@ -131,7 +240,74 @@
       el folio y los impuestos no se editan: eso es el comprobante.
     </p>
 
+    <div class="editor-ticket">
     <div class="ficha">
+      <!--
+        EL LOGO (pedido de Gonzalo).
+
+        Se convierte a puntos al elegirlo, no al imprimir: una térmica no tiene
+        grises y la conversión necesita `canvas`, que no existe en el Hub. Lo que
+        se guarda son los puntos ya calculados, uno por ancho de papel. La
+        intensidad es un control y no un número fijo porque ningún umbral sirve
+        para todos los logotipos. Ver `logo-ticket.ts`.
+      -->
+      <div class="ancho logo">
+        <span class="rotulo-logo">Logo del restaurante <em>(opcional)</em></span>
+        <div class="logo-fila">
+          {#if local.logo}
+            <img class="logo-muestra" src={local.logo.fuente} alt="Logo elegido" />
+          {:else}
+            <span class="logo-vacio">Sin logo</span>
+          {/if}
+
+          <div class="logo-mandos">
+            <div class="logo-botones">
+              <button class="conectar" disabled={logoOcupado} onclick={() => campoLogo?.click()}>
+                {logoOcupado ? "Procesando…" : local.logo ? "Cambiar imagen" : "Elegir imagen"}
+              </button>
+              {#if local.logo}
+                <button class="mini peligro" disabled={logoOcupado} onclick={() => local.fijarLogo(null)}>
+                  Quitar
+                </button>
+              {/if}
+            </div>
+
+            {#if local.logo}
+              <label class="intensidad">
+                Intensidad
+                <input
+                  type="range"
+                  min="0.3"
+                  max="0.85"
+                  step="0.02"
+                  value={local.logo.umbral}
+                  disabled={logoOcupado}
+                  onchange={cambiarIntensidad}
+                />
+                <em>
+                  Súbela si el logo sale muy claro; bájala si sale como una
+                  mancha. Míralo en la vista previa.
+                </em>
+              </label>
+            {:else}
+              <p class="ayuda-logo">
+                Un PNG o JPG con el logo en oscuro sobre fondo claro. Se imprime
+                en blanco y negro —una térmica no tiene grises— y se reduce al
+                ancho del papel.
+              </p>
+            {/if}
+            {#if errorLogo}<p class="aviso-error">{errorLogo}</p>{/if}
+          </div>
+        </div>
+        <input
+          class="oculto"
+          type="file"
+          accept="image/png,image/jpeg,image/webp"
+          bind:this={campoLogo}
+          onchange={elegirLogo}
+        />
+      </div>
+
       <label>
         Nombre del restaurante
         <input
@@ -228,25 +404,38 @@
           placeholder="Síguenos en @turestaurante"
         />
       </label>
-    </div>
-    <div class="vista-qrs">
-      {#if local.qrResena}
-        <article>
-          <b>{local.textosTicket.invitacion_opinion}</b>
-          <CodigoQr contenido="https://motrest.local/portal/#/c/VISTA-PREVIA" tamano={150} />
-          <small>El enlace real se firma para cada cuenta.</small>
-        </article>
-      {/if}
-      {#if qrAdicionalValido}
-        <article>
-          <b>{qrAdicionalValido.leyenda}</b>
-          <CodigoQr contenido={qrAdicionalValido.url} tamano={150} />
-          <small>{qrAdicionalValido.url}</small>
-        </article>
-      {:else if local.qrAdicional.url.trim()}
-        <p class="aviso-error">El segundo enlace debe comenzar con http:// o https://.</p>
+      {#if !qrAdicionalValido && local.qrAdicional.url.trim()}
+        <p class="ancho aviso-error">
+          El segundo enlace debe comenzar con http:// o https://.
+        </p>
       {/if}
     </div>
+
+    <!--
+      LA VISTA PREVIA (pedido de Gonzalo).
+
+      Se dibuja con `precuenta()`, la misma función que compone los bytes que
+      salen por el rollo, y con los ajustes de esta pantalla ya aplicados. No es
+      una maqueta: el texto viene de los bytes de verdad y el logo se pinta punto
+      por punto como lo va a imprimir el cabezal, así que aquí se ve si el logo
+      quedó como una mancha ANTES de gastar papel.
+    -->
+    <aside class="previa-ticket">
+      <div class="cab-previa">
+        <b>Vista previa</b>
+        <span>{anchoPapel === 32 ? "papel de 58 mm" : "papel de 80 mm"}</span>
+      </div>
+      <VistaPreviaTicket bloques={ticketDeMuestra} columnas={anchoPapel} />
+      <small class="pie-previa">
+        Cobro de ejemplo. Los importes son inventados; el formato, el logo y las
+        frases son los de verdad.
+        {#if qrAdicionalValido}
+          <br />Segundo QR → {qrAdicionalValido.url}
+        {/if}
+      </small>
+    </aside>
+    </div>
+
     {#if !local.qrResena}
       <p class="ayuda">
         El <b>QR de reseña</b> está apagado. Hoy el enlace solo abre desde el wifi
@@ -950,26 +1139,130 @@
   .tarjeta.inactiva {
     opacity: 0.55;
   }
-  .vista-qrs {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 1rem;
-    align-items: flex-start;
-  }
-  .vista-qrs article {
+  /*
+   * Los campos a la izquierda y el papel a la derecha: se escribe una frase y se
+   * ve caer en el ticket sin desplazar la pantalla. En una tablet en vertical se
+   * apila, con el papel debajo.
+   */
+  .editor-ticket {
     display: grid;
-    justify-items: center;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 1.5rem;
+    align-items: start;
+  }
+  @media (max-width: 1100px) {
+    .editor-ticket {
+      grid-template-columns: minmax(0, 1fr);
+    }
+  }
+  /*
+   * El fondo gris no es decoración: el papel es blanco y la tarjeta también, así
+   * que sin él la vista previa se leía como un bloque de texto suelto en la
+   * pantalla y no como un ticket.
+   */
+  .previa-ticket {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.9rem;
+    border-radius: var(--r-md);
+    background: var(--fondo);
+    border: 1px solid var(--borde);
+    /* Se queda a la vista mientras se recorre una lista larga de campos. */
+    position: sticky;
+    top: 0.5rem;
+  }
+  .cab-previa {
+    display: flex;
+    align-items: baseline;
+    gap: 0.5rem;
+  }
+  .cab-previa b {
+    font-family: var(--font-titulo);
+    font-size: 0.95rem;
+  }
+  .cab-previa span,
+  .pie-previa {
+    font-size: 0.72rem;
+    color: var(--gris);
+    line-height: 1.4;
+    overflow-wrap: anywhere;
+    max-width: 22rem;
+  }
+  /* --- El logo --------------------------------------------------------------- */
+  .logo {
+    display: flex;
+    flex-direction: column;
     gap: 0.45rem;
-    max-width: 18rem;
     padding: 0.8rem;
     border: 1px solid var(--borde);
     border-radius: var(--r-md);
-    text-align: center;
   }
-  .vista-qrs small {
-    max-width: 15rem;
-    overflow-wrap: anywhere;
+  .rotulo-logo {
+    font-size: 0.85rem;
+  }
+  .rotulo-logo em {
+    font-weight: 400;
     color: var(--gris);
+    font-style: normal;
+  }
+  .logo-fila {
+    display: flex;
+    gap: 0.9rem;
+    align-items: flex-start;
+    flex-wrap: wrap;
+  }
+  .logo-muestra {
+    width: 8rem;
+    max-height: 5rem;
+    object-fit: contain;
+    background: #fff;
+    border: 1px solid var(--borde);
+    border-radius: var(--r-sm);
+    padding: 0.3rem;
+  }
+  .logo-vacio {
+    display: grid;
+    place-items: center;
+    width: 8rem;
+    height: 3.5rem;
+    border: 1px dashed var(--borde);
+    border-radius: var(--r-sm);
+    font-size: 0.78rem;
+    color: var(--gris);
+  }
+  .logo-mandos {
+    flex: 1;
+    min-width: 14rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.45rem;
+  }
+  .logo-botones {
+    display: flex;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+  }
+  .intensidad {
+    display: flex;
+    flex-direction: column;
+    gap: 0.2rem;
+    font-size: 0.8rem;
+  }
+  .intensidad input {
+    width: 100%;
+    accent-color: var(--acento);
+  }
+  .intensidad em,
+  .ayuda-logo {
+    font-style: normal;
+    font-size: 0.72rem;
+    line-height: 1.4;
+    color: var(--gris);
+  }
+  .oculto {
+    display: none;
   }
   .cab {
     display: flex;
@@ -1199,9 +1492,15 @@
     color: #fff;
   }
 
+  /*
+   * 14rem y no 15: con la vista previa ocupando su columna, a los campos les
+   * quedan unos 490 px y dos columnas de 15rem piden 492. Por dos píxeles, la
+   * ficha entera caía a una sola columna y la pantalla se volvía el doble de
+   * larga.
+   */
   .ficha {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr));
+    grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr));
     gap: 0.75rem;
     margin: 0.8rem 0;
   }

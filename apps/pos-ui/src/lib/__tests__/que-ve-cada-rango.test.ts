@@ -176,3 +176,69 @@ describe("quién ve el cobro y lo que cuelga de él", () => {
     }
   });
 });
+
+/*
+ * LA ASISTENCIA DEL EQUIPO, dentro de Personal (pedido de Gonzalo, sep-2026).
+ *
+ * El módulo entero cuelga de `rrhh.checada.registrar`, que tiene todo el mundo:
+ * un mesero tiene que poder marcar su hora. Pero dentro había dos paneles que no
+ * son suyos —«Jornadas de hoy» y «Últimos registros de asistencia»—, y ahí se
+ * lee a qué hora llegó y se fue cada compañero, cuántos turnos lleva y quién se
+ * marchó antes. Eso es del gerente, del responsable, de administración y de la
+ * dirección.
+ *
+ * `Personal.svelte` los enseña con `sesion.puedeVer("rrhh.checada.ajustar")`, así
+ * que la regla vive en la plantilla del rol y no en la pantalla. Se reutilizó esa
+ * acción en vez de inventar una nueva a propósito: la lista de permisos se
+ * materializa al dar de alta al usuario, y una acción que no existía entonces no
+ * le llega a nadie ya creado —el panel habría desaparecido también para el
+ * gerente y el dueño de un local en marcha—.
+ *
+ * Los dos niveles significan cosas distintas y por eso se prueban los dos: «ver»
+ * mira, «operar» corrige.
+ */
+describe("quién ve la asistencia de TODO el equipo", () => {
+  const MIRAN: RolId[] = ["propietario", "gerente", "administracion"];
+  const NO_MIRAN: RolId[] = ["mesero", "cajero", "chef", "compras"];
+
+  it("el personal de piso solo tiene su checador", () => {
+    for (const rol of NO_MIRAN) {
+      expect(puedeVer(usuarioCon(rol), "rrhh.checada.ajustar"), rol).toBe(false);
+    }
+  });
+
+  it("pero todos pueden marcar su propia entrada y salida", () => {
+    for (const rol of NO_MIRAN) {
+      expect(puedeOperar(usuarioCon(rol), "rrhh.checada.registrar"), rol).toBe(true);
+    }
+  });
+
+  it("la dirección, el gerente y administración sí la ven", () => {
+    for (const rol of MIRAN) {
+      expect(puedeVer(usuarioCon(rol), "rrhh.checada.ajustar"), rol).toBe(true);
+    }
+  });
+
+  /*
+   * Administración la ve pero NO la corrige: quien arma la raya necesita las
+   * jornadas delante, y enmendar una checada ajena es del gerente, que estaba en
+   * el turno y sabe lo que pasó.
+   */
+  it("administración mira sin corregir; el gerente y la dirección corrigen", () => {
+    expect(puedeOperar(usuarioCon("administracion"), "rrhh.checada.ajustar")).toBe(false);
+    expect(puedeOperar(usuarioCon("gerente"), "rrhh.checada.ajustar")).toBe(true);
+    expect(puedeOperar(usuarioCon("propietario"), "rrhh.checada.ajustar")).toBe(true);
+  });
+
+  /*
+   * Y se puede personalizar por usuario, que es la otra mitad del pedido: al
+   * encargado del turno de noche se le da en «Ver» desde Administración →
+   * Usuarios y mira las jornadas sin poder tocar ningún registro.
+   */
+  it("a un mesero se le puede conceder en «ver» sin darle corregir", () => {
+    const encargado = usuarioCon("mesero");
+    encargado.permisos = [...encargado.permisos, { accion: "rrhh.checada.ajustar", nivel: "ver" }];
+    expect(puedeVer(encargado, "rrhh.checada.ajustar")).toBe(true);
+    expect(puedeOperar(encargado, "rrhh.checada.ajustar")).toBe(false);
+  });
+});

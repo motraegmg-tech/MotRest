@@ -180,6 +180,13 @@ export interface DatosTicket {
   reimpresion?: number;
   /** Textos que el restaurante puede cambiar. Ver `TextosTicket`. */
   textos?: TextosTicket;
+  /**
+   * El logo del local, ya convertido a puntos para el ancho de ESTE papel.
+   *
+   * Llega hecho y no como imagen por convertir: al cobrar no hay tiempo de
+   * procesar un PNG, y esto también corre donde no hay `canvas`. Ver `logo.ts`.
+   */
+  logo?: ImagenMonocroma;
 }
 
 /**
@@ -226,6 +233,21 @@ export const TEXTOS_TICKET_POR_DEFECTO: Required<Omit<TextosTicket, "encabezado"
  */
 const FIRMA_MOTRAE = "MotRest by Motrae";
 
+/**
+ * El logo del restaurante, arriba de todo.
+ *
+ * Va antes del nombre y no en lugar de él: el nombre en letra grande es lo que
+ * se lee de un vistazo en la bolsa del pantalón tres semanas después, y un logo
+ * de puntos térmicos no siempre se reconoce. Escala 1 y sin margen porque el
+ * mapa ya viene calculado para el ancho de ESTE papel —ver `logo.ts`—; escalarlo
+ * aquí lo dejaría con los bordes en escalera.
+ */
+function conLogo(t: Ticket, logo: ImagenMonocroma | undefined): void {
+  if (!logo || logo.ancho <= 0 || logo.alto <= 0) return;
+  t.imagenMonocroma(logo, 1, 0);
+  t.salto();
+}
+
 export function ticketVenta(datos: DatosTicket, columnas: AnchoPapel = 42): Ticket {
   const t = new Ticket(columnas);
   const centrado: { alineacion: Alineacion } = { alineacion: "centro" };
@@ -235,6 +257,7 @@ export function ticketVenta(datos: DatosTicket, columnas: AnchoPapel = 42): Tick
     t.salto();
   }
 
+  conLogo(t, datos.logo);
   t.linea(datos.local.nombre, { ...centrado, negrita: true, doble_alto: true });
   if (datos.local.direccion) t.linea(datos.local.direccion, centrado);
   if (datos.local.rfc) t.linea(`RFC: ${datos.local.rfc}`, centrado);
@@ -365,6 +388,8 @@ export interface DatosPrecuenta {
   cambio?: Centavos;
   reimpresion?: number;
   textos?: TextosTicket;
+  /** El logo del local en puntos, para el ancho de este papel. Ver `logo.ts`. */
+  logo?: ImagenMonocroma;
   /** Hasta dos acciones que el comensal puede escanear desde su papel. */
   qrs?: { leyenda: string; url: string; matriz?: ImagenMonocroma }[];
 }
@@ -388,6 +413,7 @@ export function precuenta(
     t.salto();
   }
 
+  conLogo(t, datos.logo);
   t.linea(datos.local.nombre, { ...centrado, negrita: true, doble_alto: true });
   if (datos.local.direccion) t.linea(datos.local.direccion, centrado);
   if (datos.local.rfc) t.linea(`RFC: ${datos.local.rfc}`, centrado);

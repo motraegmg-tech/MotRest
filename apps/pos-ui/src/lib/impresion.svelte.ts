@@ -48,6 +48,7 @@ import {
 } from "@motrest/impresion";
 import type { Almacen } from "@motrest/protocolo-sync";
 import QRCode from "qrcode";
+import { local } from "./local.svelte";
 
 function conMatrizQr(datos: DatosPrecuenta): DatosPrecuenta {
   return {
@@ -232,6 +233,41 @@ class StoreImpresion {
   private cola = new ColaImpresion([new TransporteHub(), this.transporte], (t) => {
     this.trabajos = [...t];
   });
+
+  /**
+   * El reloj que despierta a la cola cuando vence la espera de un reintento.
+   *
+   * La cola no se programa a sí misma —así se puede probar sin relojes falsos—,
+   * y sin alguien que la despierte un trabajo que falló se quedaba quieto hasta
+   * que otro documento la arrancara. Ese era medio defecto del ticket que «no
+   * salía hasta mandar el siguiente».
+   */
+  private reloj: ReturnType<typeof setTimeout> | null = null;
+
+  /**
+   * Arranca la cola y deja programado el siguiente intento, si queda alguno.
+   *
+   * Todo lo que encola pasa por aquí: es el único sitio donde se decide cuándo
+   * se vuelve a mirar el papel pendiente.
+   */
+  private bombear(impresoras: readonly Impresora[] = this.impresoras): void {
+    void this.cola.procesar(impresoras).finally(() => this.reprogramar());
+  }
+
+  private reprogramar(): void {
+    if (this.reloj) {
+      clearTimeout(this.reloj);
+      this.reloj = null;
+    }
+    const espera = this.cola.proximoIntentoEnMs();
+    if (espera === null) return;
+    // Un suelo de un cuarto de segundo: sin él, un pendiente ya vencido que no
+    // se puede atender —la impresora no está— giraría en un bucle cerrado.
+    this.reloj = setTimeout(() => {
+      this.reloj = null;
+      this.bombear();
+    }, Math.max(250, espera));
+  }
 
   async hidratar(almacen: Almacen): Promise<void> {
     this.almacen = almacen;
@@ -437,7 +473,7 @@ class StoreImpresion {
       vista: ticket.aTexto(),
     });
     this.vistaPrevia = { titulo: `Prueba · ${detectada.nombre}`, texto: ticket.aTexto() };
-    void this.cola.procesar([...this.impresoras, efimera]);
+    this.bombear([...this.impresoras, efimera]);
   }
 
   get activas(): Impresora[] {
@@ -500,7 +536,7 @@ class StoreImpresion {
       vista: ticket.aTexto(),
       referencia,
     });
-    void this.cola.procesar(this.impresoras);
+    this.bombear();
   }
 
   /**
@@ -540,7 +576,8 @@ class StoreImpresion {
       this.vistaPrevia = { titulo: `Cuenta ${datos.folio}`, texto: precuenta(datos).aTexto() };
       return false;
     }
-    const preparados = impresora.modo_qr === "imagen" ? conMatrizQr(datos) : datos;
+    const conLogo = { ...datos, logo: this.logoPara(impresora) };
+    const preparados = impresora.modo_qr === "imagen" ? conMatrizQr(conLogo) : conLogo;
     const ticket = precuenta(preparados, impresora.ancho, impresora.modo_qr ?? "nativo");
     this.encolar(impresora, "precuenta", ticket, datos.folio);
     this.vistaPrevia = { titulo: `Cuenta ${datos.folio}`, texto: ticket.aTexto() };
@@ -588,13 +625,24 @@ class StoreImpresion {
     return true;
   }
 
+  /**
+   * El logo del local ya convertido al ancho de ESTA impresora.
+   *
+   * Va aquí y no en quien arma los datos porque el mapa de puntos depende del
+   * papel —384 puntos en 58 mm, 576 en 80 mm— y el papel solo se sabe cuando ya
+   * se eligió la impresora. Ver `local.logoParaTicket` y `logo-ticket.ts`.
+   */
+  private logoPara(impresora: Impresora) {
+    return local.logoParaTicket(impresora.ancho) ?? undefined;
+  }
+
   ticket(datos: DatosTicket): boolean {
     const impresora = impresoraPara(this.impresoras, "caja");
     if (!impresora) {
       this.vistaPrevia = { titulo: `Ticket ${datos.folio}`, texto: ticketVenta(datos).aTexto() };
       return false;
     }
-    const ticket = ticketVenta(datos, impresora.ancho);
+    const ticket = ticketVenta({ ...datos, logo: this.logoPara(impresora) }, impresora.ancho);
     this.encolar(impresora, "ticket", ticket, datos.folio);
     this.vistaPrevia = { titulo: `Ticket ${datos.folio}`, texto: ticket.aTexto() };
     return true;
@@ -713,7 +761,7 @@ class StoreImpresion {
 
   reintentar(trabajoId: ID): void {
     this.cola.reintentar(trabajoId);
-    void this.cola.procesar(this.impresoras);
+    this.bombear();
   }
 
   descartar(trabajoId: ID): void {
