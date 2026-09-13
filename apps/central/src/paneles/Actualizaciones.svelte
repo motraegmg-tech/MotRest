@@ -87,6 +87,17 @@
   const orden = $derived(central.ordenDeDespliegue);
 
   /**
+   * Locales que leen de la nube y no están marcados: a esos no les llega.
+   *
+   * Un Hub con enlace mira la nube y solo la nube; GitHub es la vía de los que
+   * no lo tienen. Publicar sin marcarlos deja la versión subida y sin destino,
+   * que es exactamente lo que pasó con la 1.5.0, la 1.5.1 y la 1.5.2.
+   */
+  const enlazadosSinMarcar = $derived(
+    central.clientes.filter((c) => central.tieneEnlaceNube(c.id) && !elegidos.includes(c.id)),
+  );
+
+  /**
    * La lista de comprobación. Cada renglón corresponde a algo que ya ha salido
    * mal en algún despliegue de alguien — no son buenas intenciones.
    */
@@ -176,6 +187,21 @@
 
   function copiar() {
     void navigator.clipboard?.writeText(manifiesto);
+  }
+
+  /**
+   * Compone la URL del release de GitHub para esta versión.
+   *
+   * La etiqueta ES la versión, sin `v`: así se nombran desde la 1.3.6, y
+   * escribirla a mano con la costumbre vieja es lo que dejó la 1.5.2 apuntando a
+   * un archivo que no existe. El nombre del archivo sale del instalador elegido
+   * si lo hay, y si no del que fabrica Tauri.
+   */
+  function componerUrlGitHub() {
+    const v = version.trim();
+    if (!v) return;
+    const archivo = instalador?.name || `MotRest_${v}_x64-setup.exe`;
+    url = `https://github.com/${repositorio}/releases/download/${v}/${archivo}`;
   }
 
   /**
@@ -395,11 +421,31 @@
           bind:value={url}
           placeholder="https://github.com/{repositorio}/releases/download/1.5.0/MotRest_1.5.0_x64-setup.exe"
         />
-        <small>
-          Se rellena al subir a la nube. Se escribe a mano solo cuando la
-          versión va por un release de GitHub. Ojo con el nombre del tag: si en
-          GitHub es <code>1.5.0</code>, la URL no lleva <code>v</code>.
-        </small>
+        <!--
+          EL BOTÓN EXISTE PORQUE EL AVISO NO BASTÓ.
+
+          Aquí abajo ya decía «si en GitHub es 1.5.0, la URL no lleva v», en letra
+          pequeña, y la 1.5.2 se publicó igualmente apuntando a `v1.5.2`: firma
+          válida, archivo en otro sitio, 404 en cada local. Lo que no se teclea no
+          se teclea mal, así que la URL se compone del repositorio, la versión y
+          el nombre del archivo. Y si aun así alguien la escribe, firmar la
+          rechaza — ver `problemaDeEtiquetaGitHub`.
+        -->
+        <div class="fila-url">
+          <button
+            type="button"
+            class="componer"
+            disabled={!version.trim()}
+            onclick={componerUrlGitHub}
+          >
+            Componer la de GitHub
+          </button>
+          <small>
+            Se rellena sola al subir a la nube. Esto es para cuando la versión va
+            por un release de GitHub: la etiqueta tiene que ser
+            <code>{version.trim() || "1.5.0"}</code>, sin <code>v</code>.
+          </small>
+        </div>
       </label>
 
       <label>
@@ -471,6 +517,7 @@
               ningún local</b>. Publicar y asignar son dos decisiones.
             </p>
             {#each central.clientes as cliente (cliente.id)}
+              {@const enlazado = central.tieneEnlaceNube(cliente.id)}
               <label class="local">
                 <input
                   type="checkbox"
@@ -479,11 +526,41 @@
                 />
                 {cliente.nombre}
                 <code>{cliente.id}</code>
+                <!--
+                  Quién lee de la nube y quién no, a la vista al elegir.
+
+                  Un local ENLAZADO mira la nube y SOLO la nube: para él, un
+                  release de GitHub no existe. Uno sin enlace es al revés. Sin
+                  esto, la casilla no dice nada sobre si marcarla cambia algo.
+                -->
+                {#if enlazado}
+                  <span class="marca-enlace">lee de la nube</span>
+                {:else}
+                  <span class="marca-enlace sin">sin enlace · va por GitHub</span>
+                {/if}
               </label>
             {:else}
               <p class="locales-nota">Todavía no hay restaurantes en la cartera.</p>
             {/each}
           </fieldset>
+
+          <!--
+            EL AVISO QUE FALTABA, y que costó tres versiones.
+
+            Las 1.5.0, 1.5.1 y 1.5.2 se publicaron solo en GitHub. Los locales
+            enlazados leen ÚNICAMENTE de la nube (`traerManifiesto` en
+            `apps/hub/src/actualizaciones.ts`), así que se quedaron meses con la
+            1.4.1 sin que nada lo dijera: el panel se veía igual de verde con
+            cero locales marcados que con todos.
+          -->
+          {#if enlazadosSinMarcar.length > 0}
+            <p class="aviso-enlace">
+              <b>{enlazadosSinMarcar.length}</b>
+              {enlazadosSinMarcar.length === 1 ? "local lee de la nube y no está marcado" : "locales leen de la nube y no están marcados"}:
+              {enlazadosSinMarcar.map((c) => c.nombre).join(", ")}.
+              Si publicas así, <b>no se enterarán</b> — para ellos GitHub no existe.
+            </p>
+          {/if}
 
           <button class="primario" disabled={publicando} onclick={publicar}>
             {publicando ? "Publicando…" : "Publicar en la nube"}
@@ -820,6 +897,48 @@
   .local code {
     color: var(--gris);
     font-size: 0.72rem;
+  }
+  /*
+   * De dónde lee cada local, junto a su casilla. No es adorno: marcar a un
+   * local enlazado es lo único que se la hace llegar, y no marcarlo no da
+   * ningún error.
+   */
+  .fila-url {
+    display: flex;
+    align-items: baseline;
+    gap: 0.6rem;
+    flex-wrap: wrap;
+    margin-top: 0.35rem;
+  }
+  .componer {
+    flex: none;
+    font-size: 0.75rem;
+    padding: 0.25rem 0.6rem;
+  }
+  .fila-url small {
+    flex: 1;
+    min-width: 14rem;
+  }
+  .marca-enlace {
+    font-size: 0.68rem;
+    letter-spacing: 0.02em;
+    padding: 0.05rem 0.4rem;
+    border-radius: var(--r-pill, 999px);
+    border: 1px solid currentColor;
+    color: var(--acento);
+    opacity: 0.85;
+  }
+  .marca-enlace.sin {
+    color: var(--gris);
+  }
+  .aviso-enlace {
+    font-size: 0.8rem;
+    line-height: 1.5;
+    margin: 0.7rem 0 0;
+    padding: 0.6rem 0.7rem;
+    border-radius: var(--r-sm);
+    border: 1px solid var(--peligro);
+    color: var(--peligro);
   }
   .hecho {
     font-size: 0.82rem;

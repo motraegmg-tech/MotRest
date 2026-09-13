@@ -730,6 +730,79 @@ describe("las llaves de Central", () => {
     expect(r.ok).toBe(true);
   });
 
+  /*
+   * LA 1.5.2, TAL COMO SE PUBLICÓ DE VERDAD.
+   *
+   * Su manifiesto salió firmado apuntando a `…/download/v1.5.2/…` mientras el
+   * archivo colgaba de `…/download/1.5.2/…`. Las etiquetas dejaron de llevar `v`
+   * en la 1.3.6 y la URL se escribió con la costumbre vieja. La firma
+   * verificaba, así que cada local sin enlace con la nube veía el aviso, lo
+   * aceptaba y fallaba al descargar con un 404 — con el panel en verde.
+   *
+   * El aviso en letra pequeña ya estaba en la pantalla y no bastó. Esto lo
+   * convierte en un rechazo.
+   */
+  it("rechaza la URL que apunta a una etiqueta distinta de la versión", async () => {
+    const r = await central.firmarActualizacion({
+      version: "1.5.2",
+      notas: "Prueba.",
+      url: "https://github.com/motrae/motrest/releases/download/v1.5.2/MotRest_1.5.2_x64-setup.exe",
+      sha256: "a".repeat(64),
+    });
+
+    expect(r.ok).toBe(false);
+    if (!r.ok) {
+      expect(r.error).toContain("v1.5.2");
+      expect(r.error).toContain("1.5.2");
+    }
+  });
+
+  it("tampoco cuela la etiqueta de otra versión, que es el copiar y pegar de siempre", async () => {
+    const r = await central.firmarActualizacion({
+      version: "1.5.3",
+      notas: "Prueba.",
+      url: "https://github.com/motrae/motrest/releases/download/1.5.2/MotRest_1.5.2_x64-setup.exe",
+      sha256: "a".repeat(64),
+    });
+
+    expect(r.ok).toBe(false);
+  });
+
+  /*
+   * La regla es de la ETIQUETA, no del nombre del archivo: cómo se llame el
+   * `.exe` lo decide Tauri y puede cambiar sin que nadie se entere.
+   */
+  it("no se mete con el nombre del archivo, solo con la etiqueta", async () => {
+    const r = await central.firmarActualizacion({
+      version: "1.5.3",
+      notas: "Prueba.",
+      url: "https://github.com/motrae/motrest/releases/download/1.5.3/como-sea.exe",
+      sha256: "a".repeat(64),
+    });
+
+    expect(r.ok).toBe(true);
+  });
+
+  /*
+   * La URL de la nube no lleva etiqueta y la compone Central al subir el
+   * instalador: nadie la teclea, así que esta comprobación no debe estorbarla.
+   */
+  it("la URL de la nube pasa sin que la regla de la etiqueta la toque", async () => {
+    await central.guardarConfiguracion({
+      repositorio: "motrae/motrest",
+      nube_url: "https://ixttslqbbwqfcqjmttyg.supabase.co",
+    });
+
+    const r = await central.firmarActualizacion({
+      version: "1.5.3",
+      notas: "Prueba.",
+      url: "https://ixttslqbbwqfcqjmttyg.supabase.co/storage/v1/object/instaladores/1.5.3.exe",
+      sha256: "a".repeat(64),
+    });
+
+    expect(r.ok).toBe(true);
+  });
+
   it("un host cualquiera no cuela, aunque sea HTTPS", async () => {
     const r = await central.firmarActualizacion({
       version: "1.5.3",
@@ -743,15 +816,17 @@ describe("las llaves de Central", () => {
   });
 
   it("firma publicaciones con un publicado_ts monótono, aunque el reloj no avance", async () => {
-    const datos = {
-      version: "1.5.0",
+    // La URL se compone de la versión: desde que firmar comprueba que la
+    // etiqueta del release coincida, una fija para dos versiones se rechaza.
+    const datos = (version: string) => ({
+      version,
       notas: "Arregla un detalle de seguridad.",
-      url: "https://github.com/motrae/motrest/releases/download/v1.5.0/MotRest_setup.exe",
+      url: `https://github.com/motrae/motrest/releases/download/${version}/MotRest_setup.exe`,
       sha256: "a".repeat(64),
       version_minima_soportada: "1.4.2",
-    };
-    const primero = await central.firmarActualizacion(datos, 1_000);
-    const segundo = await central.firmarActualizacion({ ...datos, version: "1.5.1" }, 1_000);
+    });
+    const primero = await central.firmarActualizacion(datos("1.5.0"), 1_000);
+    const segundo = await central.firmarActualizacion(datos("1.5.1"), 1_000);
 
     expect(primero.ok).toBe(true);
     expect(segundo.ok).toBe(true);
@@ -763,16 +838,16 @@ describe("las llaves de Central", () => {
   });
 
   it("no firma dos manifiestos a la vez con la misma marca de publicación", async () => {
-    const datos = {
-      version: "1.5.0",
+    const datos = (version: string) => ({
+      version,
       notas: "Arregla un detalle de seguridad.",
-      url: "https://github.com/motrae/motrest/releases/download/v1.5.0/MotRest_setup.exe",
+      url: `https://github.com/motrae/motrest/releases/download/${version}/MotRest_setup.exe`,
       sha256: "a".repeat(64),
-    };
+    });
 
     const [primero, segundo] = await Promise.all([
-      central.firmarActualizacion(datos, 1_000),
-      central.firmarActualizacion({ ...datos, version: "1.5.1" }, 1_000),
+      central.firmarActualizacion(datos("1.5.0"), 1_000),
+      central.firmarActualizacion(datos("1.5.1"), 1_000),
     ]);
 
     expect([primero.ok, segundo.ok].filter(Boolean)).toHaveLength(1);
@@ -869,7 +944,7 @@ describe("vigilar el anillo después de publicar", () => {
   const VERSION = {
     version: "1.5.0",
     notas: "Arregla un detalle.",
-    url: "https://github.com/motrae/motrest/releases/download/v1.5.0/MotRest_setup.exe",
+    url: "https://github.com/motrae/motrest/releases/download/1.5.0/MotRest_setup.exe",
     sha256: "a".repeat(64),
   };
 

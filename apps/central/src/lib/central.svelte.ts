@@ -509,6 +509,59 @@ function esUrlDeInstaladorSegura(texto: string, hostDeLaNube?: string): boolean 
   }
 }
 
+/**
+ * ¿La URL de GitHub apunta a la etiqueta de ESTA versión?
+ *
+ * ## Lo que esto impide, y ya pasó
+ *
+ * El manifiesto de la **1.5.2** se firmó apuntando a
+ * `…/releases/download/v1.5.2/MotRest_1.5.2_x64-setup.exe`, y el archivo estaba
+ * en `…/download/1.5.2/…`. Las etiquetas dejaron de llevar `v` en la 1.3.6 y la
+ * URL se escribió a mano con la costumbre vieja. La firma verificaba —el
+ * manifiesto era legítimo—, así que cada local veía el aviso, lo aceptaba, y
+ * fallaba al descargar con un 404. Todo verde en el panel y la versión sin
+ * llegarle a nadie.
+ *
+ * Es la comprobación que faltaba: la parte de la ruta que va entre
+ * `releases/download/` y el nombre del archivo ES la etiqueta del release, y
+ * tiene que ser la versión que se está publicando. Se comprueba sin red a
+ * propósito —una validación que depende de internet no sirve para publicar
+ * desde donde sea, y `github.com` ni siquiera responde a una petición del
+ * navegador por CORS—.
+ *
+ * Se admite el prefijo `v` SOLO si la etiqueta entera es `v<versión>` y así se
+ * llama el release; como eso no se puede saber sin red, se rechaza y se dice
+ * cuál es la forma correcta. Es preferible un aviso de más al publicar que un
+ * restaurante que no puede actualizarse.
+ *
+ * Devuelve el problema en texto, o `null` si la URL está bien. No aplica a las
+ * URL de la nube: esas las compone Central al subir el instalador y nadie las
+ * teclea.
+ */
+export function problemaDeEtiquetaGitHub(texto: string, version: string): string | null {
+  let url: URL;
+  try {
+    url = new URL(texto);
+  } catch {
+    return null; // De la URL mal formada ya se queja `esUrlDeInstaladorSegura`.
+  }
+  if (!HOSTS_GITHUB.includes(url.hostname.toLowerCase())) return null;
+
+  const partes = url.pathname.split("/").filter(Boolean);
+  const i = partes.indexOf("download");
+  // Otras formas de URL de GitHub (la API, por ejemplo) no llevan etiqueta aquí.
+  if (i < 0 || partes[i - 1] !== "releases" || partes.length < i + 2) return null;
+
+  const etiqueta = partes[i + 1]!;
+  if (etiqueta === version) return null;
+
+  return (
+    `La URL apunta a la etiqueta «${etiqueta}» y estás publicando la ${version}. ` +
+    `El archivo tiene que colgar de «${version}» ` +
+    `(…/releases/download/${version}/…), o el local verá la versión y fallará al descargarla.`
+  );
+}
+
 /** El host de la nube configurada, si lo hay. Sirve para validar una URL. */
 function hostDeNube(nubeUrl: string | undefined): string | undefined {
   if (!nubeUrl?.trim()) return undefined;
@@ -1305,6 +1358,8 @@ export class StoreCentral {
           : "El instalador debe usar HTTPS en un host permitido de GitHub",
       };
     }
+    const etiqueta = problemaDeEtiquetaGitHub(datos.url, datos.version);
+    if (etiqueta) return { ok: false, error: etiqueta };
     if (!/^[0-9a-f]{64}$/i.test(datos.sha256.trim())) {
       return { ok: false, error: "La huella SHA-256 debe tener 64 caracteres hexadecimales" };
     }

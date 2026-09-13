@@ -34,6 +34,18 @@ instala en silencio y la vuelve a abrir.
 Los dos caminos verifican **la misma firma**, así que no hay uno «más seguro»:
 lo que decide si un instalador corre es el manifiesto firmado, no de dónde vino.
 
+> ### NO SON DOS CANALES QUE SE COMPLEMENTAN. Son dos públicos distintos.
+>
+> `traerManifiesto()` es explícito: **si el local tiene enlace con la nube, mira
+> la nube y solo la nube.** GitHub no es su respaldo — es la vía de los locales
+> que aún no están enlazados. Publicar únicamente en GitHub deja fuera a toda la
+> flota enlazada, sin un solo error en ninguna parte.
+>
+> Medido el 13-sep-2026: la nube tenía **una** versión, la 1.4.1. Las 1.5.0,
+> 1.5.1 y 1.5.2 se habían publicado solo en GitHub. Tres versiones que no le
+> llegaron a nadie, con el panel en verde. Antes de publicar, mira quién lee de
+> dónde: en el paso de elegir locales, cada uno lo dice al lado de su casilla.
+
 **Por qué la firma:** el canal de actualización es la llave maestra de todas las
 instalaciones. Con el manifiesto firmado, ni siquiera hace falta confiar en el
 sitio que sirve el archivo — sin la **llave privada** de MOTRAE no cuela nada.
@@ -77,9 +89,14 @@ instalación que no lo tiene requiere llevarle el instalador a mano una vez.
 ### 1 · Compilar y firmar el instalador
 
 ```
-corepack pnpm@9.15.0 -r build
-corepack pnpm@9.15.0 --filter motrest-escritorio tauri build
+corepack pnpm@9.15.0 --filter @motrest/escritorio build
 ```
+
+Ese único comando encadena los tres pasos que hacen falta —compilar el POS,
+empaquetar el Hub y armar el instalador—, y en ese orden: `tauri build` a secas
+**no reconstruye lo que empaqueta** y saca un instalador con código viejo sin
+avisar. Antes hay que exportar las llaves públicas y el repositorio (ver
+«Preparativos»), o el empaquetado aborta.
 
 Firmar el `.exe` (ver [`FIRMA-DEL-INSTALADOR.md`](FIRMA-DEL-INSTALADOR.md)) y
 sacar su huella:
@@ -134,8 +151,20 @@ viejo no pueda revertir el canal.
 Un release en GitHub con **dos archivos**: el instalador y `motrest.json`.
 El nombre del manifiesto tiene que ser exactamente ese.
 
+**La etiqueta es la versión desnuda: `1.5.3`, sin `v`.** Se cambió en la 1.3.6 y
+sigue costando disgustos, porque la URL del manifiesto se compone con ella: el
+manifiesto de la **1.5.2** salió firmado apuntando a `…/download/v1.5.2/…` con el
+archivo colgando de `…/download/1.5.2/…`. La firma verificaba, así que cada local
+sin enlace veía el aviso, lo aceptaba y fallaba al descargar con un 404.
+
+Desde entonces hay dos candados en Central: el botón **«Componer la de GitHub»**,
+para no teclearla, y una comprobación al firmar que **rechaza** una URL cuya
+etiqueta no sea la versión que se publica.
+
 **Los borradores y las preliminares no llegan a nadie.** Sirven para probar el
-circuito completo sin tocar a ningún restaurante.
+circuito completo sin tocar a ningún restaurante — y también para **retirar de la
+circulación un release defectuoso**: marcarlo como preliminar lo saca de
+`releases/latest` en el acto, sin borrar nada y sin tocar su etiqueta.
 
 ### 5 · Desplegar por anillos
 
@@ -198,10 +227,40 @@ distinguir cuál lo era de verdad.
 
 ---
 
+## Comprobar el canal antes y después (tres consultas)
+
+El panel enseña lo que Central hizo; esto enseña lo que la nube tiene. Son
+lecturas, no escriben nada:
+
+```sql
+select version, canal, url, publicado_ts from versiones order by publicado_ts desc;
+select * from asignaciones;
+select sucursal_id, version, ts from pulsos order by ts desc;
+```
+
+- `versiones` tiene que traer la recién publicada. Si no está, se firmó pero no
+  se publicó en la nube.
+- `asignaciones` decide a quién se le ofrece. **Ojo con `version_fijada`:**
+  manda por encima de todo, así que un local clavado en una versión vieja no
+  recibe nada, ni siquiera lo más nuevo del canal. Se clava al marcarlo en el
+  paso de publicar —y se vuelve a mover marcándolo otra vez—. Pasó: el local de
+  pruebas quedó fijado en 1.4.1 con el Hub corriendo 1.5.0, o sea mudo para
+  siempre.
+- `pulsos` dice qué corre cada local de verdad. Un local que no aparece **no
+  está enlazado**: va por GitHub, y su licencia necesita el bloque `nube`.
+
 ## Si algo sale mal
 
 **Una versión rota ya publicada.** Publicar la siguiente con el arreglo, subiendo
-el número. No se puede "despublicar": los Hubs que ya la bajaron la tienen.
+el número. No se puede "despublicar": los Hubs que ya la bajaron la tienen. Lo
+que sí se puede es **dejar de ofrecérsela a quien todavía no la tiene**:
+
+- *En GitHub:* márcala como preliminar y sale de `releases/latest` al instante.
+  ```
+  gh release edit 1.5.2 --prerelease
+  ```
+- *En la nube:* `retirada_ts` en su fila de `versiones` la saca del reparto
+  (`privado.version_ofrecida` la ignora).
 
 **La firma no cuadra.** El Hub la ignora y lo anota como **error** en su bitácora.
 Suele ser que el instalador lleva una pública distinta de la privada con la que
