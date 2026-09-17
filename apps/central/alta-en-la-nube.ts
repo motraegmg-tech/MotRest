@@ -1,5 +1,20 @@
 /**
- * Dar de alta un restaurante en la nube de MotRest.
+ * Dar de alta un restaurante en la nube de MotRest — RESPALDO, ya no el camino normal.
+ *
+ * > **Desde septiembre de 2026 esto lo hace MotRest Central sola**: dar de alta
+ * > un restaurante en el panel crea también su identidad en la nube y guarda su
+ * > credencial, de modo que su PRIMERA licencia ya sale con el enlace dentro.
+ * > Ver `altaEnLaNube` en `src/lib/central.svelte.ts`.
+ * >
+ * > Se movió ahí porque este script era un paso manual que había que acordarse
+ * > de dar, y un paso así es un paso que no se da: medido contra la nube el
+ * > 17-sep-2026, de tres locales solo **uno** había quedado enlazado. Los otros
+ * > dos llevaban meses con licencias esperándolos que nunca podrían recoger, sin
+ * > un solo error en ninguna parte.
+ * >
+ * > Esto se conserva para cuando Central no está a mano —una máquina sin el
+ * > panel instalado, o un diagnóstico desde la consola— y porque es la forma más
+ * > corta de dar de alta a alguien sin tocar la cartera.
  *
  * Sustituye a `padron alta` del relay (apps/relay/src/padron-cli.ts), y con él
  * desaparece lo más incómodo de aquel: **había que entrar por SSH a la máquina

@@ -19,7 +19,11 @@
     onCreado,
   }: {
     onCerrar: () => void;
-    onCreado: (id: string, credenciales: CredencialesResponsableIniciales) => void;
+    onCreado: (
+      id: string,
+      credenciales: CredencialesResponsableIniciales,
+      avisoNube?: string,
+    ) => void;
   } = $props();
 
   let nombre = $state("");
@@ -57,7 +61,13 @@
         error = r.error;
         return;
       }
-      onCreado(r.cliente.id, r.credencialesResponsable);
+      /*
+       * El alta en la nube va dentro de `central.alta`. Si no salió, el
+       * restaurante queda creado igual y lo que viaja es el motivo: un alta que
+       * dice «listo» y deja al local sin poder recibir licencias es el fallo
+       * silencioso que esto viene a cerrar.
+       */
+      onCreado(r.cliente.id, r.credencialesResponsable, r.avisoNube);
     } finally {
       guardando = false;
     }

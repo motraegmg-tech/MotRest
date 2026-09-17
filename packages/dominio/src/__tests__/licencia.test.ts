@@ -371,3 +371,128 @@ describe("una licencia ya vencida corta el servicio", () => {
     expect(situacionDe(floja, true, AHORA).opera).toBe(true);
   });
 });
+
+/**
+ * EL CORTE QUE ESPERA A QUE TERMINEN LA JORNADA, Y SU TECHO.
+ *
+ * Decisión de Gonzalo, sep-2026: al cortarle a un moroso no se le revienta el
+ * servicio que está dando. Termina la jornada, cierra la caja, y al día
+ * siguiente se encuentra la pantalla de MOTRAE. Bloquear a media cena encierra
+ * el dinero de las mesas puestas —no pueden ni cobrarle a quien está sentado— y
+ * esa llamada de auxilio le cae a MOTRAE, no al moroso.
+ *
+ * El techo existe porque la espera tiene un agujero real: una caja que no se
+ * cierra nunca dejaba el corte en suspenso indefinidamente. En Rodizio la caja
+ * estuvo meses sin cerrarse por un defecto.
+ */
+describe("el corte espera al cierre de caja, pero no para siempre", () => {
+  const HORA = 3_600_000;
+
+  async function corte(bloqueo_maximo_ts?: number): Promise<Licencia> {
+    return emitirLicencia(
+      {
+        sucursal_id: SUC,
+        nombre: "Rodizio",
+        plan: "mensual",
+        vence_ts: AHORA - 1_000,
+        gracia_dias: 0,
+        emitida_ts: AHORA,
+        ...(bloqueo_maximo_ts !== undefined ? { bloqueo_maximo_ts } : {}),
+      },
+      MOTRAE.privada,
+    );
+  }
+
+  it("con la caja abierta no cae: siguen dando el servicio", async () => {
+    const cortada = await corte(AHORA + 36 * HORA);
+    const situacion = situacionDe(cortada, true, AHORA);
+
+    expect(situacion.opera).toBe(false);
+    expect(momentoDeBloquear(situacion, true, cortada, AHORA)).toBe("al_cerrar_turno");
+    expect(debeBloquearse(situacion, true, cortada, AHORA)).toBe(false);
+  });
+
+  it("al cerrar la caja sí cae", async () => {
+    const cortada = await corte(AHORA + 36 * HORA);
+    const situacion = situacionDe(cortada, true, AHORA);
+
+    expect(debeBloquearse(situacion, false, cortada, AHORA)).toBe(true);
+  });
+
+  /*
+   * El caso que motivó el techo. Sin él, esta misma prueba con la caja abierta
+   * devolvería «al_cerrar_turno» hasta el fin de los tiempos.
+   */
+  it("pasadas las 36 horas cae aunque la caja siga abierta", async () => {
+    const cortada = await corte(AHORA + 36 * HORA);
+    const situacion = situacionDe(cortada, true, AHORA + 36 * HORA + 1);
+
+    expect(momentoDeBloquear(situacion, true, cortada, AHORA + 36 * HORA + 1)).toBe("ahora");
+    expect(debeBloquearse(situacion, true, cortada, AHORA + 36 * HORA + 1)).toBe(true);
+  });
+
+  it("justo antes del techo todavía espera", async () => {
+    const cortada = await corte(AHORA + 36 * HORA);
+    const casi = AHORA + 36 * HORA - 1;
+
+    expect(debeBloquearse(situacionDe(cortada, true, casi), true, cortada, casi)).toBe(false);
+  });
+
+  /*
+   * Una licencia que simplemente venció —sin corte de por medio— no lleva techo,
+   * y se sigue difiriendo sin límite como siempre. El techo es de la acción de
+   * cortar, no del vencimiento normal.
+   */
+  it("una licencia vencida sin techo se difiere sin límite", async () => {
+    const vencida = await corte(undefined);
+    const mucho_despues = AHORA + 400 * HORA;
+
+    expect(
+      momentoDeBloquear(situacionDe(vencida, true, mucho_despues), true, vencida, mucho_despues),
+    ).toBe("al_cerrar_turno");
+  });
+
+  /*
+   * El techo va DENTRO de lo firmado. Si el local lo empuja para no bloquearse,
+   * la licencia entera deja de valer — y una licencia inválida bloquea igual.
+   */
+  it("mover el techo a mano invalida la firma", async () => {
+    const cortada = await corte(AHORA + 36 * HORA);
+    const manipulada: Licencia = { ...cortada, bloqueo_maximo_ts: AHORA + 100_000 * HORA };
+
+    expect(await verificarLicencia(manipulada, MOTRAE.publica, SUC)).toBe(false);
+  });
+
+  /*
+   * LA OTRA MITAD, Y ES LA QUE PAGA: renovar devuelve el servicio EN EL ACTO.
+   *
+   * Es lo que hace que cortar sea una palanca de cobro y no un castigo: el
+   * restaurante paga, Gonzalo pulsa «Renovar», y el local vuelve a vender sin
+   * que nadie vaya ni reinicie nada. Se prueba incluso después de rebasado el
+   * techo del corte, que es justo cuando el moroso llama.
+   */
+  it("renovar después de un corte devuelve el servicio de inmediato", async () => {
+    const cortada = await corte(AHORA + 36 * HORA);
+    const tarde = AHORA + 40 * HORA;
+    expect(debeBloquearse(situacionDe(cortada, true, tarde), true, cortada, tarde)).toBe(true);
+
+    const renovada = await emitirLicencia(
+      {
+        sucursal_id: SUC,
+        nombre: "Rodizio",
+        plan: "mensual",
+        vence_ts: tarde + 30 * 24 * HORA,
+        gracia_dias: GRACIA_POR_DEFECTO,
+        emitida_ts: tarde,
+      },
+      MOTRAE.privada,
+    );
+
+    const situacion = situacionDe(renovada, true, tarde);
+    expect(situacion.opera).toBe(true);
+    expect(debeBloquearse(situacion, true, renovada, tarde)).toBe(false);
+    expect(permiteLicencia(situacion, "vender")).toBe(true);
+    // El techo era del documento cortado, no del local: no sobrevive a la nueva.
+    expect(renovada.bloqueo_maximo_ts).toBeUndefined();
+  });
+});

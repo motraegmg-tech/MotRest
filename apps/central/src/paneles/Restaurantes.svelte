@@ -8,6 +8,7 @@
    */
   import {
     central,
+    HORAS_MAXIMAS_DE_CORTE,
     type CredencialesResponsableIniciales,
     type EntregaLicencia,
   } from "../lib/central.svelte";
@@ -145,12 +146,30 @@
   }
 
   /**
+   * Enlazar con la nube un local que no lo está.
+   *
+   * Existe para dos casos: el alta cuya llamada a la nube no salió —internet
+   * caído mientras se daba de alta al cliente— y los locales anteriores a que el
+   * alta hiciera esto sola. Sin enlace, sus licencias hay que llevarlas a mano
+   * una por una.
+   */
+  async function enlazarConLaNube() {
+    if (!cliente) return;
+    aviso = "";
+    const r = await central.altaEnLaNube(cliente.id, cliente.nombre);
+    aviso = r.ok
+      ? `${cliente.nombre} quedó enlazado. Emítele una licencia y pégasela UNA vez en su caja: ` +
+        "el enlace viaja dentro. De ahí en adelante las recibe solo."
+      : `No se pudo enlazar: ${r.error}`;
+  }
+
+  /**
    * Cortar el servicio ahora, sin esperar a que la licencia venza sola.
    *
-   * NO ES UN INTERRUPTOR REMOTO y no se puede presentar como tal: lo que se
-   * genera es una licencia con bloqueo inmediato que hay que pegar en el local,
-   * igual que cualquier otra. Lo que cambia es que antes esto no se podía ni
-   * pedir, así que cortarle a alguien significaba esperar semanas.
+   * A un local ENLAZADO le llega solo, en segundos. A uno sin enlace hay que
+   * pegarle el archivo, y por eso lo primero que hace esta pantalla es decir en
+   * cuál de los dos casos está: prometer un corte que no va a llegar es peor que
+   * no ofrecerlo.
    */
   async function cortarServicio() {
     if (!cliente) return;
@@ -163,14 +182,34 @@
       return;
     }
 
-    if (r.entrega === "entregada") {
-      aviso = "Servicio cortado: el local ya dejó de operar.";
-    } else if (r.entrega === "en_espera") {
-      aviso = "Corte enviado. El local está apagado; quedará suspendido en cuanto encienda.";
-    } else {
-      licenciaGenerada = JSON.stringify(r.licencia, null, 2);
-      aviso = `No se pudo enviar solo (${r.motivoEntrega ?? "sin nube"}): pegue este archivo en el local.`;
+    /*
+     * SE DICE LO QUE VA A PASAR, NO LO QUE NOS GUSTARÍA.
+     *
+     * Antes, cualquier depósito contestaba «quedará suspendido en cuanto
+     * encienda». Para un local que NUNCA ha reportado eso es simplemente falso:
+     * el enlace con la nube viaja dentro de la licencia, así que un local con
+     * licencia vieja no puede recoger nada —ni hoy ni al encender— y el corte se
+     * quedaría esperando para siempre mientras el panel lo da por hecho. Es el
+     * mismo error de fondo que dejó tres versiones publicadas sin llegarle a
+     * nadie con todo en verde.
+     */
+    const nuncaReporto = !central.pulsoDe(cliente.id);
+
+    if (r.entrega === "en_espera" && !nuncaReporto) {
+      aviso =
+        `Corte enviado a ${cliente.nombre}. Si está encendido lo recibe en segundos; ` +
+        "si está apagado, al encender. Termina su jornada y queda bloqueado al cerrar " +
+        `la caja, o a las ${HORAS_MAXIMAS_DE_CORTE} horas como máximo si no la cierra.`;
+      return;
     }
+
+    licenciaGenerada = JSON.stringify(r.licencia, null, 2);
+    aviso =
+      r.entrega === "en_espera"
+        ? "Corte depositado, pero este local NUNCA ha reportado: NO puede recogerlo solo " +
+          "y no se va a bloquear. Hay que pegarle este archivo en la caja una vez; a " +
+          "partir de ahí sí obedecerá los cortes en remoto."
+        : `No se pudo enviar solo (${r.motivoEntrega ?? "sin nube"}): pegue este archivo en el local.`;
   }
 
   function mostrarAccesoResponsable(id: string, credenciales: CredencialesResponsableIniciales) {
@@ -443,12 +482,42 @@
             <li>
               <span class="cuando">{fecha(e.ts)}</span>
               <span>{e.plan} · {dinero(e.cuota)}</span>
+              <!--
+                `corte` es la marca actual; `bloqueo_inmediato` se sigue mirando
+                porque los cortes anteriores a sep-2026 se anotaron solo con ella
+                y el historial tiene que seguir leyéndose entero.
+              -->
               <span class="hasta">
-                {e.bloqueo_inmediato ? "Corte de servicio" : `Vigente hasta ${fecha(e.vence_ts)}`}
+                {e.corte || e.bloqueo_inmediato
+                  ? "Corte de servicio"
+                  : `Vigente hasta ${fecha(e.vence_ts)}`}
               </span>
             </li>
           {/each}
         </ul>
+      {/if}
+
+      <!--
+        EL LOCAL QUE NO ESTÁ EN LA NUBE, dicho donde se le mira la ficha.
+
+        Desde sep-2026 el alta lo enlaza sola, así que esto solo sale para los
+        locales anteriores o para un alta a la que le falló internet. Mientras no
+        se enlace, sus licencias hay que llevárselas a mano una por una y no se
+        le puede cortar en remoto — y nada en el panel lo decía.
+      -->
+      {#if cliente.activo && !central.tieneEnlaceNube(cliente.id)}
+        <div class="sin-enlace">
+          <div>
+            <b>Este local no está enlazado con la nube.</b>
+            <p>
+              No recibirá licencias solo ni podrá cortársele el servicio en
+              remoto. Al enlazarlo se le crea su identidad y su credencial; el
+              enlace le llega dentro de la siguiente licencia, que hay que
+              pegarle una vez en la caja.
+            </p>
+          </div>
+          <button class="enlazar" onclick={enlazarConLaNube}>Enlazar con la nube</button>
+        </div>
       {/if}
 
       <div class="pie-ficha">
@@ -476,14 +545,37 @@
     <div class="modal-acceso" role="alertdialog" aria-modal="true" aria-labelledby="corte-titulo">
       <h2 id="corte-titulo">Cortar el servicio de {cliente.nombre}</h2>
       <p>
-        Se emitirá una licencia <b>ya vencida y sin días de gracia</b>. En cuanto se
-        pegue en el local, MotRest deja de operar ahí: no podrán cobrar ni abrir
-        cuentas.
+        Se emitirá una licencia <b>ya vencida y sin días de gracia</b>. MotRest
+        dejará de operar ahí: no podrán cobrar ni abrir cuentas.
       </p>
-      <p class="aviso-pin">
-        No es un interruptor remoto. Mientras no se pegue el archivo en el
-        restaurante, el sistema sigue funcionando con la licencia que ya tiene.
+      <!--
+        CUÁNDO cae, que es lo que de verdad hay que saber antes de pulsar.
+        El corte no revienta el servicio en curso: espera a que cierren la caja.
+      -->
+      <p>
+        <b>No corta a media cena.</b> Terminan la jornada que estén trabajando y
+        quedan bloqueados al cerrar la caja — al día siguiente se encuentran la
+        pantalla de MOTRAE con el teléfono para regularizar. Si no cierran la
+        caja, cae igual a las <b>{HORAS_MAXIMAS_DE_CORTE} horas</b>.
       </p>
+      {#if central.pulsoDe(cliente.id)}
+        <p class="aviso-pin">
+          Este local reporta, así que el corte le llega solo: en segundos si está
+          encendido, o al encender si está apagado.
+        </p>
+      {:else}
+        <!--
+          Lo que hay que ver ANTES de pulsar, no después: un local que nunca
+          reportó no puede recibir nada, y el corte se quedaría esperando para
+          siempre mientras el panel lo da por hecho.
+        -->
+        <p class="aviso-pin">
+          <b>Este local nunca ha reportado.</b> No va a recibir el corte solo: el
+          enlace con la nube viaja dentro de la licencia, y la suya es anterior.
+          Habrá que pegarle el archivo en la caja una vez; a partir de ahí sí
+          obedecerá los cortes en remoto.
+        </p>
+      {/if}
       <div class="botones-modal">
         <button onclick={() => (confirmandoCorte = false)}>Cancelar</button>
         <button class="cortar" onclick={cortarServicio}>Sí, emitir el corte</button>
@@ -495,10 +587,20 @@
 {#if dandoAlta}
   <Alta
     onCerrar={() => (dandoAlta = false)}
-    onCreado={(id, credenciales) => {
+    onCreado={(id, credenciales, avisoNube) => {
       seleccionado = id;
       dandoAlta = false;
       mostrarAccesoResponsable(id, credenciales);
+      /*
+       * Si el alta en la nube no salió, se dice AQUÍ y con el motivo. El
+       * restaurante está creado y se puede trabajar con él, pero hasta que se
+       * enlace no recibirá licencias solo — y eso hay que saberlo antes de
+       * prometerle nada al cliente.
+       */
+      aviso = avisoNube
+        ? `Restaurante creado, pero NO quedó enlazado con la nube: ${avisoNube} ` +
+          "Sus licencias no le llegarán solas. Reintenta con «Enlazar con la nube»."
+        : "";
     }}
   />
 {/if}
@@ -963,6 +1065,48 @@
     gap: 0.6rem;
     flex-wrap: wrap;
     margin-top: 2rem;
+  }
+  /* El local sin enlace: se ve, porque es lo que impide todo lo demás. */
+  .sin-enlace {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    flex-wrap: wrap;
+    margin-top: 1.5rem;
+    padding: 0.9rem 1rem;
+    border: 1.5px solid var(--acento);
+    border-radius: var(--r-md);
+    background: var(--claro);
+  }
+  .sin-enlace > div {
+    flex: 1;
+    min-width: 18rem;
+  }
+  .sin-enlace b {
+    font-size: 0.9rem;
+  }
+  .sin-enlace p {
+    margin-top: 0.25rem;
+    font-size: 0.8rem;
+    color: var(--gris);
+    line-height: 1.45;
+  }
+  .enlazar {
+    font: inherit;
+    font-size: 0.85rem;
+    font-weight: 600;
+    border: 1.5px solid var(--acento);
+    background: var(--blanco);
+    color: var(--acento-texto);
+    border-radius: var(--r-sm);
+    padding: 0.5rem 1rem;
+    cursor: pointer;
+    flex: none;
+  }
+  .enlazar:hover {
+    background: var(--acento);
+    color: var(--sobre-acento);
   }
   .dar-baja,
   .cortar {

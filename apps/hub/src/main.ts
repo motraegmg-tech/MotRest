@@ -199,6 +199,51 @@ let enlaceNube: EnlaceConMotrae | null = null;
 let avisos: Avisos | null = null;
 
 /**
+ * A qué nube y con qué credencial se montó el enlace que está vivo ahora mismo.
+ *
+ * Existe para responder la única pregunta que el enlace no sabe contestar:
+ * ¿la licencia que acaban de instalar apunta AL MISMO SITIO que lo que ya está
+ * abierto? Si apunta al mismo, no se toca nada. Reconectar «por si acaso»
+ * tiraría la suscripción de Realtime que está escuchando renovaciones, y una
+ * renovación que llegara justo en ese hueco se perdería sin dejar rastro.
+ *
+ * La sucursal va dentro a propósito: el enlace se autentica como un restaurante
+ * concreto, y una licencia puede dar de alta a un equipo que todavía no tenía
+ * identidad. Si cambia el local, el enlace abierto está reportando en nombre de
+ * otro y hay que rehacerlo.
+ */
+let enlaceMontadoCon: { url: string; clave: string; sucursal: string } | null = null;
+
+/**
+ * Candado de UN SOLO ENLACE VIVO.
+ *
+ * `conectarConLaNube()` tiene awaits dentro —lee la configuración del almacén—,
+ * así que dos licencias pegadas una detrás de otra podían entrar las dos y
+ * dejar dos enlaces abiertos contra la misma sucursal: dos suscripciones de
+ * Realtime, dos pulsos y dos manos confirmando la misma licencia en la nube.
+ */
+let montandoEnlace = false;
+/**
+ * El mismo candado un piso más arriba, en la reconsideración entera.
+ *
+ * Si llega una segunda licencia mientras se está rehaciendo el enlace, no se
+ * descarta: se anota y se vuelve a decidir al terminar. Descartarla dejaría al
+ * local apuntando a la nube vieja sin que nada lo dijera, que es justo el fallo
+ * silencioso que este arreglo viene a quitar.
+ */
+let reconsiderandoEnlace = false;
+let hayQueVolverAReconsiderar = false;
+/**
+ * El reloj del pulso se pone UNA vez en la vida del proceso.
+ *
+ * Antes vivía al final de `conectarConLaNube()`, que solo corría al arrancar.
+ * Ahora esa función puede correr otra vez al instalar una licencia, y sin esta
+ * guarda cada licencia pegada añadiría un temporizador más: un local que
+ * cambiara de licencia tres veces mandaría tres partes diarios.
+ */
+let relojDePulsoPuesto = false;
+
+/**
  * El correo del restaurante. A diferencia de WhatsApp, NO necesita la nube: es
  * una llamada de salida que el Hub hace desde el propio local.
  */
@@ -215,6 +260,17 @@ let llaveResend = "";
 let licencia: GestorLicencia | null = null;
 /** El buscador de versiones nuevas, si MOTRAE configuró el canal. */
 let actualizador: Actualizaciones | null = null;
+/**
+ * Los relojes del canal de actualizaciones, puestos una sola vez.
+ *
+ * `prepararActualizaciones()` dejó de ser cosa del arranque: al montar el
+ * enlace con la nube hay que volver a construir el buscador, porque su origen
+ * —nube o GitHub— se decide al construirlo y no se puede cambiar después. Lo
+ * que NO puede repetirse son sus temporizadores: dos relojes de instalación
+ * corriendo a la vez sobre el mismo estado es cómo se acaba lanzando dos veces
+ * el mismo instalador.
+ */
+let relojesDeActualizacionPuestos = false;
 /** Lo último que se encontró publicado, para contárselo a las terminales. */
 let versionDisponible: import("@motrest/dominio").VersionDisponible | null = null;
 /**
@@ -1512,6 +1568,24 @@ function atenderInterno(peticion: IncomingMessage, respuesta: ServerResponse): v
           // desbloquean sin que nadie tenga que reiniciar nada.
           difundirLicencia();
           json(200, { ok: true, situacion: licencia!.veredicto().situacion });
+
+          /*
+           * Y el enlace con MOTRAE se monta AQUÍ MISMO, sin reiniciar.
+           *
+           * Este es el camino de pegar la licencia a mano en la caja, y es por
+           * donde entran los locales dados de alta antes de que la licencia
+           * llevara los datos de la nube. Antes el Hub contestaba `ok`, avisaba
+           * a las terminales... y el enlace no se montaba, porque
+           * `conectarConLaNube()` solo corría al arrancar. El local se quedaba
+           * mudo —sin pulso, sin renovaciones y sin poder cortarle el servicio
+           * en remoto— hasta que alguien reiniciara el Hub, y nada en pantalla
+           * lo decía.
+           *
+           * Va DESPUÉS de contestar y sin esperarlo: montar el enlace habla con
+           * internet, y quien pegó la licencia no tiene por qué mirar la rueda
+           * girar mientras tanto. Lo que pase se cuenta en la bitácora.
+           */
+          void reconsiderarEnlaceDeNube();
         } catch (causa) {
           json(400, { error: `No se pudo leer la licencia: ${String(causa)}` });
         }
@@ -2279,7 +2353,26 @@ async function instalarLicenciaDeMotrae(recibida: unknown): Promise<{ ok: boolea
   }
 
   const resultado = await licencia.instalar(recibida as Licencia);
-  if (resultado.ok) difundirLicencia();
+  if (resultado.ok) {
+    difundirLicencia();
+
+    /*
+     * El otro camino de instalación pasa por aquí, así que aquí también se
+     * reconsidera el enlace. Casi siempre no habrá nada que hacer —esta
+     * licencia llegó POR el enlace, o sea que ya apunta a la misma nube—, pero
+     * el día que MOTRAE le rote la credencial a un local, esto es lo que hace
+     * que el cambio prenda sin ir hasta el restaurante.
+     *
+     * LA DEMORA NO ES DECORATIVA. Si hay que cerrar el enlace viejo, no puede
+     * cerrarse ya: quien nos llamó (`atenderLicencia`) todavía tiene que
+     * escribir por ese mismo enlace la confirmación de que la licencia se
+     * instaló. Cortándolo antes, MOTRAE nunca vería la confirmación y
+     * reenviaría la licencia en cada conexión, para siempre.
+     *
+     * Sin esperar: contestamos ya para que esa confirmación salga.
+     */
+    void reconsiderarEnlaceDeNube(ESPERA_ANTES_DE_CERRAR_MS);
+  }
   return resultado;
 }
 
@@ -2385,9 +2478,24 @@ async function prepararActualizaciones(): Promise<void> {
   };
 
   await revisar();
-  setInterval(() => void revisar(), ACTUALIZAR_CADA_MS).unref?.();
-  setInterval(() => void evaluarActualizacion(), 60_000).unref?.();
-  registrar("info", `MotRest ${VERSION}. Actualizaciones desde ${repositorio}.`);
+  /*
+   * Los relojes, una sola vez por proceso.
+   *
+   * Esta función ya no corre solo al arrancar: al montar el enlace con la nube
+   * hay que reconstruir el buscador, porque su origen —nube o GitHub— se fija
+   * al construirlo. Lo que no puede repetirse son los temporizadores; dos
+   * relojes de instalación sobre el mismo estado es cómo se acaba lanzando dos
+   * veces el mismo instalador.
+   */
+  if (!relojesDeActualizacionPuestos) {
+    setInterval(() => void revisar(), ACTUALIZAR_CADA_MS).unref?.();
+    setInterval(() => void evaluarActualizacion(), 60_000).unref?.();
+    relojesDeActualizacionPuestos = true;
+  }
+  registrar(
+    "info",
+    `MotRest ${VERSION}. Actualizaciones desde ${enLaNube ? "la nube de MOTRAE" : repositorio}.`,
+  );
 }
 
 /**
@@ -2685,6 +2793,215 @@ async function prepararCorreo(): Promise<void> {
   registrar("info", `Correo listo. Remitente: ${configCorreo.remitente || "sin configurar"}`);
 }
 
+/** Lo que guarda la configuración de mensajería, que es de donde salía la nube antes. */
+type ConfiguracionDeNube = {
+  url?: string;
+  clave?: string;
+  phone_number_id?: string;
+  token?: string;
+  nombre?: string;
+};
+
+/**
+ * Dónde reporta este local, y con qué credencial.
+ *
+ * Vive en UNA sola función a propósito. El orden de mando —entorno, licencia
+ * firmada, configuración vieja de WhatsApp— lo consultan ahora dos sitios: el
+ * que monta el enlace y el que decide si una licencia recién instalada lo
+ * cambia. Con la precedencia escrita dos veces bastaría con tocar una para que
+ * el Hub se pasara la vida cerrando y abriendo el mismo enlace, creyendo que
+ * cambió algo.
+ *
+ * Devuelve también la configuración cruda para no leer el almacén dos veces:
+ * de ahí salen además las credenciales de WhatsApp.
+ */
+async function dondeReportaEsteLocal(): Promise<{
+  url?: string;
+  clave?: string;
+  config: ConfiguracionDeNube | null;
+}> {
+  const config = await almacen.estado.cargar<ConfiguracionDeNube>(CLAVE_WHATSAPP);
+
+  // Orden deliberado: lo que diga quien instala manda —para apuntar un equipo a
+  // una nube de pruebas—, después el documento firmado por MOTRAE, y de último
+  // lo que hubiera en la configuración de WhatsApp, que es de donde salía antes
+  // y sigue valiendo para los locales ya montados.
+  //
+  // `licencia.enlaceNube` solo entrega el bloque si la licencia está VERIFICADA:
+  // aquí no se relaja nada, quien dice que una licencia vale sigue siendo
+  // `instalar()` contra la pública de MOTRAE compilada en este binario.
+  const delaLicencia = licencia?.enlaceNube ?? null;
+  return {
+    url: process.env.MOTREST_NUBE_URL ?? delaLicencia?.url ?? config?.url,
+    clave: process.env.MOTREST_NUBE_CLAVE ?? delaLicencia?.clave ?? config?.clave,
+    config: config ?? null,
+  };
+}
+
+/**
+ * Cuánto se espera antes de tumbar un enlace que sigue escribiendo.
+ *
+ * Solo aplica cuando la licencia llegó POR el enlace que toca cerrar: el
+ * cartero necesita un momento para dejar el acuse antes de que le cerremos la
+ * puerta. Tres segundos es holgado para un `update` de una fila y sigue siendo
+ * imperceptible para el restaurante.
+ */
+const ESPERA_ANTES_DE_CERRAR_MS = 3_000;
+
+/** Qué hacer con el enlace a la vista de lo que dice la licencia instalada. */
+type DecisionDeEnlace = "sin_nube" | "montar" | "sin_cambios" | "rehacer";
+
+/**
+ * La decisión, sin tocar nada.
+ *
+ * Se separa del resto porque es lo único de todo esto que se puede razonar
+ * entero de un vistazo, y porque el caso que importa no es montar: es
+ * **NO** montar. Una licencia que trae los mismos datos que el enlace abierto
+ * no puede provocar una reconexión — se llevaría por delante la suscripción de
+ * Realtime que escucha las renovaciones, y la que llegara en ese instante se
+ * perdería.
+ */
+function decidirEnlaceDeNube(
+  montadoCon: { url: string; clave: string; sucursal: string } | null,
+  destino: { url?: string; clave?: string; sucursal: string },
+): DecisionDeEnlace {
+  // Sin datos de nube no cambia nada respecto a hoy: un local que opera solo
+  // con el portal es un caso normal, no un error.
+  if (!destino.url || !destino.clave) return "sin_nube";
+  if (!montadoCon) return "montar";
+  if (
+    montadoCon.url === destino.url &&
+    montadoCon.clave === destino.clave &&
+    montadoCon.sucursal === destino.sucursal
+  ) {
+    return "sin_cambios";
+  }
+  return "rehacer";
+}
+
+/**
+ * Se acaba de instalar una licencia: ¿hay que montar o rehacer el enlace?
+ *
+ * POR QUÉ EXISTE. `conectarConLaNube()` corría UNA vez, al arrancar. Los locales
+ * dados de alta antes de agosto de 2026 tienen licencias sin el bloque `nube`, y
+ * la única salida es pegarles a mano una licencia nueva que sí lo traiga. El Hub
+ * la instalaba, contestaba `ok`, la difundía a las terminales... y el enlace no
+ * se montaba. El restaurante seguía mudo —sin pulso, sin renovaciones y sin
+ * forma de cortarle el servicio en remoto— hasta que alguien reiniciara el Hub,
+ * y nada en pantalla lo decía. De tres locales, uno solo había reportado nunca.
+ *
+ * Se llama desde los DOS caminos de instalación —la caja y la nube— en vez de
+ * colgarlo de `difundirLicencia()`, que sería el punto común más corto. Motivo:
+ * `difundirLicencia()` es un pregón, barato y síncrono, y también lo dispara un
+ * reloj cada hora para que una licencia que vence a medianoche avise sola.
+ * Colgarle de ahí una reconexión con internet convertiría ese reloj en algo que
+ * habla con Supabase cada hora sin que su nombre lo insinúe siquiera.
+ *
+ * Nunca reinicia el proceso. El Hub sostiene la LAN, las impresoras y el SQLite
+ * del local: reiniciarlo a media captura tira comandas.
+ */
+async function reconsiderarEnlaceDeNube(esperaAntesDeCerrar = 0): Promise<void> {
+  if (reconsiderandoEnlace) {
+    // No se descarta: se apunta. Descartar la segunda licencia dejaría al local
+    // apuntando a la nube vieja sin que nada lo dijera.
+    hayQueVolverAReconsiderar = true;
+    return;
+  }
+
+  reconsiderandoEnlace = true;
+  try {
+    do {
+      hayQueVolverAReconsiderar = false;
+      await unaVueltaDeEnlace(esperaAntesDeCerrar);
+    } while (hayQueVolverAReconsiderar);
+  } catch (causa) {
+    registrar("error", `No se pudo revisar el enlace con MOTRAE: ${String(causa)}`);
+  } finally {
+    reconsiderandoEnlace = false;
+  }
+}
+
+/** Una pasada de la decisión anterior, ya con permiso para tocar el enlace. */
+async function unaVueltaDeEnlace(esperaAntesDeCerrar: number): Promise<void> {
+  const destino = await dondeReportaEsteLocal();
+  const sucursal = sucursalDelLocal();
+  const decision = decidirEnlaceDeNube(enlaceNube ? enlaceMontadoCon : null, {
+    ...destino,
+    sucursal,
+  });
+
+  if (decision === "sin_nube" || decision === "sin_cambios") return;
+
+  if (decision === "rehacer") {
+    /*
+     * SE COMPRUEBA ANTES DE TUMBAR NADA.
+     *
+     * Cerrar el enlace bueno y descubrir después que la dirección nueva no
+     * sirve dejaría al local peor de lo que estaba: sin pulso y sin nadie
+     * mirando. Si la licencia nueva no puede montarse, se dice y se conserva lo
+     * que funciona.
+     */
+    if (!pareceNubeSupabase(destino.url!) || !LLAVE_PUBLICABLE_NUBE) {
+      registrar(
+        "error",
+        `La licencia nueva apunta a «${destino.url}», que este Hub no puede usar. ` +
+          "Se conserva el enlace anterior: el local sigue reportando como hasta ahora.",
+      );
+      return;
+    }
+
+    if (esperaAntesDeCerrar > 0) {
+      await new Promise((seguir) => setTimeout(seguir, esperaAntesDeCerrar));
+    }
+
+    registrar(
+      "info",
+      "La licencia nueva cambia por dónde habla este local con MOTRAE. Se rehace el enlace.",
+    );
+    enlaceNube?.desconectar();
+    enlaceNube = null;
+    enlaceMontadoCon = null;
+    // La cola de avisos cuelga del enlace y se reconstruye con el nuevo. Si se
+    // dejara la vieja, seguiría mandando por un enlace ya cerrado.
+    avisos = null;
+  }
+
+  await conectarConLaNube();
+
+  if (!enlaceNube) return;
+
+  /*
+   * El renglón se escribe cuando el enlace queda MONTADO, que es lo que acaba
+   * de pasar de verdad. Que además llegue a conectar lo dice el propio enlace
+   * con su propia línea, y puede tardar lo que tarde el internet del local: dar
+   * aquí por hecha una conexión que todavía se está abriendo sería justo el
+   * tipo de mentira que hace que nadie se fíe de la bitácora.
+   */
+  registrar(
+    "info",
+    "Enlace con MOTRAE establecido desde la licencia nueva, sin reiniciar nada: " +
+      "este local ya reporta su estado y recibe sus renovaciones.",
+  );
+
+  /*
+   * Y EL CANAL DE ACTUALIZACIONES, QUE SE HABÍA QUEDADO MIRANDO A GITHUB.
+   *
+   * `prepararActualizaciones()` decide de dónde baja el manifiesto —la nube o
+   * los releases de GitHub— AL CONSTRUIR el buscador, y en el arranque corre
+   * antes que el enlace. Un local que acaba de recibir su primera licencia con
+   * nube se quedaba con el buscador apuntando a GitHub hasta el siguiente
+   * reinicio: exactamente el estado a medias que el comentario de esa función
+   * dice querer evitar. Se vuelve a construir, con los relojes ya puestos.
+   */
+  if (instalandoActualizacion) {
+    // Rehacer el buscador a media instalación le quitaría de las manos el
+    // instalador que acaba de descargar y verificar. Se deja para la próxima.
+    registrar("info", "Hay una actualización instalándose: el canal se revisará después.");
+    return;
+  }
+  await prepararActualizaciones();
+}
+
 /**
  * Enlaza con la nube de MOTRAE.
  *
@@ -2705,21 +3022,28 @@ async function prepararCorreo(): Promise<void> {
  * se dice en la bitácora en vez de dejarlo a que se note en el panel.
  */
 async function conectarConLaNube(): Promise<void> {
-  const config = await almacen.estado.cargar<{
-    url?: string;
-    clave?: string;
-    phone_number_id?: string;
-    token?: string;
-    nombre?: string;
-  }>(CLAVE_WHATSAPP);
+  /*
+   * UN SOLO ENLACE A LA VEZ.
+   *
+   * Esto dejó de ser cosa exclusiva del arranque: ahora también lo llama la
+   * instalación de una licencia. Entre el `await` de abajo y el
+   * `new EnlaceSupabase` cabe perfectamente una segunda licencia, y el
+   * resultado serían dos enlaces vivos contra la misma sucursal —dos
+   * suscripciones de Realtime, dos pulsos y dos manos confirmando la misma
+   * licencia—, con el primero perdido porque nadie guarda ya su referencia.
+   */
+  if (montandoEnlace) return;
+  montandoEnlace = true;
+  try {
+    await montarEnlaceDeNube();
+  } finally {
+    montandoEnlace = false;
+  }
+}
 
-  // Orden deliberado: lo que diga quien instala manda —para apuntar un equipo a
-  // una nube de pruebas—, después el documento firmado por MOTRAE, y de último
-  // lo que hubiera en la configuración de WhatsApp, que es de donde salía antes
-  // y sigue valiendo para los locales ya montados.
-  const delaLicencia = licencia?.enlaceNube ?? null;
-  const url = process.env.MOTREST_NUBE_URL ?? delaLicencia?.url ?? config?.url;
-  const clave = process.env.MOTREST_NUBE_CLAVE ?? delaLicencia?.clave ?? config?.clave;
+/** El cuerpo de lo anterior, ya con el candado echado. */
+async function montarEnlaceDeNube(): Promise<void> {
+  const { url, clave, config } = await dondeReportaEsteLocal();
   if (!url || !clave) {
     registrar(
       "aviso",
@@ -2777,7 +3101,15 @@ async function conectarConLaNube(): Promise<void> {
     return;
   }
   enlaceNube = new EnlaceSupabase({ ...comunes, llavePublicable: LLAVE_PUBLICABLE_NUBE });
+  // Con qué quedó montado, para que la próxima licencia sepa si cambia algo o
+  // si lo mejor que puede hacer es no tocarlo.
+  enlaceMontadoCon = { url, clave, sucursal: comunes.sucursal_id };
 
+  /*
+   * La cola de avisos se construye SIEMPRE junto al enlace, no una vez en la
+   * vida: lleva dentro la referencia al enlace por el que manda. Al rehacer el
+   * enlace, una cola vieja seguiría escribiendo por una puerta ya cerrada.
+   */
   avisos = new Avisos(
     enlaceNube,
     () => almacen.log.porTipo("mensaje_recibido", 0, 2000) as unknown as EventoMensajeria[],
@@ -2790,8 +3122,15 @@ async function conectarConLaNube(): Promise<void> {
    * El pulso diario. `alConectar` ya manda el primero; este es el que sostiene
    * la señal en un local que lleva semanas encendido sin reiniciarse — que es
    * justo el que se quiere vigilar.
+   *
+   * Una sola vez por proceso: esta función puede volver a correr al instalar
+   * una licencia, y un temporizador por licencia pegada sería un parte de más
+   * al día por cada vez.
    */
-  setInterval(() => reportarPulso(), PULSO_CADA_MS).unref?.();
+  if (!relojDePulsoPuesto) {
+    setInterval(() => reportarPulso(), PULSO_CADA_MS).unref?.();
+    relojDePulsoPuesto = true;
+  }
 }
 
 /**

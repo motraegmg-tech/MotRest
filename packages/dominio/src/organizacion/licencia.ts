@@ -197,6 +197,30 @@ export interface Licencia {
    * con las mesas abiertas.
    */
   bloqueo_inmediato?: boolean;
+  /**
+   * HASTA CUÁNDO SE PUEDE DIFERIR EL BLOQUEO ESPERANDO A QUE CIERREN LA CAJA.
+   *
+   * Pasada esta fecha, el bloqueo cae aunque el turno siga abierto.
+   *
+   * Existe porque el diferimiento tiene un agujero que ya se abrió en la vida
+   * real: si el bloqueo espera al cierre de caja y el local **no cierra la caja
+   * nunca**, el corte no llega jamás. No es hipotético — en Rodizio la caja
+   * estuvo meses sin cerrarse por un defecto, y durante ese tiempo cualquier
+   * corte de servicio habría quedado en suspenso sin que nadie lo notara: ni el
+   * restaurante, que sigue vendiendo, ni MOTRAE, que ve en su panel «corte
+   * enviado» y lo da por hecho.
+   *
+   * También cierra la puerta a la versión deliberada del mismo truco: dejar el
+   * turno abierto a propósito para no quedarse sin sistema.
+   *
+   * Va DENTRO de lo firmado, así que el local no puede empujarla. Y es una
+   * fecha absoluta y no un plazo, para que no dependa del reloj del equipo más
+   * que en la comparación final.
+   *
+   * Ausente = se difiere sin límite, que es el comportamiento de siempre para
+   * una licencia que simplemente venció.
+   */
+  bloqueo_maximo_ts?: number;
   /** Firma de MOTRAE sobre todo lo anterior. */
   firma: string;
 }
@@ -357,9 +381,19 @@ export function momentoDeBloquear(
   situacion: SituacionLicencia,
   hayTurnoAbierto: boolean,
   licencia?: Licencia | null,
+  ahora = Date.now(),
 ): MomentoBloqueo {
   if (situacion.estado !== "bloqueada") return "ahora";
   if (licencia?.bloqueo_inmediato) return "ahora";
+  /*
+   * Se acabó la espera. El diferimiento es una cortesía para no encerrar el
+   * dinero de las mesas abiertas, no una forma de quedarse con el sistema: una
+   * caja que no cierra —por defecto o a propósito— dejaba el corte en suspenso
+   * para siempre. Ver `bloqueo_maximo_ts`.
+   */
+  if (licencia?.bloqueo_maximo_ts !== undefined && ahora >= licencia.bloqueo_maximo_ts) {
+    return "ahora";
+  }
   return hayTurnoAbierto ? "al_cerrar_turno" : "ahora";
 }
 
@@ -374,9 +408,10 @@ export function debeBloquearse(
   situacion: SituacionLicencia,
   hayTurnoAbierto: boolean,
   licencia?: Licencia | null,
+  ahora = Date.now(),
 ): boolean {
   if (situacion.opera) return false;
-  return momentoDeBloquear(situacion, hayTurnoAbierto, licencia) === "ahora";
+  return momentoDeBloquear(situacion, hayTurnoAbierto, licencia, ahora) === "ahora";
 }
 
 /**

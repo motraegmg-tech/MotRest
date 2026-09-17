@@ -12,7 +12,11 @@ import {
   verificarCredencial,
   verificarVersion,
 } from "@motrest/dominio";
-import { crearCentralParaPruebas, StoreCentral } from "../central.svelte";
+import {
+  crearCentralParaPruebas,
+  HORAS_MAXIMAS_DE_CORTE,
+  StoreCentral,
+} from "../central.svelte";
 
 let central: StoreCentral;
 const originalFetch = global.fetch;
@@ -107,6 +111,184 @@ describe("dar de alta un restaurante", () => {
     expect(await verificarCredencial(pin, licencia.responsable!.credencial)).toBe(true);
     expect(central.exportar()).not.toContain(licencia.responsable!.credencial.hash);
   });
+});
+
+/**
+ * EL ALTA TAMBIÉN DA DE ALTA EN LA NUBE.
+ *
+ * Pedido de Gonzalo, sep-2026. Antes era un script de consola aparte que había
+ * que acordarse de ejecutar, y luego pegar a mano la credencial que imprimía. Lo
+ * que costaba: medido contra la nube el 17-sep-2026, de tres locales solo UNO
+ * había quedado enlazado, y los otros dos llevaban meses con licencias
+ * esperándolos que nunca podrían recoger — sin un solo error en ninguna parte.
+ */
+describe("el alta enlaza el local con la nube", () => {
+  /** Anota cada llamada para poder afirmar QUÉ se pidió, no solo que no reventó. */
+  function nubeQueResponde(respuestas: (ruta: string) => Response) {
+    const llamadas: { ruta: string; metodo: string; cuerpo: string }[] = [];
+    global.fetch = vi.fn(async (url: string | URL | Request, opciones?: RequestInit) => {
+      const ruta = String(url);
+      llamadas.push({
+        ruta,
+        metodo: opciones?.method ?? "GET",
+        cuerpo: String(opciones?.body ?? ""),
+      });
+      return respuestas(ruta);
+    }) as unknown as typeof fetch;
+    return llamadas;
+  }
+
+  beforeEach(async () => {
+    await central.guardarConfiguracion({
+      repositorio: "motrae/motrest",
+      nube_url: "https://ixt.supabase.co",
+      nube_servicio: "sb_secret_de_prueba",
+    });
+  });
+
+  it("crea la identidad y la ficha, y guarda la credencial", async () => {
+    const llamadas = nubeQueResponde(() => respuestaNube(200, ""));
+
+    const r = await alta();
+
+    expect(r.ok).toBe(true);
+    expect(r.avisoNube).toBeUndefined();
+    expect(central.tieneEnlaceNube("suc-rodizio-centro")).toBe(true);
+
+    const identidad = llamadas.find((l) => l.ruta.includes("/auth/v1/admin/users"));
+    const ficha = llamadas.find((l) => l.ruta.includes("/rest/v1/sucursales"));
+    expect(identidad?.metodo).toBe("POST");
+    expect(ficha?.metodo).toBe("POST");
+
+    /*
+     * El `sucursal_id` va en `app_metadata` y NO en los datos que el propio Hub
+     * puede editar: es lo único que la base de datos se cree después sobre quién
+     * es ese local.
+     */
+    const cuerpo = JSON.parse(identidad!.cuerpo) as {
+      email: string;
+      password: string;
+      app_metadata: { sucursal_id: string };
+    };
+    expect(cuerpo.email).toBe("suc-rodizio-centro@hubs.motrae.mx");
+    expect(cuerpo.app_metadata.sucursal_id).toBe("suc-rodizio-centro");
+    /* 32 bytes en base64url: 43 caracteres y ningún relleno. */
+    expect(cuerpo.password).toMatch(/^[A-Za-z0-9_-]{43}$/);
+  });
+
+  /* Dos altas seguidas no pueden compartir credencial: es la identidad del local. */
+  it("cada local recibe una credencial distinta", async () => {
+    const llamadas = nubeQueResponde(() => respuestaNube(200, ""));
+
+    await alta("Rodizio", "Centro");
+    await alta("Tortas", "Centro");
+
+    const claves = llamadas
+      .filter((l) => l.ruta.includes("/auth/v1/admin/users"))
+      .map((l) => (JSON.parse(l.cuerpo) as { password: string }).password);
+
+    expect(claves).toHaveLength(2);
+    expect(claves[0]).not.toBe(claves[1]);
+  });
+
+  /*
+   * LA NUBE CAÍDA NO PUEDE IMPEDIR DAR DE ALTA A UN CLIENTE QUE ESTÁ DELANTE.
+   * Se crea igual y se dice qué falta, que se arregla con un botón.
+   */
+  it("si la nube falla, el restaurante se crea igual y se avisa", async () => {
+    nubeQueResponde(() => respuestaNube(500, "la nube está caída"));
+
+    const r = await alta();
+
+    expect(r.ok).toBe(true);
+    expect(central.clientes).toHaveLength(1);
+    expect(r.avisoNube).toContain("la nube está caída");
+    expect(central.tieneEnlaceNube("suc-rodizio-centro")).toBe(false);
+  });
+
+  /*
+   * Y NO SE GUARDA UNA CREDENCIAL QUE LA NUBE NO CONOCE. Si se guardara,
+   * Central creería que el local está enlazado y sus licencias saldrían con un
+   * enlace que no abre nada: el mismo fallo silencioso, pero peor, porque ya
+   * nadie iría a comprobarlo.
+   */
+  it("la identidad sin ficha no deja el local dado por enlazado", async () => {
+    nubeQueResponde((ruta) =>
+      ruta.includes("/rest/v1/sucursales")
+        ? respuestaNube(500, "el padrón no aceptó la ficha")
+        : respuestaNube(200, ""),
+    );
+
+    const r = await alta();
+
+    expect(r.avisoNube).toContain("no la ficha");
+    expect(central.tieneEnlaceNube("suc-rodizio-centro")).toBe(false);
+  });
+
+  /*
+   * EL REINTENTO TIENE QUE TERMINAR EN UN LOCAL ENLAZADO.
+   *
+   * Es el caso del alta a medias: la identidad quedó creada y la ficha no. El
+   * script viejo decía ahí «queda un usuario de Auth sin padrón, bórralo antes
+   * de reintentar» — trabajo manual en el peor momento. Aquí se le reemite la
+   * credencial y se termina la ficha.
+   */
+  it("reintentar sobre una identidad que ya existía la reemite y termina", async () => {
+    const llamadas = nubeQueResponde((ruta) => {
+      if (ruta.includes("/auth/v1/admin/users?filter=")) {
+        return respuestaNube(200, {
+          users: [{ id: "uuid-1", email: "suc-rodizio-centro@hubs.motrae.mx" }],
+        });
+      }
+      if (ruta.includes("/auth/v1/admin/users/uuid-1")) return respuestaNube(200, "");
+      if (ruta.includes("/auth/v1/admin/users")) {
+        return respuestaNube(422, '{"msg":"email address already registered"}');
+      }
+      return respuestaNube(200, "");
+    });
+
+    const r = await alta();
+
+    expect(r.ok).toBe(true);
+    expect(r.avisoNube).toBeUndefined();
+    expect(central.tieneEnlaceNube("suc-rodizio-centro")).toBe(true);
+
+    const reemision = llamadas.find((l) => l.ruta.includes("/auth/v1/admin/users/uuid-1"));
+    expect(reemision?.metodo).toBe("PUT");
+    expect(JSON.parse(reemision!.cuerpo)).toHaveProperty("password");
+  });
+
+  /* Un error que NO es «ya existe» no puede acabar reemitiendo la credencial de nadie. */
+  it("un error distinto de «ya existe» no reemite nada", async () => {
+    const llamadas = nubeQueResponde((ruta) =>
+      ruta.includes("/auth/v1/admin/users")
+        ? respuestaNube(401, "llave de servicio inválida")
+        : respuestaNube(200, ""),
+    );
+
+    const r = await alta();
+
+    expect(r.avisoNube).toContain("llave de servicio inválida");
+    expect(llamadas.some((l) => l.metodo === "PUT")).toBe(false);
+    expect(central.tieneEnlaceNube("suc-rodizio-centro")).toBe(false);
+  });
+
+  /* Sin nube configurada no se intenta nada, y se dice por qué. */
+  it("sin nube configurada lo dice en vez de fallar en silencio", async () => {
+    await central.guardarConfiguracion({
+      repositorio: "motrae/motrest",
+      nube_url: "",
+      nube_servicio: "",
+    });
+    const llamadas = nubeQueResponde(() => respuestaNube(200, ""));
+
+    const r = await alta();
+
+    expect(r.ok).toBe(true);
+    expect(r.avisoNube).toContain("Llaves");
+    expect(llamadas).toHaveLength(0);
+  });
+
 });
 
 describe("editar la ficha de un local", () => {
@@ -546,7 +728,33 @@ describe("cortar el servicio", () => {
     const r = await central.cortarServicio(id);
 
     expect(r.licencia!.gracia_dias).toBe(0);
-    expect(r.licencia!.bloqueo_inmediato).toBe(true);
+  });
+
+  /*
+   * EL CORTE NO REVIENTA EL SERVICIO EN CURSO. Decisión de Gonzalo, sep-2026.
+   *
+   * Antes salía con `bloqueo_inmediato`, así que el local se quedaba sin sistema
+   * en el instante del clic — con las mesas puestas y sin poder cobrarle a quien
+   * estaba sentado. Ahora espera al cierre de caja.
+   */
+  it("no bloquea en el acto: espera a que cierren la caja", async () => {
+    const id = (await alta()).cliente!.id;
+    const r = await central.cortarServicio(id);
+
+    expect(r.licencia!.bloqueo_inmediato).toBeUndefined();
+  });
+
+  /*
+   * …pero la espera tiene techo. Una caja que no se cierra nunca —pasó en
+   * Rodizio— dejaría el corte en suspenso indefinidamente mientras el panel lo
+   * da por hecho.
+   */
+  it("pone un techo a la espera", async () => {
+    const id = (await alta()).cliente!.id;
+    const ahora = Date.now();
+    const r = await central.cortarServicio(id, ahora);
+
+    expect(r.licencia!.bloqueo_maximo_ts).toBe(ahora + HORAS_MAXIMAS_DE_CORTE * 3_600_000);
   });
 
   /* El Hub tiene que poder comprobar la firma: un corte sin firma válida no bloquea. */
@@ -557,12 +765,25 @@ describe("cortar el servicio", () => {
     expect(await verificarLicencia(r.licencia!, id, central.secretos.licencias!.publica)).toBe(true);
   });
 
+  /*
+   * El historial existe para reconstruir por qué un local se quedó parado un
+   * viernes. Un corte que ahí se viera igual que una renovación no contesta eso.
+   */
   it("queda anotado en el historial que fue un corte", async () => {
     const id = (await alta()).cliente!.id;
     await central.cortarServicio(id);
 
     const emisiones = central.clientes.find((c) => c.id === id)!.emisiones!;
-    expect(emisiones.at(-1)!.bloqueo_inmediato).toBe(true);
+    expect(emisiones.at(-1)!.corte).toBe(true);
+  });
+
+  /* Y una renovación normal NO se marca como corte. */
+  it("una renovación no queda marcada como corte", async () => {
+    const id = (await alta()).cliente!.id;
+    await central.emitir(id);
+
+    const emisiones = central.clientes.find((c) => c.id === id)!.emisiones!;
+    expect(emisiones.at(-1)!.corte).toBeUndefined();
   });
 });
 

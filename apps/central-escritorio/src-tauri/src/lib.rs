@@ -171,6 +171,41 @@ struct RespuestaNube {
     content_range: Option<String>,
 }
 
+/// La lista blanca de rutas por las que Central puede hablar con la nube.
+///
+/// La ventana elige el camino, y aunque sea nuestra propia interfaz, esto impide
+/// que un `../` o una ruta absoluta acaben mandando la llave de servicio a otro
+/// sitio. Es la misma regla que el Hub aplica a la URL de un manifiesto firmado:
+/// decir qué instalar no autoriza a pedirlo donde sea.
+///
+/// `/auth/v1/admin/users` entra, y SOLO ésa de todo `/auth/v1/`: es lo que da de
+/// alta la identidad de un restaurante en la nube desde el panel. Antes ese paso
+/// se hacía por fuera —un script de consola con la llave de servicio en una
+/// variable de entorno— y había que pegar a mano la credencial que devolvía. Un
+/// paso manual que hay que acordarse de dar es un paso que no se da: medido en la
+/// nube el 17-sep-2026, de tres locales solo uno había quedado enlazado.
+///
+/// Se abre el mínimo: la colección para crear y buscar, y `/<id>` para reemitir
+/// la credencial de uno que ya existe. Nada de `/auth/v1/` a secas, que
+/// incluiría el resto de la API de administración de identidades.
+///
+/// Vive aparte del comando para poder probarla: dentro de una función `async` de
+/// Tauri no había forma de comprobarla más que ejecutando la aplicación, y una
+/// lista blanca que nadie prueba es una lista blanca que se amplía sin querer.
+fn comprobar_ruta_de_nube(ruta: &str) -> Result<(), String> {
+    let auth_de_altas = ruta == "/auth/v1/admin/users"
+        || ruta.starts_with("/auth/v1/admin/users?")
+        || ruta.starts_with("/auth/v1/admin/users/");
+
+    if !ruta.starts_with("/rest/v1/") && !ruta.starts_with("/storage/v1/") && !auth_de_altas {
+        return Err(format!("Ruta no permitida para la nube: {ruta}"));
+    }
+    if ruta.contains("..") {
+        return Err("La ruta de la nube no puede subir de directorio".into());
+    }
+    Ok(())
+}
+
 /// Habla con la nube de MotRest **desde Rust**, no desde la webview.
 ///
 /// POR QUÉ EXISTE, y no es una preferencia de estilo: Supabase **rechaza** una
@@ -204,11 +239,8 @@ async fn nube_peticion(
      * servicio a otro sitio. Es la misma regla que el Hub aplica a la URL de un
      * manifiesto firmado: decir qué instalar no autoriza a pedirlo donde sea.
      */
-    if !ruta.starts_with("/rest/v1/") && !ruta.starts_with("/storage/v1/") {
-        return Err(format!("Ruta no permitida para la nube: {ruta}"));
-    }
-    if ruta.contains("..") {
-        return Err("La ruta de la nube no puede subir de directorio".into());
+    if let Err(motivo) = comprobar_ruta_de_nube(&ruta) {
+        return Err(motivo);
     }
 
     let secretos = cargar_secretos(app)?.ok_or("Todavía no hay secretos guardados en Central")?;
@@ -294,4 +326,49 @@ pub fn ejecutar() {
         ])
         .run(tauri::generate_context!())
         .expect("No se pudo arrancar MotRest Central");
+}
+
+#[cfg(test)]
+mod pruebas {
+    use super::comprobar_ruta_de_nube;
+
+    /// Lo que el panel necesita de verdad. Si esto se cierra, el alta de un
+    /// restaurante deja de enlazarlo con la nube y vuelve el paso manual.
+    #[test]
+    fn deja_pasar_lo_que_central_usa() {
+        for ruta in [
+            "/rest/v1/sucursales",
+            "/rest/v1/licencias_pendientes",
+            "/storage/v1/object/instaladores/1.5.4.exe",
+            "/auth/v1/admin/users",
+            "/auth/v1/admin/users?filter=suc-rodizio%40hubs.motrae.mx",
+            "/auth/v1/admin/users/2f1c8a90-0000-4000-8000-000000000000",
+        ] {
+            assert!(comprobar_ruta_de_nube(ruta).is_ok(), "deberia permitirse: {ruta}");
+        }
+    }
+
+    /// Por aqui viaja la llave de servicio, que se salta todas las politicas
+    /// RLS. Abrir `/auth/v1/` entero entregaria la administracion de identidades.
+    #[test]
+    fn no_abre_mas_de_la_cuenta() {
+        for ruta in [
+            "/auth/v1/",
+            "/auth/v1/token",
+            "/auth/v1/admin/generate_link",
+            "/auth/v1/admin/userszzz",
+            "/functions/v1/enviar-whatsapp",
+            "/",
+            "https://otro-sitio.example/rest/v1/sucursales",
+        ] {
+            assert!(comprobar_ruta_de_nube(ruta).is_err(), "no deberia permitirse: {ruta}");
+        }
+    }
+
+    /// El `..` se rechaza incluso dentro de una ruta que por lo demas vale.
+    #[test]
+    fn no_deja_subir_de_directorio() {
+        assert!(comprobar_ruta_de_nube("/rest/v1/../../auth/v1/token").is_err());
+        assert!(comprobar_ruta_de_nube("/auth/v1/admin/users/../token").is_err());
+    }
 }

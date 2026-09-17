@@ -64,6 +64,16 @@ const LLAVE_SECRETOS_LEGADA = "motrae.central.secretos";
 /** Cada cuánto conviene volver a sacar el respaldo de las llaves fuera. */
 export const DIAS_ENTRE_RESPALDOS = 30;
 
+/**
+ * Lo más que puede tardar en caer un corte de servicio, cierren caja o no.
+ *
+ * El corte espera a que el local termine su jornada, pero esa espera necesita
+ * un techo: una caja que no se cierra —por defecto o a propósito— dejaría el
+ * corte en suspenso indefinidamente, con Central diciendo «enviado». Treinta y
+ * seis horas cubren un servicio largo y la noche entera; lo eligió Gonzalo.
+ */
+export const HORAS_MAXIMAS_DE_CORTE = 36;
+
 /** Lo que se firmó la última vez, para seguirle la pista. */
 export interface PublicacionVigilada {
   version: string;
@@ -187,12 +197,23 @@ type ResultadoAlta =
       ok: true;
       cliente: ClienteMotRest;
       credencialesResponsable: CredencialesResponsableIniciales;
+      /**
+       * Por qué este local NO quedó enlazado con la nube, si es que no quedó.
+       *
+       * El local se da de alta igual: perder la ficha entera porque la nube no
+       * contestó sería mucho peor que quedarse sin enlace, que se arregla
+       * pulsando un botón. Pero tiene que DECIRSE — un alta que sale «lista» y
+       * deja al local incapaz de recibir licencias es exactamente el fallo
+       * silencioso que esto viene a cerrar.
+       */
+      avisoNube?: string;
     }
   | {
       ok: false;
       error: string;
       cliente?: undefined;
       credencialesResponsable?: undefined;
+      avisoNube?: undefined;
     };
 /**
  * Cómo le llegó la licencia al restaurante.
@@ -755,10 +776,26 @@ export class StoreCentral {
 
     this.clientes = [...this.clientes, cliente];
     this.guardarCartera();
+
+    /*
+     * Y SE DA DE ALTA EN LA NUBE EN EL MISMO GESTO.
+     *
+     * Es lo que hace que su PRIMERA licencia ya salga con el enlace dentro, y
+     * con eso que se le pueda renovar y cortar en remoto desde el día uno. Antes
+     * era un script aparte que había que acordarse de ejecutar.
+     *
+     * Va DESPUÉS de guardar la cartera, a propósito: si la nube no contesta, el
+     * restaurante ya está dado de alta aquí y lo único que falta es el enlace,
+     * que se reintenta con un botón. Al revés —la nube primero— una caída de
+     * internet impediría dar de alta a un cliente que está delante.
+     */
+    const enlace = await this.altaEnLaNube(id, cliente.nombre);
+
     return {
       ok: true,
       cliente,
       credencialesResponsable: preparado.credencialesResponsable,
+      ...(enlace.ok ? {} : { avisoNube: enlace.error }),
     };
   }
 
@@ -1063,6 +1100,8 @@ export class StoreCentral {
       vence_ts?: number;
       gracia_dias?: number;
       bloqueo_inmediato?: boolean;
+      /** Hasta cuándo se difiere el bloqueo esperando el cierre de caja. */
+      bloqueo_maximo_ts?: number;
       /** true = la fecha pasada es intencionada (es un corte, no un dedazo). */
       corte?: boolean;
     } = {},
@@ -1154,6 +1193,9 @@ export class StoreCentral {
             }
           : {}),
         ...(opciones.bloqueo_inmediato ? { bloqueo_inmediato: true } : {}),
+        ...(opciones.bloqueo_maximo_ts !== undefined
+          ? { bloqueo_maximo_ts: opciones.bloqueo_maximo_ts }
+          : {}),
       },
       privada,
     );
@@ -1171,6 +1213,10 @@ export class StoreCentral {
       vence_ts,
       cuota: cliente.cuota,
       ...(opciones.bloqueo_inmediato ? { bloqueo_inmediato: true } : {}),
+      ...(opciones.corte ? { corte: true } : {}),
+      ...(opciones.bloqueo_maximo_ts !== undefined
+        ? { bloqueo_maximo_ts: opciones.bloqueo_maximo_ts }
+        : {}),
     };
 
     this.actualizar(id, {
@@ -1316,24 +1362,43 @@ export class StoreCentral {
    * HACEN FALTA LAS TRES COSAS, y con menos esto no corta nada:
    *
    *   - `vence_ts` en el pasado. Es lo único que de verdad vence la licencia.
-   *     `bloqueo_inmediato` por sí solo NO corta: lo único que decide es si, una
-   *     vez agotada la gracia, se bloquea sin esperar a que cierre el turno
-   *     abierto. Emitir con él y con la fecha calculada normal alarga la licencia
-   *     un mes — lo contrario exacto de lo que dice el botón.
+   *     Las otras dos por sí solas NO cortan: solo deciden CUÁNDO cae el bloqueo
+   *     una vez agotada la gracia. Emitir con ellas y con la fecha calculada
+   *     normal alargaría la licencia un mes — lo contrario exacto de lo que dice
+   *     el botón.
    *   - `gracia_dias: 0`. Con los tres de siempre, «cortar» dejaría al local
    *     operando tres días más.
-   *   - `bloqueo_inmediato`. Para que no espere al cierre del turno.
+   *   - `bloqueo_maximo_ts`. El techo de la espera: ver abajo.
    *
-   * Devuelve la licencia igual que una renovación: para que surta efecto hay que
-   * pegarla en el local, exactamente como cualquier otra. No es un interruptor
-   * remoto, y es importante no venderlo como tal.
+   * CÓMO LLEGA AL RESTAURANTE. Si el local tiene enlace con la nube, esto viaja
+   * solo y se instala sin que nadie vaya: Central lo deposita en
+   * `licencias_pendientes` y el Hub lo recoge por Realtime en segundos, o al
+   * encender si estaba apagado. Un local SIN enlace no puede recibir nada —el
+   * enlace viaja dentro de la propia licencia— y ahí sí hay que pegarla a mano
+   * una vez. La pantalla tiene que distinguir los dos casos: decirle a quien
+   * corta «quedará suspendido en cuanto encienda» sobre un local que nunca ha
+   * reportado es prometer algo que no va a pasar.
    */
   async cortarServicio(id: string, ahora = Date.now()): Promise<ResultadoConLicencia> {
     return this.emitir(id, {
       /* Un segundo atrás: ya vencida en cuanto el Hub la lea. */
       vence_ts: ahora - 1_000,
       gracia_dias: 0,
-      bloqueo_inmediato: true,
+      /*
+       * EL CORTE NO CAE A MEDIA CENA. Decisión de Gonzalo, sep-2026.
+       *
+       * Antes esto mandaba `bloqueo_inmediato: true` y el local se quedaba sin
+       * sistema en el instante en que Central pulsaba el botón. Con doce mesas
+       * puestas eso encierra el dinero de esas mesas en una base de datos que
+       * nadie puede abrir —no pueden ni cobrarle a quien está sentado— y la
+       * llamada de auxilio de esa noche le cae a MOTRAE, no al moroso.
+       *
+       * Sin la bandera, el mecanismo que ya existía difiere el bloqueo al
+       * cierre de caja: terminan su jornada, cierran, y a la mañana siguiente
+       * se encuentran la pantalla con el teléfono para regularizar. Se pierde
+       * el servicio siguiente igual, que es lo que importa para cobrar.
+       */
+      bloqueo_maximo_ts: ahora + HORAS_MAXIMAS_DE_CORTE * 3_600_000,
       corte: true,
     });
   }
@@ -1656,6 +1721,181 @@ export class StoreCentral {
     else delete claves[sucursalId];
 
     return this.reemplazarProtegidos({ ...this.protegidos, claves_nube: claves });
+  }
+
+  // --- Alta en la nube ------------------------------------------------------------------
+  //
+  // Pedido de Gonzalo, sep-2026: que dar de alta un restaurante aquí lo dé de
+  // alta también en la nube, para que su PRIMERA licencia ya salga con el enlace
+  // dentro y no haya que tocar código ni pegar credenciales a mano.
+  //
+  // Antes esto era un script de consola aparte (`apps/central/alta-en-la-nube.ts`)
+  // que había que ejecutar con la llave de servicio en una variable de entorno, y
+  // luego copiar a mano la credencial que imprimía. Un paso manual que hay que
+  // acordarse de dar es un paso que no se da: medido contra la nube el
+  // 17-sep-2026, de tres locales solo UNO había quedado enlazado, y los otros dos
+  // llevaban meses con licencias esperándolos que nunca podrían recoger.
+  //
+  // Esto NO es una capacidad nueva de Central: la llave de servicio ya vivía aquí
+  // para depositar licencias y leer el padrón. Lo que cambia es que el paso deja
+  // de depender de la memoria de quien da el alta.
+
+  /**
+   * La credencial con la que el Hub de un local se identifica ante la nube.
+   *
+   * 32 bytes de azar del generador criptográfico del sistema. No es una
+   * contraseña que nadie teclee: viaja dentro de la licencia firmada. Por eso
+   * puede ser larga, y por eso conviene que lo sea. Cabe de sobra en el tope de
+   * 72 bytes de bcrypt, que es con lo que Supabase la guarda.
+   */
+  private generarCredencialDeNube(): string {
+    const bytes = new Uint8Array(32);
+    crypto.getRandomValues(bytes);
+    return btoa(String.fromCharCode(...bytes))
+      .replace(/\+/g, "-")
+      .replace(/\//g, "_")
+      .replace(/=+$/, "");
+  }
+
+  /**
+   * Da de alta a un restaurante en la nube y guarda su credencial.
+   *
+   * ES IDEMPOTENTE, y no por elegancia: el alta son DOS escrituras —la identidad
+   * en Auth y la ficha en el padrón— y la primera puede quedar hecha con la
+   * segunda fallando. El script viejo, ante eso, decía «queda un usuario de Auth
+   * sin padrón, bórralo antes de reintentar»: trabajo manual en el peor momento.
+   * Aquí, reintentar reemite la credencial del usuario que ya existe y termina la
+   * ficha, de modo que pulsar dos veces siempre acaba en un local enlazado.
+   *
+   * Que la credencial se pueda reemitir es seguro porque el enlace vive DENTRO
+   * de la licencia firmada: la credencial nueva llega al local con la siguiente
+   * licencia, y hasta entonces la vieja sigue sirviendo. Nadie se queda fuera.
+   */
+  async altaEnLaNube(
+    sucursalId: string,
+    nombre: string,
+  ): Promise<{ ok: true } | { ok: false; error: string }> {
+    const url = this.protegidos.nube_url?.trim().replace(/[/]+$/, "") ?? "";
+    const servicio = this.protegidos.nube_servicio ?? "";
+    if (!url || !servicio) {
+      return { ok: false, error: "Falta configurar la nube en Llaves (URL y llave de servicio)" };
+    }
+    if (!/^suc-[A-Za-z0-9-]{1,60}$/.test(sucursalId)) {
+      return { ok: false, error: `"${sucursalId}" no tiene forma de sucursal` };
+    }
+
+    /*
+     * El dominio de los buzones de los Hubs. No recibe correo ni falta que
+     * haga: Supabase Auth exige un correo como identificador y aquí se usa como
+     * tal y nada más. Las altas se crean ya confirmadas, así que nadie espera
+     * un mensaje que no va a llegar.
+     */
+    const correo = `${sucursalId}@hubs.motrae.mx`;
+    const credencial = this.generarCredencialDeNube();
+
+    try {
+      /*
+       * PRIMERO LA IDENTIDAD, DESPUÉS LA FICHA, y el orden importa.
+       *
+       * De esta llamada sale el `sucursal_id` dentro de `app_metadata`, que es
+       * lo único que la base de datos se va a creer después sobre quién es este
+       * Hub: lo firma Supabase Auth y el Hub no puede escribirlo. Si esto falla,
+       * no queda una ficha huérfana en el padrón a la que nadie puede conectarse.
+       */
+      const alta = await peticionNube(url, servicio, "/auth/v1/admin/users", {
+        metodo: "POST",
+        cuerpo: JSON.stringify({
+          email: correo,
+          password: credencial,
+          email_confirm: true,
+          app_metadata: { sucursal_id: sucursalId },
+        }),
+      });
+
+      if (alta.estado >= 300) {
+        /*
+         * Ya existía. Es el reintento después de un alta a medias, o un local
+         * que se dio de alta con el script viejo. Se le reemite la credencial en
+         * vez de rendirse: la que tuviera no la conocemos —Supabase guarda su
+         * hash bcrypt y no la devuelve jamás— así que sin esto el local quedaría
+         * atascado para siempre.
+         */
+        const yaExiste = /already.*registered|already.*exists|email_exists/i.test(alta.cuerpo);
+        if (!yaExiste) {
+          return { ok: false, error: `No se pudo crear la identidad: ${alta.cuerpo}` };
+        }
+
+        const reemitida = await this.reemitirCredencialDeNube(url, servicio, correo, credencial);
+        if (!reemitida.ok) return reemitida;
+      }
+
+      /*
+       * La ficha va como upsert: si el alta anterior se quedó a medio camino,
+       * esta segunda pasada la completa en vez de chocar contra la clave
+       * primaria y dejar el local otra vez sin terminar.
+       */
+      const ficha = await peticionNube(url, servicio, "/rest/v1/sucursales", {
+        metodo: "POST",
+        prefer: "resolution=merge-duplicates,return=minimal",
+        cuerpo: JSON.stringify({ sucursal_id: sucursalId, nombre: nombre.trim() }),
+      });
+
+      if (ficha.estado >= 300) {
+        return { ok: false, error: `Se creó la identidad pero no la ficha: ${ficha.cuerpo}` };
+      }
+    } catch (causa) {
+      return { ok: false, error: `No se pudo hablar con la nube: ${String(causa)}` };
+    }
+
+    /*
+     * La credencial se guarda AL FINAL y solo si todo salió.
+     *
+     * Guardarla antes dejaría a Central convencida de que el local está enlazado
+     * cuando en la nube no existe, y sus licencias saldrían con un enlace que no
+     * abre ninguna puerta — el mismo fallo silencioso que se está arreglando,
+     * con el agravante de que ahora nadie iría a comprobarlo.
+     */
+    return this.fijarCredencialNube(sucursalId, credencial);
+  }
+
+  /** Le pone una credencial nueva a una identidad de Auth que ya existía. */
+  private async reemitirCredencialDeNube(
+    url: string,
+    servicio: string,
+    correo: string,
+    credencial: string,
+  ): Promise<{ ok: true } | { ok: false; error: string }> {
+    const busqueda = await peticionNube(
+      url,
+      servicio,
+      `/auth/v1/admin/users?filter=${encodeURIComponent(correo)}`,
+    );
+    if (busqueda.estado >= 300) {
+      return { ok: false, error: `Ese local ya existe en la nube y no se pudo localizar: ${busqueda.cuerpo}` };
+    }
+
+    let id = "";
+    try {
+      const datos = JSON.parse(busqueda.cuerpo) as { users?: { id?: string; email?: string }[] };
+      id = datos.users?.find((u) => u.email?.toLowerCase() === correo.toLowerCase())?.id ?? "";
+    } catch {
+      return { ok: false, error: "La nube contestó algo que no se pudo leer al buscar el local" };
+    }
+    if (!id) {
+      return {
+        ok: false,
+        error: "Ese local ya existe en la nube pero no aparece al buscarlo. Revísalo antes de reintentar.",
+      };
+    }
+
+    const cambio = await peticionNube(url, servicio, `/auth/v1/admin/users/${id}`, {
+      metodo: "PUT",
+      cuerpo: JSON.stringify({ password: credencial }),
+    });
+    if (cambio.estado >= 300) {
+      return { ok: false, error: `No se pudo reemitir su credencial: ${cambio.cuerpo}` };
+    }
+    return { ok: true };
   }
 
   /**

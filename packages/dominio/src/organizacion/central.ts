@@ -96,6 +96,18 @@ export interface EmisionLicencia {
   cuota: Centavos;
   /** true = se emitió para cortar el servicio de inmediato. */
   bloqueo_inmediato?: boolean;
+  /**
+   * true = esta emisión fue un CORTE de servicio, no una renovación.
+   *
+   * Va aparte de `bloqueo_inmediato` desde que el corte dejó de bloquear en el
+   * acto: ahora espera a que el local cierre su caja, así que ya no lleva esa
+   * bandera y sin este campo un corte quedaría en el historial indistinguible de
+   * una renovación cualquiera. Y el historial existe justo para eso: para poder
+   * reconstruir por qué un local se quedó parado un viernes.
+   */
+  corte?: boolean;
+  /** Hasta cuándo se difirió el bloqueo esperando el cierre de caja. */
+  bloqueo_maximo_ts?: number;
 }
 
 /** Un restaurante cliente de MotRest. */

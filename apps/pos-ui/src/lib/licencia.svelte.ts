@@ -43,6 +43,18 @@ class StoreLicencia {
   /** Si hay un turno de caja abierto. Lo inyecta quien sí lo sabe. */
   private turnoAbierto = $state(false);
 
+  /**
+   * Se recalcula cada minuto para que el tope del corte venza SOLO.
+   *
+   * Un corte de servicio espera a que el local cierre su caja, pero esa espera
+   * tiene fecha límite (`bloqueo_maximo_ts`). Sin este reloj, esa fecha solo se
+   * miraría cuando algo más obligara a repintar: una terminal encendida y
+   * quieta seguiría operando pasada la hora, y una que nadie toca en toda la
+   * madrugada no se bloquearía hasta que alguien la moviera por la mañana.
+   */
+  private ahora = $state(Date.now());
+  private reloj: ReturnType<typeof setInterval> | null = null;
+
   get situacion(): SituacionLicencia {
     return situacionDe(this.datos.licencia, this.datos.verificada);
   }
@@ -54,7 +66,7 @@ class StoreLicencia {
   /** ¿Hay que enseñar la pantalla de MOTRAE en este momento? */
   get bloqueado(): boolean {
     if (!this.conocido) return false;
-    return debeBloquearse(this.situacion, this.turnoAbierto, this.datos.licencia);
+    return debeBloquearse(this.situacion, this.turnoAbierto, this.datos.licencia, this.ahora);
   }
 
   /**
@@ -84,6 +96,13 @@ class StoreLicencia {
       this.datos = guardado;
       this.conocido = true;
     }
+    /*
+     * Un minuto basta y sobra. La diferencia entre bloquear a las 23:00:00 y a
+     * las 23:00:59 no se la juega nadie, y un reloj más fino solo gastaría
+     * batería en las tabletas del salón. `??=` porque hidratar se puede llamar
+     * más de una vez y dos relojes serían dos fugas.
+     */
+    this.reloj ??= setInterval(() => (this.ahora = Date.now()), 60_000);
   }
 
   /** Lo que llega del Hub. */
