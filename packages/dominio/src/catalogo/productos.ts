@@ -17,6 +17,21 @@ export interface Categoria {
   nombre: string;
   orden: number;
   color?: string;
+  /**
+   * La categoría es DE REVENTA: lo que se vende aquí se compra ya hecho.
+   *
+   * Refrescos, cervezas, botellas de vino, agua. No se preparan: la Coca-Cola
+   * que entra al almacén es exactamente la que sale a la mesa, una por una.
+   *
+   * Existe porque ese caso obligaba a cuatro viajes por el sistema para decir
+   * una sola cosa —dar de alta el insumo, dar de alta el producto, vincularle
+   * «1 pieza de sí mismo» y cargar la existencia—, y treinta refrescos son
+   * ciento veinte viajes. Marcada la categoría, todo lo que nazca dentro se
+   * propone ya vinculado a su propio insumo.
+   *
+   * Ausente = categoría normal, que es como se guardaron todas hasta ahora.
+   */
+  reventa?: boolean;
 }
 
 export interface Producto {

@@ -27,6 +27,7 @@
     type OrdenCompra,
     type Unidad,
   } from "@motrest/dominio";
+  import SelectorInsumo from "../SelectorInsumo.svelte";
   import { compras } from "../compras.svelte";
   import { fiscal } from "../fiscal.svelte";
   import { hora, mxn } from "../formato";
@@ -76,7 +77,17 @@
 
   function abrirEnsenanza(i: number) {
     ensenando = i;
-    insumoElegido = inventario.insumos[0]?.id ?? "";
+    /*
+     * Se abre SIN insumo puesto, a propósito.
+     *
+     * Antes venía cargado con el primero de la despensa. Aquí no se captura un
+     * dato cualquiera: se le está enseñando al sistema que tal concepto del
+     * proveedor ES tal insumo, y esa equivalencia se recuerda para todas las
+     * facturas que vengan detrás. Precargado bastaba con no tocar el campo para
+     * dejar grabada una equivalencia falsa para siempre; ahora hay que elegir, y
+     * `aprenderEquivalencia` ya rechaza el vacío con su propio aviso.
+     */
+    insumoElegido = "";
     factorTexto = "1";
     errorFactura = "";
   }
@@ -703,14 +714,24 @@
               {propuesta[ensenando]!.concepto.unidad ?? "unidad"} del proveedor?
             </p>
             <div class="campos">
-              <label>
+              <!--
+                Primero la categoría y luego el insumo. Es el renglón donde peor
+                sale equivocarse: la equivalencia se aprende una vez y a partir
+                de ahí cada factura de ese proveedor entra sola, así que un
+                insumo mal señalado aquí sigue metiendo mercancía en el cajón
+                que no era meses después. Va en un `<div>` y no en un `<label>`
+                porque el selector es un botón y los botones no son rotulables
+                por `<label>`: el rótulo visible se queda, y el lector de
+                pantalla lo recibe por `rotulo`.
+              -->
+              <div class="campo">
                 <span>Insumo del almacén</span>
-                <select bind:value={insumoElegido}>
-                  {#each inventario.insumos as ins (ins.id)}
-                    <option value={ins.id}>{ins.nombre} ({ins.unidad_base})</option>
-                  {/each}
-                </select>
-              </label>
+                <SelectorInsumo
+                  valor={insumoElegido}
+                  onElegir={(id) => (insumoElegido = id)}
+                  rotulo="Insumo del almacén"
+                />
+              </div>
               <label>
                 <span>Unidades base por unidad del proveedor</span>
                 <input type="number" inputmode="decimal" bind:value={factorTexto} />
@@ -1021,7 +1042,13 @@
     flex-wrap: wrap;
     gap: 0.75rem;
   }
-  .campos label {
+  /*
+   * `.campo` es un `<label>` que dejó de poder serlo: el selector de insumo es
+   * un botón, y un `<label>` no rotula botones. Comparte estilo para que la
+   * fila del formulario se siga leyendo como una sola.
+   */
+  .campos label,
+  .campos .campo {
     flex: 1;
     min-width: 11rem;
     display: flex;
@@ -1212,21 +1239,33 @@
     padding-top: 0.85rem;
     border-top: 1px dashed var(--borde);
   }
+  /*
+   * Contorno naranja y sombra, como el resto de los botones de «agregar»
+   * (`.boton-agregar` en base.css). Era un punteado gris que se leía como el
+   * borde de un hueco vacío en vez de como algo que se puede pulsar.
+   *
+   * El PUNTEADO se conserva, y es lo único que no se unifica: esta caja además
+   * recibe el XML arrastrado desde el explorador, y el borde discontinuo es la
+   * señal universal de «suéltalo aquí». Un borde continuo diría «púlsame» y
+   * escondería la mitad de lo que sabe hacer.
+   */
   .soltar {
     display: block;
     margin: 0.9rem 0;
     padding: 1.1rem;
-    border: 2px dashed var(--borde);
+    border: 2px dashed var(--acento);
     border-radius: var(--r-md);
+    background: var(--blanco);
+    box-shadow: 0 2px 6px rgba(242, 133, 58, 0.28);
     text-align: center;
     cursor: pointer;
-    color: var(--gris);
+    color: var(--acento-texto);
     font-size: 0.88rem;
     font-weight: 600;
   }
   .soltar:hover {
-    border-color: var(--acento);
-    color: var(--acento-texto);
+    background: var(--claro);
+    box-shadow: 0 3px 10px rgba(242, 133, 58, 0.38);
   }
   .soltar input {
     display: block;

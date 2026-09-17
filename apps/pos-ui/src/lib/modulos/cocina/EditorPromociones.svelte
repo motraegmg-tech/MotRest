@@ -87,11 +87,45 @@
       : [...productosElegidos, id];
   }
 
-  const productosFiltrados = $derived(
-    [...menu.index.productos.values()]
-      .filter((p) => p.nombre.toLocaleLowerCase("es").includes(buscarProducto.trim().toLocaleLowerCase("es")))
-      .sort((a, b) => a.nombre.localeCompare(b.nombre, "es")),
-  );
+  /**
+   * Buscar «jalapeno» tiene que encontrar «Jalapeño».
+   *
+   * Era un `toLocaleLowerCase` a secas, así que el acento tenía que teclearse
+   * igual que en la carta — y quien arma una promoción a las siete de la tarde
+   * no teclea acentos. Es la misma normalización que ya usa la búsqueda del menú.
+   */
+  const normalizar = (s: string) =>
+    s
+      .normalize("NFD")
+      .replace(/\p{Diacritic}/gu, "")
+      .toLowerCase();
+
+  /**
+   * Los productos AGRUPADOS POR CATEGORÍA, en el orden de la carta.
+   *
+   * Era una lista alfabética con la carta entera seguida, así que elegir las
+   * tres pizzas de una promoción obligaba a recorrerla toda buscándolas entre
+   * las bebidas y los postres. La carta ya está ordenada por categorías: es el
+   * mismo orden de las pestañas del POS y el que tiene en la cabeza quien la
+   * capturó.
+   */
+  const gruposDeProductos = $derived.by(() => {
+    const palabras = normalizar(buscarProducto).split(/\s+/).filter(Boolean);
+    const coincide = (nombre: string, categoria: string) => {
+      if (palabras.length === 0) return true;
+      const heno = `${normalizar(nombre)} ${normalizar(categoria)}`;
+      return palabras.every((p) => heno.includes(p));
+    };
+
+    return menu.categorias
+      .map((c) => ({
+        categoria: c,
+        productos: [...menu.index.productos.values()]
+          .filter((p) => p.categoria_id === c.id && coincide(p.nombre, c.nombre))
+          .sort((a, b) => a.nombre.localeCompare(b.nombre, "es")),
+      }))
+      .filter((g) => g.productos.length > 0);
+  });
 
   function limpiarFormulario() {
     nombre = "";
@@ -221,15 +255,26 @@
           <input bind:value={buscarProducto} placeholder="Buscar alimento o bebida" />
         </label>
         <div class="productos">
-          {#each productosFiltrados as p (p.id)}
-            <button
-              type="button"
-              class="opcion"
-              class:on={productosElegidos.includes(p.id)}
-              onclick={() => alternarProducto(p.id)}
-            >
-              {p.nombre}
-            </button>
+          {#each gruposDeProductos as grupo (grupo.categoria.id)}
+            <p class="cab-grupo">{grupo.categoria.nombre}</p>
+            <div class="selecciones">
+              {#each grupo.productos as p (p.id)}
+                <button
+                  type="button"
+                  class="opcion"
+                  class:on={productosElegidos.includes(p.id)}
+                  onclick={() => alternarProducto(p.id)}
+                >
+                  {p.nombre}
+                </button>
+              {/each}
+            </div>
+          {:else}
+            <p class="tenue">
+              {buscarProducto.trim()
+                ? `Nada coincide con "${buscarProducto}".`
+                : "El menú está vacío."}
+            </p>
           {/each}
         </div>
       </div>
@@ -393,16 +438,35 @@
     border-radius: var(--r-md);
     background: var(--fondo);
   }
-  .selecciones,
-  .productos {
+  .selecciones {
     display: flex;
     flex-wrap: wrap;
     gap: 0.4rem;
     margin-top: 0.35rem;
   }
+  /*
+   * En columna y no en fila: dentro van los encabezados de categoría, cada uno
+   * con su tanda de productos debajo. Antes era una sola fila envolvente con la
+   * carta entera seguida.
+   */
   .productos {
-    max-height: 9rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.15rem;
+    margin-top: 0.35rem;
+    max-height: 11rem;
     overflow-y: auto;
+  }
+  .cab-grupo {
+    margin-top: 0.4rem;
+    font-size: var(--t-xs);
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--gris);
+  }
+  .cab-grupo:first-child {
+    margin-top: 0;
   }
   .opcion {
     padding: 0.3rem 0.6rem;

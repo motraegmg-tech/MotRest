@@ -18,6 +18,7 @@ import {
   categoriasDeInsumoEnUso,
   eliminarCategoriaInsumo,
   insumosEnCategoria,
+  marcarCategoriaDeReventa,
   moverCategoria,
   moverInsumosDeCategoria,
   recolorearCategoria,
@@ -379,6 +380,19 @@ class StoreMenu {
   }
 
   /**
+   * Marca la categoría como DE REVENTA: lo que se vende aquí se compra ya hecho.
+   *
+   * Lo que cambia es el ALTA del siguiente producto de esa categoría, que
+   * propone crearle su propio insumo y vincularlo 1:1. Lo ya capturado no se
+   * toca: ver `marcarCategoriaDeReventa` en el dominio.
+   */
+  marcarCategoriaDeReventa(categoriaId: ID, reventa: boolean): ResultadoMenu {
+    if (!this.datos || !this.permisos.editarProductos) return { ok: false, problemas: [] };
+    this.aplicar((m) => marcarCategoriaDeReventa(m, categoriaId, reventa));
+    return SIN_PROBLEMAS;
+  }
+
+  /**
    * Sube o baja una categoría en la carta.
    *
    * El orden es el de las pestañas del POS: quien atiende quiere las bebidas
@@ -572,8 +586,18 @@ class StoreMenu {
 
     const problemas = validarInsumo(borrador, this.datos);
     if (bloquean(problemas)) return { ok: false, problemas };
+
+    /*
+     * Se devuelve el id, igual que en `crearProducto` y por el mismo motivo.
+     * Quien da de alta una Coca-Cola necesita, en el mismo gesto, vincularla
+     * como el único ingrediente de su producto y sembrarle existencia: sin el
+     * id habría que buscarla por nombre, y dos insumos pueden llamarse casi
+     * igual. El id lo inventa el dominio dentro de `agregarInsumo`.
+     */
+    const previos = new Set(this.datos.insumos.map((i) => i.id));
     this.aplicar((m) => agregarInsumo(m, borrador));
-    return { ok: true, problemas };
+    const nuevo = this.datos?.insumos.find((i) => !previos.has(i.id));
+    return { ok: true, problemas, id: nuevo?.id };
   }
 
   actualizarInsumo(insumoId: ID, borrador: BorradorInsumo): ResultadoMenu {

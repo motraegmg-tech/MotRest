@@ -216,7 +216,9 @@
           <button class="mini" onclick={() => (creandoArea = false)}>×</button>
         </span>
       {:else}
-        <button class="area agregar" onclick={() => (creandoArea = true)}>+ Área</button>
+        <button class="area agregar boton-agregar" onclick={() => (creandoArea = true)}>
+          + Área
+        </button>
       {/if}
     {/if}
   </div>
@@ -532,11 +534,19 @@
     display: inline-flex;
     align-items: center;
     gap: 0.4rem;
-    border: 1.5px solid var(--borde);
     border-radius: var(--r-pill);
     padding: 0.35rem 0.85rem;
     font-size: 0.85rem;
     font-weight: 600;
+  }
+  /*
+   * El color va aparte y EXCLUYENDO al de agregar. Si se declarase en `.area` a
+   * secas, ganaría por especificidad a la utilidad `.boton-agregar` de base.css
+   * —los estilos de Svelte llevan su clase de ámbito y suman un escalón— y el
+   * botón de «+ Área» se quedaría con el mismo gris del resto.
+   */
+  .area:not(.boton-agregar) {
+    border: 1.5px solid var(--borde);
     color: var(--gris);
     background: #fff;
   }
@@ -549,8 +559,14 @@
     font-size: 0.7rem;
     opacity: 0.8;
   }
+  /*
+   * Mantiene la forma de píldora de las demás áreas; el contorno naranja y la
+   * sombra los pone `.boton-agregar` (base.css), que es la misma para todos los
+   * botones de «agregar» de la aplicación. Antes era un punteado gris que se
+   * confundía con una etiqueta más de la fila.
+   */
   .area.agregar {
-    border-style: dashed;
+    border-radius: var(--r-pill);
   }
   .nueva-area {
     display: inline-flex;

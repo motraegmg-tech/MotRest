@@ -29,6 +29,7 @@
     type Centavos,
     type LineaEgresoInsumo,
   } from "@motrest/dominio";
+  import SelectorInsumo from "../../SelectorInsumo.svelte";
   import { caja } from "../../caja.svelte";
   import { egresos } from "../../egresos.svelte";
   import { fiscal } from "../../fiscal.svelte";
@@ -536,11 +537,20 @@
           {#each renglones as r, i (i)}
             {@const ins = insumoDe(r.insumo_id)}
             <div class="renglon">
-              <select bind:value={r.insumo_id}>
-                {#each menu.insumos as insumo (insumo.id)}
-                  <option value={insumo.id}>{insumo.nombre}</option>
-                {/each}
-              </select>
+              <!--
+                Primero la categoría y luego el insumo. Cada renglón lleva el
+                suyo, así que `onElegir` escribe sobre ESTE renglón —`r` es el
+                objeto de la lista, no una copia— y no sobre el primero: con la
+                lista plana anterior, capturar una compra de ocho renglones era
+                recorrer ocho veces la despensa entera de arriba abajo.
+              -->
+              <div class="insumo">
+                <SelectorInsumo
+                  valor={r.insumo_id}
+                  onElegir={(id) => (r.insumo_id = id)}
+                  rotulo="Insumo que entró al almacén"
+                />
+              </div>
               <label class="cant">
                 <input bind:value={r.cantidad} inputmode="decimal" placeholder="0" />
                 <span>{ins?.unidad_base ?? ""}</span>
@@ -1080,14 +1090,14 @@
     gap: 0.4rem;
     align-items: center;
   }
-  .renglon select {
+  /*
+   * El hueco del insumo. El selector trae su propio borde y su propio fondo
+   * —se pinta como un campo— así que aquí solo se le dice cuánto sitio ocupa
+   * en la fila; era lo único que aportaba el `<select>` que había antes.
+   */
+  .renglon .insumo {
     flex: 1;
     min-width: 8rem;
-    padding: 0.5rem 0.55rem;
-    border: 1.5px solid var(--borde);
-    border-radius: 8px;
-    font: inherit;
-    background: #fff;
   }
   .renglon .cant {
     display: flex;

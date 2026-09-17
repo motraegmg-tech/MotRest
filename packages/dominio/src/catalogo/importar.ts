@@ -36,10 +36,40 @@ export interface LineaImportada {
   detalle?: string;
 }
 
+/**
+ * Una categoría que aparece en el texto pegado, con lo que va a caer dentro.
+ *
+ * Existe para la previa del importador. Ahí se pregunta, categoría por
+ * categoría, si lo que se vende en ella **se vende tal cual** —refrescos,
+ * cervezas, botellas— para crear cada producto ya vinculado a su propio insumo.
+ * Esa pregunta no se puede hacer solo sobre `categorias`: esa lista trae
+ * únicamente las que habrá que CREAR, y un local que ya tiene «Bebidas» en su
+ * carta se quedaba sin poder marcarla, que es justo el local que más lo
+ * necesita.
+ */
+export interface CategoriaDetectada {
+  /** El nombre tal como viene escrito en el texto, la primera vez que aparece. */
+  nombre: string;
+  /** false = ya existía en la carta del local. */
+  nueva: boolean;
+  /** Cuántas líneas importables caen aquí (las que tienen error no cuentan). */
+  lineas: number;
+  /** De esas, cuántas vienen sin costo. Su insumo nacería en $0. */
+  sin_costo: number;
+}
+
 export interface CartaImportada {
   lineas: LineaImportada[];
   /** Categorías nuevas que habrá que crear. */
   categorias: string[];
+  /**
+   * Todas las categorías con producto dentro, nuevas y ya existentes.
+   *
+   * Es lo que la previa necesita para preguntar por cada una; `categorias`
+   * sigue siendo solo las que hay que dar de alta, porque es lo que consume el
+   * importador para crearlas.
+   */
+  categorias_detectadas: CategoriaDetectada[];
   /** Cuántas líneas se darían de alta. */
   altas: number;
   errores: number;
@@ -210,9 +240,36 @@ export function interpretarCarta(
   }
 
   const validas = lineas.filter((l) => l.estado !== "error");
+
+  /*
+   * Las categorías que de verdad reciben producto, en el orden en que aparecen.
+   *
+   * Se arman desde las líneas VÁLIDAS y no desde los títulos de sección: un
+   * encabezado suelto sin nada debajo no es una categoría que haya que
+   * preguntar, y ofrecer marcarla «de reventa» sería ofrecer marcar el vacío.
+   */
+  const detectadas = new Map<string, CategoriaDetectada>();
+  for (const l of validas) {
+    const clave = l.categoria.trim().toLowerCase();
+    if (clave === "") continue;
+    const ya = detectadas.get(clave);
+    if (ya) {
+      ya.lineas += 1;
+      if (l.costo === 0) ya.sin_costo += 1;
+      continue;
+    }
+    detectadas.set(clave, {
+      nombre: l.categoria.trim(),
+      nueva: !existentes.has(clave),
+      lineas: 1,
+      sin_costo: l.costo === 0 ? 1 : 0,
+    });
+  }
+
   return {
     lineas,
     categorias: nuevas,
+    categorias_detectadas: [...detectadas.values()],
     altas: validas.length,
     errores: lineas.filter((l) => l.estado === "error").length,
     avisos: lineas.filter((l) => l.estado === "aviso").length,

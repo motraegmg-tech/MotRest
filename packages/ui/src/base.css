@@ -190,3 +190,48 @@ ol {
   color: var(--pizarra);
   border-color: var(--acento);
 }
+
+/*
+ * EL BOTÓN QUE AGREGA ALGO.
+ *
+ * «+ Insumo», «+ Ingrediente», la casilla de la foto del platillo, el área
+ * nueva del salón: todos se dibujaban con un contorno PUNTEADO GRIS. El
+ * punteado quiere decir «aquí cabe algo más», y sobre un formulario lleno de
+ * campos grises acaba leyéndose como el borde apagado de un hueco vacío. Gonzalo
+ * lo reportó desde el alta de platillos: el botón que abre el renglón de insumos
+ * no parecía pulsable, y sin pulsarlo el inventario nunca se mueve solo.
+ *
+ * Contorno naranja MOTRAE, continuo, y una sombra corta que lo levanta del
+ * papel. Sigue siendo secundario frente al botón que guarda —ese va relleno—
+ * pero ya se ve que es un botón. La sombra es del naranja y no negra: una
+ * sombra gris sobre `--fondo` no se distingue, y lo que hace falta es que
+ * destaque, no que parezca profundidad.
+ */
+.boton-agregar {
+  border: 1.5px solid var(--acento);
+  border-radius: var(--r-md);
+  background: var(--blanco);
+  color: var(--acento-texto);
+  font-family: var(--font-cuerpo);
+  font-weight: 600;
+  box-shadow: 0 2px 6px rgba(242, 133, 58, 0.28);
+  transition:
+    background 0.12s ease,
+    box-shadow 0.12s ease;
+}
+
+.boton-agregar:hover:not(:disabled) {
+  background: var(--claro);
+  box-shadow: 0 3px 10px rgba(242, 133, 58, 0.38);
+}
+
+/* Al pulsar se hunde: sin esto, en una tableta no hay acuse de recibo. */
+.boton-agregar:active:not(:disabled) {
+  box-shadow: 0 1px 3px rgba(242, 133, 58, 0.3);
+}
+
+.boton-agregar:disabled {
+  border-color: var(--borde);
+  color: var(--gris);
+  box-shadow: none;
+}

@@ -20,6 +20,7 @@
     type Unidad,
   } from "@motrest/dominio";
   import { untrack } from "svelte";
+  import SelectorInsumo from "../../SelectorInsumo.svelte";
   import { mxn } from "../../formato";
   import { inventario } from "../../inventario.svelte";
   import { menu } from "../../menu.svelte";
@@ -163,15 +164,19 @@
             oninput={(e) => cambiar(ing.id, "nombre", e.currentTarget.value)}
             placeholder="Masa, salsa, queso…"
           />
-          <select
-            value={ing.insumo_id ?? ""}
-            onchange={(e) => elegirInsumo(ing.id, e.currentTarget.value)}
-          >
-            <option value="">Sin vincular</option>
-            {#each inventario.insumos as insumo (insumo.id)}
-              <option value={insumo.id}>{insumo.nombre}</option>
-            {/each}
-          </select>
+          <!--
+            Primero la categoría y luego el insumo, igual que en el alta del
+            platillo: era la misma persiana con la despensa entera, y aquí se
+            recorre una vez por cada ingrediente de la receta.
+          -->
+          <SelectorInsumo
+            valor={ing.insumo_id ?? ""}
+            onElegir={(id) => elegirInsumo(ing.id, id)}
+            permitirVacio
+            marcador="Sin vincular"
+            etiquetaVacio="Sin vincular"
+            rotulo="Insumo del almacén"
+          />
           <input
             class="num"
             type="number"
@@ -252,7 +257,7 @@
   {/if}
 
   <div class="botones">
-    <button class="agregar" onclick={agregar}>+ Ingrediente</button>
+    <button class="agregar boton-agregar" onclick={agregar}>+ Ingrediente</button>
     <div class="espacio"></div>
     <button class="secundario" onclick={onCerrar}>Cancelar</button>
     <button class="principal" onclick={guardar}>Guardar receta</button>
@@ -448,17 +453,10 @@
   .espacio {
     flex: 1;
   }
+  /* Contorno, color y sombra salen de `.boton-agregar` (base.css). */
   .agregar {
-    border: 1.5px dashed var(--borde);
-    border-radius: var(--r-md);
     padding: 0.55rem 1rem;
     font-size: 0.88rem;
-    font-weight: 600;
-    color: var(--gris);
-  }
-  .agregar:hover {
-    border-color: var(--acento);
-    color: var(--acento-texto);
   }
   .principal {
     background: var(--acento);

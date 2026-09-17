@@ -19,10 +19,12 @@
     type MotivoMovimiento,
     calcularRendimiento
   } from "@motrest/dominio";
+  import SelectorInsumo from "../SelectorInsumo.svelte";
   import VentanaAmplia from "../VentanaAmplia.svelte";
   import { catalogo } from "../catalogo";
   import { hora, mxn, pct } from "../formato";
   import { local } from "../local.svelte";
+  import { menu } from "../menu.svelte";
   import { pos } from "../pos.svelte";
   import { inventario } from "../inventario.svelte";
   import { sesion } from "../sesion/sesion.svelte";
@@ -44,10 +46,83 @@
   const puedeConteo = $derived(sesion.puedeOperar("inv.conteo.cerrar"));
   const puedeVerCostos = $derived(sesion.puedeVer("fin.costo.ver"));
 
+  /*
+   * LA DESPENSA, AGRUPADA COMO ESTÁ EN EL ALMACÉN.
+   *
+   * Pedido de Gonzalo: más y mejor orden. Las dos tablas de esta pantalla
+   * —existencias y conteo— enseñaban los insumos uno detrás de otro, en una
+   * sola lista sin cortes. Con doce se lee; con los ciento y pico de un local
+   * que lleva un año operando, encontrar los quesos es recorrer la pantalla
+   * entera. Y el conteo físico no se hace así: se hace estante por estante, y
+   * el estante ES la categoría, así que la pantalla ahora se recorre en el
+   * mismo orden en que se camina el almacén.
+   *
+   * Las categorías declaradas pero vacías no se pintan: un encabezado sin nada
+   * debajo solo mete ruido entre los dos que sí tienen algo.
+   */
+  const porCategoria = $derived.by(() => {
+    /*
+     * Dos grafías de la misma categoría son UN solo estante.
+     *
+     * La categoría del insumo se sigue guardando como texto libre en su ficha,
+     * así que un local puede tener «Lácteos» escrito en un insumo y «lacteos»
+     * en otro: son dos entradas del catálogo y una sola despensa. Sin este
+     * filtro, `insumosDe` —que compara sin acentos ni mayúsculas— devolvería
+     * los mismos insumos en los dos grupos, y el conteo cíclico enseñaría dos
+     * renglones para contar el mismo bote.
+     */
+    const vistas = new Set<string>();
+    const grupos = menu.categoriasInsumo
+      .filter((nombre) => {
+        const clave = nombre
+          .normalize("NFD")
+          .replace(/\p{Diacritic}/gu, "")
+          .trim()
+          .toLowerCase();
+        if (vistas.has(clave)) return false;
+        vistas.add(clave);
+        return true;
+      })
+      .map((nombre) => ({ nombre, insumos: menu.insumosDe(nombre) }))
+      .filter((g) => g.insumos.length > 0);
+    // Los que nadie categorizó van al final y con su propio rótulo: esconderlos
+    // los dejaría fuera de la tabla, y son justo los que hay que ordenar.
+    const sueltos = menu.insumosSinCategoria;
+    if (sueltos.length > 0) grupos.push({ nombre: "Sin categoría", insumos: sueltos });
+    return grupos;
+  });
+
   // Rendimiento
   let prodRendimientoId = $state(
     [...catalogo.productos.values()].find(p => p.receta_id)?.id ?? ""
   );
+
+  /*
+   * Los platillos con receta, agrupados por su categoría de la carta.
+   *
+   * Es el mismo problema que la despensa pero con PRODUCTOS: una persiana con
+   * la carta entera en una sola lista. Aquí basta el `<optgroup>` —el
+   * desplegable de dos pasos es para el almacén, que es donde hay cientos de
+   * renglones—, y el orden es el de las pestañas del POS, que es el que el
+   * administrador ya tiene en la cabeza.
+   */
+  const productosConReceta = $derived.by(() => {
+    const conReceta = [...catalogo.productos.values()].filter((p) => p.receta_id);
+    const grupos = [...catalogo.categorias.values()]
+      .sort((a, b) => a.orden - b.orden)
+      .map((c) => ({
+        nombre: c.nombre,
+        productos: conReceta
+          .filter((p) => p.categoria_id === c.id)
+          .sort((a, b) => a.orden - b.orden),
+      }))
+      .filter((g) => g.productos.length > 0);
+    // Un platillo cuya categoría se borró sigue existiendo; sin este cajón no
+    // habría forma de elegirlo aquí y su rendimiento sería incalculable.
+    const huerfanos = conReceta.filter((p) => !catalogo.categorias.has(p.categoria_id));
+    if (huerfanos.length > 0) grupos.push({ nombre: "Sin categoría", productos: huerfanos });
+    return grupos;
+  });
 
   const rendimiento = $derived.by(() => {
     if (!prodRendimientoId) return null;
@@ -233,70 +308,93 @@
           </tr>
         </thead>
         <tbody>
-          {#each inventario.insumos as insumo (insumo.id)}
-            {@const cant = cantidadDe(insumo.id)}
-            {@const bajo = cant < insumo.stock_minimo}
-            {@const uso = inventario.consumoDe(insumo.id)}
-            {@const abierto = detalle === insumo.id}
-            <!--
-              Lo vendido va NETO de lo devuelto: una pizza que se mandó a cocina
-              y se canceló no consumió nada, y esta es la columna de la que sale
-              la conversación sobre el tamaño de las porciones.
-            -->
-            {@const enPlatillos = (uso.consumo_receta ?? 0) - (uso.reverso_receta ?? 0)}
-            <tr class:bajo class:negativo={cant < 0}>
-              <td>
-                <button class="abrir-insumo" onclick={() => (detalle = abierto ? "" : insumo.id)}>
-                  <b>{insumo.nombre}</b>
-                  {#if insumo.categoria}<small>{insumo.categoria}</small>{/if}
-                </button>
-              </td>
-              <td class="num">{formatearCantidad(cant, insumo.unidad_base)}</td>
-              <td class="num tenue">{formatearCantidad(insumo.stock_minimo, insumo.unidad_base)}</td>
-              <td class="num tenue">
-                {uso.recepcion ? formatearCantidad(uso.recepcion, insumo.unidad_base) : "—"}
-              </td>
-              <td class="num" title={uso.reverso_receta
-                ? `${formatearCantidad(uso.consumo_receta ?? 0, insumo.unidad_base)} salieron y ${formatearCantidad(uso.reverso_receta, insumo.unidad_base)} volvieron por cancelaciones`
-                : ""}>
-                {enPlatillos ? formatearCantidad(enPlatillos, insumo.unidad_base) : "—"}
-                {#if uso.reverso_receta}
-                  <small class="devuelto">
-                    −{formatearCantidad(uso.reverso_receta, insumo.unidad_base)} devueltos
-                  </small>
-                {/if}
-              </td>
-              <td class="num tenue">
-                {uso.utilizacion ? formatearCantidad(uso.utilizacion, insumo.unidad_base) : "—"}
-              </td>
-              <td class="num" class:alerta={(uso.merma ?? 0) > 0}>
-                {uso.merma ? formatearCantidad(uso.merma, insumo.unidad_base) : "—"}
-              </td>
-              <td class="num">{mxn(valorDe(insumo, Math.max(0, cant)))}</td>
+          <!--
+            Un renglón de encabezado por categoría: el índice del almacén dentro
+            de la propia tabla. Antes había que leer la columna «Insumo» entera
+            para saber dónde empezaban los lácteos.
+          -->
+          {#each porCategoria as grupo (grupo.nombre)}
+            <tr class="cab-cat">
+              <th colspan="8" scope="colgroup">
+                {grupo.nombre}
+                <span class="cuantos-cat">
+                  {grupo.insumos.length}
+                  {grupo.insumos.length === 1 ? "insumo" : "insumos"}
+                </span>
+              </th>
             </tr>
-            {#if abierto}
-              <tr class="detalle">
-                <td colspan="8">
-                  <div class="mov-insumo">
-                    <span class="titulo-detalle">
-                      Movimientos de {insumo.nombre}
-                      · {existencias.get(insumo.id)?.movimientos ?? 0} en total
-                    </span>
-                    {#each movimientosDe(insumo.id) as mov (mov.id)}
-                      <div class="mov {mov.motivo}">
-                        <span class="hora">{hora(mov.ts)}</span>
-                        <span class="motivo">{etiquetaMotivo(mov.motivo)}</span>
-                        <span class="delta" class:resta={mov.delta < 0}>
-                          {mov.delta > 0 ? "+" : ""}{formatearCantidad(mov.delta, mov.unidad)}
-                        </span>
-                      </div>
-                    {:else}
-                      <p class="vacio">Este insumo todavía no se ha movido.</p>
-                    {/each}
-                  </div>
+            {#each grupo.insumos as insumo (insumo.id)}
+              {@const cant = cantidadDe(insumo.id)}
+              {@const bajo = cant < insumo.stock_minimo}
+              {@const uso = inventario.consumoDe(insumo.id)}
+              {@const abierto = detalle === insumo.id}
+              <!--
+                Lo vendido va NETO de lo devuelto: una pizza que se mandó a cocina
+                y se canceló no consumió nada, y esta es la columna de la que sale
+                la conversación sobre el tamaño de las porciones.
+              -->
+              {@const enPlatillos = (uso.consumo_receta ?? 0) - (uso.reverso_receta ?? 0)}
+              <tr class:bajo class:negativo={cant < 0}>
+                <td>
+                  <button class="abrir-insumo" onclick={() => (detalle = abierto ? "" : insumo.id)}>
+                    <b>{insumo.nombre}</b>
+                    {#if insumo.categoria}<small>{insumo.categoria}</small>{/if}
+                  </button>
                 </td>
+                <td class="num">{formatearCantidad(cant, insumo.unidad_base)}</td>
+                <td class="num tenue">{formatearCantidad(insumo.stock_minimo, insumo.unidad_base)}</td>
+                <td class="num tenue">
+                  {uso.recepcion ? formatearCantidad(uso.recepcion, insumo.unidad_base) : "—"}
+                </td>
+                <td class="num" title={uso.reverso_receta
+                  ? `${formatearCantidad(uso.consumo_receta ?? 0, insumo.unidad_base)} salieron y ${formatearCantidad(uso.reverso_receta, insumo.unidad_base)} volvieron por cancelaciones`
+                  : ""}>
+                  {enPlatillos ? formatearCantidad(enPlatillos, insumo.unidad_base) : "—"}
+                  {#if uso.reverso_receta}
+                    <small class="devuelto">
+                      −{formatearCantidad(uso.reverso_receta, insumo.unidad_base)} devueltos
+                    </small>
+                  {/if}
+                </td>
+                <td class="num tenue">
+                  {uso.utilizacion ? formatearCantidad(uso.utilizacion, insumo.unidad_base) : "—"}
+                </td>
+                <td class="num" class:alerta={(uso.merma ?? 0) > 0}>
+                  {uso.merma ? formatearCantidad(uso.merma, insumo.unidad_base) : "—"}
+                </td>
+                <td class="num">{mxn(valorDe(insumo, Math.max(0, cant)))}</td>
               </tr>
-            {/if}
+              {#if abierto}
+                <tr class="detalle">
+                  <td colspan="8">
+                    <div class="mov-insumo">
+                      <span class="titulo-detalle">
+                        Movimientos de {insumo.nombre}
+                        · {existencias.get(insumo.id)?.movimientos ?? 0} en total
+                      </span>
+                      {#each movimientosDe(insumo.id) as mov (mov.id)}
+                        <div class="mov {mov.motivo}">
+                          <span class="hora">{hora(mov.ts)}</span>
+                          <span class="motivo">{etiquetaMotivo(mov.motivo)}</span>
+                          <span class="delta" class:resta={mov.delta < 0}>
+                            {mov.delta > 0 ? "+" : ""}{formatearCantidad(mov.delta, mov.unidad)}
+                          </span>
+                        </div>
+                      {:else}
+                        <p class="vacio">Este insumo todavía no se ha movido.</p>
+                      {/each}
+                    </div>
+                  </td>
+                </tr>
+              {/if}
+            {/each}
+          {:else}
+            <tr>
+              <td colspan="8" class="vacio">
+                Todavía no hay insumos dados de alta. Se capturan en
+                <b>Administración → Insumos y estaciones</b>.
+              </td>
+            </tr>
           {/each}
         </tbody>
       </table>
@@ -361,14 +459,22 @@
     <section class="tarjeta">
       <h2>Registrar movimiento</h2>
       <div class="campos">
-        <label>
+        <!--
+          Primero la categoría y luego el insumo. Registrar una merma es la
+          operación donde equivocarse de renglón cuesta dinero de verdad: se
+          descuenta del insumo que no era y el costeo ideal-contra-real queda
+          señalando a un culpable falso. No es un `<label>` porque el selector
+          es un botón y los botones no son rotulables por `<label>`: el rótulo
+          visible se queda, y el lector de pantalla lo recibe por `rotulo`.
+        -->
+        <div class="campo">
           <span>Insumo</span>
-          <select bind:value={insumoId}>
-            {#each inventario.insumos as insumo (insumo.id)}
-              <option value={insumo.id}>{insumo.nombre}</option>
-            {/each}
-          </select>
-        </label>
+          <SelectorInsumo
+            valor={insumoId}
+            onElegir={(id) => (insumoId = id)}
+            rotulo="Insumo del almacén"
+          />
+        </div>
         <label>
           <span>Motivo</span>
           <select bind:value={motivo}>
@@ -495,6 +601,8 @@
       <p class="pista">
         Captura lo que contaste físicamente. Lo que dejes en blanco no se toca.
         El conteo <b>fija</b> la existencia; la diferencia queda registrada.
+        La lista va <b>agrupada por categoría</b>, que es como está el almacén:
+        se baja estante por estante sin ir saltando de un lado a otro.
       </p>
       <table>
         <thead>
@@ -506,25 +614,46 @@
           </tr>
         </thead>
         <tbody>
-          {#each inventario.insumos as insumo (insumo.id)}
-            {@const esperado = cantidadDe(insumo.id)}
-            {@const texto = contados[insumo.id] ?? ""}
-            {@const dif = texto === "" ? null : Number(texto) - esperado}
+          <!--
+            Aquí NO va el selector de dos pasos: en un conteo se cuentan todos,
+            no se elige uno. Lo que faltaba era el corte por estante.
+          -->
+          {#each porCategoria as grupo (grupo.nombre)}
+            <tr class="cab-cat">
+              <th colspan="4" scope="colgroup">
+                {grupo.nombre}
+                <span class="cuantos-cat">
+                  {grupo.insumos.length}
+                  {grupo.insumos.length === 1 ? "insumo" : "insumos"}
+                </span>
+              </th>
+            </tr>
+            {#each grupo.insumos as insumo (insumo.id)}
+              {@const esperado = cantidadDe(insumo.id)}
+              {@const texto = contados[insumo.id] ?? ""}
+              {@const dif = texto === "" ? null : Number(texto) - esperado}
+              <tr>
+                <td><b>{insumo.nombre}</b></td>
+                <td class="num tenue">{formatearCantidad(esperado, insumo.unidad_base)}</td>
+                <td class="num">
+                  <input
+                    class="conteo-input"
+                    type="number"
+                    inputmode="decimal"
+                    value={texto}
+                    oninput={(e) => (contados = { ...contados, [insumo.id]: e.currentTarget.value })}
+                    placeholder="—"
+                  />
+                </td>
+                <td class="num" class:alerta={dif !== null && dif !== 0}>
+                  {dif === null ? "" : formatearCantidad(dif, insumo.unidad_base)}
+                </td>
+              </tr>
+            {/each}
+          {:else}
             <tr>
-              <td><b>{insumo.nombre}</b></td>
-              <td class="num tenue">{formatearCantidad(esperado, insumo.unidad_base)}</td>
-              <td class="num">
-                <input
-                  class="conteo-input"
-                  type="number"
-                  inputmode="decimal"
-                  value={texto}
-                  oninput={(e) => (contados = { ...contados, [insumo.id]: e.currentTarget.value })}
-                  placeholder="—"
-                />
-              </td>
-              <td class="num" class:alerta={dif !== null && dif !== 0}>
-                {dif === null ? "" : formatearCantidad(dif, insumo.unidad_base)}
+              <td colspan="4" class="vacio">
+                Todavía no hay insumos dados de alta: no hay nada que contar.
               </td>
             </tr>
           {/each}
@@ -553,15 +682,30 @@
       <div class="campos" style="margin-top: 1rem; margin-bottom: 1.5rem;">
         <label class="ancho">
           <span>Producto</span>
+          <!--
+            Agrupado por categoría de la carta. Era la misma persiana plana que
+            la de los insumos: con una carta de verdad, encontrar «Pizza
+            familiar» obligaba a recorrerla entera, y la lista no daba ninguna
+            pista de dónde estaba.
+          -->
           <select bind:value={prodRendimientoId}>
-            {#each [...catalogo.productos.values()].filter(p => p.receta_id) as p (p.id)}
-              <option value={p.id}>{p.nombre}</option>
+            {#each productosConReceta as grupo (grupo.nombre)}
+              <optgroup label={grupo.nombre}>
+                {#each grupo.productos as p (p.id)}
+                  <option value={p.id}>{p.nombre}</option>
+                {/each}
+              </optgroup>
             {/each}
           </select>
         </label>
       </div>
 
-      {#if prodRendimientoId && rendimiento}
+      {#if productosConReceta.length === 0}
+        <p class="vacio">
+          Ningún platillo tiene receta capturada todavía. Sin receta no hay
+          insumos que contar, así que aquí no hay nada que calcular.
+        </p>
+      {:else if prodRendimientoId && rendimiento}
         <div class="rendimiento-resultado">
           <div class="dato-grande">
             <span>Salen aprox.</span>
@@ -688,6 +832,29 @@
     text-align: right;
     white-space: nowrap;
   }
+  /*
+   * El renglón de categoría. Se pinta con fondo y no solo en negritas porque
+   * tiene que leerse como un CORTE al recorrer la tabla con el dedo, no como
+   * un insumo más escrito más fuerte.
+   */
+  tr.cab-cat th {
+    padding: 0.7rem 0 0.35rem;
+    border-bottom: 2px solid var(--borde);
+    font-size: 0.78rem;
+    font-weight: 700;
+    color: var(--acento-texto);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    text-align: left;
+  }
+  .cuantos-cat {
+    margin-left: 0.5rem;
+    font-size: 0.7rem;
+    font-weight: 600;
+    color: var(--gris);
+    text-transform: none;
+    letter-spacing: normal;
+  }
   tr.bajo .num:first-of-type {
     color: var(--acento-texto);
     font-weight: 700;
@@ -759,7 +926,13 @@
     flex-wrap: wrap;
     gap: 0.75rem;
   }
-  .campos label {
+  /*
+   * `.campo` es un `<label>` que dejó de poder serlo: el selector de insumo es
+   * un botón, y un `<label>` no rotula botones. Comparte estilo para que la
+   * fila del formulario siga leyéndose como una sola.
+   */
+  .campos label,
+  .campos .campo {
     flex: 1;
     min-width: 11rem;
     display: flex;

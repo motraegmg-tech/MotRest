@@ -7,8 +7,10 @@
    * filtrada. Un mesero no recibe el campo de costo — no está en el objeto.
    */
   import { mxn, pct } from "../../formato";
+  import { inventario } from "../../inventario.svelte";
   import { menu } from "../../menu.svelte";
   import { rutas } from "../../nav/rutas.svelte";
+  import { convertirEnReventa, insumoEspejoDe } from "../../reventa.svelte";
   import EditorProducto from "./EditorProducto.svelte";
   import EditorPromociones from "./EditorPromociones.svelte";
   import EditorReceta from "./EditorReceta.svelte";
@@ -23,6 +25,47 @@
   let filtro = $state("");
   let categoriaNueva = $state("");
   let aviso = $state("");
+
+  /**
+   * EL EDITOR ESTÁ ARRIBA; EL BOTÓN QUE LO ABRE, ABAJO.
+   *
+   * Pedido de Gonzalo. El formulario de alta y edición se dibuja justo debajo
+   * del encabezado, pero «Editar» vive en la tarjeta del platillo, y en una
+   * carta de verdad esa tarjeta está a dos o tres pantallas de scroll. Quien
+   * pulsaba Editar no veía pasar nada: el formulario se abría fuera de cuadro y
+   * la pantalla se quedaba donde estaba, así que parecía que el botón no
+   * servía. Subir la vista es lo que convierte el clic en algo que ocurrió.
+   */
+  let contenedor = $state<HTMLDivElement | null>(null);
+
+  /**
+   * Sube la vista al principio del módulo.
+   *
+   * Lo comparten TODOS los botones de la tarjeta de un platillo que abren algo
+   * arriba —editar, receta, y «se vende tal cual»—, y por eso está aquí suelta
+   * en vez de dentro de `abrir`: el recuadro de la conversión no es un panel,
+   * pero se dibuja en el mismo sitio y quien lo pulsa tiene el mismo problema.
+   *
+   * Se sube en el cuadro SIGUIENTE, no en este: lo que se abre se monta en este
+   * ciclo, y hasta que el navegador no recalcula el alto de la página el
+   * desplazamiento se haría contra la altura vieja.
+   */
+  function subirArriba() {
+    requestAnimationFrame(() => {
+      contenedor?.scrollTo({
+        top: 0,
+        behavior: window.matchMedia?.("(prefers-reduced-motion: reduce)").matches
+          ? "auto"
+          : "smooth",
+      });
+    });
+  }
+
+  function abrir(destino: Panel) {
+    panel = destino;
+    if (destino.modo === "ninguno") return;
+    subirArriba();
+  }
 
   const permisos = $derived(menu.permisos);
   const resumen = $derived(menu.resumen);
@@ -114,9 +157,47 @@
    * flecha de subir sería mentir.
    */
   const ordenCat = $derived(menu.categorias.map((c) => c.id));
+
+  // --- Productos que son su propio insumo -------------------------------------------
+  //
+  // Las dos entradas que Gonzalo pidió para lo ya capturado. La casilla del alta
+  // (`EditorProducto`) solo sirve de aquí en adelante: Rodizio tiene la carta
+  // cargada desde hace meses, así que sin esto no le resuelve ni una bebida.
+  // El porqué completo está en `reventa.svelte.ts`.
+
+  /** El producto sobre el que se está preguntando «¿se vende tal cual?», o null. */
+  let convirtiendo = $state<{ id: string; nombre: string } | null>(null);
+  let existenciaAlConvertir = $state("");
+
+  function confirmarConversion() {
+    if (!convirtiendo) return;
+    const r = convertirEnReventa(convirtiendo.id, {
+      existencia: Number(existenciaAlConvertir) || 0,
+    });
+    if (!r.ok) {
+      aviso = r.problemas[0]?.mensaje ?? "No se pudo enlazar con el almacén";
+      return;
+    }
+    aviso = "";
+    convirtiendo = null;
+    existenciaAlConvertir = "";
+  }
+
+  /**
+   * Marca la categoría entera como de reventa.
+   *
+   * No convierte lo que ya está dentro: lo que hace es que el SIGUIENTE producto
+   * de esa categoría nazca ya vinculado a su propio insumo. Convertir treinta
+   * platillos en silencio, creando treinta insumos que nadie pidió, sería la
+   * clase de sorpresa que nadie quiere encontrarse en su almacén — para eso
+   * está el botón de cada producto, que se pulsa uno por uno y avisa.
+   */
+  function alternarReventa(categoriaId: string, actual: boolean) {
+    menu.marcarCategoriaDeReventa(categoriaId, !actual);
+  }
 </script>
 
-<div class="seccion">
+<div class="seccion" bind:this={contenedor}>
   <div class="encabezado">
     <div>
       <h1>Menú</h1>
@@ -142,12 +223,24 @@
         >
           Estaciones ({menu.estaciones.length})
         </button>
+        <!--
+          El camino a la carga rápida de bebidas. Vive en el catálogo, junto al
+          importador de la carta, porque es la misma tarea —dar de alta en
+          bloque—; pero quien va a cargar el refrigerador entra por el Menú, así
+          que el camino se pone aquí en vez de esperar a que lo encuentre.
+        -->
+        <button
+          class="secundario"
+          onclick={() => rutas.ir("administracion", "catalogo", { ver: "reventa" })}
+        >
+          Carga rápida de bebidas
+        </button>
       {/if}
-      <button class="secundario" onclick={() => (panel = { modo: "promociones" })}>
+      <button class="secundario" onclick={() => abrir({ modo: "promociones" })}>
         Promociones{menu.promociones.length > 0 ? ` (${menu.promociones.length})` : ""}
       </button>
       {#if permisos.editarProductos}
-        <button class="principal" onclick={() => (panel = { modo: "producto" })}>
+        <button class="principal" onclick={() => abrir({ modo: "producto" })}>
           + Nuevo producto
         </button>
       {/if}
@@ -195,6 +288,45 @@
 
   {#if aviso}<p class="error" role="alert">{aviso}</p>{/if}
 
+  <!--
+    CONVERTIR UN PRODUCTO YA CAPTURADO en uno que se vende tal cual.
+
+    Se pregunta antes de hacerlo, y se pregunta UNA cosa: cuántas hay. Crear el
+    insumo sin más, en silencio, sería añadirle al almacén un renglón que nadie
+    pidió y que arrancaría en cero — y un cero en el almacén se lee como «se
+    acabó», no como «todavía no lo cuento».
+  -->
+  {#if convirtiendo}
+    <section class="convertir">
+      <div>
+        <b>{convirtiendo.nombre} se vende tal como se compra</b>
+        <p class="pista">
+          Se le dará de alta su propio insumo, en piezas y con el costo que tiene
+          capturado, y se descontará <b>1 pieza</b> del almacén cada vez que se
+          venda. Si ya tenías ese insumo, se reutiliza.
+        </p>
+      </div>
+      <label class="cuantas">
+        <span>¿Cuántas tienes ahorita?</span>
+        <input
+          type="number"
+          inputmode="decimal"
+          min="0"
+          step="any"
+          bind:value={existenciaAlConvertir}
+          placeholder="0"
+          onkeydown={(e) => e.key === "Enter" && confirmarConversion()}
+        />
+      </label>
+      <div class="botones-convertir">
+        <button class="cat-accion" onclick={() => (convirtiendo = null)}>Cancelar</button>
+        <button class="cat-accion principal-cat" onclick={confirmarConversion}>
+          Enlazar con el almacén
+        </button>
+      </div>
+    </section>
+  {/if}
+
   {#each grupos as grupo (grupo.categoria.id)}
     <section class="grupo">
       <div class="titulo-grupo">
@@ -217,10 +349,30 @@
         {:else}
           <h2>{grupo.categoria.nombre}</h2>
           <span class="cuantos">{grupo.productos.length}</span>
+          {#if grupo.categoria.reventa}
+            <span class="marca-reventa" title="Lo que se vende aquí se compra ya hecho">
+              se vende tal cual
+            </span>
+          {/if}
 
           {#if permisos.editarProductos}
             {@const i = ordenCat.indexOf(grupo.categoria.id)}
             <div class="cat-acciones">
+              <!--
+                CATEGORÍA DE REVENTA: refrescos, cervezas, botellas. Se dice una
+                vez aquí en vez de treinta veces en el formulario de alta. No
+                toca lo que ya está dentro: cambia cómo NACE el siguiente.
+              -->
+              <button
+                class="cat-accion"
+                class:reventa-on={grupo.categoria.reventa}
+                aria-pressed={grupo.categoria.reventa === true}
+                title="Todo lo que se dé de alta aquí se enlaza solo con su propio insumo"
+                onclick={() =>
+                  alternarReventa(grupo.categoria.id, grupo.categoria.reventa === true)}
+              >
+                {grupo.categoria.reventa ? "Reventa ✓" : "Reventa"}
+              </button>
               <button
                 class="cat-accion"
                 onclick={() => abrirEdicionCat(grupo.categoria.id, grupo.categoria.nombre)}
@@ -301,15 +453,46 @@
               <p class="receta tenue">Tiene receta; tu perfil no puede consultarla.</p>
             {/if}
 
+            {#if permisos.editarRecetas}
+              {@const espejo = insumoEspejoDe(p.id)}
+              {#if espejo}
+                <p class="descuenta espejo">
+                  Se vende tal cual · quedan
+                  {inventario.cantidad(espejo.id)}
+                  {espejo.unidad_base} en el almacén
+                </p>
+              {/if}
+            {/if}
+
             <div class="acciones">
               {#if permisos.editarProductos}
-                <button onclick={() => (panel = { modo: "producto", id: p.id })}>Editar</button>
+                <button onclick={() => abrir({ modo: "producto", id: p.id })}>Editar</button>
                 <button onclick={() => menu.alternarDisponibilidad(p.id)}>
                   {p.disponible ? "Agotar" : "Reactivar"}
                 </button>
               {/if}
               {#if permisos.editarRecetas}
-                <button onclick={() => (panel = { modo: "receta", id: p.id, nombre: p.nombre })}>
+                <!--
+                  «SE VENDE TAL CUAL» solo aparece en lo que todavía no tiene
+                  receta: un platillo con ingredientes no es una bebida
+                  embotellada, y ofrecerlo ahí invitaría a pulsar un botón que
+                  solo puede fallar.
+                -->
+                {#if !p.tiene_receta}
+                  <button
+                    class="tal-cual"
+                    title="Crea su propio insumo y descuenta 1 pieza por venta"
+                    onclick={() => {
+                      convirtiendo = { id: p.id, nombre: p.nombre };
+                      existenciaAlConvertir = "";
+                      aviso = "";
+                      subirArriba();
+                    }}
+                  >
+                    Se vende tal cual
+                  </button>
+                {/if}
+                <button onclick={() => abrir({ modo: "receta", id: p.id, nombre: p.nombre })}>
                   {p.tiene_receta ? "Editar receta" : "+ Receta"}
                 </button>
               {/if}
@@ -356,6 +539,78 @@
     border-color: var(--acento);
     background: var(--acento);
     color: var(--sobre-acento);
+  }
+  /* Encendido: la categoría ya está marcada de reventa. */
+  .cat-accion.reventa-on {
+    border-color: var(--acento);
+    background: var(--claro);
+    color: var(--acento-texto);
+  }
+  .marca-reventa {
+    font-size: 0.68rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--acento-texto);
+    background: var(--claro);
+    border-radius: var(--r-pill);
+    padding: 0.1rem 0.5rem;
+  }
+  /* El botón que enlaza un producto con su propio insumo: distinto de los demás. */
+  .acciones .tal-cual {
+    border-color: var(--acento);
+    color: var(--acento-texto);
+  }
+  .descuenta.espejo {
+    color: var(--acento-texto);
+  }
+  .convertir {
+    display: flex;
+    align-items: flex-end;
+    flex-wrap: wrap;
+    gap: 1rem;
+    padding: 0.9rem 1rem;
+    background: var(--blanco);
+    border: 1.5px solid var(--acento);
+    border-radius: var(--r-md);
+    box-shadow: var(--sombra-sm);
+  }
+  .convertir > div:first-child {
+    flex: 1;
+    min-width: 16rem;
+  }
+  .convertir b {
+    font-size: 0.95rem;
+    font-weight: 600;
+  }
+  .cuantas {
+    display: flex;
+    flex-direction: column;
+    gap: 0.2rem;
+  }
+  .cuantas span {
+    font-size: 0.72rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--gris);
+  }
+  .cuantas input {
+    width: 9rem;
+    padding: 0.45rem 0.55rem;
+    border: 1.5px solid var(--borde);
+    border-radius: var(--r-sm);
+    font-family: var(--font-cuerpo);
+    font-size: 0.86rem;
+    text-align: right;
+  }
+  .cuantas input:focus {
+    outline: none;
+    border-color: var(--acento);
+  }
+  .botones-convertir {
+    display: flex;
+    gap: 0.4rem;
   }
   .editar-cat {
     flex: 1;

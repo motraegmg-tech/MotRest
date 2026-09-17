@@ -409,6 +409,28 @@ export function recolorearCategoria(
 }
 
 /**
+ * Marca —o desmarca— una categoría como DE REVENTA.
+ *
+ * Va aparte del renombrado y del color por la misma razón que el color: no
+ * cambia nada de lo ya capturado. Lo único que hace es que el alta del
+ * siguiente producto de esa categoría proponga crearle su propio insumo y
+ * vincularlo 1:1. Los productos que ya estaban dentro no se tocan — convertir
+ * treinta platillos en silencio, creando treinta insumos que nadie pidió, sería
+ * exactamente el tipo de sorpresa que nadie quiere encontrarse en su almacén.
+ */
+export function marcarCategoriaDeReventa(
+  menu: MenuLocal,
+  categoriaId: ID,
+  reventa: boolean,
+): MenuLocal {
+  return conVersion(menu, {
+    categorias: menu.categorias.map((c) =>
+      c.id === categoriaId ? { ...c, reventa: reventa || undefined } : c,
+    ),
+  });
+}
+
+/**
  * Sube o baja una categoría en la carta.
  *
  * El orden importa de verdad: es el de las pestañas del POS, y quien atiende

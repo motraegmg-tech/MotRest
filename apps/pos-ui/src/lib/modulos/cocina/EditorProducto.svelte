@@ -24,9 +24,17 @@
     type Receta,
   } from "@motrest/dominio";
   import { untrack } from "svelte";
+  import SelectorInsumo from "../../SelectorInsumo.svelte";
   import { mxn, pct } from "../../formato";
   import { inventario } from "../../inventario.svelte";
   import { menu } from "../../menu.svelte";
+  import {
+    CATEGORIA_INSUMO_POR_DEFECTO,
+    categoriaEsDeReventa,
+    convertirEnReventa,
+    esDeReventa,
+    insumoEspejoDe,
+  } from "../../reventa.svelte";
 
   interface Props {
     /** id del producto a editar; vacío = alta nueva. */
@@ -163,6 +171,51 @@
 
   const insumosDisponibles = $derived(inventario.insumos);
 
+  // --- Productos que son su propio insumo (la Coca-Cola) --------------------------------
+  //
+  // Pedido de Gonzalo. Ver `reventa.svelte.ts` para el porqué completo: una
+  // bebida que se compra hecha obligaba a cuatro vueltas por cuatro pantallas
+  // para decir una sola cosa, y el final previsible era que las bebidas se
+  // quedaran fuera del inventario.
+
+  /** El insumo espejo que ya tiene este producto, si es que se vende tal cual. */
+  const espejo = $derived(productoId ? insumoEspejoDe(productoId) : undefined);
+
+  let talCual = $state(
+    untrack(() =>
+      productoId
+        ? esDeReventa(productoId)
+        : /*
+           * En un alta la casilla nace encendida si la categoría está marcada de
+           * reventa. Es la propuesta C: quien captura treinta refrescos lo dice
+           * una vez en la categoría y no treinta veces en el formulario.
+           */
+          categoriaEsDeReventa(existente?.categoria_id ?? menu.categorias[0]?.id ?? ""),
+    ),
+  );
+
+  /**
+   * La casilla sigue a la categoría MIENTRAS NADIE LA TOQUE.
+   *
+   * Cambiar de «Pizzas» a «Refrescos» a media captura tiene que encenderla; pero
+   * si el usuario ya decidió a mano, mandar él. Sin esta bandera, apagarla y
+   * cambiar de categoría la volvía a encender y parecía que el formulario se
+   * peleaba con quien lo llena.
+   */
+  let talCualDecidido = $state(false);
+
+  $effect(() => {
+    const deLaCategoria = categoriaEsDeReventa(categoriaId);
+    if (!talCualDecidido && !productoId) untrack(() => (talCual = deLaCategoria));
+  });
+
+  /** Cuántas hay ahorita. Solo se pregunta cuando el insumo va a nacer aquí. */
+  let existenciaInicial = $state("");
+  /** En qué estante de la despensa se guarda el insumo nuevo. */
+  let categoriaInsumo = $state(CATEGORIA_INSUMO_POR_DEFECTO);
+
+  const categoriaDeReventa = $derived(categoriaEsDeReventa(categoriaId));
+
   /** Solo los renglones que de verdad apuntan a un insumo del almacén. */
   const vinculados = $derived(
     receta.ingredientes.filter((i) => i.insumo_id && i.cantidad && i.cantidad > 0),
@@ -248,7 +301,31 @@
      * cerrar el formulario.
      */
     const id = productoId ?? r.id;
-    if (id && permisos.editarRecetas) menu.guardarRecetaDe(id, recetaParaGuardar());
+    if (id && permisos.editarRecetas) {
+      if (talCual) {
+        /*
+         * Un producto que se vende tal cual no lleva la receta que se capturó
+         * arriba: lleva UN renglón, él mismo. `convertirEnReventa` crea el
+         * insumo si hace falta —o reutiliza el que ya existiera con ese
+         * nombre—, deja la receta de una pieza y siembra la existencia.
+         *
+         * Si algo sale mal se AVISA y no se cierra: cerrar dejaría el producto
+         * guardado y el enlace con el almacén sin hacer, que es justo el estado
+         * silencioso que hace que el inventario mienta.
+         */
+        const enlace = convertirEnReventa(id, {
+          costo: conCosto.costo,
+          categoriaInsumo,
+          existencia: Number(existenciaInicial) || 0,
+        });
+        if (!enlace.ok) {
+          problemas = enlace.problemas;
+          return;
+        }
+      } else {
+        menu.guardarRecetaDe(id, recetaParaGuardar());
+      }
+    }
 
     onCerrar();
   }
@@ -328,7 +405,7 @@
       
       <div class="foto-caja">
         <span>Foto</span>
-        <label class="foto-btn">
+        <label class="foto-btn boton-agregar">
           {#if subiendoFoto}
             <span class="cargando">Subiendo...</span>
           {:else if foto}
@@ -456,12 +533,100 @@
         <h3>Insumos que consume</h3>
         <span class="opcional">opcional</span>
       </div>
-      <p class="pista">
-        Lo que se va del almacén cada vez que se vende <b>una</b> unidad. Se
-        descuenta solo al enviar a cocina, y vuelve si el platillo se cancela.
-      </p>
+      <!--
+        «SE VENDE TAL COMO SE COMPRA» — la Coca-Cola.
 
-      {#if insumosDisponibles.length === 0}
+        Una bebida embotellada no se prepara: la que entra al almacén es la que
+        sale a la mesa. Decirlo obligaba a cuatro vueltas por cuatro pantallas
+        —alta del insumo, alta del producto, vincularle «1 pieza de sí mismo» y
+        cargar la existencia—, así que con treinta refrescos nadie lo hacía y las
+        bebidas se quedaban fuera del inventario. Aquí es una casilla.
+      -->
+      <label class="tal-cual" class:on={talCual}>
+        <input
+          type="checkbox"
+          checked={talCual}
+          onchange={(e) => {
+            talCual = e.currentTarget.checked;
+            talCualDecidido = true;
+          }}
+        />
+        <span class="tal-cual-texto">
+          <b>Se vende tal como se compra</b>
+          <small>
+            Refrescos, cervezas, botellas de vino, agua. El sistema le crea su
+            propio insumo y descuenta <b>1 pieza</b> del almacén por cada una que
+            se venda.
+            {#if categoriaDeReventa}
+              Esta categoría está marcada de reventa.
+            {/if}
+          </small>
+        </span>
+      </label>
+
+      {#if talCual}
+        <div class="caja-reventa">
+          {#if espejo}
+            <p class="pista">
+              Ya está enlazado con el insumo <b>{espejo.nombre}</b>, del que hay
+              <b>{formatearCantidad(inventario.cantidad(espejo.id), espejo.unidad_base)}</b>
+              en el almacén. Al guardar, el costo del insumo se pone al día con
+              el que capturaste arriba.
+            </p>
+            <label class="campo-reventa">
+              <span>Cargar más existencia (opcional)</span>
+              <input
+                type="number"
+                inputmode="decimal"
+                min="0"
+                step="any"
+                bind:value={existenciaInicial}
+                placeholder="0"
+              />
+            </label>
+          {:else}
+            <p class="pista">
+              Al guardar se dará de alta el insumo <b>{nombre.trim() || "…"}</b>
+              en piezas, con costo {mxn(costo)} cada una, y quedará enlazado a
+              este producto.
+            </p>
+            <div class="campos-reventa">
+              <label class="campo-reventa">
+                <span>Guardarlo en</span>
+                <input
+                  bind:value={categoriaInsumo}
+                  list="cats-despensa"
+                  placeholder="Bebidas, abarrotes…"
+                />
+                <datalist id="cats-despensa">
+                  {#each menu.categoriasInsumo as c (c)}<option value={c}></option>{/each}
+                </datalist>
+              </label>
+              <label class="campo-reventa">
+                <span>¿Cuántas tienes ahorita?</span>
+                <input
+                  type="number"
+                  inputmode="decimal"
+                  min="0"
+                  step="any"
+                  bind:value={existenciaInicial}
+                  placeholder="0"
+                />
+              </label>
+            </div>
+            <p class="pista tenue">
+              Si ya tenías ese insumo dado de alta, se reutiliza: no se duplica la
+              despensa.
+            </p>
+          {/if}
+        </div>
+      {:else}
+        <p class="pista">
+          Lo que se va del almacén cada vez que se vende <b>una</b> unidad. Se
+          descuenta solo al enviar a cocina, y vuelve si el platillo se cancela.
+        </p>
+
+        {#if insumosDisponibles.length === 0}
         <p class="sin-insumos">
           Todavía no hay insumos dados de alta. Se capturan en
           <b>Administración → Insumos</b>, y desde aquí se enlazan.
@@ -470,16 +635,21 @@
         {#each receta.ingredientes as ing (ing.id)}
           {@const insumo = ing.insumo_id ? inventario.insumo(ing.insumo_id) : undefined}
           <div class="fila-insumo">
-            <select
-              value={ing.insumo_id ?? ""}
-              onchange={(e) => elegirInsumo(ing.id, e.currentTarget.value)}
-              aria-label="Insumo del almacén"
-            >
-              <option value="">Elige un insumo…</option>
-              {#each insumosDisponibles as opcion (opcion.id)}
-                <option value={opcion.id}>{opcion.nombre}</option>
-              {/each}
-            </select>
+            <!--
+              PRIMERO LA CATEGORÍA, LUEGO EL INSUMO.
+
+              Era una persiana con la despensa entera. Con la docena de insumos
+              de la demostración se veía bien; con los ciento y pico de un local
+              que lleva un año capturando, declarar los cuatro insumos de una
+              pizza era recorrer cuatro veces la misma lista, y el renglón
+              equivocado aquí descuenta del insumo que no era cada vez que se
+              vende el platillo.
+            -->
+            <SelectorInsumo
+              valor={ing.insumo_id ?? ""}
+              onElegir={(id) => elegirInsumo(ing.id, id)}
+              rotulo="Insumo del almacén"
+            />
             <input
               class="cant"
               type="number"
@@ -515,7 +685,7 @@
           </div>
         {/each}
 
-        <button class="agregar-insumo" onclick={agregarInsumo}>+ Insumo</button>
+        <button class="agregar-insumo boton-agregar" onclick={agregarInsumo}>+ Insumo</button>
 
         {#if vinculados.length > 0}
           <div class="resumen-insumos">
@@ -543,6 +713,7 @@
               </div>
             {/if}
           </div>
+        {/if}
         {/if}
       {/if}
     </section>
@@ -793,7 +964,7 @@
     gap: 0.4rem;
     align-items: center;
   }
-  .fila-insumo select,
+  /* El `<select>` de esta fila lo sustituyó `SelectorInsumo`, que trae lo suyo. */
   .fila-insumo input {
     padding: 0.45rem 0.55rem;
     border: 1.5px solid var(--borde);
@@ -803,7 +974,6 @@
     background: #fff;
     width: 100%;
   }
-  .fila-insumo select:focus,
   .fila-insumo input:focus {
     outline: none;
     border-color: var(--acento);
@@ -833,19 +1003,99 @@
     background: #fdeae8;
     color: var(--peligro);
   }
+  /*
+   * El contorno, el color y la sombra vienen de `.boton-agregar` (base.css),
+   * que es la misma para todos los botones de «agregar» de la aplicación. Aquí
+   * solo queda lo que es de ESTA fila: dónde se coloca y cuánto mide.
+   */
   .agregar-insumo {
     align-self: flex-start;
-    border: 1.5px dashed var(--borde);
-    border-radius: var(--r-md);
     padding: 0.5rem 0.9rem;
     font-size: 0.86rem;
+  }
+  /* --- «Se vende tal como se compra» --- */
+  .tal-cual {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.6rem;
+    padding: 0.7rem 0.8rem;
+    border: 1.5px solid var(--borde);
+    border-radius: var(--r-md);
+    cursor: pointer;
+  }
+  /* Encendida se pinta: es una decisión que cambia lo que hace el almacén. */
+  .tal-cual.on {
+    border-color: var(--acento);
+    background: var(--claro);
+  }
+  .tal-cual input {
+    width: 1.1rem;
+    height: 1.1rem;
+    margin-top: 0.15rem;
+    flex: none;
+    accent-color: var(--acento);
+  }
+  .tal-cual-texto {
+    display: flex;
+    flex-direction: column;
+    gap: 0.15rem;
+  }
+  .tal-cual-texto b {
+    font-size: 0.9rem;
     font-weight: 600;
+  }
+  .tal-cual-texto small {
+    font-size: 0.8rem;
+    color: var(--gris);
+    line-height: 1.45;
+  }
+  .caja-reventa {
+    display: flex;
+    flex-direction: column;
+    gap: 0.55rem;
+    padding: 0.75rem 0.85rem;
+    background: var(--fondo);
+    border-radius: var(--r-md);
+  }
+  .campos-reventa {
+    display: grid;
+    grid-template-columns: 1fr 10rem;
+    gap: 0.6rem;
+  }
+  .campo-reventa {
+    display: flex;
+    flex-direction: column;
+    gap: 0.2rem;
+  }
+  .campo-reventa span {
+    font-size: 0.72rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
     color: var(--gris);
   }
-  .agregar-insumo:hover {
-    border-color: var(--acento);
-    color: var(--acento-texto);
+  .campo-reventa input {
+    padding: 0.45rem 0.55rem;
+    border: 1.5px solid var(--borde);
+    border-radius: var(--r-sm);
+    font-family: var(--font-cuerpo);
+    font-size: 0.86rem;
+    background: var(--blanco);
+    width: 100%;
   }
+  .campo-reventa input:focus {
+    outline: none;
+    border-color: var(--acento);
+  }
+  .pista.tenue {
+    font-size: 0.76rem;
+  }
+  @media (max-width: 30rem) {
+    .campos-reventa {
+      grid-template-columns: 1fr;
+    }
+  }
+
   .resumen-insumos {
     display: flex;
     align-items: flex-end;
@@ -917,12 +1167,11 @@
     color: var(--gris);
     align-self: flex-start;
   }
+  /* Contorno y sombra de `.boton-agregar`; el radio y el tamaño son de la miniatura. */
   .foto-btn {
     width: 4rem;
     height: 4rem;
     border-radius: var(--r-sm);
-    border: 1.5px dashed var(--borde);
-    background: var(--fondo);
     display: flex;
     align-items: center;
     justify-content: center;
@@ -930,9 +1179,6 @@
     position: relative;
     overflow: hidden;
     flex-shrink: 0;
-  }
-  .foto-btn:hover {
-    border-color: var(--acento);
   }
   .foto-btn img {
     width: 100%;
