@@ -509,9 +509,24 @@ class TiendaPOS {
    * que no se pueda salir.
    */
   retirarPromocion(descuentoId: ID): void {
-    const orden_id = this.ordenActiva(this.mesaActiva);
     const quitada = this.promocionesAplicadas.find((p) => p.id === descuentoId);
-    if (!orden_id || !quitada) return;
+    if (!quitada || !this.emitirRetiroDescuento(descuentoId)) return;
+    this.flash(`${quitada.nombre} retirada`);
+  }
+
+  /**
+   * El evento de retiro, común a la promoción y al descuento puesto a mano.
+   *
+   * Es el mismo hecho —se deshace un `descuento_aplicado` por el id del evento
+   * que lo aplicó— y tenerlo escrito una sola vez es lo que evita que dentro de
+   * seis meses uno de los dos caminos deje de firmar quién lo retiró.
+   *
+   * Devuelve false si no hay cuenta abierta, para que quien llama no anuncie
+   * algo que no ocurrió.
+   */
+  private emitirRetiroDescuento(descuentoId: ID): boolean {
+    const orden_id = this.ordenActiva(this.mesaActiva);
+    if (!orden_id) return false;
 
     this.sincronizarActor();
     this.emitir(
@@ -522,7 +537,66 @@ class TiendaPOS {
         autorizador_id: sesion.usuarioActual?.id,
       }),
     );
-    this.flash(`${quitada.nombre} retirada`);
+    return true;
+  }
+
+  /**
+   * Los descuentos que alguien puso A MANO en esta cuenta, para poder quitarlos.
+   *
+   * Es el hueco simétrico al de las promociones, y dolía igual: la barra solo
+   * sabía retirar lo que traía `promocion_id`, así que un 25 % pulsado por error
+   * —o un «quítale 300» tecleado en la mesa equivocada— no se podía deshacer más
+   * que cancelando la cuenta entera y volviéndola a capturar delante del
+   * comensal.
+   *
+   * ## Por qué el importe solo viene en los de monto fijo
+   *
+   * `totalesComanda` devuelve los descuentos SUMADOS (`t.descuentos`), no el
+   * desglose por descuento: la rebaja de un porcentaje se calcula sobre la base
+   * que queda viva en ese momento y se prorratea entre los renglones, así que no
+   * existe en ninguna parte una cifra en pesos que sea «lo que rebajó este 15 %»
+   * sin volver a proyectar toda la cuenta. En el descuento de monto fijo, en
+   * cambio, el importe ES el valor del evento. Por eso aquí va `importe` solo
+   * cuando el dominio de verdad lo tiene, y la pantalla pinta el porcentaje en
+   * el otro caso: mejor un «−15 %» exacto que una cifra en pesos inventada
+   * junto al dinero del restaurante.
+   */
+  get descuentosManuales(): {
+    id: ID;
+    motivo: string;
+    modo: "porcentaje" | "monto";
+    valor: number;
+    /** Centavos rebajados, o null si es un porcentaje (ver arriba). */
+    importe: Centavos | null;
+  }[] {
+    const c = this.comanda;
+    if (!c || c.cerrada) return [];
+
+    return c.descuentos
+      .filter((d) => d.promocion_id === undefined)
+      .map((d) => ({
+        id: d.id,
+        motivo: d.motivo,
+        modo: d.modo,
+        valor: d.valor,
+        importe: d.modo === "monto" ? (d.valor as Centavos) : null,
+      }));
+  }
+
+  /**
+   * Quita un descuento puesto a mano.
+   *
+   * **No pide autorización, por la misma razón que retirar una promoción o una
+   * cortesía:** quitar un descuento SUBE la cuenta, así que no hay forma de
+   * sacar dinero del negocio con esto. Pedir la firma de un gerente solo
+   * serviría para dejar la mesa con el descuento equivocado puesto mientras
+   * alguien va a buscarlo. Queda en la bitácora quién lo retiró, que es lo que
+   * aquí importa.
+   */
+  retirarDescuento(descuentoId: ID): void {
+    const quitado = this.descuentosManuales.find((d) => d.id === descuentoId);
+    if (!quitado || !this.emitirRetiroDescuento(descuentoId)) return;
+    this.flash(`Descuento retirado · ${quitado.motivo}`);
   }
 
   get totales(): TotalesComanda | null {
@@ -1212,6 +1286,62 @@ class TiendaPOS {
       }),
     );
     this.flash(`Descuento de ${Math.round(porcentaje * 100)} % aplicado`);
+  }
+
+  /**
+   * Descuento de una cantidad FIJA en pesos, no de un porcentaje.
+   *
+   * Es el otro caso real de la mesa: «quítale 150» —porque se tardó el platillo,
+   * porque se rompió un vaso, porque el dueño lo dijo—. Hasta ahora solo se
+   * podía rebajar por porcentaje, así que quien quería dejar una cifra redonda
+   * tenía que calcular a mano qué porcentaje era y acababa con cuentas que no
+   * cuadraban con lo que se le había prometido al comensal.
+   *
+   * El monto llega YA EN CENTAVOS: quien llama lo convierte con `pesos()`, que
+   * es el único punto donde se toca un decimal. Aquí dentro no hay aritmética
+   * de flotantes.
+   *
+   * ## Por qué el límite se pide en fracción y no en pesos
+   *
+   * La matriz de roles guarda el tope de `pos.descuento.aplicar` como FRACCIÓN
+   * —el gerente autoriza hasta 0.2, o sea el 20 %—, y `excedeLimite` compara
+   * ese número contra `ctx.monto` y contra `ctx.porcentaje` por igual. Mandar
+   * aquí los centavos haría que CUALQUIER descuento de un peso pasara de 0.2 y
+   * pidiera la firma de un superior en cada mesa, hasta al propietario. Se manda
+   * lo que el tope de verdad significa: qué proporción de esta cuenta se está
+   * regalando. Así un descuento de $50 sobre una cuenta de $1000 es un 5 % y lo
+   * firma el gerente; uno de $500 sobre la misma cuenta es medio ticket y sube
+   * a quien corresponda.
+   */
+  async aplicarDescuentoMonto(monto: Centavos, motivo: string): Promise<void> {
+    const orden_id = this.ordenActiva(this.mesaActiva);
+    if (!orden_id || monto <= 0) return;
+
+    const total = this.totales?.total ?? CERO;
+    // Sin cuenta que rebajar, el descuento se lo lleva todo: se trata como el
+    // 100 % para que nunca se cuele por debajo del límite de nadie.
+    const porcentaje = total > 0 ? monto / total : 1;
+
+    const permiso = await autorizacion.solicitar(
+      "pos.descuento.aplicar",
+      { porcentaje },
+      `$${(monto / 100).toFixed(2)} · mesa ${this.nombreMesaActiva}`,
+    );
+    if (!permiso.ok) return;
+
+    this.sincronizarActor();
+    this.emitir(
+      this.mesaActiva,
+      fabrica.crear("descuento_aplicado", orden_id, {
+        orden_id,
+        alcance: "cuenta",
+        modo: "monto",
+        valor: monto,
+        motivo,
+        autorizador_id: permiso.autorizador_id ?? sesion.usuarioActual?.id,
+      }),
+    );
+    this.flash(`Descuento de $${(monto / 100).toFixed(2)} aplicado`);
   }
 
   /** ¿Está ya en cortesía este renglón —o la cuenta entera, si no se pasa uno—? */

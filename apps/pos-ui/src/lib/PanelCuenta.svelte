@@ -9,7 +9,9 @@
     repartir,
     restar,
     sumar,
+    totalesComanda,
     type Centavos,
+    type EstadoComanda,
     type FormaPago,
     type RenglonComanda,
   } from "@motrest/dominio";
@@ -183,10 +185,16 @@
   const puedeSocio = $derived(sesion.puedeOperar("pos.socio.consumir"));
   const puedeFacturar = $derived(sesion.puedeOperar("fin.factura.emitir"));
 
-  /** Si no queda ni un grupo, la barra entera sobra: sin esto quedaba vacía. */
+  /**
+   * Si no queda ni un grupo, la barra entera sobra: sin esto quedaba vacía.
+   *
+   * `puedeCobrar` YA NO CUENTA aquí. Estaba porque la barra llevaba el grupo de
+   * la propina, que era lo único suyo; al quitarlo —la propina se decide en el
+   * paso de cobro, que es cuando el comensal dice cuánto deja— dejarlo habría
+   * hecho aparecer una barra vacía al cajero que solo cobra y no descuenta.
+   */
   const hayExtras = $derived(
     puedeFacturar ||
-      puedeCobrar ||
       puedeDescontar ||
       puedeCortesia ||
       (puedeSocio && socios.activos.length > 0),
@@ -354,6 +362,130 @@
     if (pos.comandaDeMesa(mesa)?.cerrada !== false) vistaMesa.reiniciar(mesa);
     else vistaMesa.fijar(mesa, { vista: "cuenta", socioElegido: null, montoSocio: "" });
   }
+
+  // --- Descuentos -------------------------------------------------------------
+  /*
+   * Los escalones que se pulsan sin pensar. Son fracciones y no enteros porque
+   * es lo que espera el evento `descuento_aplicado` con `modo: "porcentaje"`:
+   * un 0..1, nunca un 0..100.
+   */
+  const DESCUENTOS_RAPIDOS = [0.05, 0.1, 0.15, 0.2, 0.25];
+  const MOTIVO_ESPECIFICO = "Descuento específico";
+
+  /** 0.05 → "5%", 0.125 → "12.5%". Sin decimales de más ni de menos. */
+  function porcentajeLegible(fraccion: number): string {
+    return `${Number((fraccion * 100).toFixed(2))}%`;
+  }
+
+  /*
+   * LA VENTANITA DEL DESCUENTO A LA MEDIDA.
+   *
+   * Los cinco escalones cubren el día normal, pero la mesa pide lo que pide:
+   * «quítale 150 por la espera» o «hazle el 12 %». Sin esto, quien cobraba
+   * tenía que elegir el escalón más cercano y prometerle al comensal una cifra
+   * que el ticket luego no decía.
+   *
+   * Se ofrecen las DOS unidades —porcentaje y pesos— porque las dos se usan en
+   * la mesa y ninguna se puede adivinar desde aquí; el porcentaje va por
+   * defecto, que es como se pide nueve de cada diez veces.
+   *
+   * Vive en el componente y no en `vistaMesa` porque es un diálogo modal: con
+   * el velo puesto no se puede cambiar de mesa por debajo, así que no se repite
+   * aquí el defecto de la vista de cobro que sí era de la mesa.
+   */
+  let descontando = $state(false);
+  let modoDescuento = $state<"porcentaje" | "monto">("porcentaje");
+  let valorDescuento = $state("");
+  let motivoDescuento = $state(MOTIVO_ESPECIFICO);
+
+  /*
+   * Texto y no `type="number"`, por lo mismo que la propina tecleada (ver el
+   * comentario de `propinaTecleada`): con un input numérico Svelte convierte el
+   * valor a número y cualquier comprobación de cadena revienta en el primer
+   * dígito. Se normaliza a mano la coma decimal, que es la que se teclea aquí.
+   */
+  const valorDescuentoNumero = $derived(Number(valorDescuento.trim().replace(",", ".")));
+
+  /** Qué le pasa a lo tecleado, si es que le pasa algo. */
+  const problemaDescuento = $derived.by(() => {
+    if (valorDescuento.trim() === "") return null;
+    if (!Number.isFinite(valorDescuentoNumero) || valorDescuentoNumero <= 0) {
+      return "Escribe una cantidad mayor que cero";
+    }
+    if (modoDescuento === "porcentaje" && valorDescuentoNumero > 100) {
+      return "El descuento no puede pasar del 100 %";
+    }
+    if (modoDescuento === "monto" && t && pesos(valorDescuentoNumero) > t.total) {
+      return `El descuento no puede pasar del total de la cuenta (${mxn(t.total)})`;
+    }
+    return null;
+  });
+
+  /** Se valida ANTES de pulsar: el botón se apaga, no se regaña después. */
+  const descuentoValido = $derived(
+    valorDescuento.trim() !== "" && problemaDescuento === null && !!t && t.total > 0,
+  );
+
+  /*
+   * LA VISTA PREVIA LA CALCULA EL DOMINIO, no esta pantalla.
+   *
+   * Cuánto rebaja de verdad un descuento no es una regla de tres: se aplica
+   * sobre la base ANTES del impuesto, se prorratea entre los renglones que
+   * siguen vivos —cada uno con su tasa— y solo después se vuelve a sumar el
+   * IVA. Calcularlo aquí a ojo daría una cifra parecida y distinta de la que el
+   * comensal acabaría pagando, que es exactamente lo que no se puede hacer con
+   * dinero. Así que se proyecta la comanda con el descuento dentro y se lee el
+   * total que sale: la misma función que cobra, `totalesComanda`. Es una
+   * proyección de mentira sobre una copia; no se emite ningún evento hasta que
+   * alguien confirma.
+   */
+  const previaDescuento = $derived.by(() => {
+    const comanda = pos.comanda;
+    if (!comanda || !t || !descuentoValido) return null;
+
+    const simulada: EstadoComanda = {
+      ...comanda,
+      descuentos: [
+        ...comanda.descuentos,
+        {
+          id: "previa",
+          alcance: "cuenta",
+          modo: modoDescuento,
+          valor:
+            modoDescuento === "porcentaje"
+              ? valorDescuentoNumero / 100
+              : pesos(valorDescuentoNumero),
+          motivo: motivoDescuento,
+        },
+      ],
+    };
+    const conDescuento = totalesComanda(simulada);
+    return { rebaja: restar(t.total, conDescuento.total), queda: conDescuento.total };
+  });
+
+  function abrirDescuento() {
+    modoDescuento = "porcentaje";
+    valorDescuento = "";
+    motivoDescuento = MOTIVO_ESPECIFICO;
+    descontando = true;
+  }
+
+  async function aplicarDescuentoEspecifico() {
+    if (!descuentoValido) return;
+
+    /*
+     * Se copia lo tecleado y se cierra la ventanita ANTES de pedir permiso: lo
+     * que viene puede ser el teclado de PIN de un superior, y dejarlo saliendo
+     * por detrás del velo de este diálogo lo volvería intocable.
+     */
+    const modo = modoDescuento;
+    const numero = valorDescuentoNumero;
+    const motivo = motivoDescuento.trim() || MOTIVO_ESPECIFICO;
+    descontando = false;
+
+    if (modo === "porcentaje") await pos.aplicarDescuento(numero / 100, motivo);
+    else await pos.aplicarDescuentoMonto(pesos(numero), motivo);
+  }
 </script>
 
 <aside class="cuenta">
@@ -439,7 +571,11 @@
           {pos.comanda.a_nombre_de}
         </button>
       {:else}
-        <button class="chip poner-nombre" onclick={abrirNombre} title="A nombre de quién va esta cuenta">
+        <button
+          class="chip poner-nombre"
+          onclick={abrirNombre}
+          title="A nombre de quién va esta cuenta"
+        >
           <Icono nombre="clientes" tam={14} />
           Cliente
         </button>
@@ -585,6 +721,41 @@
         </div>
       {/each}
 
+      <!--
+        LOS DESCUENTOS PUESTOS A MANO, cada uno con su «Quitar».
+
+        Faltaba, y era el mismo agujero que tenían las promociones antes de la
+        lista de arriba: un 25 % pulsado por error —o un «quítale 300» en la
+        mesa equivocada— no se podía deshacer más que cancelando la cuenta
+        entera y recapturándola con el comensal delante.
+
+        El de monto fijo enseña sus pesos porque el importe ES el valor del
+        evento. El de porcentaje enseña el porcentaje: lo que rebaja en pesos se
+        prorratea entre los renglones al calcular los totales y no existe como
+        cifra suelta, y junto al dinero del restaurante es mejor no pintar
+        ninguna que pintar una aproximada.
+      -->
+      {#each pos.descuentosManuales as puesto (puesto.id)}
+        <div class="promo-puesta">
+          <span class="etiqueta">Descuento</span>
+          <span class="nombre">{puesto.motivo}</span>
+          <span class="importe">
+            {#if puesto.importe !== null}
+              −{mxn(puesto.importe)}
+            {:else}
+              −{porcentajeLegible(puesto.valor)}
+            {/if}
+          </span>
+          <button
+            class="quitar-promo"
+            onclick={() => pos.retirarDescuento(puesto.id)}
+            aria-label="Quitar el descuento {puesto.motivo}"
+          >
+            Quitar
+          </button>
+        </div>
+      {/each}
+
       <div class="tot">
         {#if t.descuentos > 0 || t.cortesias > 0}
           <div><span>Bruto</span><span>{mxn(t.bruto)}</span></div>
@@ -622,34 +793,43 @@
             </span>
           {/if}
           <!--
-            La propina va con el cobro y no aparte: se fija sobre la cuenta que
-            se está por cobrar, y quien no cobra no tiene por qué tocarla. Lo que
-            el mesero SÍ conserva es ver cuánto lleva ganado, que vive en su
-            propio módulo con `rrhh.propina.ver`.
+            DESCUENTOS, en el hueco que dejó la propina.
+
+            Aquí vivían los porcentajes de propina, y sobraban: en cuanto se
+            pulsa «Cobrar» aparece el módulo de propina completo —porcentajes,
+            campo libre y el resumen de lo que se va a cobrar—, que es además
+            cuando el comensal dice cuánto deja. Tener las dos cosas hacía que se
+            fijara propina en la cuenta antes de tiempo y que luego nadie supiera
+            cuál de las dos cifras mandaba.
+
+            Lo que sí hacía falta a un toque es lo contrario: rebajar. El
+            escalón suelto de −10 % que estaba pegado a la cortesía se queda
+            corto todos los días, así que la fila entera es de descuentos y el
+            último abre la ventanita para el caso que no es ninguno de estos
+            cinco.
           -->
-          {#if puedeCobrar}
+          {#if puedeDescontar}
             <span class="grupo">
-              Propina
-              {#each [0.1, 0.15, 0.2] as pct (pct)}
-                <button class="mini" onclick={() => pos.propinaPorcentaje(pct)}>
-                  {Math.round(pct * 100)}%
-                </button>
-              {/each}
-              {#if t.propina > 0}
-                <button class="mini" onclick={() => pos.propinaPorcentaje(0)}>Quitar</button>
-              {/if}
-            </span>
-          {/if}
-          {#if puedeDescontar || puedeCortesia}
-            <span class="grupo">
-              {#if puedeDescontar}
+              Descuentos
+              {#each DESCUENTOS_RAPIDOS as fraccion (fraccion)}
                 <button
                   class="mini"
-                  onclick={() => pos.aplicarDescuento(0.1, "Descuento de cortesía")}
+                  onclick={() =>
+                    pos.aplicarDescuento(fraccion, `Descuento de ${porcentajeLegible(fraccion)}`)}
                 >
-                  −10%
+                  {porcentajeLegible(fraccion)}
                 </button>
-              {/if}
+              {/each}
+              <button class="mini" onclick={abrirDescuento}>Descuento específico</button>
+            </span>
+          {/if}
+          <!--
+            La cortesía se queda sola en su grupo, sin rótulo: el botón se
+            nombra a sí mismo y el grupo de al lado ya dice «Descuentos», que es
+            lo que antes se confundía con el −10 % que colgaba de aquí.
+          -->
+          {#if puedeCortesia}
+            <span class="grupo">
               <!--
                 INTERRUPTOR: pulsarlo otra vez retira la cortesía.
 
@@ -657,16 +837,14 @@
                 entera. Que quede encendido mientras está puesta es además lo que
                 hace evidente que la mesa está regalada.
               -->
-              {#if puedeCortesia}
-                <button
-                  class="mini"
-                  class:on={cortesiaPuesta}
-                  aria-pressed={cortesiaPuesta}
-                  onclick={() => pos.alternarCortesia(undefined, "Cortesía de la casa")}
-                >
-                  {cortesiaPuesta ? "Cortesía ✓ · quitar" : "Cortesía"}
-                </button>
-              {/if}
+              <button
+                class="mini"
+                class:on={cortesiaPuesta}
+                aria-pressed={cortesiaPuesta}
+                onclick={() => pos.alternarCortesia(undefined, "Cortesía de la casa")}
+              >
+                {cortesiaPuesta ? "Cortesía ✓ · quitar" : "Cortesía"}
+              </button>
             </span>
           {/if}
           <!--
@@ -1107,6 +1285,85 @@
     <input class="comentario" bind:value={telefonoPedido} placeholder="Teléfono (opcional)" />
     <button class="guardar-op" onclick={guardarNombre}>Guardar</button>
     <button class="saltar" onclick={() => (poniendoNombre = false)}>Cancelar</button>
+  </div>
+{/if}
+
+<!--
+  Descuento a la medida, cuando ninguno de los cinco escalones sirve.
+
+  Mismo armazón que las otras dos ventanitas de esta pantalla (`.velo-op` +
+  `.op`) y los mismos controles que el panel de cortesía por socio: quien cobra
+  ya sabe leerlos, y un diálogo de dinero no es el sitio para estrenar un
+  lenguaje visual propio.
+-->
+{#if descontando}
+  <div class="velo-op" role="presentation" onclick={() => (descontando = false)}></div>
+  <div class="op" role="dialog" aria-modal="true" aria-label="Descuento específico">
+    <h3>Descuento específico</h3>
+    <p class="pista-nombre">
+      Se rebaja de la cuenta completa de la mesa {pos.nombreMesaActiva}. Queda en
+      la bitácora con tu motivo y con quién lo autorizó.
+    </p>
+
+    <div class="modo-descuento">
+      <button
+        class="mini"
+        class:on={modoDescuento === "porcentaje"}
+        aria-pressed={modoDescuento === "porcentaje"}
+        onclick={() => (modoDescuento = "porcentaje")}
+      >
+        Porcentaje (%)
+      </button>
+      <button
+        class="mini"
+        class:on={modoDescuento === "monto"}
+        aria-pressed={modoDescuento === "monto"}
+        onclick={() => (modoDescuento = "monto")}
+      >
+        Monto ($)
+      </button>
+    </div>
+
+    <div class="campos-descuento">
+      <label class="campo">
+        <span>{modoDescuento === "porcentaje" ? "Cuánto por ciento" : "Cuántos pesos"}</span>
+        <!--
+          Texto con teclado decimal, nunca `type="number"`: es el defecto que
+          tuvo el campo de propina de esta misma pantalla durante meses.
+        -->
+        <input
+          type="text"
+          inputmode="decimal"
+          bind:value={valorDescuento}
+          placeholder={modoDescuento === "porcentaje" ? "12.5" : "150.00"}
+        />
+      </label>
+      <label class="campo">
+        <span>Motivo (sale en la bitácora)</span>
+        <input type="text" bind:value={motivoDescuento} placeholder={MOTIVO_ESPECIFICO} />
+      </label>
+    </div>
+
+    <!--
+      Lo que va a pasar, antes de que pase. La cifra sale de proyectar la
+      comanda con el descuento puesto, así que es exactamente la que se va a
+      cobrar: ni una aproximación ni una regla de tres.
+    -->
+    {#if previaDescuento}
+      <p class="previa-descuento">
+        Se rebajan <b>{mxn(previaDescuento.rebaja)}</b> · la cuenta quedaría en
+        <b>{mxn(previaDescuento.queda)}</b>
+      </p>
+    {:else if problemaDescuento}
+      <p class="error-descuento" role="alert">{problemaDescuento}</p>
+    {:else}
+      <p class="ayuda-descuento">Escribe cuánto se le rebaja a esta cuenta.</p>
+    {/if}
+
+    <button class="b1" disabled={!descuentoValido} onclick={aplicarDescuentoEspecifico}>
+      Aplicar descuento
+    </button>
+    <button class="saltar" onclick={() => (descontando = false)}>Cancelar</button>
   </div>
 {/if}
 
@@ -2007,15 +2264,28 @@
     text-overflow: ellipsis;
     white-space: nowrap;
   }
+  /*
+   * MISMO TRATAMIENTO QUE `.boton-agregar` (base.css), el de «+ Insumo»,
+   * «+ Ingrediente» y «+ Área»: era un punteado gris en una fila donde todos los
+   * demás chips son ETIQUETAS y no botones, así que no se leía como algo que se
+   * pudiera pulsar.
+   *
+   * Se escribe aquí en vez de usar la utilidad porque `.chip` ya declara borde,
+   * fondo y color, y con la clase de ámbito de Svelte gana por especificidad a
+   * cualquier regla global. Excluir el chip de `.chip` habría dejado la regla a
+   * la par de `.chip.gray` y `.chip.cocina` —y por delante en la cascada—,
+   * despintando los chips que sí son etiquetas.
+   */
   .chip.poner-nombre {
-    background: transparent;
-    border: 1.5px dashed var(--borde);
-    color: var(--gris);
+    border: 1.5px solid var(--acento);
+    background: var(--blanco);
+    color: var(--acento-texto);
     font-weight: 600;
+    box-shadow: 0 2px 6px rgba(242, 133, 58, 0.28);
   }
   .chip.poner-nombre:hover {
-    border-color: var(--acento);
-    color: var(--acento-texto);
+    background: var(--claro);
+    box-shadow: 0 3px 10px rgba(242, 133, 58, 0.38);
   }
   .pista-nombre {
     font-size: 0.8rem;
@@ -2042,5 +2312,48 @@
     flex-direction: column;
     gap: 0.5rem;
     align-items: center;
+  }
+
+  /* --- Descuento específico --- */
+  /*
+   * Casi todo es prestado: el armazón de las otras ventanitas (`.velo-op`,
+   * `.op`, `.pista-nombre`, `.saltar`) y los controles del panel de socio
+   * (`.campo`, `.mini`, `.b1` — que además ya trae el estado apagado del botón
+   * cuando lo tecleado no vale). Lo propio es solo esto.
+   */
+  .modo-descuento {
+    display: flex;
+    justify-content: center;
+    gap: 0.35rem;
+    margin-bottom: 0.7rem;
+  }
+  /* Los rótulos de los campos se leen a la izquierda; `.op` centra su texto. */
+  .campos-descuento {
+    display: flex;
+    flex-direction: column;
+    gap: 0.6rem;
+    text-align: left;
+    margin-bottom: 0.7rem;
+  }
+  .previa-descuento {
+    font-size: 0.85rem;
+    color: var(--pizarra);
+    line-height: 1.45;
+    margin-bottom: 0.7rem;
+  }
+  .previa-descuento b {
+    color: var(--acento-texto);
+  }
+  .error-descuento {
+    font-size: 0.8rem;
+    font-weight: 600;
+    color: var(--peligro);
+    line-height: 1.4;
+    margin-bottom: 0.7rem;
+  }
+  .ayuda-descuento {
+    font-size: 0.8rem;
+    color: var(--gris);
+    margin-bottom: 0.7rem;
   }
 </style>
