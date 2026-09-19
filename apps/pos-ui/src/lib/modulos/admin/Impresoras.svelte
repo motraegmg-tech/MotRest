@@ -1127,15 +1127,16 @@
     border-color: var(--acento);
     color: #7a4a1e;
   }
+  /* Fondo, borde, radio y sombra los pone `.tarjeta` en base.css: aquí solo
+     queda lo que es propio de esta pantalla. */
   .tarjeta {
-    background: #fff;
-    border: 1px solid var(--borde);
-    border-radius: var(--r-lg);
     padding: 1rem 1.15rem;
     display: flex;
     flex-direction: column;
     gap: 0.7rem;
   }
+  /* Se queda: apaga la tarjeta de una impresora deshabilitada. No toca fondo
+     ni borde, así que no pisa nada de base.css. */
   .tarjeta.inactiva {
     opacity: 0.55;
   }

@@ -39,21 +39,54 @@ const API = "https://api.resend.com/emails";
 
 /** Cuántos correos se guardan mientras no hay internet. */
 const MAX_EN_COLA = 500;
-/** Después de esto, mandarlo es peor que no mandarlo. */
-const CADUCA_MS = 6 * 60 * 60 * 1000;
+/**
+ * Después de esto, mandarlo es peor que no mandarlo.
+ *
+ * Se exporta porque la misma ventana vale para las peticiones de correo que
+ * llegan tarde al Hub (una tableta que estuvo en isla): si la cola no manda un
+ * correo de hace seis horas, tampoco debe mandarlo quien lo recibe con seis
+ * horas de retraso.
+ */
+export const CADUCA_MS = 6 * 60 * 60 * 1000;
 
 export interface PeticionCorreo {
   tipo: TipoCorreo;
   para: string;
   datos: DatosCorreo;
-  /** Si esta persona aceptó promociones. Solo importa para marketing. */
-  aceptaMarketing?: boolean;
+  /**
+   * Si esta persona aceptó promociones. Solo importa para marketing.
+   *
+   * Puede ser una FUNCIÓN, y cuando el permiso vive en el registro debe serlo:
+   * se vuelve a preguntar en CADA intento, también cuando el correo sale de la
+   * cola horas después. Un booleano congelado al pedirlo dejaría salir un cupón
+   * a alguien que se dio de baja mientras no había internet, y ahí la baja manda.
+   */
+  aceptaMarketing?: boolean | (() => boolean | Promise<boolean>);
+  /**
+   * A quién avisar cuando un correo que se quedó EN COLA por fin se resuelve:
+   * sale, se rechaza, caduca o se descarta por el tope.
+   *
+   * Solo para lo encolado: lo que se resuelve al primer intento ya lo devuelve
+   * `mandar`. Existe porque sin esto quien pidió el correo solo sabría «quedó en
+   * cola», y anotar eso como rechazo sería mentir —el correo sale igual cuando
+   * vuelve la red—, con el riesgo de que alguien lo pida otra vez y el comensal
+   * reciba dos.
+   */
+  alResolverse?: (resultado: ResultadoCorreo) => void;
 }
 
 export interface ResultadoCorreo {
   enviado: boolean;
   externo_id?: string;
   razon?: string;
+  /**
+   * No salió TODAVÍA, pero quedó en cola y saldrá al volver la red.
+   *
+   * No es un rechazo, y distinguirlo es la razón de este campo: antes las dos
+   * cosas llegaban como `enviado: false` y solo se diferenciaban leyendo el
+   * texto de `razon`.
+   */
+  encolado?: boolean;
 }
 
 interface EnCola {
@@ -88,12 +121,24 @@ export class Correo {
    * exige consentimiento y qué está apagado en este restaurante.
    */
   async mandar(peticion: PeticionCorreo): Promise<ResultadoCorreo> {
+    return this.intentar(peticion, this.ahora());
+  }
+
+  /**
+   * Un intento de envío, recordando CUÁNDO se pidió.
+   *
+   * `creado_ts` viaja aparte porque la cola lo necesita intacto. Antes cada
+   * reintento fallido volvía a encolar el correo con la hora del reintento, así
+   * que en un corte largo el reloj de caducidad se reiniciaba cada cinco minutos
+   * y el correo no caducaba nunca: salía al volver la red, días después.
+   */
+  private async intentar(peticion: PeticionCorreo, creado_ts: number): Promise<ResultadoCorreo> {
     const config = this.config();
     const veredicto = puedeMandarCorreo(
       peticion.tipo,
       peticion.para,
       config,
-      peticion.aceptaMarketing ?? false,
+      await this.consentimiento(peticion),
     );
 
     if (!veredicto.puede) {
@@ -113,7 +158,7 @@ export class Correo {
 
     const armado = armarCorreo(peticion.tipo, peticion.para, config, peticion.datos);
 
-    if (config.modo === "gmail") return this.porGmail(config, armado, peticion);
+    if (config.modo === "gmail") return this.porGmail(config, armado, peticion, creado_ts);
 
     try {
       const respuesta = await this.llamar(API, {
@@ -143,17 +188,36 @@ export class Correo {
           this.registrar("aviso", `Resend rechazó el correo (${respuesta.status}): ${detalle}`);
           return { enviado: false, razon: `Resend lo rechazó: ${detalle.slice(0, 200)}` };
         }
-        this.encolar(peticion);
-        return { enviado: false, razon: "Resend no respondió: queda en cola" };
+        this.encolar(peticion, creado_ts);
+        return { enviado: false, razon: "Resend no respondió: queda en cola", encolado: true };
       }
 
       const cuerpo = (await respuesta.json()) as { id?: string };
       return { enviado: true, externo_id: cuerpo.id };
     } catch (causa) {
       // Sin internet. Se encola y sigue la vida.
-      this.encolar(peticion);
+      this.encolar(peticion, creado_ts);
       this.registrar("info", `Sin salida a internet: correo en cola (${String(causa)})`);
-      return { enviado: false, razon: "Sin internet: queda en cola" };
+      return { enviado: false, razon: "Sin internet: queda en cola", encolado: true };
+    }
+  }
+
+  /**
+   * ¿Aceptó publicidad? Preguntado en el momento del intento, no antes.
+   *
+   * Si la pregunta falla —el registro no se pudo leer—, la respuesta es NO. Es
+   * la única dirección segura: un transaccional no depende de esto y sale igual,
+   * y un cupón que no sale por una duda se puede volver a pedir; uno que sale sin
+   * permiso ya no se puede recoger.
+   */
+  private async consentimiento(peticion: PeticionCorreo): Promise<boolean> {
+    const acepta = peticion.aceptaMarketing;
+    if (typeof acepta !== "function") return acepta ?? false;
+    try {
+      return (await acepta()) === true;
+    } catch (causa) {
+      this.registrar("aviso", `No se pudo comprobar el permiso de publicidad: ${String(causa)}`);
+      return false;
     }
   }
 
@@ -169,6 +233,7 @@ export class Correo {
     config: ConfiguracionCorreo,
     armado: ReturnType<typeof armarCorreo>,
     peticion: PeticionCorreo,
+    creado_ts: number,
   ): Promise<ResultadoCorreo> {
     try {
       // Dentro del `try`: `soloDireccion` falla en seco ante una dirección con
@@ -203,16 +268,44 @@ export class Correo {
               : `Gmail lo rechazó: ${causa.message}`,
         };
       }
-      this.encolar(peticion);
+      this.encolar(peticion, creado_ts);
       this.registrar("info", `Correo en cola: ${String(causa)}`);
-      return { enviado: false, razon: "No se pudo entregar ahora: queda en cola" };
+      return {
+        enviado: false,
+        razon: "No se pudo entregar ahora: queda en cola",
+        encolado: true,
+      };
     }
   }
 
-  private encolar(peticion: PeticionCorreo): void {
+  private encolar(peticion: PeticionCorreo, creado_ts: number): void {
     // Se descarta el más viejo: lo recién ocurrido es lo que todavía sirve.
-    if (this.cola.length >= MAX_EN_COLA) this.cola.shift();
-    this.cola.push({ peticion, creado_ts: this.ahora() });
+    if (this.cola.length >= MAX_EN_COLA) {
+      const descartado = this.cola.shift();
+      // Y se le dice a quien lo pidió: si no, su petición se queda «pendiente»
+      // para siempre esperando un correo que ya nadie va a intentar.
+      if (descartado) {
+        this.avisar(descartado.peticion, {
+          enviado: false,
+          razon: "Se descartó de la cola: había demasiados correos esperando a que volviera internet",
+        });
+      }
+    }
+    this.cola.push({ peticion, creado_ts });
+  }
+
+  /**
+   * Le cuenta el desenlace a quien pidió un correo encolado.
+   *
+   * Un aviso que falla no puede tumbar el vaciado: la cola ya se sacó de su
+   * sitio, y una excepción aquí perdería todos los correos que venían detrás.
+   */
+  private avisar(peticion: PeticionCorreo, resultado: ResultadoCorreo): void {
+    try {
+      peticion.alResolverse?.(resultado);
+    } catch (causa) {
+      this.registrar("error", `No se pudo anotar el desenlace de un correo en cola: ${String(causa)}`);
+    }
   }
 
   /**
@@ -236,10 +329,18 @@ export class Correo {
       for (const { peticion, creado_ts } of pendientes) {
         if (ahora - creado_ts > CADUCA_MS) {
           caducados += 1;
+          this.avisar(peticion, {
+            enviado: false,
+            razon: "Caducó en la cola: pasó más de seis horas sin poder salir",
+          });
           continue;
         }
-        const r = await this.mandar(peticion);
+        // Con su `creado_ts` de origen: si vuelve a fallar, regresa a la cola
+        // con la edad que ya tenía y no como si se acabara de pedir.
+        const r = await this.intentar(peticion, creado_ts);
         if (r.enviado) enviados += 1;
+        // Si volvió a la cola, su desenlace todavía no existe.
+        if (!r.encolado) this.avisar(peticion, r);
       }
     } finally {
       this.enviando = false;

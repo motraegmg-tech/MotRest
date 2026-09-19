@@ -284,10 +284,13 @@
     background: var(--acento);
     color: var(--sobre-acento);
   }
+  /* Es el único recuadro de la bitácora y hace de tarjeta: sin sombra se leía
+     como fondo de la página y no como el objeto que contiene el registro. */
   .lista {
-    background: #fff;
-    border: 1px solid var(--borde);
-    border-radius: var(--r-lg);
+    background: var(--superficie);
+    border: 1px solid var(--borde-tarjeta);
+    border-radius: 14px;
+    box-shadow: var(--sombra-tarjeta);
     padding: 0.25rem 1.25rem;
   }
   .entrada {

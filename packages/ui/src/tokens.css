@@ -43,6 +43,26 @@
   --fondo: #f4f6f3; /* fondo de la app */
   --borde: #e3e9e0; /* separadores */
   --blanco: #ffffff;
+  /*
+   * LA SUPERFICIE DE UNA TARJETA.
+   *
+   * Existe porque ya se usaba sin existir: cinco pantallas de finanzas pedían
+   * `var(--superficie)` y el token no estaba definido en ninguna parte. Tres
+   * llevaban `, #fff` de respaldo y salían bien; las otras dos —el resultado del
+   * día y el CSD— se dibujaban SIN FONDO, dejando ver el gris de la página. Se
+   * veía como una tarjeta descolorida, y nadie lo relacionaba con un token que
+   * faltaba porque el CSS no avisa: una variable indefinida no es un error, es
+   * una declaración que simplemente no se aplica.
+   */
+  --superficie: #ffffff;
+  /*
+   * El canto de una tarjeta, un punto más marcado que un separador.
+   *
+   * `--borde` es para las líneas DENTRO de una tarjeta; usarlo también para su
+   * contorno dejaba el borde exterior tan tenue como los interiores, y la
+   * tarjeta no se despegaba del fondo.
+   */
+  --borde-tarjeta: #d9e1d5;
 
   /* Tipografía */
   --font-titulo: "Space Grotesk", "Segoe UI", system-ui, sans-serif;
@@ -108,6 +128,23 @@
   --sombra-sm: 0 2px 8px rgba(20, 24, 26, 0.08);
   --sombra-md: 0 6px 16px rgba(242, 133, 58, 0.28);
   --sombra-lg: 0 18px 40px rgba(20, 24, 26, 0.12);
+  /*
+   * LA SOMBRA DE UNA TARJETA. Dos capas, y las dos hacen falta.
+   *
+   * La primera es un pelo de contacto —1 px, casi opaco— que asienta el canto
+   * sobre el papel. La segunda es la difusa, que da la altura. Con una sola
+   * capa hay que elegir entre un borde duro o una mancha gris; con las dos, la
+   * tarjeta se despega del fondo sin que se note de dónde viene la luz, que es
+   * lo que hace que se lea como un objeto y no como un recuadro pintado.
+   *
+   * Muy suaves a propósito: esto va detrás de cifras de dinero, y una sombra
+   * que se ve es una sombra que distrae de ellas.
+   */
+  --sombra-tarjeta:
+    0 1px 2px rgba(20, 24, 26, 0.04), 0 8px 20px -8px rgba(20, 24, 26, 0.14);
+  /* Al pasar por encima de algo pulsable: un punto más alta, nada más. */
+  --sombra-tarjeta-viva:
+    0 1px 2px rgba(20, 24, 26, 0.05), 0 12px 26px -10px rgba(20, 24, 26, 0.18);
 
   /*
    * TONOS DE LA ICONOGRAFÍA

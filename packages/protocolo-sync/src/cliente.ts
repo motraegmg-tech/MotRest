@@ -88,6 +88,13 @@ export interface OpcionesCliente {
   /** Espera base entre reintentos, en ms. */
   reintentoBase?: number;
   reintentoMaximo?: number;
+  /**
+   * Cada cuánto se revisa que no quede nada sin mandar, en ms. Por defecto 15 s.
+   *
+   * Es una consulta a un índice local, no una petición al Hub: si no hay nada
+   * pendiente no se toca la red. Ver `arrancarLatido`.
+   */
+  latidoOutbox?: number;
 }
 
 const CLAVE_ULTIMO_SEQ = "sync_ultimo_seq";
@@ -266,6 +273,11 @@ export class ClienteSync {
         // Se empuja lo pendiente ANTES de pedir lo ajeno: lo que este
         // dispositivo vendió sin red es lo más urgente por publicar.
         await this.empujar();
+
+        // Y a partir de aquí se vigila que la bandeja no se quede con nada
+        // dentro. Se arranca al estar enlazado, no antes: sin socket el latido
+        // no tendría a dónde mandar.
+        this.arrancarLatido();
 
         // Los catálogos locales se publican también. El Hub se queda con el más
         // nuevo de cada uno, así que mandar el propio no pisa nada: si el del
@@ -475,10 +487,48 @@ export class ClienteSync {
     this.temporizador = setTimeout(() => this.abrir(), espera);
   }
 
+  /**
+   * EL LATIDO DE LA BANDEJA DE SALIDA. La red de seguridad, no el arreglo.
+   *
+   * El arreglo de verdad es que cada evento anotado programe su empujón; esto
+   * cubre lo que se escape de ese camino: un evento anexado por una vía nueva,
+   * un empujón que salió con el socket a medio morir, un lote de más de doscientos
+   * que se quedó sin la confirmación que encadena el siguiente.
+   *
+   * NO ES UN SONDEO Y LA DIFERENCIA IMPORTA. No le pregunta nada al Hub ni toca
+   * la red si no hay nada que mandar: mira un índice local y, si está vacío, se
+   * vuelve a dormir. Con el enlace caído tampoco hace nada — de eso ya se ocupa
+   * la reconexión con espera creciente. Es lo que permite que el intervalo sea
+   * corto sin gastar batería en las tabletas del salón.
+   */
+  private latido: ReturnType<typeof setInterval> | null = null;
+
+  private arrancarLatido(): void {
+    if (this.latido) return;
+    const cada = this.opciones.latidoOutbox ?? 15_000;
+    this.latido = setInterval(() => {
+      if (!this.socket || this.empujando) return;
+      void this.opciones.almacen.eventos
+        .pendientes(1)
+        .then((p) => {
+          if (p.length > 0) return this.empujar();
+        })
+        .catch(() => {
+          // Leer el índice local puede fallar si el navegador cerró la base.
+          // No es motivo para tirar el enlace: al siguiente latido se reintenta.
+        });
+    }, cada);
+    // En Node —el ensayo del viernes— un intervalo vivo impide que el proceso
+    // termine. En el navegador `unref` no existe y no pasa nada.
+    this.latido.unref?.();
+  }
+
   desconectar(): void {
     this.cerradoAPropósito = true;
     if (this.temporizador) clearTimeout(this.temporizador);
     this.temporizador = null;
+    if (this.latido) clearInterval(this.latido);
+    this.latido = null;
     this.socket?.close();
     this.socket = null;
     this.avisar("isla");

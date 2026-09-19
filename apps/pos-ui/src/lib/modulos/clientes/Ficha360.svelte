@@ -215,13 +215,14 @@
     max-width: 46rem;
     line-height: 1.5;
   }
+  /* Fondo, borde, radio y sombra los pone `.tarjeta` en base.css: aquí solo
+     queda lo que es propio de esta pantalla. */
   .tarjeta {
-    background: #fff;
-    border: 1px solid var(--borde);
-    border-radius: var(--r-lg);
     padding: 1.1rem 1.25rem;
     margin-bottom: 1rem;
   }
+  /* Se queda: el naranja es el aviso de que esos comensales se están yendo.
+     Solo recolorea; el resto del aspecto lo pone `.tarjeta` en base.css. */
   .riesgo {
     border-color: var(--acento);
     background: color-mix(in srgb, var(--acento) 5%, #fff);
@@ -268,13 +269,16 @@
     font-size: 0.92rem;
     margin-bottom: 0.8rem;
   }
+  /* Renglones apilados a 0.4rem, uno por comensal: mismo canto que la
+     tarjeta pero sin sombra — treinta sombras seguidas se ven acanaladas. */
   .ficha {
-    background: #fff;
-    border: 1px solid var(--borde);
+    background: var(--superficie);
+    border: 1px solid var(--borde-tarjeta);
     border-radius: var(--r-md);
     margin-bottom: 0.4rem;
     overflow: hidden;
   }
+  /* Se queda: marca cuál de los renglones está desplegado. */
   .ficha.abierta {
     border-color: var(--acento);
   }

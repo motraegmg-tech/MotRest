@@ -166,6 +166,66 @@ describe("resultado del período", () => {
     expect(r.resultado).toBe(pesos(5000));
   });
 
+  /*
+   * EL DESGLOSE TIENE QUE SUMAR EL TOTAL.
+   *
+   * Desde la 1.5.5 el «Resultado de hoy» ya no enseña «Gastos de operación
+   * −$10,000» a secas: enseña de qué se compone, porque un total ciego no se
+   * puede discutir con nadie ni dice qué recortar. El desglose sale de filtrar
+   * `por_categoria` por `afectaResultado`, así que si alguien añade una
+   * categoría y se olvida de clasificarla, la pantalla enseñaría renglones que
+   * no cuadran con su propia suma — y un número que no cuadra con el de al lado
+   * es lo que hace que se deje de creer la pantalla entera.
+   */
+  it("el desglose de gastos operativos suma exactamente el total", () => {
+    const f = fabrica();
+    const egresos = proyectarEgresos([
+      egreso(f, "e1", "nomina", 2000),
+      egreso(f, "e2", "renta", 1000),
+      egreso(f, "e3", "servicios", 500),
+      egreso(f, "e4", "insumos", 5000),
+    ]);
+    const r = calcularResultado(ventas, egresos);
+
+    const sumaDelDesglose = r.por_categoria
+      .filter((c) => c.afectaResultado)
+      .reduce((total, c) => total + c.monto, 0);
+
+    expect(sumaDelDesglose).toBe(r.egresos_operativos);
+    expect(r.egresos_operativos).toBe(pesos(3500));
+  });
+
+  /* Y el desglose COMPLETO —insumos incluidos— suma lo que salió del cajón. */
+  it("el desglose completo suma la salida de caja", () => {
+    const f = fabrica();
+    const egresos = proyectarEgresos([
+      egreso(f, "e1", "nomina", 2000),
+      egreso(f, "e2", "insumos", 5000),
+    ]);
+    const r = calcularResultado(ventas, egresos);
+
+    const sumaTotal = r.por_categoria.reduce((total, c) => total + c.monto, 0);
+
+    expect(sumaTotal).toBe(r.salida_total);
+    expect(r.salida_total).toBe(pesos(7000));
+    // Y sigue sin tocar el resultado, que es de lo que va todo este módulo.
+    expect(r.resultado).toBe(pesos(5000));
+  });
+
+  /*
+   * Ninguna categoría puede quedarse sin clasificar. `afectaResultado` decide si
+   * un gasto resta o no, y una categoría nueva sin esa decisión tomada caería en
+   * el lado que le tocara por omisión, en silencio.
+   */
+  it("toda categoría declara si afecta al resultado", () => {
+    for (const def of CATEGORIAS_EGRESO) {
+      expect(typeof def.afectaResultado).toBe("boolean");
+    }
+    // Y solo insumos NO afecta: es la regla entera del módulo.
+    const queNoAfectan = CATEGORIAS_EGRESO.filter((c) => !c.afectaResultado);
+    expect(queNoAfectan.map((c) => c.id)).toEqual(["insumos"]);
+  });
+
   it("un día en pérdida se ve como pérdida", () => {
     const f = fabrica();
     const egresos = proyectarEgresos([egreso(f, "e1", "nomina", 9000)]);

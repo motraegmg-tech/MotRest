@@ -192,6 +192,34 @@ ol {
 }
 
 /*
+ * LA TARJETA. Una sola vez, para las veintiuna pantallas que la dibujaban.
+ *
+ * Estaba redefinida en 21 componentes con la misma regla copiada, y ya había
+ * divergido: unas usaban `#fff` y otras `var(--superficie)` —un token que no
+ * existía—, unas `var(--r-lg)` y otras `12px`. El resultado del día y el CSD
+ * salían directamente SIN FONDO. Eso es lo que hace que veintiún copias de una
+ * regla sean un problema y no una comodidad: nadie las cambia todas.
+ *
+ * El aspecto es el que pidió Gonzalo: contorno más visible y una sombra corta,
+ * al estilo de las tarjetas de Apple. La separación del fondo la hace sobre
+ * todo la SOMBRA, no el borde — subir el borde hasta que se note deja un marco
+ * duro que compite con el contenido, y aquí el contenido son cifras de dinero.
+ *
+ * Lo que un componente puede seguir declarando por su cuenta es lo que es SUYO:
+ * el `padding`, el `margin`, o un `overflow-x: auto` para una tabla ancha. Lo
+ * que NO debe volver a declarar es fondo, borde, radio ni sombra — y hay una
+ * razón técnica además de la de orden: los estilos de Svelte llevan su clase de
+ * ámbito, así que un `.tarjeta` local gana por especificidad a este de aquí y
+ * lo anula entero sin avisar.
+ */
+.tarjeta {
+  background: var(--superficie);
+  border: 1px solid var(--borde-tarjeta);
+  border-radius: 14px;
+  box-shadow: var(--sombra-tarjeta);
+}
+
+/*
  * EL BOTÓN QUE AGREGA ALGO.
  *
  * «+ Insumo», «+ Ingrediente», la casilla de la foto del platillo, el área

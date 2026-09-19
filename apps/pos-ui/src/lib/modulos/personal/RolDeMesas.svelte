@@ -241,10 +241,9 @@
 </section>
 
 <style>
+  /* Fondo, borde, radio y sombra los pone `.tarjeta` en base.css: aquí solo
+     queda lo que es propio de esta pantalla. */
   .tarjeta {
-    background: #fff;
-    border: 1px solid var(--borde);
-    border-radius: var(--r-lg);
     padding: 1.25rem;
     display: flex;
     flex-direction: column;

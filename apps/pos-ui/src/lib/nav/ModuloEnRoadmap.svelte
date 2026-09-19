@@ -100,14 +100,16 @@
     gap: 1rem;
     flex-wrap: wrap;
   }
+  /* Fondo, borde, radio y sombra los pone `.tarjeta` en base.css: aquí solo
+     queda lo que es propio de esta pantalla. */
   .tarjeta {
     flex: 1;
     min-width: 16rem;
-    background: #fff;
-    border: 1px solid var(--borde);
-    border-radius: var(--r-lg);
     padding: 1.1rem 1.25rem;
   }
+  /* Se queda: tiñe la tarjeta a propósito para señalar en qué fase está el
+     módulo. Solo cambia el color; el radio y la sombra siguen viniendo de
+     `.tarjeta` en base.css. */
   .tarjeta.destacada {
     border-color: var(--acento);
     background: #fffaf5;
@@ -127,10 +129,13 @@
     font-size: 0.92rem;
     line-height: 1.5;
   }
+  /* La lista de funciones va debajo de las tarjetas de arriba y es del mismo
+     tamaño: si no pesa igual, la pantalla se parte en dos materiales. */
   .funciones {
-    background: #fff;
-    border: 1px solid var(--borde);
-    border-radius: var(--r-lg);
+    background: var(--superficie);
+    border: 1px solid var(--borde-tarjeta);
+    border-radius: 14px;
+    box-shadow: var(--sombra-tarjeta);
     padding: 1.25rem 1.5rem;
   }
   .funciones h2 {

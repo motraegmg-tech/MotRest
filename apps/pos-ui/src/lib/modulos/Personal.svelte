@@ -770,10 +770,9 @@
     grid-template-columns: minmax(18rem, 30rem);
     justify-content: center;
   }
+  /* Fondo, borde, radio y sombra los pone `.tarjeta` en base.css: aquí solo
+     queda lo que es propio de esta pantalla. */
   .tarjeta {
-    background: #fff;
-    border: 1px solid var(--borde);
-    border-radius: var(--r-lg);
     padding: 1.1rem 1.25rem;
     overflow-x: auto;
   }

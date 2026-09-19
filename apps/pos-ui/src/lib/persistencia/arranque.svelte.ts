@@ -13,6 +13,7 @@ import {
   type EventoCliente,
   type EventoComanda,
   type EventoCompra,
+  type EventoCorreo,
   type EventoEgreso,
   type EventoFiscal,
   type EventoInventario,
@@ -22,7 +23,9 @@ import {
   type EventoSocio,
   type EventoTesoreria,
   TIPOS_EVENTO_COMANDA,
+  TIPOS_EVENTO_CORREO,
   TIPOS_EVENTO_SOCIO,
+  TIPOS_EVENTO_FISCAL,
   TIPOS_EVENTO_TESORERIA,
 } from "@motrest/dominio";
 import { almacenEnMemoria, almacenIndexedDB, type Almacen } from "@motrest/protocolo-sync";
@@ -72,15 +75,82 @@ import { sync } from "../sync.svelte";
  */
 const TIPOS_COMANDA = new Set<string>(TIPOS_EVENTO_COMANDA);
 
-/** Eventos del ciclo fiscal (CFDI), emisión y cancelación. */
-const TIPOS_FISCALES = new Set([
-  "cfdi_generado",
-  "cfdi_timbrado",
-  "cfdi_rechazado",
-  "cfdi_cancelacion_solicitada",
-  "cfdi_cancelado",
-  "cfdi_cancelacion_rechazada",
-]);
+/**
+ * Eventos del ciclo fiscal (CFDI), emisión y cancelación.
+ *
+ * Sale del dominio y no de una lista escrita aquí: la de antes estaba completa,
+ * pero eso era suerte —nada obligaba a mantenerla—, y la de reservas de un poco
+ * más abajo demuestra lo que pasa cuando la suerte se acaba.
+ *
+ * Y ojo con el uso, que era el verdadero fallo: este conjunto solo filtraba la
+ * HIDRATACIÓN de arranque. El reparto en vivo no tenía rama fiscal, así que un
+ * `cfdi_timbrado` recién llegado se guardaba en disco y no se pintaba hasta
+ * recargar. Ahora los dos caminos miran la misma lista.
+ */
+const TIPOS_FISCALES = new Set<string>(TIPOS_EVENTO_FISCAL);
+
+/**
+ * Cuánto se espera antes de empujar lo que se acaba de anotar.
+ *
+ * Un cobro escribe varios eventos seguidos —el pago, el cierre de la cuenta, el
+ * consumo de insumos—; sin esta pausa saldrían tres mensajes en el mismo
+ * suspiro. Con ella salen juntos, y un octavo de segundo no lo nota nadie: lo
+ * que se estaba notando era el minuto largo hasta que alguien pulsaba F5.
+ */
+const RETARDO_EMPUJE_MS = 120;
+
+/**
+ * HACE QUE LA BANDEJA DE SALIDA SE VACÍE SOLA, DESDE UN ÚNICO PUNTO.
+ *
+ * ## El defecto que cierra
+ *
+ * `sync.empujar()` se llamaba desde **un solo sitio** de toda la operación: las
+ * comandas. Otros trece almacenes —caja, checador, tesorería, egresos,
+ * inventario, compras, clientes, prenómina, opiniones, reservas, socios, fiscal
+ * y las altas de usuario— escribían su evento en la bandeja y ahí se quedaba.
+ *
+ * Una tableta que registraba una checada la guardaba y no la mandaba. Si después
+ * tomaba una comanda, todo lo pendiente viajaba de golpe con ella —por eso a
+ * veces «sí llegaba»—; y si no, esperaba a la siguiente reconexión. Recargar la
+ * página ES una reconexión: de ahí que pulsar F5 «arreglara» las cosas.
+ *
+ * Es también la explicación del alta de personal que dejó a un local con la
+ * credencial en el Hub y sin el usuario: la credencial sale por su propio canal
+ * y el evento se quedaba en la bandeja.
+ *
+ * ## Por qué se envuelve el almacén en vez de tocar los trece almacenes
+ *
+ * Poner `sync.empujar()` dentro de cada `emitir` daría el mismo resultado hoy y
+ * volvería a fallar mañana con el almacén número catorce. El defecto no fue
+ * olvidarse una vez: fue que el diseño dependía de acordarse **siempre**. Aquí
+ * no hay nada que recordar — cualquier evento que se anote sale.
+ *
+ * ## Qué NO se reenvía
+ *
+ * Lo que llega del Hub trae ya su `seq`. Empujarlo sería devolverle lo suyo, y
+ * con dos terminales encendidas eso es un lazo que no para. Por eso solo
+ * dispara lo que se anota SIN secuencia, que es exactamente lo que nació aquí.
+ */
+function conEmpujeAutomatico(almacen: Almacen): Almacen {
+  const anexarOriginal = almacen.eventos.anexar.bind(almacen.eventos);
+  let programado: ReturnType<typeof setTimeout> | null = null;
+
+  almacen.eventos.anexar = async (eventos: readonly EventoBase[]) => {
+    await anexarOriginal(eventos);
+
+    const naceAqui = eventos.some((e) => e.seq === undefined);
+    if (!naceAqui || programado) return;
+
+    programado = setTimeout(() => {
+      programado = null;
+      // `empujar` ya se protege sola de no tener enlace y de ir dos veces a la
+      // vez; aquí no hace falta mirar el estado del socket.
+      sync.empujar();
+    }, RETARDO_EMPUJE_MS);
+  };
+
+  return almacen;
+}
 
 /** Eventos de almacén. */
 const TIPOS_INVENTARIO = new Set(["movimiento_inventario", "conteo_registrado"]);
@@ -93,13 +163,24 @@ const TIPOS_PRENOMINA = new Set(["tarifa_asignada", "sueldo_diario_asignado"]);
 
 /** Voz del cliente. */
 const TIPOS_OPINION = new Set(["opinion_registrada"]);
-/** Reservas (M7). La lista de espera NO viaja: vive solo en su terminal. */
+/**
+ * Reservas (M7). La lista de espera NO viaja: vive solo en su terminal.
+ *
+ * `reserva_confirmada` FALTABA, y el efecto era peor que el del resto: como este
+ * mismo conjunto filtra la hidratación de arranque, ni siquiera recargar lo
+ * arreglaba. Una reserva que se acababa de apartar volvía a verse como
+ * «solicitada» al reabrir la aplicación, incluso en la terminal que la había
+ * confirmado. Es la tercera vez que una lista escrita a mano se queda corta en
+ * este archivo.
+ */
 const TIPOS_RESERVA = new Set([
   "reserva_creada",
+  "reserva_confirmada",
   "reserva_sentada",
   "reserva_cancelada",
   "reserva_no_llego",
 ]);
+
 const TIPOS_EGRESO = new Set(["egreso_registrado", "egreso_pagado", "egreso_anulado"]);
 
 /** Depósitos al banco y ajustes justificados del saldo (M5). */
@@ -134,6 +215,16 @@ const TIPOS_CLIENTE = new Set([
 /** Socios e inversionistas del local y sus beneficios (M9). */
 const TIPOS_SOCIO = new Set<string>(TIPOS_EVENTO_SOCIO);
 
+/**
+ * Los correos al comensal: la petición de la terminal y la respuesta del Hub.
+ *
+ * Sale de la lista del DOMINIO, que no compila si le falta un tipo. Es la
+ * respuesta —`correo_enviado`, `correo_rechazado`— la que no puede perderse
+ * aquí: si el reparto la tirara, la ficha diría «Enviando…» de un correo que ya
+ * llegó, y quien lo pidió lo volvería a mandar.
+ */
+const TIPOS_CORREO = new Set<string>(TIPOS_EVENTO_CORREO);
+
 class Arranque {
   cargando = $state(true);
   error = $state("");
@@ -160,6 +251,8 @@ class Arranque {
       this.almacen = almacenEnMemoria();
       this.efimero = true;
     }
+
+    this.almacen = conEmpujeAutomatico(this.almacen);
 
     try {
       const almacen = this.almacen;
@@ -307,6 +400,11 @@ class Arranque {
           ordenados.filter((e) =>
             TIPOS_SOCIO.has((e as EventoSocio).tipo),
           ) as EventoSocio[],
+        );
+        correo.hidratarEventos(
+          ordenados.filter((e) =>
+            TIPOS_CORREO.has((e as EventoCorreo).tipo),
+          ) as EventoCorreo[],
         );
       }
 
@@ -545,6 +643,23 @@ class Arranque {
       TIPOS_SOCIO.has((e as EventoSocio).tipo),
     ) as EventoSocio[];
     if (socio.length > 0) socios.integrar(socio);
+
+    /* La respuesta del Hub a un correo pedido desde la ficha o desde Reservas. */
+    const correos = ordenados.filter((e) =>
+      TIPOS_CORREO.has((e as EventoCorreo).tipo),
+    ) as EventoCorreo[];
+    if (correos.length > 0) correo.integrar(correos);
+
+    /*
+     * Los comprobantes. El Hub publica el `cfdi_timbrado` en cuanto el PAC
+     * contesta —textualmente «para que la caja lo vea»— y esta rama no existía:
+     * el evento llegaba, se guardaba en disco y la factura solo aparecía tras
+     * recargar.
+     */
+    const cfdi = ordenados.filter((e) =>
+      TIPOS_FISCALES.has((e as EventoFiscal).tipo),
+    ) as EventoFiscal[];
+    if (cfdi.length > 0) fiscal.integrar(cfdi);
   }
 
   /**

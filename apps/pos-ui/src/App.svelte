@@ -13,6 +13,7 @@
   import Clientes from "./lib/modulos/Clientes.svelte";
   import Reservas from "./lib/modulos/clientes/Reservas.svelte";
   import Ficha360 from "./lib/modulos/clientes/Ficha360.svelte";
+  import Correos from "./lib/modulos/clientes/Correos.svelte";
   import Cocina from "./lib/modulos/Cocina.svelte";
   import Compras from "./lib/modulos/Compras.svelte";
   import Finanzas from "./lib/modulos/Finanzas.svelte";
@@ -29,7 +30,6 @@
   import Hub from "./lib/modulos/admin/Hub.svelte";
   import Licencia from "./lib/modulos/admin/Licencia.svelte";
   import Impresoras from "./lib/modulos/admin/Impresoras.svelte";
-  import MensajesAlCliente from "./lib/modulos/admin/MensajesAlCliente.svelte";
   import Salones from "./lib/modulos/admin/Salones.svelte";
   import Socios from "./lib/modulos/admin/Socios.svelte";
   import Usuarios from "./lib/modulos/admin/Usuarios.svelte";
@@ -234,6 +234,8 @@
         <Reservas />
       {:else if seccion === "comensales"}
         <Ficha360 />
+      {:else if seccion === "correos"}
+        <Correos />
       {:else}
         <Clientes />
       {/if}
@@ -266,8 +268,6 @@
         <Impresoras />
       {:else if seccion === "socios"}
         <Socios />
-      {:else if seccion === "mensajes"}
-        <MensajesAlCliente />
       {:else if seccion === "hub"}
         <Hub />
       {:else if seccion === "licencia"}

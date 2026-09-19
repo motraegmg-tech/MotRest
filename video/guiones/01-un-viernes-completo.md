@@ -35,6 +35,11 @@ las escenas 2 y 4: ahí se demuestra lo que nadie más hace.
 
 ## Lista de tomas a grabar
 
+**Reglas de limpieza visual extrema:**
+- **Recorte de interfaz:** Ocultar o recortar mediante encuadre la barra de navegación superior y cualquier menú que no se esté usando.
+- **Sin distracciones:** Eliminar del encuadre cuadros, gráficas o figuras secundarias que aparezcan sin sentido y no aporten al mensaje principal de la narración.
+- **Enfoque:** Aunque el video es 16:9, debe enfocarse visualmente solo la acción o los datos clave, manteniendo la interfaz lo más limpia posible.
+
 Todas: 1920×1080, 60 fps, sin audio, cursor visible sin efectos, **2 segundos de
 aire** al principio y al final. Una sola acción por toma. Datos de demostración,
 nunca datos reales de Rodizio.

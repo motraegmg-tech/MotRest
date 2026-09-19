@@ -59,6 +59,10 @@ Sin holds. Cada par dura lo que dura su frase, ni un segundo más.
 
 ## Lista de tomas a grabar
 
+**Reglas de limpieza visual extrema:**
+- **Recorte de interfaz:** Ocultar o recortar mediante encuadre la barra de navegación superior y cualquier menú irrelevante.
+- **Sin distracciones:** Eliminar del encuadre cuadros, gráficas o figuras secundarias que distraigan del mensaje de la característica que se está mostrando.
+
 Mismas reglas que el video 1: 1920×1080, 60 fps, sin audio, 2 s de aire, una
 acción por toma, datos de demostración.
 

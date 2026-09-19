@@ -56,6 +56,19 @@
   const cerradasHoy = $derived(cuentasCerradasEn(pos.todasLasComandas, rango));
   const ventas = $derived(resumenVentas(cerradasHoy));
   const resultado = $derived(egresos.resultado(ventas, rango));
+
+  /**
+   * Las categorías que SÍ restan al resultado, para desglosar los «gastos de
+   * operación» en vez de enseñar un total ciego.
+   *
+   * Se filtra por `afectaResultado` y no por una lista escrita a mano: el día
+   * que se añada una categoría nueva, aparece sola en el sitio correcto. Una
+   * lista a mano se habría quedado corta sin que nadie lo notara, y el desglose
+   * dejaría de sumar el total de arriba.
+   */
+  const operativosDesglosados = $derived(
+    resultado.por_categoria.filter((c) => c.afectaResultado),
+  );
   const delDia = $derived(egresos.del(rango));
 
   /*
@@ -414,17 +427,58 @@
         <span>Gastos de operación</span>
         <b class="resta">−{mxn(resultado.egresos_operativos)}</b>
       </div>
+      <!--
+        DESGLOSADOS, no un total ciego. Pedido de Gonzalo.
+        Un «−$10,000.00» a secas no se puede discutir con nadie: no dice si fue
+        la renta, la nómina o la luz, y quien mira el resultado del día lo mira
+        para saber qué recortar.
+      -->
+      {#each operativosDesglosados as linea (linea.categoria)}
+        <div class="detalle">
+          <span>{linea.nombre}</span>
+          <b class="resta">−{mxn(linea.monto)}</b>
+        </div>
+      {/each}
       <div class="destacado" class:perdida={resultado.resultado < 0}>
         <span>{resultado.resultado < 0 ? "Pérdida" : "Resultado"}</span>
         <b>{mxn(resultado.resultado)}</b>
       </div>
     </div>
 
+    <!--
+      LO QUE SALIÓ DEL CAJÓN, aparte y debajo. Pedido de Gonzalo, sep-2026.
+
+      Antes esto era una frase al pie que casi nadie leía, y la pregunta que
+      dejaba sin contestar —«¿cuánto dinero salió hoy?»— es la que un
+      restaurantero hace al cerrar. Va como bloque propio y con su suma.
+
+      NO se mezcla con el resultado, y ésta es la razón de todo el diseño:
+      comprar insumos no es un gasto del día, es inventario. Su costo entra
+      arriba, en «Costo de lo vendido», cuando esos insumos se venden. Restarlo
+      también aquí contaría el mismo queso dos veces y pondría en pérdida
+      cualquier día de surtido.
+    -->
+    {#if resultado.salida_total > 0}
+      <div class="cifras caja-salida">
+        <div class="destacado">
+          <span>Salió de la caja hoy</span>
+          <b class="resta">−{mxn(resultado.salida_total)}</b>
+        </div>
+        {#each resultado.por_categoria as linea (linea.categoria)}
+          <div class="detalle">
+            <span>{linea.nombre}</span>
+            <b class="resta">−{mxn(linea.monto)}</b>
+          </div>
+        {/each}
+      </div>
+    {/if}
+
     <p class="nota">
       Food cost {(resultado.food_cost * 100).toFixed(1)} %.
       {#if resultado.compras > 0}
-        Además salieron <b>{mxn(resultado.compras)}</b> en compra de insumos: no se
-        restan aquí porque su costo llega cuando se venden, pero sí salieron del cajón.
+        La <b>compra de insumos</b> sale del cajón pero no resta al resultado: su
+        costo llega arriba, en «costo de lo vendido», cuando esos insumos se
+        venden. Restarla aquí la contaría dos veces.
       {/if}
     </p>
   {:else}
@@ -791,10 +845,9 @@
     font-style: italic;
     color: var(--acento-texto);
   }
+  /* Fondo, borde, radio y sombra los pone `.tarjeta` en base.css: aquí solo
+     queda lo que es propio de esta pantalla. */
   .tarjeta {
-    background: var(--superficie);
-    border: 1px solid var(--borde);
-    border-radius: 12px;
     padding: 1.25rem;
     margin-bottom: 1rem;
   }
@@ -913,6 +966,24 @@
     border-top: 1.5px solid var(--borde);
     padding-top: 0.6rem;
     margin-top: 0.3rem;
+  }
+  /*
+   * Los renglones del desglose: sangrados y más pequeños, para que se lean como
+   * lo que son —el detalle de la línea de arriba— y no como cifras que compiten
+   * con ella.
+   */
+  .cifras .detalle {
+    padding-left: 1rem;
+  }
+  .cifras .detalle span,
+  .cifras .detalle b {
+    font-size: 0.8rem;
+    color: var(--gris);
+    font-weight: 500;
+  }
+  /* El dinero que salió va separado del resultado: son dos preguntas distintas. */
+  .caja-salida {
+    margin-top: 1rem;
   }
   .destacado b {
     font-size: 1.35rem;

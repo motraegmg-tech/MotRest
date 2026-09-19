@@ -302,11 +302,14 @@
   .c3 { border-left-color: var(--acento-2); }
   .c4 { border-left-color: var(--peligro); }
 
+  /* El envoltorio de la tabla es el cuerpo de la pantalla, no una celda: se
+     le da aspecto de tarjeta. El `overflow-x` se queda, que es lo suyo. */
   .tabla {
     overflow-x: auto;
-    background: var(--blanco);
-    border: 1px solid var(--borde);
-    border-radius: var(--r-md);
+    background: var(--superficie);
+    border: 1px solid var(--borde-tarjeta);
+    border-radius: 14px;
+    box-shadow: var(--sombra-tarjeta);
   }
   table {
     width: 100%;

@@ -478,10 +478,9 @@
     border-radius: 8px;
     padding: 0.5rem 0.65rem;
   }
+  /* Fondo, borde, radio y sombra los pone `.tarjeta` en base.css: aquí solo
+     queda lo que es propio de esta pantalla. */
   .tarjeta {
-    background: var(--superficie, #fff);
-    border: 1px solid var(--borde);
-    border-radius: 12px;
     padding: 1.25rem;
     margin-bottom: 1rem;
   }

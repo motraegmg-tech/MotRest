@@ -93,6 +93,36 @@ export type EventoFiscal =
 
 export type TipoEventoFiscal = EventoFiscal["tipo"];
 
+/**
+ * Los tipos fiscales, enumerados, para quien tenga que filtrarlos.
+ *
+ * Existe porque la terminal los filtraba con una lista escrita a mano, y las
+ * listas escritas a mano se quedan cortas: un `cfdi_timbrado` que el Hub
+ * publicaba «para que la caja lo vea» llegaba, se guardaba y no se pintaba,
+ * porque el filtro del reparto ni siquiera tenía rama fiscal. Al derivarla de
+ * aquí, el día que se añada un tipo nuevo el compilador obliga a ponerlo — el
+ * `satisfies` de abajo es lo que lo garantiza, no la buena memoria de nadie.
+ */
+export const TIPOS_EVENTO_FISCAL = [
+  "cfdi_generado",
+  "cfdi_timbrado",
+  "cfdi_rechazado",
+  "cfdi_cancelacion_solicitada",
+  "cfdi_cancelado",
+  "cfdi_cancelacion_rechazada",
+] as const satisfies readonly TipoEventoFiscal[];
+
+/*
+ * Y al revés: que no falte ninguno.
+ *
+ * `satisfies` comprueba que lo de arriba sean tipos VÁLIDOS, pero no que estén
+ * TODOS — que es justo la mitad que falló. Esta línea no compila si algún tipo
+ * fiscal se queda fuera de la lista.
+ */
+type FaltaAlgunTipoFiscal = Exclude<TipoEventoFiscal, (typeof TIPOS_EVENTO_FISCAL)[number]>;
+const _todosLosTiposFiscalesEstan: FaltaAlgunTipoFiscal extends never ? true : never = true;
+void _todosLosTiposFiscalesEstan;
+
 /** Comprobante con su estado, tal como lo ve el módulo de finanzas. */
 export interface RegistroCfdi {
   cfdi_id: ID;

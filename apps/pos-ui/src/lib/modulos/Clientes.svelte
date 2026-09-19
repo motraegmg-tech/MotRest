@@ -10,13 +10,28 @@
   import {
     REGIMENES_FISCALES,
     USOS_CFDI,
+    correoPlausible,
+    definicionCorreo,
     problemaRfc,
     type Cliente,
     type DatosCliente,
     type DatosReceptor,
     type Domicilio,
+    type ID,
+    type TipoCorreo,
   } from "@motrest/dominio";
   import { clientes } from "../clientes.svelte";
+  import { correo as correos, type SolicitudCorreo } from "../correo.svelte";
+  import {
+    cuandoDeReserva,
+    datosDelCorreo,
+    esDeReserva,
+    opcionesDeCorreo,
+    reservaProximaDe,
+  } from "../correos-del-comensal";
+  import EnvioCorreo from "../EnvioCorreo.svelte";
+  import { rutas } from "../nav/rutas.svelte";
+  import { reservas } from "../reservas.svelte";
   import { sesion } from "../sesion/sesion.svelte";
 
   const puedeEditar = $derived(sesion.puedeOperar("crm.cliente.editar"));
@@ -36,6 +51,8 @@
   let telefono = $state("");
   let correo = $state("");
   let notas = $state("");
+  /** «Acepta recibir promociones por correo». Sin esto no le llega ni un cupón. */
+  let aceptaPromos = $state(false);
   let fiscal = $state<DatosReceptor>({
     rfc: "", nombre: "", regimen_fiscal: "612", codigo_postal: "", uso_cfdi: "G03",
   });
@@ -49,6 +66,7 @@
     conFiscal = false;
     conDomicilio = false;
     nombre = ""; telefono = ""; correo = ""; notas = "";
+    aceptaPromos = false;
     fiscal = { rfc: "", nombre: "", regimen_fiscal: "612", codigo_postal: "", uso_cfdi: "G03" };
     dom = { calle: "", numero: "", colonia: "", codigo_postal: "", ciudad: "", referencias: "" };
     error = "";
@@ -63,6 +81,7 @@
     telefono = c.telefono ?? "";
     correo = c.correo ?? "";
     notas = c.notas ?? "";
+    aceptaPromos = !!c.acepta_promociones;
     fiscal = c.fiscal
       ? { ...c.fiscal }
       : { rfc: "", nombre: "", regimen_fiscal: "612", codigo_postal: "", uso_cfdi: "G03" };
@@ -109,7 +128,34 @@
       ) as unknown as Domicilio;
     }
 
-    return { nombre: nombre.trim(), telefono, correo, notas, fiscal: datosFiscal, domicilio };
+    /*
+     * EL PERMISO LLEVA SU FECHA. Ante una queja, «sí aceptó» sin fecha no
+     * demuestra nada. La fecha es la de cuando se MARCÓ: guardar la ficha otra
+     * vez por un cambio de teléfono no la mueve, porque el comensal no volvió a
+     * aceptar nada ese día.
+     *
+     * Al desmarcar se manda `false` explícito y no se omite el campo: un campo
+     * ausente no cambia nada al fusionar la ficha, y la baja de un comensal que
+     * respondió BAJA no puede depender de eso.
+     */
+    const yaAceptaba = !!editando?.acepta_promociones && !!editando.acepta_promociones_ts;
+    const promociones: Pick<DatosCliente, "acepta_promociones" | "acepta_promociones_ts"> =
+      aceptaPromos
+        ? {
+            acepta_promociones: true,
+            acepta_promociones_ts: yaAceptaba ? editando!.acepta_promociones_ts : Date.now(),
+          }
+        : { acepta_promociones: false };
+
+    return {
+      nombre: nombre.trim(),
+      telefono,
+      correo,
+      notas,
+      fiscal: datosFiscal,
+      domicilio,
+      ...promociones,
+    };
   }
 
   function guardar() {
@@ -142,9 +188,128 @@
 
   $effect(() => {
     const u = sesion.usuarioActual;
-    if (u) clientes.actuarComo(u.id);
+    if (u) {
+      clientes.actuarComo(u.id);
+      correos.actuarComo(u.id);
+    }
   });
+
+  // --- Correos al comensal ---
+
+  /*
+   * El reloj de esta pantalla: decide qué reserva es «próxima» y cuándo una
+   * petición lleva demasiado sin respuesta. Cada 15 s basta; nadie mira esto
+   * con cronómetro.
+   */
+  let ahora = $state(Date.now());
+  $effect(() => {
+    const reloj = setInterval(() => (ahora = Date.now()), 15_000);
+    return () => clearInterval(reloj);
+  });
+
+  /** A quién se le está mandando. Se guarda el id: la ficha puede cambiar mientras. */
+  let paraId = $state<ID | null>(null);
+  let elegido = $state<TipoCorreo | null>(null);
+
+  const destinatario = $derived(
+    paraId ? clientes.clientes.find((c) => c.cliente_id === paraId) : undefined,
+  );
+  const reservaProxima = $derived(
+    destinatario ? reservaProximaDe(destinatario, reservas.reservas, ahora) : undefined,
+  );
+  const recordatorioPrevio = $derived(
+    reservaProxima && destinatario
+      ? correos.recordatorioDe(cuandoDeReserva(reservaProxima.para_ts), [
+          destinatario.correo,
+          reservaProxima.correo,
+        ])
+      : undefined,
+  );
+  const opciones = $derived(
+    destinatario
+      ? opcionesDeCorreo(correos.config, {
+          correo: destinatario.correo,
+          aceptaPromociones: !!destinatario.acepta_promociones,
+          reserva: reservaProxima,
+          recordatorioPedido: !!recordatorioPrevio && recordatorioPrevio.estado !== "rechazado",
+          ahora,
+        })
+      : [],
+  );
+  const datosElegido = $derived(
+    elegido && destinatario
+      ? datosDelCorreo(elegido, { nombre: destinatario.nombre, reserva: reservaProxima })
+      : {},
+  );
+
+  function abrirCorreo(c: Cliente) {
+    paraId = c.cliente_id;
+    elegido = null;
+  }
+
+  function cerrarCorreo() {
+    paraId = null;
+    elegido = null;
+  }
+
+  function irAConfigurar() {
+    cerrarCorreo();
+    rutas.ir("clientes", "correos");
+  }
+
+  function fecha(ts: number): string {
+    return new Date(ts).toLocaleString("es-MX", {
+      day: "numeric",
+      month: "short",
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+  }
+
+  function etiquetaCorreo(tipo: TipoCorreo): string {
+    return definicionCorreo(tipo)?.etiqueta ?? tipo;
+  }
+
+  /**
+   * Cómo quedó, en palabras. «Pendiente» a secas no le dice nada a nadie; que
+   * el Hub no ha contestado en un minuto, sí: es la diferencia entre «ya se
+   * mandó» y «creo que se mandó».
+   */
+  function comoQuedo(s: SolicitudCorreo): { texto: string; tono: "bien" | "mal" | "espera" } {
+    if (s.estado === "enviado") return { texto: "Enviado", tono: "bien" };
+    if (s.estado === "rechazado") {
+      return { texto: `No se mandó: ${s.motivo ?? "el Hub no dijo por qué"}`, tono: "mal" };
+    }
+    return ahora - s.pedido_ts > 60_000
+      ? { texto: "El Hub todavía no lo ha visto", tono: "espera" }
+      : { texto: "Enviando…", tono: "espera" };
+  }
 </script>
+
+<!--
+  Los últimos correos de un comensal y cómo acabaron. Se enseña en su ficha y
+  en el panel de mandar, para que nadie mande dos veces lo que ya salió.
+-->
+{#snippet ultimosCorreos(clienteId: ID)}
+  {@const suyos = correos.ultimosDe(clienteId).slice(0, 5)}
+  <div class="ultimos">
+    <h3>Últimos correos</h3>
+    {#if suyos.length === 0}
+      <p class="vacio">Todavía no se le ha mandado ninguno.</p>
+    {:else}
+      <ul>
+        {#each suyos as s (s.solicitud_id)}
+          {@const quedo = comoQuedo(s)}
+          <li>
+            <span class="que">{etiquetaCorreo(s.clase_correo)}</span>
+            <span class="cuando">{fecha(s.pedido_ts)}</span>
+            <span class="quedo {quedo.tono}">{quedo.texto}</span>
+          </li>
+        {/each}
+      </ul>
+    {/if}
+  </div>
+{/snippet}
 
 <div class="seccion">
   <div class="encabezado">
@@ -188,6 +353,7 @@
               <td class="tenue">
                 {c.telefono ?? "—"}
                 {#if c.correo}<small>{c.correo}</small>{/if}
+                {#if c.acepta_promociones}<small class="acepta">Acepta promociones</small>{/if}
               </td>
               <td class="tenue">
                 {#if c.fiscal}<span class="badge">{c.fiscal.rfc}</span>{:else}—{/if}
@@ -195,6 +361,13 @@
               <td class="tenue">{c.domicilio ? domicilioTexto(c.domicilio) : "—"}</td>
               <td class="acciones">
                 {#if puedeEditar}
+                  <!--
+                    Solo con un correo que se pueda intentar. Sin él no hay nada
+                    que mandar, y el botón solo llevaría a seis motivos iguales.
+                  -->
+                  {#if correoPlausible(c.correo)}
+                    <button class="mini correo" onclick={() => abrirCorreo(c)}>Mandar correo</button>
+                  {/if}
                   <button class="mini" onclick={() => abrirEdicion(c)}>Editar</button>
                   <button class="mini" onclick={() => darDeBaja(c)}>Baja</button>
                 {/if}
@@ -227,6 +400,38 @@
         <input bind:value={notas} placeholder="Sin cebolla, alérgico a la nuez" />
       </label>
     </div>
+
+    <!--
+      EL PERMISO PARA LA PUBLICIDAD. Sin esta marca no le llega ni un cupón ni
+      un «hace mucho que no viene»: lo exige la ley de datos personales, y es lo
+      que protege la cuenta del restaurante de acabar en spam.
+    -->
+    <label class="switch">
+      <input type="checkbox" bind:checked={aceptaPromos} />
+      <span>Acepta recibir promociones por correo</span>
+    </label>
+    <div class="promos">
+      {#if aceptaPromos && editando?.acepta_promociones && editando.acepta_promociones_ts}
+        <p class="desde">
+          Lo aceptó el {new Date(editando.acepta_promociones_ts).toLocaleDateString("es-MX", {
+            day: "numeric",
+            month: "long",
+            year: "numeric",
+          })}.
+        </p>
+      {:else if aceptaPromos}
+        <p class="desde">Se guardará con la fecha de hoy.</p>
+      {/if}
+      <p class="ayuda">
+        Márcala solo si el comensal lo pidió o lo aceptó. Cada promoción le dice
+        que responda BAJA para no recibir más; esa respuesta llega al correo del
+        restaurante, y entonces hay que desmarcarla aquí.
+      </p>
+    </div>
+
+    {#if editando}
+      {@render ultimosCorreos(editando.cliente_id)}
+    {/if}
 
     <label class="switch">
       <input type="checkbox" bind:checked={conFiscal} />
@@ -283,6 +488,74 @@
   </div>
 {/if}
 
+{#if destinatario && puedeEditar}
+  <div class="velo" role="presentation" onclick={cerrarCorreo}></div>
+  <div class="panel ancho" role="dialog" aria-modal="true" aria-label="Mandar un correo">
+    <header>
+      <h2>
+        {elegido ? etiquetaCorreo(elegido) : `Mandar un correo a ${destinatario.nombre}`}
+      </h2>
+      <button class="cerrar" onclick={cerrarCorreo} aria-label="Cerrar">×</button>
+    </header>
+    <p class="destino">Para <b>{destinatario.nombre}</b> · {destinatario.correo}</p>
+
+    {#if elegido}
+      <!--
+        La vista previa con SUS datos: su nombre, su reserva. Es exactamente lo
+        que le va a llegar.
+      -->
+      <EnvioCorreo
+        tipo={elegido}
+        para={destinatario.correo ?? ""}
+        nombre={destinatario.nombre}
+        datos={datosElegido}
+        clienteId={destinatario.cliente_id}
+        aceptaMarketing={!!destinatario.acepta_promociones}
+        onvolver={() => (elegido = null)}
+        oncerrar={cerrarCorreo}
+      />
+    {:else}
+      {#if !correos.listo}
+        <p class="alerta" role="alert">
+          El restaurante todavía no dice desde qué cuenta salen los correos.
+          <button class="enlace" onclick={irAConfigurar}>Configurarlo en Correos al comensal</button>
+        </p>
+      {/if}
+
+      <!--
+        LOS SEIS, SIEMPRE. Los que no se pueden mandar se enseñan apagados y con
+        su motivo, nunca escondidos: un restaurantero que no entiende por qué no
+        puede mandar algo llama a soporte.
+      -->
+      <ul class="opciones">
+        {#each opciones as o (o.def.tipo)}
+          <li>
+            <button class="opcion" disabled={!o.puede} onclick={() => (elegido = o.def.tipo)}>
+              <span class="nombre-correo">
+                {o.def.etiqueta}
+                {#if o.def.clase === "marketing"}<span class="chip">Publicidad</span>{/if}
+              </span>
+              {#if o.puede}
+                <span class="explica">{o.def.descripcion}</span>
+                {#if esDeReserva(o.def.tipo) && reservaProxima}
+                  <span class="explica">
+                    Su reserva: {cuandoDeReserva(reservaProxima.para_ts)} · {reservaProxima.personas}
+                    {reservaProxima.personas === 1 ? "persona" : "personas"}
+                  </span>
+                {/if}
+              {:else}
+                <span class="motivo">{o.razon}</span>
+              {/if}
+            </button>
+          </li>
+        {/each}
+      </ul>
+
+      {@render ultimosCorreos(destinatario.cliente_id)}
+    {/if}
+  </div>
+{/if}
+
 <style>
   .seccion {
     flex: 1;
@@ -307,11 +580,13 @@
     color: var(--gris);
     max-width: 40rem;
   }
+  /* Color y canto de tarjeta, pero SIN sombra: van varios en fila y alguno
+     cae dentro de una tarjeta — dos sombras anidadas se ven sucias. */
   .dato {
     flex: 1;
     min-width: 10rem;
-    background: #fff;
-    border: 1px solid var(--borde);
+    background: var(--superficie);
+    border: 1px solid var(--borde-tarjeta);
     border-radius: var(--r-md);
     padding: 0.75rem 1rem;
     display: flex;
@@ -341,10 +616,9 @@
     outline: none;
     border-color: var(--acento);
   }
+  /* Fondo, borde, radio y sombra los pone `.tarjeta` en base.css: aquí solo
+     queda lo que es propio de esta pantalla. */
   .tarjeta {
-    background: #fff;
-    border: 1px solid var(--borde);
-    border-radius: var(--r-lg);
     padding: 1.1rem 1.25rem;
     overflow-x: auto;
   }
@@ -527,5 +801,161 @@
     gap: 0.5rem;
     justify-content: flex-end;
     margin-top: 1.1rem;
+  }
+
+  /* --- Correos al comensal --- */
+  td small.acepta {
+    color: var(--exito-texto);
+    font-weight: 600;
+  }
+  .mini.correo {
+    border-color: var(--acento);
+    color: var(--acento-texto);
+    white-space: nowrap;
+  }
+  .promos {
+    margin: 0.35rem 0 0 1.55rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+  }
+  .desde {
+    font-size: var(--t-sm);
+    font-weight: 600;
+    color: var(--exito-texto);
+  }
+  .ayuda {
+    font-size: var(--t-xs);
+    color: var(--gris);
+    line-height: 1.5;
+  }
+  .ultimos {
+    margin-top: 1.1rem;
+    padding-top: 0.85rem;
+    border-top: 1px solid var(--borde);
+  }
+  .ultimos h3 {
+    font-size: var(--t-xs);
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--gris);
+    margin-bottom: 0.45rem;
+  }
+  .ultimos ul {
+    display: flex;
+    flex-direction: column;
+    gap: 0.35rem;
+  }
+  .ultimos li {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.2rem 0.7rem;
+    font-size: var(--t-sm);
+    align-items: baseline;
+  }
+  .ultimos .que {
+    font-weight: 600;
+    color: var(--pizarra);
+  }
+  .ultimos .cuando {
+    color: var(--gris);
+  }
+  .quedo {
+    font-weight: 600;
+  }
+  .quedo.bien {
+    color: var(--exito-texto);
+  }
+  .quedo.mal {
+    color: var(--peligro);
+  }
+  .quedo.espera {
+    color: var(--acento-texto);
+  }
+  .panel.ancho {
+    width: min(44rem, calc(100vw - 2rem));
+  }
+  .destino {
+    margin: -0.4rem 0 0.9rem;
+    font-size: var(--t-sm);
+    color: var(--gris);
+    overflow-wrap: anywhere;
+  }
+  .destino b {
+    color: var(--pizarra);
+  }
+  .alerta {
+    margin-bottom: 0.8rem;
+    padding: 0.7rem 0.9rem;
+    border: 1px solid var(--acento);
+    border-radius: var(--r-sm);
+    background: color-mix(in srgb, var(--acento) 7%, transparent);
+    font-size: var(--t-sm);
+    line-height: 1.5;
+    color: var(--pizarra);
+  }
+  .enlace {
+    color: var(--acento-texto);
+    font-weight: 600;
+    text-decoration: underline;
+  }
+  .opciones {
+    display: flex;
+    flex-direction: column;
+    gap: 0.45rem;
+  }
+  .opcion {
+    width: 100%;
+    min-height: var(--toque);
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.15rem;
+    padding: 0.65rem 0.85rem;
+    border: 1.5px solid var(--borde);
+    border-radius: var(--r-md);
+    background: var(--blanco);
+    text-align: left;
+  }
+  .opcion:hover:not(:disabled) {
+    border-color: var(--acento);
+    box-shadow: var(--sombra-tarjeta-viva);
+  }
+  /*
+   * Apagado pero LEGIBLE: el motivo es lo más importante del renglón, así que
+   * no se atenúa con opacidad, que lo dejaría por debajo del contraste mínimo.
+   */
+  .opcion:disabled {
+    background: var(--fondo);
+    cursor: not-allowed;
+  }
+  .nombre-correo {
+    font-weight: 600;
+    font-size: 0.95rem;
+    color: var(--pizarra);
+  }
+  .opcion:disabled .nombre-correo {
+    color: var(--gris);
+  }
+  .chip {
+    display: inline-block;
+    margin-left: 0.35rem;
+    padding: 0.05rem 0.45rem;
+    border-radius: var(--r-pill);
+    background: var(--claro);
+    color: var(--acento-texto);
+    font-size: var(--t-xs);
+    font-weight: 600;
+  }
+  .explica {
+    font-size: var(--t-sm);
+    color: var(--gris);
+    line-height: 1.45;
+  }
+  .motivo {
+    font-size: var(--t-sm);
+    color: var(--pizarra);
+    line-height: 1.45;
   }
 </style>

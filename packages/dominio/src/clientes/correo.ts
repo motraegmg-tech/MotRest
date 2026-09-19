@@ -263,8 +263,30 @@ export interface ConfiguracionCorreo {
    * error que manda correos con la dirección cambiada sin que nadie se entere.
    */
   cuenta_gmail?: string;
-  /** A dónde contesta el comensal si le da a "Responder". */
+  /**
+   * A dónde contesta el comensal si le da a "Responder". SOLO en modo MOTRAE.
+   *
+   * Salió del formulario en la 1.5.5, a petición de Gonzalo, y en los modos que
+   * de verdad se usan no hace falta: en Gmail y en dominio propio el remitente
+   * ES el correo del restaurante, así que la respuesta le llega sola.
+   *
+   * Se conserva para el modo MOTRAE, donde sí es imprescindible: ahí el correo
+   * sale de un buzón compartido que nadie lee, y sin esto se perdería cualquier
+   * respuesta —incluida la de un comensal que pide la baja de la publicidad—.
+   * Hoy ninguna pantalla permite elegir ese modo; si algún día se habilita,
+   * `problemasDeRemitente` se niega a mandar sin este campo.
+   */
   responder_a?: string;
+  /**
+   * El enlace al que manda la encuesta de la visita.
+   *
+   * La página de reseñas de Google del restaurante, o un formulario suyo. Existe
+   * porque la encuesta estaba pensada para el portal público del comensal, y ese
+   * portal nunca llegó a internet: el correo salía preguntando «¿nos ayuda con
+   * una pregunta rápida?» sin ningún botón para contestar. Sin este enlace la
+   * encuesta no se manda.
+   */
+  enlace_encuesta?: string;
   /** Para el botón de llamar. Sin él, el correo no ofrece llamar. */
   telefono?: string;
   /** Nombre del local, para los asuntos y el cuerpo. */
@@ -316,11 +338,51 @@ export function configuracionVacia(local = ""): ConfiguracionCorreo {
   return { modo: "gmail", remitente: "", local, activos: {} };
 }
 
+/**
+ * Los eventos del correo.
+ *
+ * `correo_enviado` y `correo_rechazado` existían y NADIE los emitía: eran tipos
+ * declarados para un envío que no había manera de pedir. De los seis correos del
+ * catálogo solo uno salía de verdad —la confirmación de reserva, disparada sola
+ * por el Hub— y los otros cinco eran interruptores conectados a nada.
+ *
+ * Ahora el camino es de ida y vuelta, y todo por el registro:
+ *
+ *   1. La terminal anota `correo_solicitado` — quién lo pidió, a quién, cuál.
+ *   2. El Hub lo ve al ingerirlo, lo manda, y anota el resultado.
+ *   3. `correo_enviado` o `correo_rechazado` vuelve a todas las terminales,
+ *      atado por `solicitud_id`, y la ficha del comensal enseña qué pasó.
+ *
+ * Por el registro y no por una petición HTTP a propósito. Queda constancia de
+ * quién mandó qué publicidad a quién y cuándo —que es lo primero que se pregunta
+ * ante una queja por datos personales—, y si la red cae un momento la petición
+ * espera en la bandeja de salida en vez de perderse.
+ */
 export type EventoCorreo =
+  | (EventoBase & {
+      tipo: "correo_solicitado";
+      solicitud_id: ID;
+      clase_correo: TipoCorreo;
+      correo: string;
+      /** De qué ficha salió, para enseñar el resultado en ella. */
+      cliente_id?: ID;
+      datos: DatosCorreo;
+      /**
+       * Si el comensal había aceptado publicidad AL PEDIRLO.
+       *
+       * Se congela en la petición y no se consulta después: si el comensal se
+       * da de baja entre que se pide y que sale, lo que vale es lo que había
+       * cuando alguien decidió mandarlo — y el Hub vuelve a comprobarlo contra
+       * `puedeMandarCorreo` de todas formas.
+       */
+      acepta_marketing: boolean;
+    })
   | (EventoBase & {
       tipo: "correo_enviado";
       correo: string;
       clase_correo: TipoCorreo;
+      /** A qué petición responde. Ausente en los que el Hub manda por su cuenta. */
+      solicitud_id?: ID;
       /** Id que devuelve el proveedor, para poder rastrear una queja. */
       externo_id?: string;
     })
@@ -328,8 +390,73 @@ export type EventoCorreo =
       tipo: "correo_rechazado";
       correo: string;
       clase_correo: TipoCorreo;
+      solicitud_id?: ID;
       motivo: string;
     });
+
+export type TipoEventoCorreo = EventoCorreo["tipo"];
+
+/**
+ * Los tipos de correo, enumerados, para quien tenga que filtrarlos.
+ *
+ * El `satisfies` y la comprobación de abajo hacen que olvidar uno no compile.
+ * Es la tercera vez en esta base que una lista de tipos escrita a mano se queda
+ * corta y deja eventos sin pintar; esta no puede.
+ */
+export const TIPOS_EVENTO_CORREO = [
+  "correo_solicitado",
+  "correo_enviado",
+  "correo_rechazado",
+] as const satisfies readonly TipoEventoCorreo[];
+
+type FaltaAlgunTipoCorreo = Exclude<TipoEventoCorreo, (typeof TIPOS_EVENTO_CORREO)[number]>;
+const _todosLosTiposCorreoEstan: FaltaAlgunTipoCorreo extends never ? true : never = true;
+void _todosLosTiposCorreoEstan;
+
+/** Cómo quedó una petición de correo, visto desde la ficha del comensal. */
+export type EstadoSolicitudCorreo =
+  | { estado: "pendiente"; pedido_ts: number }
+  | { estado: "enviado"; pedido_ts: number; resuelto_ts: number }
+  | { estado: "rechazado"; pedido_ts: number; resuelto_ts: number; motivo: string };
+
+/**
+ * El estado de cada petición, sacado del registro.
+ *
+ * «Pendiente» dura lo que tarda el Hub en contestar: con enlace, segundos. Si se
+ * queda así mucho rato, es que el Hub no la ha visto — y decirlo es la
+ * diferencia entre «ya se mandó» y «creo que se mandó».
+ */
+export function estadosDeCorreo(
+  eventos: readonly EventoCorreo[],
+): Map<ID, EstadoSolicitudCorreo & { clase_correo: TipoCorreo; cliente_id?: ID }> {
+  const estados = new Map<
+    ID,
+    EstadoSolicitudCorreo & { clase_correo: TipoCorreo; cliente_id?: ID }
+  >();
+
+  for (const ev of eventos) {
+    if (ev.tipo === "correo_solicitado") {
+      estados.set(ev.solicitud_id, {
+        estado: "pendiente",
+        pedido_ts: ev.ts,
+        clase_correo: ev.clase_correo,
+        cliente_id: ev.cliente_id,
+      });
+    }
+  }
+  for (const ev of eventos) {
+    if (ev.tipo === "correo_solicitado" || !ev.solicitud_id) continue;
+    const previo = estados.get(ev.solicitud_id);
+    if (!previo) continue;
+    estados.set(
+      ev.solicitud_id,
+      ev.tipo === "correo_enviado"
+        ? { ...previo, estado: "enviado", resuelto_ts: ev.ts }
+        : { ...previo, estado: "rechazado", resuelto_ts: ev.ts, motivo: ev.motivo },
+    );
+  }
+  return estados;
+}
 
 export function streamCorreo(sucursal_id: ID): ID {
   return `correo:${sucursal_id}`;
@@ -386,6 +513,18 @@ export function puedeMandarCorreo(
   const def = definicionCorreo(tipo);
   if (def?.clase === "marketing" && !aceptaMarketing) {
     return { puede: false, razon: "Esta persona no aceptó recibir promociones" };
+  }
+
+  /*
+   * Una encuesta sin enlace es un correo que pregunta y no deja contestar. Se
+   * frena aquí, en la única puerta por la que pasa todo envío, y no en la
+   * pantalla: así tampoco se cuela por el Hub ni por una tableta vieja.
+   */
+  if (tipo === "encuesta" && !config.enlace_encuesta?.trim()) {
+    return {
+      puede: false,
+      razon: "Falta el enlace de la encuesta (Clientes → Correos): sin él no hay dónde contestar",
+    };
   }
 
   return { puede: true };
@@ -501,8 +640,14 @@ export function armarCorreo(
       break;
 
     case "encuesta":
-      cuerpo.push("Gracias por su visita. ¿Nos ayuda con una pregunta rápida?");
-      cuerpoTexto.push("Gracias por su visita. ¿Nos ayuda con una pregunta rápida?");
+      cuerpo.push(
+        `Gracias por visitarnos en <b>${escapar(local)}</b>. ¿Nos cuenta cómo estuvo todo? ` +
+          "Son dos minutos, y nos ayuda más de lo que parece.",
+      );
+      cuerpoTexto.push(
+        `Gracias por visitarnos en ${local}. ¿Nos cuenta cómo estuvo todo? ` +
+          "Son dos minutos, y nos ayuda más de lo que parece.",
+      );
       break;
 
     case "gracias":
@@ -517,12 +662,23 @@ export function armarCorreo(
       break;
   }
 
+  /*
+   * EL BOTÓN PRINCIPAL, y lo que dice.
+   *
+   * La encuesta lleva el enlace del restaurante —sus reseñas de Google o un
+   * formulario—; los demás, el que venga en los datos. Antes el botón decía
+   * «Abrir» en todos los casos, que no le dice al comensal qué va a pasar si lo
+   * pulsa, y un botón que no se entiende no se pulsa.
+   */
+  const enlace = tipo === "encuesta" ? (config.enlace_encuesta ?? datos.enlace) : datos.enlace;
+  const rotuloBoton = tipo === "encuesta" ? "Dejar mi opinión" : "Ver más";
+
   const botones: string[] = [];
-  if (datos.enlace) {
+  if (enlace) {
     botones.push(
-      `<a href="${escapar(datos.enlace)}" style="display:inline-block;padding:12px 22px;` +
-        `background:#F2853A;color:#ffffff;text-decoration:none;border-radius:8px;` +
-        `font-weight:600">Abrir</a>`,
+      `<a href="${escapar(enlace)}" style="display:inline-block;padding:12px 22px;` +
+        `background:#F2853A;color:#14181A;text-decoration:none;border-radius:8px;` +
+        `font-weight:600">${rotuloBoton}</a>`,
     );
   }
   if (config.telefono) {
@@ -540,12 +696,26 @@ export function armarCorreo(
    * reporte de spam mancha el dominio para todos los correos del restaurante,
    * incluidas las confirmaciones de reserva.
    */
+  /*
+   * Y VA SIEMPRE, con o sin página de baja. Antes solo salía `if (datos.baja)`,
+   * así que una campaña mandada sin ese enlace —que es TODAS, porque la página
+   * pública de baja nunca existió— se iba sin ninguna forma de darse de baja.
+   *
+   * Sin página, la baja es por respuesta: el remitente es el correo del propio
+   * restaurante, así que el «BAJA» le llega a él, y se desmarca en la ficha del
+   * comensal. Es un paso a mano, pero es un mecanismo real, que es lo que exige
+   * la ley de datos personales. Un correo de publicidad sin baja no sale.
+   */
   const pie =
-    def?.clase === "marketing" && datos.baja
-      ? `<p style="margin:24px 0 0;font-size:12px;color:#6F7B81">` +
-        `Recibe esto porque aceptó nuestras promociones. ` +
-        `<a href="${escapar(datos.baja)}" style="color:#6F7B81">Darse de baja</a>.</p>`
-      : "";
+    def?.clase !== "marketing"
+      ? ""
+      : datos.baja
+        ? `<p style="margin:24px 0 0;font-size:12px;color:#6F7B81">` +
+          `Recibe esto porque aceptó nuestras promociones. ` +
+          `<a href="${escapar(datos.baja)}" style="color:#6F7B81">Darse de baja</a>.</p>`
+        : `<p style="margin:24px 0 0;font-size:12px;color:#6F7B81">` +
+          `Recibe esto porque aceptó nuestras promociones. ` +
+          `Para no recibir más, responda <b>BAJA</b> a este correo.</p>`;
 
   const html =
     `<div style="font-family:system-ui,-apple-system,'Segoe UI',sans-serif;` +
@@ -560,14 +730,21 @@ export function armarCorreo(
     pie +
     `</div>`;
 
+  const bajaTexto =
+    def?.clase !== "marketing"
+      ? ""
+      : datos.baja
+        ? `\nDarse de baja: ${datos.baja}`
+        : "\nPara no recibir más, responda BAJA a este correo.";
+
   const texto = [
     local,
     "",
     saludo,
     ...cuerpoTexto.filter(Boolean),
-    datos.enlace ? `\n${datos.enlace}` : "",
+    enlace ? `\n${rotuloBoton}: ${enlace}` : "",
     config.telefono ? `\nTeléfono: ${config.telefono}` : "",
-    def?.clase === "marketing" && datos.baja ? `\nDarse de baja: ${datos.baja}` : "",
+    bajaTexto,
   ]
     .filter((l) => l !== "")
     .join("\n");
@@ -575,7 +752,15 @@ export function armarCorreo(
   return {
     para,
     de: config.remitente,
-    responder_a: config.responder_a,
+    /*
+     * Solo en modo MOTRAE, que es el único donde hace falta: ahí el remitente es
+     * un buzón compartido. En Gmail y en dominio propio el remitente ES el
+     * restaurante, y añadir otro «Responder a» solo abre la puerta a que las
+     * respuestas —y las bajas— lleguen a una dirección vieja que nadie mira.
+     */
+    ...(config.modo === "motrae" && config.responder_a
+      ? { responder_a: config.responder_a }
+      : {}),
     asunto,
     html,
     texto,

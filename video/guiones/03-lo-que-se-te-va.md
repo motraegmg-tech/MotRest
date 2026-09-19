@@ -29,13 +29,16 @@ largos: en vertical, tres segundos sin cambio es una salida del video.
 
 ## Reglas propias del vertical
 
+- **Limpieza visual extrema:** El video debe ser lo más limpio posible. Solo debe aparecer en pantalla la información importante que se está narrando. **Reglas de recorte:**
+  - Ocultar o recortar la barra superior (ej. progreso/capítulos del video, menús de navegación).
+  - Eliminar del encuadre cuadros, gráficas o figuras secundarias que aparezcan sin sentido y distraigan del mensaje principal.
 - **Subtítulos quemados obligatorios**, grandes (Inter 600, 56 px+), centrados en
   el tercio medio, con fondo pizarra al 80 % detrás del texto. Más de la mitad de
   la gente lo va a ver sin sonido: si no se entiende mudo, el video no sirve.
 - La captura es 16:9 y el lienzo es 9:16: **no** se encoge la captura hasta que
-  quepa. Se hace zoom sobre la zona útil de cada pantalla (`scale` 1.6–2.0) y se
-  encuadra la parte que importa. Por eso las tomas de este video se graban
-  **con la pantalla ya posicionada** en la sección relevante.
+  quepa. Se hace zoom extremo sobre la zona útil de cada pantalla (`scale` 1.6–2.0) y se
+  encuadra **única y exclusivamente** la parte que importa. Por eso las tomas de este video se graban
+  **con la pantalla ya posicionada** en la sección relevante, sin mostrar el entorno.
 - Zona segura: nada de texto en los primeros 220 px ni en los últimos 320 px del
   lienzo (ahí van los controles de las apps).
 - La marca aparece desde el segundo 1 en una esquina, pequeña: en redes el video

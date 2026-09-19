@@ -365,10 +365,13 @@
 </div>
 
 <style>
+  /* El editor es la superficie de trabajo de la pantalla, no un recuadro
+     metido dentro de otra cosa: pesa como una tarjeta. */
   .editor {
-    background: #fff;
-    border: 1px solid var(--borde);
-    border-radius: var(--r-lg);
+    background: var(--superficie);
+    border: 1px solid var(--borde-tarjeta);
+    border-radius: 14px;
+    box-shadow: var(--sombra-tarjeta);
     padding: 1.25rem;
     display: flex;
     flex-direction: column;

@@ -179,10 +179,9 @@
     max-width: 44rem;
     line-height: 1.5;
   }
+  /* Fondo, borde, radio y sombra los pone `.tarjeta` en base.css: aquí solo
+     queda lo que es propio de esta pantalla. */
   .tarjeta {
-    background: #fff;
-    border: 1px solid var(--borde);
-    border-radius: var(--r-lg);
     padding: 1.1rem 1.25rem;
     margin-bottom: 1rem;
   }

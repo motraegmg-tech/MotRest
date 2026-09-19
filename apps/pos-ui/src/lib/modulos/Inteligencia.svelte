@@ -774,11 +774,13 @@
     gap: 0.85rem;
     flex-wrap: wrap;
   }
+  /* Color y canto de tarjeta, pero SIN sombra: van varios en fila y alguno
+     cae dentro de una tarjeta — dos sombras anidadas se ven sucias. */
   .dato {
     flex: 1;
     min-width: 9.5rem;
-    background: #fff;
-    border: 1px solid var(--borde);
+    background: var(--superficie);
+    border: 1px solid var(--borde-tarjeta);
     border-radius: var(--r-md);
     padding: 0.75rem 1rem;
     display: flex;
@@ -824,10 +826,9 @@
       grid-template-columns: 1fr;
     }
   }
+  /* Fondo, borde, radio y sombra los pone `.tarjeta` en base.css: aquí solo
+     queda lo que es propio de esta pantalla. */
   .tarjeta {
-    background: #fff;
-    border: 1px solid var(--borde);
-    border-radius: var(--r-lg);
     padding: 1.1rem 1.25rem;
     overflow-x: auto;
   }

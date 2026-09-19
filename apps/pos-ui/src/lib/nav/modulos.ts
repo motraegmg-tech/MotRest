@@ -218,6 +218,20 @@ export const MODULOS: EntradaModulo[] = [
       { clave: "clientes", titulo: "Ficha del comensal", icono: "clientes", permiso: "crm.cliente.ver" },
       { clave: "reservas", titulo: "Reservas y espera", icono: "reservas", permiso: "crm.cliente.ver" },
       { clave: "comensales", titulo: "Comensales (360°)", icono: "usuarios", permiso: "crm.cliente.ver" },
+      /*
+       * Vivía en Administración como «Mensajes para el cliente». Se vino aquí a
+       * petición de Gonzalo: los correos se mandan desde la ficha del comensal,
+       * y quien los manda es quien tiene que poder ver cómo quedan.
+       *
+       * El icono es el mismo de antes —la burbuja, del tono de Clientes—, que
+       * Gonzalo ya aprobó como «Mensajes al cliente»; el set no tiene sobre y
+       * un icono nuevo pide su propia aprobación. El permiso es el de gestionar
+       * comensales y NO el de administrar usuarios, que era el de antes: aquí ya
+       * no se toca ninguna credencial —la contraseña de Gmail vive en el Hub— y
+       * quien decide qué correos recibe un comensal es quien cuida su ficha. Un
+       * cajero, que solo consulta clientes, no la ve.
+       */
+      { clave: "correos", titulo: "Correos al comensal", icono: "mensajes", permiso: "crm.cliente.editar" },
     ],
     resumen:
       "Ficha 360° del comensal, reservas, lealtad, monedero y campañas de retención.",
@@ -269,7 +283,6 @@ export const MODULOS: EntradaModulo[] = [
       { clave: "catalogo", titulo: "Insumos y estaciones", icono: "insumos", permiso: "cat.producto.editar" },
       { clave: "impresoras", titulo: "Impresoras", icono: "impresoras", permiso: "admin.dispositivo.aprobar" },
       { clave: "socios", titulo: "Socios", icono: "socios", permiso: "admin.socio.editar" },
-      { clave: "mensajes", titulo: "Mensajes para el cliente", icono: "mensajes", permiso: "admin.usuario.editar" },
       { clave: "hub", titulo: "Hub del local", icono: "hub", permiso: "admin.dispositivo.aprobar" },
       {
         clave: "licencia",

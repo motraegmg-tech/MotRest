@@ -90,6 +90,26 @@ class StoreFiscal {
     this.almacen = almacen;
   }
 
+  /**
+   * Lo que llega del Hub o de otra terminal, ya en la pantalla.
+   *
+   * Faltaba, y el efecto era desconcertante: el Hub publica el `cfdi_timbrado`
+   * en cuanto el PAC contesta —para que la caja lo vea— y el evento llegaba y se
+   * guardaba en disco, pero nadie repoblaba el estado. La factura aparecía solo
+   * al recargar, y hasta entonces la caja seguía creyendo que no se había
+   * timbrado.
+   *
+   * Se descartan los ya conocidos por `id`: un evento puede llegar dos veces —al
+   * reconectar se repite la ventana— y contar dos veces un comprobante sería
+   * peor que no verlo.
+   */
+  integrar(eventos: readonly EventoFiscal[]): void {
+    const conocidos = new Set(this.eventos.map((e) => e.id));
+    const nuevos = eventos.filter((e) => !conocidos.has(e.id));
+    if (nuevos.length === 0) return;
+    this.eventos = [...this.eventos, ...nuevos];
+  }
+
   private emitir(evento: EventoFiscal): void {
     this.eventos = [...this.eventos, evento];
     void this.almacen?.eventos.anexar([evento]).catch((causa) => {

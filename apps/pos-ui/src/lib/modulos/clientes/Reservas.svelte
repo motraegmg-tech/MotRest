@@ -8,12 +8,17 @@
    */
   import {
     acomodosParaGrupo,
+    correoPlausible,
     franjaDe,
     mesasDeComanda,
     type ID,
     type OpcionDeAcomodo,
     type Reserva,
   } from "@motrest/dominio";
+  import { clientes } from "../../clientes.svelte";
+  import { correo, type SolicitudCorreo } from "../../correo.svelte";
+  import { cuandoDeReserva, datosDelCorreo, esVispera } from "../../correos-del-comensal";
+  import EnvioCorreo from "../../EnvioCorreo.svelte";
   import { hora } from "../../formato";
   import { plano } from "../../plano.svelte";
   import { pos } from "../../pos.svelte";
@@ -212,7 +217,75 @@
   function minutosDesde(ts: number): number {
     return Math.max(0, Math.round((ahora - ts) / 60_000));
   }
+
+  // --- El recordatorio por correo ---
+
+  /*
+   * Se ofrece AQUÍ porque es donde se ve quién viene mañana, y solo la víspera:
+   * el correo dice «Lo esperamos mañana», y mandarlo tres días antes —o la
+   * misma tarde— es mandar un asunto que miente.
+   */
+  let recordandoId = $state<ID | null>(null);
+  const recordando = $derived(
+    recordandoId ? reservas.reservas.find((r) => r.id === recordandoId) : undefined,
+  );
+  const datosRecordatorio = $derived(
+    recordando
+      ? datosDelCorreo("reserva_recordatorio", { nombre: recordando.nombre, reserva: recordando })
+      : {},
+  );
+
+  /** El recordatorio que ya se pidió para esta reserva, si hay. */
+  function recordatorioDe(r: Reserva): SolicitudCorreo | undefined {
+    return correoPlausible(r.correo)
+      ? correo.recordatorioDe(cuandoDeReserva(r.para_ts), [r.correo])
+      : undefined;
+  }
+
+  /**
+   * ¿Se le puede ofrecer «Recordarle»?
+   *
+   * Si ya hay uno en camino o entregado, NO: un recordatorio repetido se lee
+   * como spam, y el spam es lo que deja la cuenta del restaurante sin entregar
+   * nada. Si el anterior no salió, sí, y se dice por qué falló.
+   */
+  function sePuedeRecordar(r: Reserva, previo: SolicitudCorreo | undefined): boolean {
+    return (
+      correoPlausible(r.correo) &&
+      esVispera(r.para_ts, ahora) &&
+      (!previo || previo.estado === "rechazado")
+    );
+  }
+
+  function comoVaElRecordatorio(s: SolicitudCorreo): { texto: string; tono: string } {
+    if (s.estado === "enviado") return { texto: "Recordatorio enviado", tono: "bien" };
+    if (s.estado === "rechazado") {
+      return { texto: `El recordatorio no salió: ${s.motivo ?? "el Hub no dijo por qué"}`, tono: "mal" };
+    }
+    return ahora - s.pedido_ts > 60_000
+      ? { texto: "Recordatorio pedido: el Hub todavía no lo ha visto", tono: "espera" }
+      : { texto: "Recordatorio en camino", tono: "espera" };
+  }
+
+  /**
+   * La ficha del comensal, si la hay, para que el recordatorio aparezca también
+   * en «Últimos correos» de su ficha. Las reservas apartadas por teléfono no se
+   * atan a ninguna, así que se busca por el correo.
+   */
+  function fichaDe(r: Reserva): ID | undefined {
+    if (r.cliente_id) return r.cliente_id;
+    const correoReserva = r.correo?.trim().toLowerCase();
+    if (!correoReserva) return undefined;
+    return clientes.activos.find((c) => c.correo?.trim().toLowerCase() === correoReserva)
+      ?.cliente_id;
+  }
+
+  function alTeclear(e: KeyboardEvent) {
+    if (e.key === "Escape" && recordandoId) recordandoId = null;
+  }
 </script>
+
+<svelte:window onkeydown={alTeclear} />
 
 <div class="seccion">
   <div class="encabezado">
@@ -250,13 +323,18 @@
           <input bind:value={telefono} inputmode="tel" placeholder="33 1122 3344" />
         </label>
         <!--
-          El correo es lo que hace que la confirmación llegue. Se pide aquí, al
-          anotar por teléfono, porque es el único momento en que el comensal
-          está al habla.
+          El correo es lo que permite recordarle la reserva la víspera. Se pide
+          aquí, al anotar por teléfono, porque es el único momento en que el
+          comensal está al habla.
+
+          Antes decía «para mandarle su confirmación», y era falso: la
+          confirmación automática sale solo al aceptar una reserva pedida desde
+          el celular. Una apartada por teléfono nace ya apartada y el Hub no le
+          manda nada.
         -->
         <label>
           <span>Correo</span>
-          <input bind:value={correoCliente} inputmode="email" placeholder="Para mandarle su confirmación" />
+          <input bind:value={correoCliente} inputmode="email" placeholder="Para recordarle su reserva" />
         </label>
         <label>
           <span>Personas</span>
@@ -403,6 +481,8 @@
       {:else}
         {#each puerta.esperando as r (r.id)}
           {@const opciones = acomodosParaSentar.get(r.personas) ?? []}
+          {@const previo = recordatorioDe(r)}
+          {@const estadoRecordatorio = previo ? comoVaElRecordatorio(previo) : undefined}
           <article class="reserva">
             <div class="datos">
               <b>{r.nombre}</b>
@@ -411,7 +491,15 @@
                 {r.personas === 1 ? "persona" : "personas"}
                 {#if r.mesa_id} · mesa {mesaDeReserva(r.mesa_id)}{/if}
               </span>
+              {#if estadoRecordatorio}
+                <span class="recordatorio {estadoRecordatorio.tono}">{estadoRecordatorio.texto}</span>
+              {/if}
             </div>
+            {#if puedeEditar && sePuedeRecordar(r, previo)}
+              <button class="mini recordar" onclick={() => (recordandoId = r.id)}>
+                {previo ? "Recordarle otra vez" : "Recordarle"}
+              </button>
+            {/if}
             {#if puedeEditar}
               <select onchange={(e) => sentar(r, e.currentTarget.value)}>
                 <option value="">Sentar en…</option>
@@ -427,6 +515,13 @@
             {/if}
           </article>
         {/each}
+        {#if puedeEditar}
+          <!-- Explica por qué el botón no está en todas: no es un fallo, es la víspera. -->
+          <p class="nota">
+            «Recordarle» aparece la víspera de cada reserva que dejó su correo, y
+            una sola vez por reserva.
+          </p>
+        {/if}
       {/if}
     </section>
 
@@ -503,6 +598,25 @@
   </div>
 </div>
 
+{#if recordando && recordando.correo && puedeEditar}
+  <div class="velo" role="presentation" onclick={() => (recordandoId = null)}></div>
+  <div class="dialogo" role="dialog" aria-modal="true" aria-label="Recordarle su reserva">
+    <header>
+      <h2>Recordarle su reserva a {recordando.nombre}</h2>
+      <button class="cerrar" onclick={() => (recordandoId = null)} aria-label="Cerrar">×</button>
+    </header>
+    <EnvioCorreo
+      tipo="reserva_recordatorio"
+      para={recordando.correo}
+      nombre={recordando.nombre}
+      datos={datosRecordatorio}
+      clienteId={fichaDe(recordando)}
+      aceptaMarketing={false}
+      oncerrar={() => (recordandoId = null)}
+    />
+  </div>
+{/if}
+
 <style>
   .seccion {
     padding: 1.5rem 1.75rem;
@@ -533,10 +647,9 @@
     margin-top: 1rem;
     align-items: start;
   }
+  /* Fondo, borde, radio y sombra los pone `.tarjeta` en base.css: aquí solo
+     queda lo que es propio de esta pantalla. */
   .tarjeta {
-    background: #fff;
-    border: 1px solid var(--borde);
-    border-radius: var(--r-lg);
     padding: 1.1rem 1.25rem;
   }
   h2 {
@@ -728,5 +841,61 @@
   .nota {
     margin-top: 0.7rem;
     font-size: 0.76rem;
+  }
+
+  /* --- El recordatorio por correo --- */
+  .mini.recordar {
+    border-color: var(--acento);
+    color: var(--acento-texto);
+    font-weight: 600;
+  }
+  .reserva span.recordatorio {
+    font-weight: 600;
+  }
+  .reserva span.recordatorio.bien {
+    color: var(--exito-texto);
+  }
+  .reserva span.recordatorio.mal {
+    color: var(--peligro);
+  }
+  .reserva span.recordatorio.espera {
+    color: var(--acento-texto);
+  }
+  .velo {
+    position: fixed;
+    inset: 0;
+    background: rgba(20, 24, 26, 0.55);
+    z-index: var(--z-velo);
+  }
+  .dialogo {
+    position: fixed;
+    z-index: var(--z-dialogo);
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    width: min(40rem, calc(100vw - 2rem));
+    max-height: calc(100vh - 2rem);
+    overflow-y: auto;
+    background: var(--blanco);
+    border-radius: var(--r-xl);
+    padding: 1.25rem 1.4rem 1.4rem;
+    box-shadow: var(--sombra-lg);
+  }
+  .dialogo header {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    margin-bottom: 0.85rem;
+  }
+  .dialogo h2 {
+    flex: 1;
+    margin-bottom: 0;
+  }
+  .cerrar {
+    font-size: 1.5rem;
+    line-height: 1;
+    color: var(--gris);
+    min-width: var(--toque);
+    min-height: var(--toque);
   }
 </style>

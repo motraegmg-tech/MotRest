@@ -490,22 +490,25 @@
   .estado.isla:not(.sin) {
     border-color: var(--acento-2);
   }
+  /* Fondo, borde, radio y sombra los pone `.tarjeta` en base.css: aquí solo
+     queda lo que es propio de esta pantalla. */
   .tarjeta {
-    background: #fff;
-    border: 1px solid var(--borde);
-    border-radius: var(--r-lg);
     padding: 1.1rem 1.25rem;
   }
   /* Arranque automático del Hub: estado y su interruptor. */
+  /* Hermano de las tarjetas de esta misma pantalla, así que pesa igual que
+     ellas: mismo fondo, mismo canto y la misma sombra corta. */
   .bloque {
     display: flex;
     align-items: center;
     gap: 1rem;
-    background: #fff;
-    border: 1px solid var(--borde);
-    border-radius: var(--r-lg);
+    background: var(--superficie);
+    border: 1px solid var(--borde-tarjeta);
+    border-radius: 14px;
+    box-shadow: var(--sombra-tarjeta);
     padding: 0.9rem 1.1rem;
   }
+  /* Se queda: recolorea el bloque cuando el Hub NO arranca solo. */
   .bloque.aviso {
     border-color: var(--acento);
     background: color-mix(in srgb, var(--acento) 6%, #fff);

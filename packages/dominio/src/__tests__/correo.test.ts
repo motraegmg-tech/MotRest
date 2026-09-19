@@ -13,11 +13,13 @@ import {
   configuracionVacia,
   correoPlausible,
   definicionCorreo,
+  estadosDeCorreo,
   esCuentaGmail,
   problemasDeRemitente,
   puedeMandarCorreo,
   remitenteGmail,
   type ConfiguracionCorreo,
+  type EventoCorreo,
 } from "../clientes/correo.js";
 
 const CONFIG: ConfiguracionCorreo = {
@@ -122,6 +124,25 @@ describe("el correo que llega", () => {
     expect(c.html).toContain("4 personas");
     // El botón de llamar es lo que convierte un correo en una vía de contacto.
     expect(c.html).toContain("tel:3311223344");
+    /*
+     * Sin «Responder a» desde la 1.5.5: el remitente ya ES el restaurante, así
+     * que la respuesta le llega sola. Añadir otro solo abría la puerta a que las
+     * respuestas fueran a una dirección vieja que nadie mira.
+     */
+    expect(c.responder_a).toBeUndefined();
+  });
+
+  /*
+   * …salvo en modo MOTRAE, donde el correo sale de un buzón compartido que nadie
+   * lee. Ahí quitarlo perdería cualquier respuesta, incluida una baja.
+   */
+  it("en modo MOTRAE el «Responder a» se conserva", () => {
+    const c = armarCorreo(
+      "reserva_confirmada",
+      "a@b.mx",
+      { ...CONFIG, modo: "motrae", remitente: "rodizio@avisos.motrest.mx" },
+      { cuando: "hoy" },
+    );
     expect(c.responder_a).toBe("hola@rodizio.mx");
   });
 
@@ -326,5 +347,119 @@ describe("lo que se interpola en el asunto", () => {
   it("un asunto normal no se toca", () => {
     const c = armarCorreo("reserva_confirmada", "a@b.mx", CONFIG, { nombre: "Familia Ramírez" });
     expect(c.asunto).toBe("Su reserva en Rodizio quedó confirmada");
+  });
+});
+
+/**
+ * LA BAJA DE LA PUBLICIDAD, AUNQUE NO HAYA PÁGINA DE BAJA.
+ *
+ * El pie solo salía `if (datos.baja)`, y la página pública de baja nunca
+ * existió. Así que toda campaña se habría ido sin ninguna forma de darse de
+ * baja: contra la ley de datos personales, y camino directo a los reportes de
+ * spam que dejan la cuenta del restaurante sin entregar nada.
+ */
+describe("la publicidad siempre lleva su baja", () => {
+  const MARKETING = { ...CONFIG, activos: { cupon: true, te_extranamos: true } };
+
+  it("sin página de baja, pide responder BAJA", () => {
+    const c = armarCorreo("cupon", "a@b.mx", MARKETING, { mensaje: "2×1 los martes" });
+    expect(c.html).toContain("responda <b>BAJA</b>");
+    expect(c.texto).toContain("responda BAJA");
+  });
+
+  it("con página de baja, usa el enlace", () => {
+    const c = armarCorreo("cupon", "a@b.mx", MARKETING, {
+      mensaje: "2×1",
+      baja: "https://motrest.mx/baja/x",
+    });
+    expect(c.html).toContain("https://motrest.mx/baja/x");
+    expect(c.html).not.toContain("responda <b>BAJA</b>");
+  });
+
+  it("lo de «hace mucho que no viene» también la lleva", () => {
+    const c = armarCorreo("te_extranamos", "a@b.mx", MARKETING, { mensaje: "Lo extrañamos" });
+    expect(c.html).toContain("BAJA");
+  });
+
+  /* Lo que el comensal provocó NO lleva baja: darse de baja de SU reserva no tiene sentido. */
+  it("lo transaccional no lleva baja", () => {
+    const c = armarCorreo("reserva_confirmada", "a@b.mx", CONFIG, { cuando: "hoy" });
+    expect(c.html).not.toContain("BAJA");
+  });
+});
+
+/**
+ * LA ENCUESTA APUNTA AL ENLACE DEL RESTAURANTE.
+ *
+ * Estaba pensada para el portal público, que nunca salió a internet: el correo
+ * preguntaba «¿nos ayuda con una pregunta rápida?» sin ningún botón. Ahora
+ * apunta a lo que el local configure —sus reseñas de Google o un formulario— y
+ * sin ese enlace no sale.
+ */
+describe("la encuesta y su enlace", () => {
+  const CON_ENLACE = { ...CONFIG, enlace_encuesta: "https://g.page/r/rodizio/review" };
+
+  it("lleva el enlace del restaurante como botón que dice qué hace", () => {
+    const c = armarCorreo("encuesta", "a@b.mx", CON_ENLACE, {});
+    expect(c.html).toContain("https://g.page/r/rodizio/review");
+    expect(c.html).toContain("Dejar mi opinión");
+    expect(c.html).not.toContain(">Abrir<");
+  });
+
+  it("sin enlace no se manda: preguntaría sin dejar contestar", () => {
+    const v = puedeMandarCorreo("encuesta", "a@b.mx", CONFIG, false);
+    expect(v.puede).toBe(false);
+    if (!v.puede) expect(v.razon).toContain("enlace de la encuesta");
+  });
+
+  it("con enlace sí se manda", () => {
+    expect(puedeMandarCorreo("encuesta", "a@b.mx", CON_ENLACE, false).puede).toBe(true);
+  });
+});
+
+/**
+ * EL IDA Y VUELTA DE UN CORREO PEDIDO A MANO.
+ *
+ * `correo_enviado` y `correo_rechazado` existían y nadie los emitía. Ahora son la
+ * respuesta del Hub a un `correo_solicitado`, atados por `solicitud_id`, y de
+ * aquí sale lo que la ficha del comensal enseña.
+ */
+describe("el estado de un correo pedido", () => {
+  const base = { sucursal_id: "suc-1", device_id: "caja", empleado_id: "usr-1", orden_local: 0, v: 1, stream_id: "correo:suc-1" };
+  const pedido = (id: string, ts: number): EventoCorreo => ({
+    ...base, id: `p-${id}`, ts, tipo: "correo_solicitado", solicitud_id: id,
+    clase_correo: "gracias", correo: "a@b.mx", cliente_id: "cli-1", datos: {}, acepta_marketing: false,
+  } as EventoCorreo);
+
+  it("recién pedido queda pendiente", () => {
+    const e = estadosDeCorreo([pedido("s1", 100)]);
+    expect(e.get("s1")?.estado).toBe("pendiente");
+  });
+
+  it("cuando el Hub lo manda, queda enviado", () => {
+    const e = estadosDeCorreo([
+      pedido("s1", 100),
+      { ...base, id: "r1", ts: 200, tipo: "correo_enviado", correo: "a@b.mx", clase_correo: "gracias", solicitud_id: "s1" } as EventoCorreo,
+    ]);
+    expect(e.get("s1")?.estado).toBe("enviado");
+  });
+
+  it("si el Hub lo rechaza, queda el motivo a la vista", () => {
+    const e = estadosDeCorreo([
+      pedido("s1", 100),
+      { ...base, id: "r1", ts: 200, tipo: "correo_rechazado", correo: "a@b.mx", clase_correo: "gracias", solicitud_id: "s1", motivo: "Falta la contraseña de Gmail" } as EventoCorreo,
+    ]);
+    const s = e.get("s1");
+    expect(s?.estado).toBe("rechazado");
+    if (s?.estado === "rechazado") expect(s.motivo).toContain("Gmail");
+  });
+
+  /* La respuesta puede llegar antes que la petición si el Hub las entrega en lote desordenado. */
+  it("no importa el orden en que lleguen", () => {
+    const e = estadosDeCorreo([
+      { ...base, id: "r1", ts: 200, tipo: "correo_enviado", correo: "a@b.mx", clase_correo: "gracias", solicitud_id: "s1" } as EventoCorreo,
+      pedido("s1", 100),
+    ]);
+    expect(e.get("s1")?.estado).toBe("enviado");
   });
 });

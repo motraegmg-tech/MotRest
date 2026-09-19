@@ -62,6 +62,7 @@ import {
   usuarioSoporte,
   USUARIO_SOPORTE_ID,
   streamMensajeria,
+  streamCorreo,
   uuidv7,
 } from "@motrest/dominio";
 import type { ConfiguracionCorreo } from "@motrest/dominio";
@@ -91,6 +92,7 @@ import { registrarPedido, type PlatilloDeKiosco } from "./kiosco.js";
 import { registrarOpinion, solicitarReserva, verCuenta } from "./portal.js";
 import { Avisos, avisoReservaConfirmada } from "./avisos.js";
 import { Correo } from "./correo.js";
+import { SolicitudesDeCorreo } from "./solicitudes-de-correo.js";
 import type { EnlaceConMotrae, MensajeDelComensal } from "./enlace-motrae.js";
 import { EnlaceSupabase, pareceNubeSupabase } from "./enlace-supabase.js";
 import { carpetaCertificados, certificadoTls, type CertificadoTls } from "./certificado.js";
@@ -799,6 +801,22 @@ async function cicloFiscal(): Promise<void> {
   await cancelador.procesar();
 }
 
+/**
+ * Los correos que se piden desde una terminal (`correo_solicitado`).
+ *
+ * Se construye ANTES que el Hub porque el Hub lo llama desde `alIngerir`. Las
+ * dependencias son funciones y no valores: `correo` todavía es `null` aquí —se
+ * prepara al arrancar— y `hub` todavía no existe; las dos se leen en el momento
+ * de usarlas.
+ */
+const solicitudesDeCorreo = new SolicitudesDeCorreo({
+  hubId: HUB_ID,
+  correo: () => correo,
+  leerStream: (streamId) => almacen.log.leerStream(streamId),
+  inyectar: (eventos) => hub.inyectar(eventos),
+  registrar,
+});
+
 const hub = new Hub({
   hub_id: HUB_ID,
   log: almacen.log,
@@ -816,7 +834,15 @@ const hub = new Hub({
     empleadoId === USUARIO_SOPORTE_ID && licencia?.credencialSoporte
       ? usuarioSoporte(sucursalDelLocal())
       : undefined,
-  alIngerir: (eventos) => avisarPorLoQuePaso(eventos),
+  /*
+   * Las peticiones de correo van PRIMERO y por su lado: `atender` no lanza ni
+   * espera, así que un fallo en los avisos de reserva no puede dejar una
+   * petición sin atender, ni al revés.
+   */
+  alIngerir: (eventos) => {
+    solicitudesDeCorreo.atender(eventos);
+    avisarPorLoQuePaso(eventos);
+  },
   fiscal: { sellador, cola: colaTimbrado, facturador, cancelador, nombrePac: pac?.nombre },
   guardarCatalogo: (catalogo, origen) => {
     // Se guardan por origen: una terminal jamás puede dejar persistido un
@@ -2221,6 +2247,8 @@ async function arrancar(): Promise<void> {
   await prepararLicencia();
   await prepararActualizaciones();
   await prepararCorreo();
+  // Después de preparar el correo, para que lo retomado tenga con qué salir.
+  await retomarCorreosPendientes();
   await conectarConLaNube();
 
   escuchar();
@@ -2270,14 +2298,38 @@ function avisarPorLoQuePaso(eventos: readonly EventoBase[]): void {
      * que el correo no puede: alcanzar a alguien que está de pie en la puerta.
      */
     if (correo && original.correo) {
+      /*
+       * Y QUEDA EN EL REGISTRO, no solo en la bitácora. Antes esta
+       * confirmación salía y dejaba una línea en el archivo de texto del Hub,
+       * que nadie lee desde la caja: si el comensal decía «no me llegó nada»,
+       * no había dónde mirarlo. Ahora deja su `correo_enviado` o
+       * `correo_rechazado` como cualquier otro correo, sin `solicitud_id`
+       * porque nadie lo pidió: lo mandó el Hub por su cuenta.
+       */
+      const destino = {
+        sucursal_id: String(ev.sucursal_id ?? sucursalDelLocal()),
+        correo: original.correo,
+        clase_correo: "reserva_confirmada" as const,
+      };
       void correo
         .mandar({
           tipo: "reserva_confirmada",
           para: original.correo,
           datos: { nombre: original.nombre, cuando, personas: undefined },
+          // Si se quedó en cola, su resultado de verdad llega por aquí, cuando
+          // vuelve la red o caduca.
+          alResolverse: (final) => {
+            if (!final.enviado) registrar("info", `Reserva confirmada sin correo: ${final.razon}`);
+            solicitudesDeCorreo.anotar(destino, final);
+          },
         })
         .then((r) => {
           if (!r.enviado) registrar("info", `Reserva confirmada sin correo: ${r.razon}`);
+          // «Quedó en cola» no es un resultado todavía: se anota al resolverse.
+          if (!r.encolado) solicitudesDeCorreo.anotar(destino, r);
+        })
+        .catch((causa: unknown) => {
+          registrar("error", `Fallo al mandar la confirmación de reserva: ${String(causa)}`);
         });
       continue;
     }
@@ -2791,6 +2843,27 @@ async function prepararCorreo(): Promise<void> {
   // de internet a media noche no pierda las confirmaciones del día.
   setInterval(() => void correo?.vaciarCola(), 5 * 60 * 1000).unref?.();
   registrar("info", `Correo listo. Remitente: ${configCorreo.remitente || "sin configurar"}`);
+}
+
+/**
+ * Las peticiones de correo que el Hub dejó sin contestar antes de apagarse.
+ *
+ * La cola del correo vive en memoria: un Hub que se reinicia —y se reinicia
+ * solo cada vez que se instala una actualización— pierde los correos que
+ * esperaban internet, y sus peticiones se quedarían «pendientes» para siempre
+ * en la ficha del comensal. Aquí se retoman por el camino normal: lo ya
+ * contestado no se repite y lo viejo se contesta como caducado.
+ */
+async function retomarCorreosPendientes(): Promise<void> {
+  try {
+    const eventos = await almacen.log.leerStream(streamCorreo(sucursalDelLocal()));
+    const retomadas = solicitudesDeCorreo.retomar(eventos);
+    if (retomadas > 0) {
+      registrar("info", `${retomadas} petición(es) de correo sin contestar: se atienden ahora.`);
+    }
+  } catch (causa) {
+    registrar("error", `No se pudieron retomar las peticiones de correo: ${String(causa)}`);
+  }
 }
 
 /** Lo que guarda la configuración de mensajería, que es de donde salía la nube antes. */
