@@ -315,6 +315,162 @@ async fn nube_peticion(
     })
 }
 
+/// Dónde está FacturAPI. Fija aquí y no en el almacén: no es configuración del
+/// despliegue, es el proveedor, y dejar que la ventana la eligiera sería dejarle
+/// elegir a quién se le manda la llave de usuario.
+const BASE_FACTURAPI: &str = "https://www.facturapi.io";
+
+/// Lo que la ventana recibe de FacturAPI: el estado y el cuerpo, nada más.
+#[derive(serde::Serialize)]
+struct RespuestaFacturapi {
+    estado: u16,
+    cuerpo: String,
+}
+
+/// Un identificador de FacturAPI —de organización o de llave— tal como llega en
+/// sus respuestas: letras, dígitos, `_` y `-`. Nada de `.`, `/` ni `%`, que es
+/// por donde una ruta armada con él podría llevar a otra parte.
+fn es_id_de_facturapi(texto: &str) -> bool {
+    !texto.is_empty()
+        && texto.len() <= 64
+        && texto
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-')
+}
+
+/// La lista blanca de lo que Central le puede pedir a FacturAPI.
+///
+/// POR QUÉ TAN ESTRECHA. Por aquí viaja la llave de USUARIO de MOTRAE, la
+/// `sk_user_`: con ella se crean y se BORRAN organizaciones, se sacan las llaves
+/// de cualquier restaurante y se invalidan. Central solo necesita cuatro cosas
+/// —ver la lista de organizaciones, ver una, sacarle una llave y, si se filtra,
+/// revocarla—, y la lista blanca es esa y ni una más. En particular NO entran:
+///
+///   - `DELETE /v2/organizations/{id}`, que borra la organización entera con sus
+///     facturas: un clic equivocado que no tiene vuelta.
+///   - `PUT …/apikeys/test`, que RENUEVA la de pruebas e invalida la anterior al
+///     instante: dejaría sin facturar a cualquier local que estuviera probando.
+///   - cualquier cosa fuera de `/v2/organizations`, como timbrar o cancelar, que
+///     es trabajo del Hub de cada local con su propia llave, no de Central.
+///
+/// Se compara MÉTODO Y RUTA juntos: `GET …/apikeys/live` enseña solo los doce
+/// primeros caracteres de cada llave, y `PUT` en la misma ruta crea una. No es lo
+/// mismo pedir la lista que fabricar una llave.
+///
+/// `GET …/apikeys/live` hace falta para revocar: crear una Live devuelve solo el
+/// texto de la llave, sin su identificador, y `DELETE` pide el identificador. Es
+/// la única forma de saber cuál de la lista es la que se acaba de crear.
+///
+/// Vive aparte del comando para poder probarla con `cargo test`, por lo mismo
+/// que `comprobar_ruta_de_nube`: una lista blanca que nadie prueba es una lista
+/// blanca que se amplía sin querer.
+fn comprobar_peticion_de_facturapi(metodo: &str, ruta: &str) -> Result<(), String> {
+    let rechazo = || Err(format!("Petición no permitida a FacturAPI: {metodo} {ruta}"));
+
+    let (camino, consulta) = match ruta.split_once('?') {
+        Some((camino, consulta)) => (camino, Some(consulta)),
+        None => (ruta, None),
+    };
+
+    let partes: Vec<&str> = camino.split('/').collect();
+    if partes.len() < 3 || !partes[0].is_empty() || partes[1] != "v2" || partes[2] != "organizations" {
+        return rechazo();
+    }
+
+    let permitida = match (metodo, &partes[3..]) {
+        ("GET", []) => true,
+        ("GET", [organizacion]) => es_id_de_facturapi(organizacion),
+        ("GET", [organizacion, "apikeys", "live"])
+        | ("PUT", [organizacion, "apikeys", "live"])
+        | ("GET", [organizacion, "apikeys", "test"]) => es_id_de_facturapi(organizacion),
+        ("DELETE", [organizacion, "apikeys", "live", llave]) => {
+            es_id_de_facturapi(organizacion) && es_id_de_facturapi(llave)
+        }
+        _ => false,
+    };
+    if !permitida {
+        return rechazo();
+    }
+
+    /*
+     * Solo la lista de organizaciones lleva consulta (página, tamaño, búsqueda),
+     * y solo con caracteres de una consulta ya codificada. Un `#` o un espacio no
+     * tienen nada que hacer ahí, y ninguna otra ruta la necesita.
+     */
+    if let Some(consulta) = consulta {
+        let es_la_lista = metodo == "GET" && partes.len() == 3;
+        let caracteres_de_consulta = consulta
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b"=&%_.-+".contains(&b));
+        if !es_la_lista || consulta.is_empty() || consulta.len() > 200 || !caracteres_de_consulta {
+            return rechazo();
+        }
+    }
+
+    Ok(())
+}
+
+/// Habla con FacturAPI **desde Rust**, con la llave de usuario de MOTRAE.
+///
+/// Es el mismo trato que la llave de servicio de la nube en `nube_peticion`: la
+/// llave se lee aquí, del almacén que protege DPAPI, y NO viaja a la ventana. La
+/// ventana dice qué quiere pedir; nunca con qué. Esa llave abre las
+/// organizaciones de todos los restaurantes, y la interfaz no la necesita para
+/// nada: solo necesita saber si ya hay una guardada.
+///
+/// Lo que sí vuelve a la ventana es la respuesta, y en un caso lleva una llave
+/// dentro —la Live o la Test del restaurante, al pedirla—. Es inevitable: la
+/// ventana es la que la cierra en el sobre para ese Hub. Se queda en memoria lo
+/// que dura el envío y no se guarda ni se registra en ninguna parte.
+#[tauri::command]
+async fn facturapi_peticion(
+    app: AppHandle,
+    metodo: String,
+    ruta: String,
+    cuerpo: Option<String>,
+) -> Result<RespuestaFacturapi, String> {
+    comprobar_peticion_de_facturapi(&metodo, &ruta)?;
+
+    let secretos = cargar_secretos(app)?.ok_or("Todavía no hay secretos guardados en Central")?;
+    let json: serde_json::Value = serde_json::from_str(&secretos)
+        .map_err(|causa| format!("El almacén de Central no es JSON: {causa}"))?;
+    let llave = json["facturapi_usuario"].as_str().unwrap_or("").to_string();
+    if !llave.starts_with("sk_user_") {
+        return Err("Falta tu llave de usuario de FacturAPI (ver Llaves)".into());
+    }
+
+    let cliente = reqwest::Client::builder()
+        .user_agent("MotRest-Central")
+        // Sin tope, un FacturAPI que no contesta deja el botón «Enviar» girando
+        // para siempre y a Gonzalo sin saber si la llave salió o no.
+        .timeout(std::time::Duration::from_secs(30))
+        .build()
+        .map_err(|causa| format!("No se pudo preparar la conexión: {causa}"))?;
+
+    let verbo = reqwest::Method::from_bytes(metodo.as_bytes())
+        .map_err(|_| format!("Método HTTP inválido: {metodo}"))?;
+
+    let mut peticion = cliente
+        .request(verbo, format!("{BASE_FACTURAPI}{ruta}"))
+        .bearer_auth(&llave);
+    if let Some(c) = cuerpo {
+        peticion = peticion.header("content-type", "application/json").body(c);
+    }
+
+    let respuesta = peticion
+        .send()
+        .await
+        .map_err(|causa| format!("No se pudo hablar con FacturAPI: {causa}"))?;
+
+    let estado = respuesta.status().as_u16();
+    let cuerpo = respuesta
+        .text()
+        .await
+        .map_err(|causa| format!("No se pudo leer la respuesta de FacturAPI: {causa}"))?;
+
+    Ok(RespuestaFacturapi { estado, cuerpo })
+}
+
 pub fn ejecutar() {
     tauri::Builder::default()
         .invoke_handler(tauri::generate_handler![
@@ -323,6 +479,7 @@ pub fn ejecutar() {
             respaldo_de_secretos,
             restaurar_secretos,
             nube_peticion,
+            facturapi_peticion,
         ])
         .run(tauri::generate_context!())
         .expect("No se pudo arrancar MotRest Central");
@@ -370,5 +527,89 @@ mod pruebas {
     fn no_deja_subir_de_directorio() {
         assert!(comprobar_ruta_de_nube("/rest/v1/../../auth/v1/token").is_err());
         assert!(comprobar_ruta_de_nube("/auth/v1/admin/users/../token").is_err());
+    }
+}
+
+#[cfg(test)]
+mod pruebas_facturapi {
+    use super::comprobar_peticion_de_facturapi as comprobar;
+
+    const ORG: &str = "5a2a307be93a2f00129ea035";
+
+    /// Lo que la pestaña de Facturación usa. Si algo de esto se cierra, Gonzalo
+    /// vuelve a copiar llaves a mano del panel de FacturAPI.
+    #[test]
+    fn deja_pasar_lo_que_central_usa() {
+        for (metodo, ruta) in [
+            ("GET", "/v2/organizations".to_string()),
+            ("GET", "/v2/organizations?limit=100&page=2".to_string()),
+            ("GET", "/v2/organizations?q=rodizio%20centro".to_string()),
+            ("GET", format!("/v2/organizations/{ORG}")),
+            ("GET", format!("/v2/organizations/{ORG}/apikeys/live")),
+            ("PUT", format!("/v2/organizations/{ORG}/apikeys/live")),
+            ("GET", format!("/v2/organizations/{ORG}/apikeys/test")),
+            ("DELETE", format!("/v2/organizations/{ORG}/apikeys/live/6512ab34cd56ef7890123456")),
+        ] {
+            assert!(comprobar(metodo, &ruta).is_ok(), "deberia permitirse: {metodo} {ruta}");
+        }
+    }
+
+    /// Por aqui viaja la llave de USUARIO: borra organizaciones y renueva llaves.
+    /// Nada de eso es trabajo de Central.
+    #[test]
+    fn no_abre_mas_de_la_cuenta() {
+        for (metodo, ruta) in [
+            // Borrar la organizacion entera, con sus facturas.
+            ("DELETE", format!("/v2/organizations/{ORG}")),
+            // Renovar la de pruebas invalida la anterior al instante.
+            ("PUT", format!("/v2/organizations/{ORG}/apikeys/test")),
+            // Crear organizaciones, o tocar sus datos fiscales y su CSD.
+            ("POST", "/v2/organizations".to_string()),
+            ("PUT", format!("/v2/organizations/{ORG}/legal")),
+            ("PUT", format!("/v2/organizations/{ORG}/certificate")),
+            ("DELETE", format!("/v2/organizations/{ORG}/certificate")),
+            ("GET", format!("/v2/organizations/{ORG}/team")),
+            // Timbrar o cancelar es trabajo del Hub, con la llave del local.
+            ("POST", "/v2/invoices".to_string()),
+            ("GET", "/v2/invoices".to_string()),
+            // Revocar exige la llave concreta, no «todas».
+            ("DELETE", format!("/v2/organizations/{ORG}/apikeys/live")),
+            // El metodo se compara exacto: la misma ruta con otro verbo es otra cosa.
+            ("POST", format!("/v2/organizations/{ORG}/apikeys/live")),
+            ("get", "/v2/organizations".to_string()),
+            ("GET", "/v1/organizations".to_string()),
+            ("GET", "/".to_string()),
+            ("GET", "".to_string()),
+            ("GET", "https://otro-sitio.example/v2/organizations".to_string()),
+            ("GET", "/v2/organizations/".to_string()),
+        ] {
+            assert!(comprobar(metodo, &ruta).is_err(), "no deberia permitirse: {metodo} {ruta}");
+        }
+    }
+
+    /// Un identificador no puede traer con que salirse de su sitio.
+    #[test]
+    fn los_identificadores_no_esconden_rutas() {
+        for ruta in [
+            "/v2/organizations/../invoices".to_string(),
+            "/v2/organizations/%2e%2e/apikeys/live".to_string(),
+            format!("/v2/organizations/{ORG}/apikeys/live/..%2f..%2finvoices"),
+            "/v2/organizations/a.b".to_string(),
+            format!("/v2/organizations/{}", "a".repeat(65)),
+        ] {
+            assert!(comprobar("GET", &ruta).is_err(), "no deberia permitirse: {ruta}");
+        }
+        assert!(comprobar("DELETE", &format!("/v2/organizations/{ORG}/apikeys/live/x.y")).is_err());
+    }
+
+    /// Solo la lista lleva consulta, y solo con caracteres de consulta.
+    #[test]
+    fn la_consulta_solo_en_la_lista() {
+        assert!(comprobar("GET", &format!("/v2/organizations/{ORG}?expand=todo")).is_err());
+        assert!(comprobar("PUT", &format!("/v2/organizations/{ORG}/apikeys/live?x=1")).is_err());
+        assert!(comprobar("GET", "/v2/organizations?q=a b").is_err());
+        assert!(comprobar("GET", "/v2/organizations?q=a#b").is_err());
+        assert!(comprobar("GET", "/v2/organizations?").is_err());
+        assert!(comprobar("GET", &format!("/v2/organizations?q={}", "a".repeat(201))).is_err());
     }
 }

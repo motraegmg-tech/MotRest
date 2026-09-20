@@ -23,6 +23,7 @@ import {
   type EstadoFiscal,
   type FacturaEnCola,
   type MensajeFiscal,
+  type MensajeSecreto,
   type MensajeHub,
   type MensajeCliente,
   type TerminalRegistrada,
@@ -80,6 +81,15 @@ export interface OpcionesCliente {
   alRecibirFiscal?: (
     estado: EstadoFiscal,
     cola: FacturaEnCola[] | undefined,
+    problema: string | undefined,
+  ) => void;
+  /**
+   * La respuesta del Hub a `secreto()`: el estado de las llaves (nunca su
+   * valor) y, si se pidió un cambio, si se hizo y por qué no.
+   */
+  alRecibirSecretos?: (
+    estado: import("@motrest/dominio").EstadoSecretos,
+    ok: boolean,
     problema: string | undefined,
   ) => void;
   /** Devuelve los catálogos locales, para publicarlos al conectar. */
@@ -309,6 +319,10 @@ export class ClienteSync {
         this.opciones.alRecibirFiscal?.(mensaje.estado, mensaje.cola, mensaje.problema);
         break;
 
+      case "secreto":
+        this.opciones.alRecibirSecretos?.(mensaje.estado, mensaje.ok, mensaje.problema);
+        break;
+
       case "acks":
         await this.opciones.almacen.eventos.confirmar(mensaje.acks);
         // Sigue empujando mientras queden pendientes: un corte largo puede
@@ -441,6 +455,17 @@ export class ClienteSync {
   fiscal(peticion: Omit<MensajeFiscal, "tipo">): void {
     if (!this.socket) return;
     this.enviar({ tipo: "fiscal", ...peticion });
+  }
+
+  /**
+   * Consulta, guarda o quita una llave del Hub (FacturAPI o Gmail).
+   *
+   * La llave viaja solo aquí, por el canal cifrado, y la terminal no debe
+   * guardarla en ningún lado. La respuesta llega por `alRecibirSecretos`.
+   */
+  secreto(peticion: Omit<MensajeSecreto, "tipo">): void {
+    if (!this.socket) return;
+    this.enviar({ tipo: "secreto", ...peticion });
   }
 
   /** Pide el enlace de emparejamiento, para pintarlo como QR. */

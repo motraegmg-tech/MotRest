@@ -37,10 +37,24 @@ import {
   type ID,
   type TipoCorreo,
 } from "@motrest/dominio";
-import type { Almacen } from "@motrest/protocolo-sync";
+import { catalogoMasNuevo, type Almacen } from "@motrest/protocolo-sync";
 import { SUCURSAL_ID, obtenerDeviceId } from "./presentacion";
 
 export const CLAVE_CORREO = "correo_config";
+
+/** La configuración tal como viaja: con versión y fecha siempre puestas. */
+export type ConfiguracionPublicable = ConfiguracionCorreo & { version: number; updated_at: number };
+
+/**
+ * La versión y la fecha de una configuración, con cero si no las trae.
+ *
+ * Las configuraciones guardadas antes de la 1.5.5 no tienen ninguna de las dos.
+ * Leerlas como 0 hace que cualquier cambio posterior las supere, y deja que el
+ * Hub —que rechaza un catálogo sin versión numérica— las acepte la primera vez.
+ */
+function versionDe(config: ConfiguracionCorreo): { version: number; updated_at: number } {
+  return { version: config.version ?? 0, updated_at: config.updated_at ?? 0 };
+}
 
 export interface ResultadoCorreo {
   ok: boolean;
@@ -233,9 +247,61 @@ export class StoreCorreo {
     this.eventos = [...this.eventos, ...nuevos].sort(compararEventos);
   }
 
-  /** La configuración que llega del Hub o de otra terminal. */
-  fusionar(entrante: ConfiguracionCorreo): void {
-    this.datos = normalizarConfiguracion(entrante);
+  /**
+   * La configuración que llega del Hub o de otra terminal — SOLO si es más nueva.
+   *
+   * Antes la adoptaba sin mirar, así que una tableta que se reconectaba con una
+   * copia vieja podía pisar lo que alguien acababa de cambiar en la caja. Se
+   * compara versión y fecha igual que la carta y el plano, y se guarda al
+   * adoptarla para que sobreviva a un reinicio de la terminal.
+   *
+   * Devuelve si la adoptó, que es lo que cuenta el enlace para saber si llegó
+   * algo nuevo.
+   */
+  fusionar(entrante: ConfiguracionCorreo): boolean {
+    const normalizada = normalizarConfiguracion(entrante);
+    if (!catalogoMasNuevo(versionDe(normalizada), versionDe(this.datos))) return false;
+    this.datos = normalizada;
+    this.guardar();
+    return true;
+  }
+
+  /** Quien publica los cambios hacia el Hub. Lo engancha el enlace al arrancar. */
+  private alCambiar: ((config: ConfiguracionPublicable) => void) | null = null;
+
+  alPublicar(escucha: (config: ConfiguracionPublicable) => void): void {
+    this.alCambiar = escucha;
+  }
+
+  /** Lo que se publica como catálogo: la configuración con su versión, y nada secreto. */
+  get paraPublicar(): ConfiguracionPublicable {
+    /*
+     * La contraseña de aplicación de Gmail NO viaja por aquí, ni aunque alguien
+     * la hubiera dejado en este objeto: este catálogo llega a TODAS las tabletas
+     * del salón, incluido el teléfono de un mesero, y con esa contraseña se
+     * puede mandar correo en nombre del restaurante. Vive solo en el Hub.
+     */
+    const { llave: _llave, ...sinSecreto } = this.datos as ConfiguracionCorreo & {
+      llave?: string;
+    };
+    return { ...sinSecreto, ...versionDe(this.datos) };
+  }
+
+  /**
+   * Aplica un cambio: sube la versión, lo guarda y lo manda al Hub.
+   *
+   * Es el único camino por el que cambia la configuración, a propósito. Tener
+   * `guardar()` repartido en cada método era lo que permitía cambiar algo sin
+   * publicarlo, que es exactamente el defecto que dejaba al Hub sin enterarse.
+   */
+  private cambiar(nuevos: ConfiguracionCorreo): void {
+    this.datos = {
+      ...nuevos,
+      version: (this.datos.version ?? 0) + 1,
+      updated_at: Date.now(),
+    };
+    this.guardar();
+    this.alCambiar?.(this.paraPublicar);
   }
 
   /** Quién está pidiendo los correos. Sin esto, la petición saldría a nombre de «sistema». */
@@ -366,23 +432,23 @@ export class StoreCorreo {
       };
     }
 
-    this.datos = normalizarConfiguracion({
-      ...this.datos,
-      ...cambios,
-      remitente,
-      enlace_encuesta: enlace || undefined,
-    });
-    this.guardar();
+    this.cambiar(
+      normalizarConfiguracion({
+        ...this.datos,
+        ...cambios,
+        remitente,
+        enlace_encuesta: enlace || undefined,
+      }),
+    );
     return { ok: true };
   }
 
   /** Enciende o apaga un tipo de correo. */
   alternar(tipo: TipoCorreo): void {
-    this.datos = {
+    this.cambiar({
       ...this.datos,
       activos: { ...this.datos.activos, [tipo]: !this.datos.activos[tipo] },
-    };
-    this.guardar();
+    });
   }
 
   cambiarAsunto(tipo: TipoCorreo, asunto: string): void {
@@ -392,8 +458,7 @@ export class StoreCorreo {
     if (limpio) asuntos[tipo] = limpio;
     else delete asuntos[tipo];
 
-    this.datos = { ...this.datos, asuntos };
-    this.guardar();
+    this.cambiar({ ...this.datos, asuntos });
   }
 }
 

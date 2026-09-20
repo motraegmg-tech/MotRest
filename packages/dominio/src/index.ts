@@ -10,6 +10,7 @@
 export * from "./comun/dinero.js";
 export * from "./comun/firma.js";
 export * from "./comun/cofre.js";
+export * from "./comun/sobre.js";
 export * from "./comun/ids.js";
 export * from "./comun/impuestos.js";
 
@@ -96,6 +97,7 @@ export * from "./organizacion/actualizaciones.js";
 export * from "./organizacion/central.js";
 export * from "./organizacion/api-publica.js";
 export * from "./organizacion/socios.js";
+export * from "./organizacion/secretos.js";
 
 // Fiscal (CFDI 4.0)
 export * from "./fiscal/claves.js";
@@ -106,6 +108,7 @@ export * from "./fiscal/cadena.js";
 export * from "./fiscal/xml.js";
 export * from "./fiscal/validacion.js";
 export * from "./fiscal/eventos.js";
+export * from "./fiscal/global.js";
 export * from "./fiscal/importe-letra.js";
 export * from "./fiscal/representacion.js";
 

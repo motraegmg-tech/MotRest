@@ -17,6 +17,27 @@
   import EditarLocal from "./EditarLocal.svelte";
   import Vencimiento from "./Vencimiento.svelte";
   import Cobros from "./Cobros.svelte";
+  import Facturacion from "./Facturacion.svelte";
+
+  /*
+   * La ficha tiene dos pestañas y no una página más larga: la facturación se
+   * configura con el restaurantero al teléfono, paso a paso, y mezclada con los
+   * cobros y el equipo del local se perdía entre cosas que no vienen al caso. La
+   * pestaña elegida se conserva al cambiar de local, porque lo normal es dejar
+   * la facturación lista en varios seguidos.
+   */
+  let pestana = $state<"ficha" | "facturacion">("ficha");
+
+  /** ¿Algo de su facturación o su correo está en rojo? Se marca en la pestaña. */
+  function facturacionConProblema(id: string): boolean {
+    const estado = central.secretosDe(id).estado;
+    return Boolean(
+      central.filaSecretoDe(id, "facturapi")?.ultimo_error ||
+        central.filaSecretoDe(id, "gmail")?.ultimo_error ||
+        estado?.facturapi.error ||
+        estado?.gmail.error,
+    );
+  }
 
   // `let` y no `const`: es un prop enlazado y esta pantalla lo reasigna al
   // elegir un local o al terminar un alta.
@@ -328,6 +349,29 @@
         </div>
       {/if}
 
+      <div class="pestanas" role="tablist">
+        <button
+          role="tab"
+          aria-selected={pestana === "ficha"}
+          class:on={pestana === "ficha"}
+          onclick={() => (pestana = "ficha")}
+        >
+          Ficha
+        </button>
+        <button
+          role="tab"
+          aria-selected={pestana === "facturacion"}
+          class:on={pestana === "facturacion"}
+          onclick={() => (pestana = "facturacion")}
+        >
+          Facturación y correo
+          {#if facturacionConProblema(cliente.id)}<b class="marca" title="Hay algo en rojo">!</b>{/if}
+        </button>
+      </div>
+
+      {#if pestana === "facturacion"}
+        <Facturacion {cliente} />
+      {:else}
       <div class="datos">
         <div>
           <span>Cobro</span>
@@ -536,6 +580,7 @@
           </button>
         {/if}
       </div>
+      {/if}
     {/if}
   </div>
 </main>
@@ -881,6 +926,44 @@
     max-height: 12rem;
     overflow: auto;
     background: var(--blanco);
+  }
+  .pestanas {
+    display: flex;
+    gap: 0.25rem;
+    border-bottom: 1px solid var(--borde);
+    margin-bottom: 1.1rem;
+  }
+  .pestanas button {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    font: inherit;
+    font-size: 0.86rem;
+    font-weight: 600;
+    padding: 0.5rem 0.9rem;
+    border: none;
+    border-bottom: 3px solid transparent;
+    margin-bottom: -1px;
+    background: none;
+    color: var(--gris);
+    cursor: pointer;
+  }
+  .pestanas button:hover {
+    color: var(--pizarra);
+  }
+  .pestanas button.on {
+    color: var(--pizarra);
+    border-bottom-color: var(--acento);
+  }
+  .marca {
+    display: inline-grid;
+    place-items: center;
+    width: 1.05rem;
+    height: 1.05rem;
+    border-radius: 50%;
+    background: var(--peligro);
+    color: var(--blanco);
+    font-size: 0.66rem;
   }
   .datos {
     display: grid;

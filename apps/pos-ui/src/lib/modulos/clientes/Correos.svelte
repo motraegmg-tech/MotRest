@@ -27,7 +27,9 @@
    */
   import {
     esCuentaGmail,
+    normalizarContrasenaGmail,
     problemasDeRemitente,
+    puedeGuardarSecretos,
     remitenteGmail,
     type TipoCorreo,
   } from "@motrest/dominio";
@@ -38,6 +40,7 @@
   } from "../../correo.svelte";
   import { PARA_DE_EJEMPLO, datosDeEjemplo } from "../../correos-del-comensal";
   import { sesion } from "../../sesion/sesion.svelte";
+  import { sync } from "../../sync.svelte";
   import VistaPreviaCorreo from "../../VistaPreviaCorreo.svelte";
 
   /*
@@ -121,6 +124,43 @@
     guardadoRemitente = r.ok;
   }
 
+  // --- La contraseña de aplicación (1.5.5) -------------------------------------------
+  /*
+   * Antes no tenía DÓNDE capturarse: el Hub la leía de una variable de entorno
+   * y la pantalla decía «la instala soporte contigo». Ahora llega por dos
+   * caminos, los mismos que la llave de FacturAPI: desde Central, cifrada para
+   * este Hub, o aquí —solo el responsable del restaurante o el soporte de
+   * MOTRAE, por rol—. Va directo al Hub y esta pantalla no la guarda: de vuelta
+   * solo llegan sus cuatro últimas letras.
+   */
+  const puedeLlave = $derived(puedeGuardarSecretos(sesion.usuarioActual));
+  const gmail = $derived(sync.secretos?.gmail ?? null);
+  let contrasenaApp = $state("");
+  let cambiandoLlave = $state(false);
+  const contrasenaNormal = $derived(normalizarContrasenaGmail(contrasenaApp));
+
+  $effect(() => {
+    const id = sesion.usuarioActual?.id;
+    if (sync.estado === "sincronizado" && id) sync.consultarSecretos(id);
+  });
+  // Se cierra el formulario cuando el Hub confirma que la guardó.
+  $effect(() => {
+    if (cambiandoLlave && sync.resultadoSecreto?.ok) cambiandoLlave = false;
+  });
+
+  function guardarContrasena() {
+    const id = sesion.usuarioActual?.id;
+    if (!contrasenaNormal || !id) return;
+    sync.guardarSecreto({
+      empleadoId: id,
+      clase: "gmail",
+      valor: contrasenaNormal,
+      remitente: direccionDe(cuenta) || undefined,
+    });
+    // Sale de la pantalla en cuanto se manda.
+    contrasenaApp = "";
+  }
+
   // --- Enlace de la encuesta ---------------------------------------------------------
 
   let enlace = $state(correo.config.enlace_encuesta ?? "");
@@ -188,6 +228,11 @@
       <p class="alerta" role="alert">
         Falta la cuenta desde la que salen. Mientras no esté, <b>no se manda ningún correo</b>.
       </p>
+    {:else if gmail && !gmail.configurada}
+      <p class="alerta" role="alert">
+        Falta la <b>contraseña de aplicación</b> de la cuenta. Mientras no esté en el
+        Hub, <b>no se manda ningún correo</b>.
+      </p>
     {/if}
 
     <section class="tarjeta bloque">
@@ -228,9 +273,9 @@
           No es la contraseña de siempre de la cuenta.
         </p>
         <p>
-          Esa contraseña no se escribe en esta pantalla: es la llave para mandar
-          correo en nombre del restaurante y se guarda solo en el Hub del local,
-          no en las tabletas del salón. Soporte de MOTRAE la instala contigo.
+          Esa contraseña es la llave para mandar correo en nombre del restaurante:
+          se guarda solo en el Hub del local, nunca en las tabletas. La instala
+          MOTRAE desde Central, o el responsable del restaurante aquí abajo.
         </p>
         <p>El teléfono aparece como botón «Llamar al restaurante» en cada correo.</p>
       </div>
@@ -251,6 +296,63 @@
           restaurante, que tiene que estar dado de alta con MOTRAE.
         </p>
       {/if}
+
+      <div class="llave-gmail">
+        <h3>Contraseña de aplicación</h3>
+        {#if gmail?.configurada && !cambiandoLlave}
+          <p class="estado-llave">
+            Instalada en el Hub · termina en <b>…{gmail.termina_en ?? "????"}</b> ·
+            la puso {gmail.origen === "local" ? "el responsable, desde la caja" : "MOTRAE, desde Central"}
+          </p>
+          {#if gmail.error}<p class="error" role="alert">{gmail.error}</p>{/if}
+          {#if puedeLlave}
+            <button
+              class="mini"
+              onclick={() => {
+                sync.resultadoSecreto = null;
+                cambiandoLlave = true;
+              }}
+            >
+              Cambiarla
+            </button>
+          {/if}
+        {:else if puedeLlave}
+          <label>
+            <span>Las 16 letras que da Google</span>
+            <input
+              type="password"
+              bind:value={contrasenaApp}
+              placeholder="abcd efgh ijkl mnop"
+              autocomplete="off"
+              spellcheck="false"
+            />
+          </label>
+          {#if contrasenaApp.trim() && !contrasenaNormal}
+            <p class="error">Son 16 letras, sin números; Google las enseña en cuatro grupos de cuatro.</p>
+          {/if}
+          {#if sync.resultadoSecreto && !sync.resultadoSecreto.ok}
+            <p class="error" role="alert">{sync.resultadoSecreto.problema}</p>
+          {/if}
+          <div class="acciones">
+            {#if cambiandoLlave}
+              <button class="mini" onclick={() => (cambiandoLlave = false)}>Cancelar</button>
+            {/if}
+            <button
+              class="principal"
+              disabled={!contrasenaNormal || sync.guardandoSecreto}
+              onclick={guardarContrasena}
+            >
+              {sync.guardandoSecreto ? "Enviando al Hub…" : "Guardar en el Hub"}
+            </button>
+          </div>
+        {:else}
+          <p class="nota">
+            {gmail
+              ? "Todavía no está instalada. La instala MOTRAE desde Central, o el responsable del restaurante desde esta pantalla."
+              : "Conecta esta terminal al Hub del local para ver si está instalada."}
+          </p>
+        {/if}
+      </div>
 
       {#if avisoRemitente}<p class="error" role="alert">{avisoRemitente}</p>{/if}
       {#if puedeEditar}
@@ -392,6 +494,30 @@
 {/if}
 
 <style>
+  /* --- La contraseña de aplicación --- */
+  .llave-gmail {
+    margin-top: 1rem;
+    padding: 0.85rem 1rem;
+    border: 1px dashed var(--borde);
+    border-radius: var(--r-md, 10px);
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+  }
+  .llave-gmail h3 {
+    font-size: 0.92rem;
+    font-weight: 650;
+  }
+  .llave-gmail label {
+    display: flex;
+    flex-direction: column;
+    gap: 0.3rem;
+    max-width: 22rem;
+  }
+  .estado-llave {
+    font-size: 0.85rem;
+    color: var(--pizarra);
+  }
   .seccion {
     flex: 1;
     padding: 1.5rem 1.75rem;

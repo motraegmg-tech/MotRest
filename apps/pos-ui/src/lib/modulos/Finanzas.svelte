@@ -22,7 +22,7 @@
   import { sync } from "../sync.svelte";
   import Caja from "./finanzas/Caja.svelte";
   import CortePorFechas from "./finanzas/CortePorFechas.svelte";
-  import Csd from "./finanzas/Csd.svelte";
+  import FacturacionElectronica from "./finanzas/FacturacionElectronica.svelte";
   import Resultado from "./finanzas/Resultado.svelte";
   import TicketsCobrados from "./finanzas/TicketsCobrados.svelte";
   import VentasPorDia from "./finanzas/VentasPorDia.svelte";
@@ -235,12 +235,12 @@
   </section>
 
   <!--
-    El CSD va DESPUÉS de los datos fiscales y no antes: el certificado se coteja
-    contra el RFC del emisor, así que ese dato tiene que existir primero.
+    FacturAPI (1.5.5) sustituye a la tarjeta del CSD: el certificado vive en su
+    panel y aquí se conecta la llave. Va siempre, sin esperar a los datos
+    fiscales: MOTRAE puede dejar el local conectado antes de que el
+    restaurantero capture su constancia.
   -->
-  {#if fiscal.emisorCompleto}
-    <Csd rfcEmisor={fiscal.emisor.rfc} />
-  {/if}
+  <FacturacionElectronica />
 
   <!-- Comprobantes -->
   <section class="tarjeta">

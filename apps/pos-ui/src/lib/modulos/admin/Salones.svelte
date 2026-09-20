@@ -24,6 +24,7 @@
   import { rutas } from "../../nav/rutas.svelte";
   import { plano } from "../../plano.svelte";
   import { sesion } from "../../sesion/sesion.svelte";
+  import { revelar } from "../../subir";
 
   const puedeEditar = $derived(sesion.puedeOperar("cat.area.editar"));
 
@@ -323,7 +324,9 @@
     <!-- Mesa seleccionada -->
     {#if mesaSeleccionada && puedeEditar}
       {@const m = mesaSeleccionada}
-      <div class="detalle">
+      <!-- Se abre bajo el plano: con un salón grande queda fuera de cuadro. Se
+           baja hasta él, y otra vez al tocar otra mesa con el panel abierto. -->
+      <div class="detalle" use:revelar={m.id}>
         <span class="grupo">
           <b>Mesa {m.nombre}</b>
           <button

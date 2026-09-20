@@ -27,6 +27,44 @@
   let trabajandoCofre = $state(false);
   let entradaCofre = $state<HTMLInputElement>();
 
+  /*
+   * La llave de USUARIO de FacturAPI. Se pega una vez y sirve para toda la
+   * cartera: con ella Central lista las organizaciones y saca la llave de cada
+   * restaurante al enviársela. El campo nunca se rellena con la guardada —no se
+   * puede leer desde aquí—; vacío quiere decir «dejar la que hay».
+   */
+  let llaveFacturapi = $state("");
+  let avisoFacturapi = $state("");
+  let errorFacturapi = $state("");
+  let probandoFacturapi = $state(false);
+
+  async function guardarFacturapi(llave: string) {
+    avisoFacturapi = errorFacturapi = "";
+    const r = await central.guardarLlaveFacturapi(llave);
+    if (!r.ok) {
+      errorFacturapi = r.error;
+      return;
+    }
+    llaveFacturapi = "";
+    avisoFacturapi = llave.trim()
+      ? "Guardada en el almacén protegido de esta máquina. Pruébala con «Probar conexión»."
+      : "Quitada. Central ya no podrá sacar llaves de FacturAPI hasta que pegues otra.";
+  }
+
+  /** Lo único que demuestra que la llave sirve es pedirle algo a FacturAPI. */
+  async function probarFacturapi() {
+    avisoFacturapi = errorFacturapi = "";
+    probandoFacturapi = true;
+    const r = await central.listarOrganizaciones();
+    probandoFacturapi = false;
+    if (!r.ok) {
+      errorFacturapi = r.error;
+      return;
+    }
+    const n = r.organizaciones.length;
+    avisoFacturapi = `Conectada: tu cuenta de FacturAPI tiene ${n} ${n === 1 ? "organización" : "organizaciones"}.`;
+  }
+
   const soportePendiente = $derived(central.localesConSoportePendiente);
 
   const tieneLicencias = $derived(central.secretos.licencias !== undefined);
@@ -375,6 +413,53 @@
 
   {#if error}<p class="error">{error}</p>{/if}
   {#if guardado}<p class="ok">{guardado}</p>{/if}
+
+  <h2>FacturAPI (facturación de los restaurantes)</h2>
+  <p class="explica">
+    Es la llave de tu <b>cuenta</b> de FacturAPI, la que empieza por <code>sk_user_</code>. Con
+    ella Central enseña la lista de organizaciones y le saca a cada restaurante su propia llave
+    al enviársela. <b>Nunca viaja a un restaurante</b>: se guarda cifrada en esta máquina y solo
+    la usa Central.
+  </p>
+  {#if central.secretos.facturapi}
+    <p class="estado-ok">Guardada · termina en …{central.secretos.facturapi.termina_en}</p>
+  {:else}
+    <p class="estado-falta">
+      Sin llave: no podrás elegir la organización de ningún restaurante ni enviarles la suya.
+    </p>
+  {/if}
+  <label>
+    Llave de usuario de FacturAPI
+    <input
+      type="password"
+      bind:value={llaveFacturapi}
+      spellcheck="false"
+      autocomplete="off"
+      placeholder={central.secretos.facturapi ? "Guardada (escriba para cambiar)" : "sk_user_…"}
+    />
+    <small>
+      Está en el panel de FacturAPI, en la configuración de tu cuenta (no en la de una
+      organización). Abre las
+      organizaciones de todos los restaurantes: trátala como la llave de servicio de la nube.
+    </small>
+  </label>
+  {#if errorFacturapi}<p class="error">{errorFacturapi}</p>{/if}
+  {#if avisoFacturapi}<p class="ok bloque">{avisoFacturapi}</p>{/if}
+  <div class="acciones">
+    <button
+      class="primario"
+      disabled={!puedeEditarSecretos || !llaveFacturapi.trim()}
+      onclick={() => guardarFacturapi(llaveFacturapi)}
+    >
+      Guardar llave de FacturAPI
+    </button>
+    {#if central.secretos.facturapi}
+      <button disabled={probandoFacturapi} onclick={probarFacturapi}>
+        {probandoFacturapi ? "Probando…" : "Probar conexión"}
+      </button>
+      <button disabled={!puedeEditarSecretos} onclick={() => guardarFacturapi("")}>Quitar</button>
+    {/if}
+  </div>
 
   <h2>Mi acceso a los restaurantes</h2>
   <p class="explica">

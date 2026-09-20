@@ -33,6 +33,7 @@
   import { rutas } from "../nav/rutas.svelte";
   import { reservas } from "../reservas.svelte";
   import { sesion } from "../sesion/sesion.svelte";
+  import { subirAlPrincipio } from "../subir";
 
   const puedeEditar = $derived(sesion.puedeOperar("crm.cliente.editar"));
 
@@ -245,6 +246,24 @@
   function abrirCorreo(c: Cliente) {
     paraId = c.cliente_id;
     elegido = null;
+  }
+
+  /*
+   * EL CORREO ELEGIDO SE ABRE DESDE ARRIBA DEL DIÁLOGO.
+   *
+   * La lista de los seis correos, más los últimos enviados, no cabe entera en
+   * la pantalla de la caja, y los dos que piden escribir un mensaje —el cupón y
+   * «te extrañamos»— son justo los últimos. Al elegir uno, su vista previa
+   * sustituía a la lista pero el diálogo se quedaba desplazado: se aterrizaba a
+   * media vista previa, con el campo del mensaje —que es obligatorio— fuera de
+   * cuadro. Y al volver a la lista desde el pie de la vista previa, lo mismo al
+   * revés. Ver `subir.ts`.
+   */
+  let panelCorreo = $state<HTMLDivElement | null>(null);
+
+  function elegirCorreo(tipo: TipoCorreo | null) {
+    elegido = tipo;
+    subirAlPrincipio(panelCorreo);
   }
 
   function cerrarCorreo() {
@@ -490,7 +509,13 @@
 
 {#if destinatario && puedeEditar}
   <div class="velo" role="presentation" onclick={cerrarCorreo}></div>
-  <div class="panel ancho" role="dialog" aria-modal="true" aria-label="Mandar un correo">
+  <div
+    class="panel ancho"
+    role="dialog"
+    aria-modal="true"
+    aria-label="Mandar un correo"
+    bind:this={panelCorreo}
+  >
     <header>
       <h2>
         {elegido ? etiquetaCorreo(elegido) : `Mandar un correo a ${destinatario.nombre}`}
@@ -511,7 +536,7 @@
         datos={datosElegido}
         clienteId={destinatario.cliente_id}
         aceptaMarketing={!!destinatario.acepta_promociones}
-        onvolver={() => (elegido = null)}
+        onvolver={() => elegirCorreo(null)}
         oncerrar={cerrarCorreo}
       />
     {:else}
@@ -530,7 +555,7 @@
       <ul class="opciones">
         {#each opciones as o (o.def.tipo)}
           <li>
-            <button class="opcion" disabled={!o.puede} onclick={() => (elegido = o.def.tipo)}>
+            <button class="opcion" disabled={!o.puede} onclick={() => elegirCorreo(o.def.tipo)}>
               <span class="nombre-correo">
                 {o.def.etiqueta}
                 {#if o.def.clase === "marketing"}<span class="chip">Publicidad</span>{/if}

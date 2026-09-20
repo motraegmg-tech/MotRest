@@ -1413,6 +1413,115 @@ class TiendaPOS {
   }
 
   /**
+   * Deja la cortesía de la cuenta EXACTAMENTE como se eligió en la ventana
+   * «¿Qué se regala?»: toda la cuenta, o unos renglones y cuántas piezas de
+   * cada uno. Pedido de Gonzalo (sep-2026), para llevar mejor la cuenta de qué
+   * se puede regalar y qué no.
+   *
+   * Calcula la diferencia con lo que ya está puesto y emite solo eso: retirar
+   * lo que se desmarcó y otorgar lo nuevo. Así volver a abrir la ventana y
+   * pulsar «Aplicar» sin tocar nada no ensucia la bitácora con cortesías
+   * repetidas.
+   *
+   * UNA sola autorización para todo lo que se otorga. Pedir la firma del
+   * gerente una vez por platillo convertiría regalar el postre y el café en dos
+   * viajes a buscarlo. Retirar no la pide, por la misma razón que
+   * `retirarCortesia`: sube la cuenta.
+   *
+   * Devuelve false si no se autorizó; en ese caso no se toca NADA, tampoco lo
+   * que se iba a retirar: la ventana se aplica entera o no se aplica.
+   */
+  async fijarCortesias(
+    eleccion: { toda: true } | { toda: false; renglones: readonly { renglon_id: ID; cantidad: number }[] },
+    motivo: string,
+  ): Promise<boolean> {
+    const orden_id = this.ordenActiva(this.mesaActiva);
+    const comanda = this.comanda;
+    if (!orden_id || !comanda) return false;
+
+    const puestas = comanda.cortesias;
+    const activos = new Map(this.renglones.map((r) => [r.id, r]));
+    const aRetirar: (ID | undefined)[] = [];
+    const aOtorgar: { renglon_id?: ID; cantidad?: number }[] = [];
+
+    if (eleccion.toda) {
+      for (const c of puestas) if (c.renglon_id) aRetirar.push(c.renglon_id);
+      if (!puestas.some((c) => !c.renglon_id)) aOtorgar.push({});
+    } else {
+      if (puestas.some((c) => !c.renglon_id)) aRetirar.push(undefined);
+      const elegidos = new Map<ID, number>();
+      for (const { renglon_id, cantidad } of eleccion.renglones) {
+        const renglon = activos.get(renglon_id);
+        if (!renglon || cantidad <= 0) continue;
+        elegidos.set(renglon_id, Math.min(Math.floor(cantidad), renglon.cantidad));
+      }
+      for (const c of puestas) {
+        if (c.renglon_id && !elegidos.has(c.renglon_id)) aRetirar.push(c.renglon_id);
+      }
+      for (const [renglon_id, cantidad] of elegidos) {
+        const renglon = activos.get(renglon_id)!;
+        // Todas las piezas = el renglón entero, sin `cantidad`: si luego se
+        // agregan más al renglón, lo regalado era «el renglón», no «tres».
+        const entera = cantidad >= renglon.cantidad;
+        const previa = puestas.find((c) => c.renglon_id === renglon_id);
+        const previaEntera = previa && (previa.cantidad === undefined || previa.cantidad >= renglon.cantidad);
+        if (previa && (entera ? previaEntera : previa.cantidad === cantidad)) continue;
+        aOtorgar.push(entera ? { renglon_id } : { renglon_id, cantidad });
+      }
+    }
+
+    if (aRetirar.length === 0 && aOtorgar.length === 0) return true;
+
+    let autorizador_id = sesion.usuarioActual?.id;
+    if (aOtorgar.length > 0) {
+      const contexto = eleccion.toda
+        ? `cuenta completa · mesa ${this.nombreMesaActiva}`
+        : aOtorgar
+            .map((o) => {
+              const r = activos.get(o.renglon_id!);
+              return o.cantidad ? `${o.cantidad} de ${r?.cantidad} ${r?.descripcion}` : r?.descripcion;
+            })
+            .join(", ");
+      const permiso = await autorizacion.solicitar("pos.cortesia.otorgar", undefined, contexto);
+      if (!permiso.ok) return false;
+      autorizador_id = permiso.autorizador_id ?? autorizador_id;
+    }
+
+    this.sincronizarActor();
+    for (const renglon_id of aRetirar) {
+      this.emitir(
+        this.mesaActiva,
+        fabrica.crear("cortesia_retirada", orden_id, {
+          orden_id,
+          renglon_id,
+          autorizador_id: sesion.usuarioActual?.id,
+        }),
+      );
+    }
+    for (const otorgada of aOtorgar) {
+      this.emitir(
+        this.mesaActiva,
+        fabrica.crear("cortesia_otorgada", orden_id, {
+          orden_id,
+          ...otorgada,
+          motivo,
+          autorizador_id,
+        }),
+      );
+    }
+
+    const quedan = this.comanda?.cortesias ?? [];
+    this.flash(
+      quedan.length === 0
+        ? "Cortesía retirada"
+        : quedan.some((c) => !c.renglon_id)
+          ? "Cortesía de toda la cuenta"
+          : `Cortesía en ${quedan.length} ${quedan.length === 1 ? "producto" : "productos"}`,
+    );
+    return true;
+  }
+
+  /**
    * Vuelve a abrir una cuenta ya cobrada.
    *
    * Pasa en cualquier servicio: se cobró de más, el cliente quiere agregar algo

@@ -17,6 +17,7 @@
   } from "@motrest/dominio";
   import { clientes } from "./clientes.svelte";
   import { fiscal } from "./fiscal.svelte";
+  import { sync } from "./sync.svelte";
 
   interface Props {
     comanda: EstadoComanda;
@@ -31,6 +32,18 @@
     codigo_postal: "",
     uso_cfdi: "G03",
   });
+  /** A dónde le manda FacturAPI su factura. Opcional; se llena desde la ficha. */
+  let correoCliente = $state("");
+  /*
+   * Con FacturAPI el local emite factura GLOBAL mensual: lo que no se factura a
+   * nombre de alguien entra ahí solo. Cambia dos cosas de esta ventana: no se
+   * ofrece «Público en general» —en CFDI 4.0 esa factura sin los datos de la
+   * global la rechaza el SAT, y además saldría dos veces— y un ticket de un mes
+   * ya cerrado no se puede facturar aquí.
+   */
+  const conGlobal = $derived(
+    !!(sync.secretos?.facturapi.configurada ?? sync.fiscal?.facturapi?.configurada),
+  );
   let error = $state("");
   let problemas = $state<string[]>([]);
   let emitido = $state<{ serie: string; folio: string } | null>(null);
@@ -39,10 +52,25 @@
   const guardados = $derived(clientes.conFiscal);
   let clienteId = $state("");
 
+  /*
+   * TODO EN MAYÚSCULAS, mientras se teclea (pedido de Gonzalo, sep-2026).
+   *
+   * El SAT compara el nombre con la Constancia de Situación Fiscal, donde
+   * SIEMPRE está en mayúsculas, y rechaza el CFDI si no coincide. Corregirlo al
+   * guardar no basta: quien lo teclea tiene que VER cómo va a quedar, o dicta
+   * «Juan Pérez» por teléfono y jura que lo escribió bien.
+   */
+  function enMayusculas(e: Event & { currentTarget: HTMLInputElement }): string {
+    const valor = e.currentTarget.value.toLocaleUpperCase("es-MX");
+    e.currentTarget.value = valor;
+    return valor;
+  }
+
   function prellenar(id: string) {
     clienteId = id;
     const c: Cliente | undefined = guardados.find((x) => x.cliente_id === id);
     if (c?.fiscal) receptor = { ...c.fiscal };
+    if (c?.correo) correoCliente = c.correo;
   }
 
   function emitir(datos: DatosReceptor) {
@@ -57,7 +85,11 @@
       }
     }
 
-    const r = fiscal.facturar(comanda, { ...datos, rfc: datos.rfc.trim().toUpperCase() });
+    const r = fiscal.facturar(
+      comanda,
+      { ...datos, rfc: datos.rfc.trim().toUpperCase() },
+      { correo: correoCliente, conGlobal },
+    );
     if (!r.ok) {
       error = r.error ?? "No se pudo emitir el comprobante";
       problemas = (r.problemas ?? []).map((p) => p.mensaje);
@@ -74,8 +106,14 @@
       <p class="folio">{emitido.serie}-{emitido.folio}</p>
       <h2>Comprobante generado</h2>
       <p class="nota">
-        Quedó guardado y en cola. Se timbrará ante el SAT en cuanto haya un PAC
-        conectado; lo puedes seguir en Finanzas.
+        {#if conGlobal}
+          Quedó guardado y en cola: se timbra con FacturAPI en cuanto haya conexión.
+          {#if correoCliente.trim()}Le llegará por correo a <b>{correoCliente.trim()}</b>.{/if}
+          Lo puedes seguir en Finanzas.
+        {:else}
+          Quedó guardado y en cola. Se timbrará ante el SAT en cuanto haya un PAC
+          conectado; lo puedes seguir en Finanzas.
+        {/if}
       </p>
       <button class="principal" onclick={onCerrar}>Cerrar</button>
     </div>
@@ -105,11 +143,24 @@
       <div class="campos">
         <label>
           <span>RFC del cliente</span>
-          <input bind:value={receptor.rfc} placeholder="GODE561231GR8" maxlength="13" />
+          <input
+            value={receptor.rfc}
+            oninput={(e) => (receptor.rfc = enMayusculas(e))}
+            placeholder="GODE561231GR8"
+            maxlength="13"
+            autocapitalize="characters"
+            spellcheck="false"
+          />
         </label>
         <label class="ancho">
           <span>Nombre o razón social (exacto, como en su constancia)</span>
-          <input bind:value={receptor.nombre} placeholder="JUAN PEREZ LOPEZ" />
+          <input
+            value={receptor.nombre}
+            oninput={(e) => (receptor.nombre = enMayusculas(e))}
+            placeholder="JUAN PEREZ LOPEZ"
+            autocapitalize="characters"
+            spellcheck="false"
+          />
         </label>
         <label>
           <span>Código postal</span>
@@ -122,6 +173,10 @@
               <option value={r.clave}>{r.clave} · {r.descripcion}</option>
             {/each}
           </select>
+        </label>
+        <label class="ancho">
+          <span>Correo para mandarle la factura (opcional)</span>
+          <input type="email" bind:value={correoCliente} placeholder="cliente@correo.com" autocomplete="off" />
         </label>
         <label class="ancho">
           <span>Uso del CFDI</span>
@@ -143,10 +198,19 @@
         <p class="error">{problema}</p>
       {/each}
 
+      {#if conGlobal}
+        <p class="advertencia">
+          ¿El cliente no quiere factura a su nombre? No hace falta emitir nada: su
+          ticket entra solo en la <b>factura global</b> del mes.
+        </p>
+      {/if}
+
       <div class="botones">
-        <button class="secundario" onclick={() => emitir({ ...RECEPTOR_PUBLICO_GENERAL })}>
-          Público en general
-        </button>
+        {#if !conGlobal}
+          <button class="secundario" onclick={() => emitir({ ...RECEPTOR_PUBLICO_GENERAL })}>
+            Público en general
+          </button>
+        {/if}
         <button class="principal" onclick={() => emitir(receptor)}>Emitir factura</button>
       </div>
     {/if}

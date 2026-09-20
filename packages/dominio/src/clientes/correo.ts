@@ -43,7 +43,7 @@ export type TipoCorreo =
   | "reserva_recordatorio"
   /** "¿Cómo estuvo todo?", con el enlace a su encuesta. */
   | "encuesta"
-  /** "Gracias por su visita", con su consumo. */
+  /** "Gracias por su visita", con la invitación a volver. */
   | "gracias"
   /** Cupones y promociones. */
   | "cupon"
@@ -92,7 +92,7 @@ export const CATALOGO_CORREOS: DefinicionCorreo[] = [
   {
     tipo: "gracias",
     etiqueta: "Gracias por su visita",
-    descripcion: "Un agradecimiento con el detalle de su consumo.",
+    descripcion: "Un agradecimiento por su visita, con la invitación a volver.",
     clase: "transaccional",
     cuando: "Después de cobrarle",
     asuntoPorDefecto: "Gracias por su visita a {{local}}",
@@ -295,6 +295,21 @@ export interface ConfiguracionCorreo {
   activos: Partial<Record<TipoCorreo, boolean>>;
   /** Asuntos que el restaurante quiso cambiar. */
   asuntos?: Partial<Record<TipoCorreo, string>>;
+  /**
+   * VERSIÓN Y FECHA, para que la configuración viaje como catálogo.
+   *
+   * Faltaban, y por eso la configuración no llegaba a ninguna parte: se guardaba
+   * en el disco de la terminal donde se capturaba y ahí se quedaba. El Hub —que
+   * es quien manda los correos— seguía con la que tuviera al arrancar, y las demás
+   * tabletas decían «el restaurante todavía no configuró su remitente». El Hub
+   * rechaza cualquier catálogo sin versión numérica, así que sin estos dos campos
+   * ni siquiera se podía intentar.
+   *
+   * Opcionales porque las configuraciones guardadas antes no los traen: se leen
+   * como versión 0 y cualquier cambio posterior las supera.
+   */
+  version?: number;
+  updated_at?: number;
 }
 
 /**
@@ -331,7 +346,8 @@ export function remitenteCompartido(local: string): string {
  * nada y lo que el restaurante ya tiene.
  *
  * No se rellena el remitente porque nadie puede adivinar cuál es su cuenta: se
- * captura en «Mensajes para el cliente» junto con su contraseña de aplicación, y
+ * captura en «Clientes → Correos al comensal»; la contraseña de aplicación la
+ * instala el soporte de MOTRAE en el Hub, y
  * son dos campos. Es el alta más corta posible sin comprar nada ni tocar un DNS.
  */
 export function configuracionVacia(local = ""): ConfiguracionCorreo {

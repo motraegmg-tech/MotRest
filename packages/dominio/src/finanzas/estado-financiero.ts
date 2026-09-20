@@ -29,11 +29,19 @@
  * Un mes puede cerrar con utilidad y con menos dinero que al empezar (se
  * surtió la despensa), o al revés (se cobró de un mes anterior). Enseñar un
  * solo número obligaría a elegir cuál de las dos verdades ocultar.
+ *
+ * ## Y por qué el resultado trae DOS utilidades
+ *
+ * Desde sep-2026 el bloque del resultado enseña la **utilidad contable** (los
+ * insumos pesan al venderse) y la **utilidad en efectivo** (pesan al comprarse).
+ * Las dos salen de `calcularResultado`, la misma función del resultado del día,
+ * así que el mes y el día nunca pueden decir cosas distintas. Ver `egresos.ts`.
  */
 import { sumar, type Centavos } from "../comun/dinero.js";
 import type { ID } from "../comun/ids.js";
 import type { EstadoComanda } from "../comanda/reducers.js";
 import type { RegistroCfdi } from "../fiscal/eventos.js";
+import type { FacturaGlobalRegistrada } from "../fiscal/global.js";
 import type { EstadoCaja } from "../caja/reducers.js";
 import { cuentasCerradasEn, resumenVentas } from "../inteligencia/reportes.js";
 import { reporteContable, type ReporteContable } from "./contador.js";
@@ -92,7 +100,10 @@ export interface EstadoFinanciero {
   gastos: BloqueGastos[];
   total_gastos: Centavos;
 
-  /** Ingreso − costo − gastos operativos. La utilidad. */
+  /**
+   * Las dos utilidades del mes: la contable (`resultado.resultado`) y la de
+   * efectivo (`resultado.utilidad_efectivo`).
+   */
   resultado: ResultadoPeriodo;
 
   /** Cuánto dinero entró y salió, y con cuánto se cerró el mes. */
@@ -137,6 +148,12 @@ export interface FuentesEstadoFinanciero {
   comandas: readonly EstadoComanda[];
   egresos: readonly RegistroEgreso[];
   cfdis: readonly RegistroCfdi[];
+  /**
+   * Las facturas globales del registro (`facturasGlobales`). Sin ellas, lo que
+   * ya entró en una global aparecería como «venta sin facturar». Opcional para
+   * no romper a quien todavía no las pasa.
+   */
+  globales?: readonly FacturaGlobalRegistrada[];
   sesiones: readonly EstadoCaja[];
   tesoreria: readonly EventoTesoreria[];
   /**
@@ -165,6 +182,30 @@ function turnosDelPeriodo(
   return sesiones.filter((s) => s.abierta_ts >= desde && s.abierta_ts < hasta);
 }
 
+/**
+ * El resultado de un período —las dos utilidades— desde los hechos crudos.
+ *
+ * Existe aparte para que la pantalla del mes y el PDF usen ESTA función y no
+ * una copia: si el informe y la pantalla armaran la cuenta cada uno a su modo,
+ * el día que discreparan no habría forma de saber cuál miente. Es la misma
+ * composición que el resultado del día —cuentas cerradas del rango, resumidas
+ * por `resumenVentas`, contra los gastos incurridos en el rango—, así que día,
+ * mes y papel dan la misma cifra con los mismos hechos.
+ *
+ * No necesita migración: los gastos capturados antes de que existiera la
+ * utilidad en efectivo entran solos, porque la cifra se deriva al leer.
+ */
+export function resultadoDelPeriodo(
+  comandas: readonly EstadoComanda[],
+  egresos: readonly RegistroEgreso[],
+  rango: { desde: number; hasta: number },
+): ResultadoPeriodo {
+  return calcularResultado(
+    resumenVentas(cuentasCerradasEn(comandas, rango)),
+    egresosEn(egresos, rango),
+  );
+}
+
 export function armarEstadoFinanciero(
   fuentes: FuentesEstadoFinanciero,
   rango: { desde: number; hasta: number },
@@ -173,7 +214,7 @@ export function armarEstadoFinanciero(
   const cerradas = cuentasCerradasEn(fuentes.comandas, rango);
   const delMes = egresosEn(fuentes.egresos, rango);
 
-  const ventas = reporteContable(cerradas, fuentes.cfdis, delMes, rango);
+  const ventas = reporteContable(cerradas, fuentes.cfdis, delMes, rango, fuentes.globales ?? []);
 
   const gastos: BloqueGastos[] = CATEGORIAS_EGRESO.map((def) => {
     const suyos = delMes.filter((e) => e.categoria === def.id);
@@ -198,9 +239,10 @@ export function armarEstadoFinanciero(
    * El costo sale de `resumenVentas`, la MISMA función que usa la pantalla del
    * resultado diario. Recalcularlo aquí con otra aritmética garantizaría que
    * algún día el informe del mes y la pantalla del día dijeran cosas distintas,
-   * sin forma de saber cuál miente.
+   * sin forma de saber cuál miente. Por eso pasa por `resultadoDelPeriodo`, que
+   * es también lo que enseña la pantalla del mes.
    */
-  const resultado = calcularResultado(resumenVentas(cerradas), delMes);
+  const resultado = resultadoDelPeriodo(fuentes.comandas, fuentes.egresos, rango);
 
   const flujo = resumenDeFlujo(
     {

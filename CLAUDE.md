@@ -24,6 +24,7 @@
 - Ramas: `feature/…`, `fix/…`, `docs/…`. Nunca commitear directo a `main`.
 - Secretos y llaves: **nunca** al repo (usar variables de entorno).
 - Entregables finales van en `entregables/` y luego a Drive.
+- **Regla de construcción de interfaz (Gonzalo, sep-2026):** todo botón o toque cuyo resultado aparezca fuera de cuadro —arriba o abajo— lleva la vista hasta lo que se abrió. Se usan las utilidades de `apps/pos-ui/src/lib/subir.ts` (`subirAlPrincipio` y `use:revelar`), nunca un `scrollTo` a mano. Los diálogos fijos al centro no lo necesitan.
 
 ## Documentos de referencia
 - Contexto maestro del producto: [`README.md`](README.md)

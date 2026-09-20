@@ -24,6 +24,7 @@
   import { pos } from "../../pos.svelte";
   import { reservas } from "../../reservas.svelte";
   import { sesion } from "../../sesion/sesion.svelte";
+  import { subirAlPrincipio } from "../../subir";
 
   const puedeEditar = $derived(sesion.puedeOperar("crm.cliente.editar"));
 
@@ -44,6 +45,22 @@
   );
 
   let aviso = $state("");
+
+  /*
+   * EL AVISO SALE ARRIBA; LA RESERVA QUE LO PROVOCA, NO.
+   *
+   * «Sentar en…», «Confirmar en…», «Cancelar» y «Anotar en la lista» viven a
+   * media pantalla —en la puerta, en la lista de espera—, y cuando algo fallaba
+   * el motivo se escribía encima de todo, fuera de cuadro. Un viernes, con la
+   * gente en la entrada, parecía que la tableta no había hecho caso.
+   */
+  let raiz = $state<HTMLDivElement | null>(null);
+
+  /** Publica el resultado y, si fue un error, sube a enseñarlo. */
+  function publicar(r: { ok: boolean; error?: string }) {
+    aviso = r.ok ? "" : (r.error ?? "");
+    if (!r.ok) subirAlPrincipio(raiz);
+  }
 
   // --- Dónde sentar a cada grupo ---
 
@@ -160,7 +177,7 @@
       /* La reserva aparta la principal; la unión se arma al sentarlos. */
       mesa_id: mesasAlta[0],
     });
-    aviso = r.ok ? "" : (r.error ?? "");
+    publicar(r);
     if (r.ok) {
       nombre = "";
       telefono = "";
@@ -172,7 +189,7 @@
   async function sentar(reserva: Reserva, clave: string) {
     if (!clave) return;
     const r = await reservas.sentar(reserva.id, mesasDeClave(clave));
-    aviso = r.ok ? "" : (r.error ?? "");
+    publicar(r);
   }
 
   async function sentarDeEspera(esperaId: ID, clave: string) {
@@ -186,14 +203,14 @@
     // normal cuando todavía falta una semana y el salón puede cambiar.
     const mesas = valor === "sin-mesa" ? [] : mesasDeClave(valor);
     const r = reservas.confirmar(reserva.id, mesas[0]);
-    aviso = r.ok ? "" : (r.error ?? "");
+    publicar(r);
   }
 
   function cancelar(reserva: Reserva) {
     const motivo = prompt(`¿Por qué se cancela la reserva de ${reserva.nombre}?`);
     if (!motivo) return;
     const r = reservas.cancelar(reserva.id, motivo);
-    aviso = r.ok ? "" : (r.error ?? "");
+    publicar(r);
   }
 
   // --- Lista de espera ---
@@ -207,7 +224,7 @@
       telefono: esperaTelefono,
       personas: Number(esperaPersonas) || 0,
     });
-    aviso = r.ok ? "" : (r.error ?? "");
+    publicar(r);
     if (r.ok) {
       esperaNombre = "";
       esperaTelefono = "";
@@ -287,7 +304,7 @@
 
 <svelte:window onkeydown={alTeclear} />
 
-<div class="seccion">
+<div class="seccion" bind:this={raiz}>
   <div class="encabezado">
     <div>
       <h1>Reservas y lista de espera</h1>

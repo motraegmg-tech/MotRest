@@ -257,6 +257,16 @@ export class EnlaceSupabase implements EnlaceConMotrae {
         { event: "*", schema: "public", table: "licencias_pendientes", filter: suyo },
         (carga) => void this.atenderLicencia(carga.new as Record<string, unknown>),
       )
+      /*
+       * El buzón de secretos, por la misma razón que el de licencias: una fila
+       * por restaurante y clase, así que el segundo envío de Central es un
+       * UPDATE y hay que escuchar los dos.
+       */
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "secretos_pendientes", filter: suyo },
+        (carga) => void this.atenderSecreto(carga.new as Record<string, unknown>),
+      )
       .subscribe((estado) => {
         if (estado === "CHANNEL_ERROR" || estado === "TIMED_OUT") {
           this.caer(`Se perdió la escucha de la nube (${estado})`);
@@ -284,6 +294,13 @@ export class EnlaceSupabase implements EnlaceConMotrae {
       .maybeSingle();
 
     if (licencia) await this.atenderLicencia(licencia as Record<string, unknown>);
+
+    // Los secretos que Central dejó con el local apagado. Son dos filas como
+    // mucho (una por clase), y RLS no deja ver las de otro local.
+    const { data: secretos } = await this.cliente
+      .from("secretos_pendientes")
+      .select("id, clase, sobre, depositado_ts, entregado_ts");
+    for (const fila of secretos ?? []) await this.atenderSecreto(fila as Record<string, unknown>);
 
     const desde = new Date(Date.now() - VENTANA_RECUPERACION_MS).toISOString();
     const { data: mensajes } = await this.cliente
@@ -369,6 +386,65 @@ export class EnlaceSupabase implements EnlaceConMotrae {
           : { ultimo_error: (resultado.error ?? "sin motivo").slice(0, 500) },
       )
       .eq("sucursal_id", this.opciones.sucursal_id);
+  }
+
+  /** Depósitos ya atendidos en esta vida del proceso, por fila y fecha. */
+  private secretosAtendidos = new Set<string>();
+
+  /**
+   * Central dejó un secreto en el buzón.
+   *
+   * CADA DEPÓSITO SE ATIENDE UNA VEZ. Se sabe por las fechas: si `entregado_ts`
+   * ya es posterior a `depositado_ts`, este depósito se contestó. Y como el
+   * propio Hub escribe `entregado_ts`, su UPDATE le vuelve por Realtime: sin
+   * esta guarda se quedaría abriendo el mismo sobre en bucle contra la nube.
+   * Por lo mismo, la fecha de entrega nunca queda por debajo de la del
+   * depósito aunque el reloj de la caja vaya atrasado.
+   *
+   * SIEMPRE SE CONTESTA, con el motivo en palabras de persona: es lo que Central
+   * enseña. Nunca con el contenido del sobre.
+   */
+  private async atenderSecreto(fila: Record<string, unknown>): Promise<void> {
+    if (!fila?.id || fila.sobre === undefined || fila.sobre === null) return;
+
+    const depositado = Date.parse(String(fila.depositado_ts ?? ""));
+    const entregado = fila.entregado_ts ? Date.parse(String(fila.entregado_ts)) : Number.NaN;
+    if (Number.isFinite(entregado) && (!Number.isFinite(depositado) || entregado >= depositado)) return;
+
+    const marca = `${String(fila.id)}|${String(fila.depositado_ts ?? "")}`;
+    if (this.secretosAtendidos.has(marca)) return;
+    this.secretosAtendidos.add(marca);
+
+    let resultado: { aplicado: boolean; problema?: string };
+    try {
+      resultado = (await this.opciones.alLlegarSecreto?.({ clase: fila.clase, sobre: fila.sobre })) ?? {
+        aplicado: false,
+        problema: "Este Hub no sabe recibir secretos por la nube: hay que actualizarlo.",
+      };
+    } catch {
+      resultado = { aplicado: false, problema: "El Hub falló al abrir el sobre." };
+    }
+
+    this.opciones.registrar(
+      resultado.aplicado ? "info" : "aviso",
+      resultado.aplicado
+        ? `Central mandó la llave de ${String(fila.clase)} y quedó puesta.`
+        : `Llegó de Central la llave de ${String(fila.clase)} y no se aplicó: ${resultado.problema ?? ""}`,
+    );
+
+    const ahora = new Date(Math.max(Date.now(), Number.isFinite(depositado) ? depositado : 0)).toISOString();
+    const { error } =
+      (await this.cliente
+        ?.from("secretos_pendientes")
+        .update({
+          entregado_ts: ahora,
+          aplicado_ts: resultado.aplicado ? ahora : null,
+          ultimo_error: resultado.aplicado ? null : (resultado.problema ?? "sin motivo").slice(0, 1000),
+        })
+        .eq("id", fila.id)) ?? {};
+    if (error) {
+      this.opciones.registrar("aviso", `No se pudo contestar a Central por la llave de ${String(fila.clase)}: ${error.message}`);
+    }
   }
 
   /**

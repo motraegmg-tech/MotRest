@@ -103,7 +103,7 @@
   const filas = $derived.by<Fila[]>(() =>
     jornadas.map(({ rango, etiqueta, esHoy }) => {
       const cuentas = cuentasCerradasEn(pos.todasLasComandas, rango);
-      const reporte = reporteContable(cuentas, fiscal.registros, [], rango);
+      const reporte = reporteContable(cuentas, fiscal.registros, [], rango, fiscal.globales);
 
       let efectivo = CERO;
       let tarjeta = CERO;

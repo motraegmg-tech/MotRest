@@ -17,6 +17,16 @@ export interface Ruta {
 
 const RUTA_INICIAL: Ruta = { modulo: "venta", seccion: "salon", params: {} };
 
+/**
+ * Secciones que cambiaron de sitio. Una tableta que se actualiza con la app
+ * abierta conserva la barra de direcciones, y sin esto la sección vieja caería
+ * en la primera del módulo —Usuarios, en el caso de Mensajes— en lugar de a
+ * donde se mudó.
+ */
+const MUDANZAS: Record<string, { modulo: string; seccion: string }> = {
+  "administracion/mensajes": { modulo: "clientes", seccion: "correos" },
+};
+
 function analizar(hash: string): Ruta {
   const limpio = hash.replace(/^#\/?/, "");
   if (limpio === "") return { ...RUTA_INICIAL };
@@ -26,6 +36,9 @@ function analizar(hash: string): Ruta {
 
   const params: Record<string, string> = {};
   for (const [clave, valor] of new URLSearchParams(consulta)) params[clave] = valor;
+
+  const mudada = MUDANZAS[`${modulo}/${seccion}`];
+  if (mudada) return { ...mudada, params };
 
   return {
     modulo: modulo || RUTA_INICIAL.modulo,

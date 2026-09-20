@@ -21,12 +21,17 @@ import {
   type TerminalRegistrada,
 } from "@motrest/protocolo-sync";
 import type {
+  ClaseSecreto,
+  ConfiguracionCorreo,
   EstadoActualizacion,
+  EstadoSecretos,
+  ModoFacturapi,
   EventoBase,
   MenuLocal,
   PlanoLocal,
   RolDeMesas,
 } from "@motrest/dominio";
+import { CLAVE_CORREO, correo } from "./correo.svelte";
 import { CLAVE_MENU, menu } from "./menu.svelte";
 import { CLAVE_PLANO, plano } from "./plano.svelte";
 import { CLAVE_ASIGNACIONES, asignaciones } from "./asignaciones.svelte";
@@ -87,6 +92,16 @@ class StoreSync {
   colaFiscal = $state<FacturaEnCola[]>([]);
   /** Qué salió mal en la última operación fiscal, en palabras que orienten. */
   problemaFiscal = $state<string>("");
+  /**
+   * Las llaves del Hub (FacturAPI y Gmail): SOLO su estado —configurada, de
+   * dónde salió, sus cuatro últimos caracteres—. El valor nunca vuelve a la
+   * terminal: se teclea, viaja al Hub y aquí no se guarda en ningún lado.
+   */
+  secretos = $state<EstadoSecretos | null>(null);
+  /** Resultado del último guardar/quitar: null mientras no haya respuesta. */
+  resultadoSecreto = $state<{ ok: boolean; problema: string } | null>(null);
+  /** Hay una petición de secreto en vuelo (para el «Verificando…»). */
+  guardandoSecreto = $state(false);
 
   /** Clave del local. Nunca se muestra completa en pantalla. */
   private clave = $state("");
@@ -370,6 +385,13 @@ class StoreSync {
         if (cola) this.colaFiscal = cola;
         this.problemaFiscal = problema ?? "";
       },
+      alRecibirSecretos: (estado, ok, problema) => {
+        this.secretos = estado;
+        if (this.guardandoSecreto) {
+          this.resultadoSecreto = { ok, problema: problema ?? "" };
+          this.guardandoSecreto = false;
+        }
+      },
       alCambiarEstado: (estado, detalle) => {
         this.estado = estado;
         this.detalle = detalle ?? "";
@@ -432,6 +454,14 @@ class StoreSync {
     // El rol de mesas viaja igual: quien lo cambia es el encargado desde una
     // pantalla, y quien lo necesita es la tablet del mesero.
     asignaciones.alPublicar((datos) => this.publicar(CLAVE_ASIGNACIONES, datos));
+    /*
+     * Y la configuración de los correos al comensal. Faltaba, y por eso nada de
+     * lo que se configuraba en «Correos al comensal» llegaba al Hub —que es quien
+     * los manda— ni a las demás tabletas: se quedaba en el disco de la terminal
+     * donde se había capturado. Viaja sin la contraseña de Gmail, que no sale del
+     * Hub (ver `correo.paraPublicar`).
+     */
+    correo.alPublicar((datos) => this.publicar(CLAVE_CORREO, datos));
 
     void this.cliente.conectar();
   }
@@ -468,6 +498,19 @@ class StoreSync {
       updated_at: asignaciones.rol.updated_at,
       datos: asignaciones.rol,
     });
+    /*
+     * La de correo también se ofrece al conectar, y eso es lo que arregla los
+     * locales que ya estaban configurados: la caja trae su configuración de
+     * antes en su disco, la ofrece al primer enlace, y el Hub —que no tenía
+     * ninguna— se queda con ella. Sin esto habría que volver a capturarla.
+     */
+    const configCorreo = correo.paraPublicar;
+    catalogos.push({
+      clave: CLAVE_CORREO,
+      version: configCorreo.version,
+      updated_at: configCorreo.updated_at,
+      datos: configCorreo,
+    });
     return catalogos;
   }
 
@@ -480,6 +523,8 @@ class StoreSync {
         if (plano.fusionar(catalogo.datos as PlanoLocal)) this.catalogosRecibidos += 1;
       } else if (catalogo.clave === CLAVE_ASIGNACIONES) {
         if (asignaciones.fusionar(catalogo.datos as RolDeMesas)) this.catalogosRecibidos += 1;
+      } else if (catalogo.clave === CLAVE_CORREO) {
+        if (correo.fusionar(catalogo.datos as ConfiguracionCorreo)) this.catalogosRecibidos += 1;
       } else if (catalogo.clave === CLAVE_LICENCIA) {
         /*
          * El veredicto lo calcula el HUB, que es donde vive la llave. Esta
@@ -563,6 +608,63 @@ class StoreSync {
   desinstalarCsd(empleadoId: string): void {
     this.problemaFiscal = "";
     this.cliente?.fiscal({ accion: "desinstalar_csd", empleado_id: empleadoId });
+  }
+
+  // --- Llaves del Hub (FacturAPI y Gmail) ------------------------------------------------
+
+  /** Pide al Hub el estado de sus llaves. Cualquier terminal autorizada puede. */
+  consultarSecretos(empleadoId: string): void {
+    this.cliente?.secreto({ accion: "consultar", empleado_id: empleadoId });
+  }
+
+  /**
+   * Manda una llave al Hub.
+   *
+   * El Hub revalida POR ROL que quien la manda sea el responsable del local o
+   * el soporte de MOTRAE, y prueba la de FacturAPI contra FacturAPI antes de
+   * guardarla: la respuesta dice si quedó. La llave no se guarda aquí.
+   */
+  guardarSecreto(entrada: {
+    empleadoId: string;
+    clase: ClaseSecreto;
+    valor: string;
+    modo?: ModoFacturapi;
+    remitente?: string;
+  }): void {
+    if (!this.sinHubParaSecretos()) return;
+    this.cliente!.secreto({
+      accion: "guardar",
+      empleado_id: entrada.empleadoId,
+      clase: entrada.clase,
+      valor: entrada.valor,
+      modo: entrada.modo,
+      remitente: entrada.remitente,
+    });
+  }
+
+  quitarSecreto(empleadoId: string, clase: ClaseSecreto): void {
+    if (!this.sinHubParaSecretos()) return;
+    this.cliente!.secreto({ accion: "quitar", empleado_id: empleadoId, clase });
+  }
+
+  /**
+   * Deja lista la espera de la respuesta, o dice por qué no la habrá.
+   *
+   * Sin Hub no hay a quién mandarle la llave, y sin esto el «Verificando…» se
+   * quedaba girando para siempre: una llave que parece enviada y no lo está.
+   */
+  private sinHubParaSecretos(): boolean {
+    this.resultadoSecreto = null;
+    if (!this.cliente || this.estado !== "sincronizado") {
+      this.resultadoSecreto = {
+        ok: false,
+        problema: "Esta terminal no está conectada al Hub del local. Hazlo desde la caja principal o espera a que vuelva la conexión.",
+      };
+      this.guardandoSecreto = false;
+      return false;
+    }
+    this.guardandoSecreto = true;
+    return true;
   }
 
   /** Reencola una factura rechazada, después de arreglar la causa. */

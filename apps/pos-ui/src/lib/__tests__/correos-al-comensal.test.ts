@@ -206,8 +206,19 @@ describe("los últimos correos de un comensal", () => {
 describe("la configuración", () => {
   it("con un remitente de Gmail el modo es Gmail, aunque la guardada no lo dijera", () => {
     const store = new StoreCorreo();
-    // Una configuración de antes de los modos: el Hub la leía como dominio propio.
-    store.fusionar({ remitente: "", local: "Rodizio", activos: {} } as ConfiguracionCorreo);
+    /*
+     * Una configuración de antes de los modos: el Hub la leía como dominio propio.
+     * Lleva versión 1 porque `fusionar` ya solo adopta lo MÁS NUEVO que lo que
+     * tiene —antes adoptaba sin mirar, y una tableta con una copia vieja podía
+     * pisar lo que se acababa de cambiar en la caja—.
+     */
+    store.fusionar({
+      remitente: "",
+      local: "Rodizio",
+      activos: {},
+      version: 1,
+      updated_at: 1,
+    } as ConfiguracionCorreo);
     expect(store.config.modo).toBeUndefined();
 
     const r = store.actualizar({ remitente: REMITENTE });
@@ -401,5 +412,108 @@ describe("el arranque reparte los correos", () => {
   it("los rehidrata al arrancar y los integra en vivo", () => {
     expect(fuente).toContain("correo.hidratarEventos(");
     expect(fuente).toContain("correo.integrar(");
+  });
+});
+
+/**
+ * LA CONFIGURACIÓN VIAJA AL HUB.
+ *
+ * Era el defecto que dejaba todo lo anterior sin mandar un solo correo en el
+ * local: lo configurado en «Correos al comensal» se guardaba en el disco de la
+ * terminal y ahí se quedaba. El Hub —que es quien manda— nunca se enteraba, y
+ * las otras tabletas decían «el restaurante todavía no configuró su remitente».
+ */
+describe("la configuración se publica", () => {
+  it("cada cambio se publica con una versión mayor", () => {
+    const store = new StoreCorreo();
+    const publicadas: { version: number; updated_at: number }[] = [];
+    store.alPublicar((c) => publicadas.push({ version: c.version, updated_at: c.updated_at }));
+
+    store.actualizar({ remitente: REMITENTE });
+    store.alternar("gracias");
+    store.cambiarAsunto("gracias", "¡Gracias por venir!");
+
+    expect(publicadas).toHaveLength(3);
+    // Estrictamente creciente: el Hub se queda con la de versión mayor.
+    expect(publicadas.map((p) => p.version)).toEqual([1, 2, 3]);
+  });
+
+  /*
+   * El Hub rechaza cualquier catálogo sin versión numérica. Una configuración
+   * guardada antes de la 1.5.5 no la trae; al publicarla tiene que salir con 0.
+   */
+  it("una configuración sin versión se publica con versión 0, no sin ella", () => {
+    const store = new StoreCorreo();
+    const p = store.paraPublicar;
+    expect(typeof p.version).toBe("number");
+    expect(typeof p.updated_at).toBe("number");
+  });
+
+  /*
+   * ESTE catálogo llega a TODAS las tabletas del salón. La contraseña de Gmail
+   * permite mandar correo en nombre del restaurante; no puede ir aquí dentro.
+   */
+  it("la contraseña de Gmail nunca se publica", () => {
+    const store = new StoreCorreo();
+    store.fusionar({
+      remitente: REMITENTE,
+      local: "Rodizio",
+      activos: {},
+      version: 5,
+      updated_at: 5,
+      llave: "abcd efgh ijkl mnop",
+    } as ConfiguracionCorreo & { llave: string });
+
+    expect("llave" in store.paraPublicar).toBe(false);
+  });
+
+  it("adopta una configuración más nueva", () => {
+    const store = new StoreCorreo();
+    const adoptada = store.fusionar({
+      remitente: REMITENTE,
+      local: "Rodizio",
+      activos: {},
+      version: 4,
+      updated_at: 100,
+    });
+    expect(adoptada).toBe(true);
+    expect(store.config.local).toBe("Rodizio");
+  });
+
+  /*
+   * La que ya tenía era más nueva: una tableta que reconecta con una copia vieja
+   * no puede pisar lo que se acaba de cambiar en la caja.
+   */
+  it("NO adopta una configuración más vieja que la que tiene", () => {
+    const store = new StoreCorreo();
+    store.fusionar({ remitente: REMITENTE, local: "Nueva", activos: {}, version: 7, updated_at: 700 });
+
+    const adoptada = store.fusionar({
+      remitente: REMITENTE,
+      local: "Vieja",
+      activos: {},
+      version: 3,
+      updated_at: 300,
+    });
+
+    expect(adoptada).toBe(false);
+    expect(store.config.local).toBe("Nueva");
+  });
+});
+
+/** El cable, leyendo los archivos de verdad: la lógica sola no demuestra que esté puesta. */
+describe("el enlace publica y aplica la configuración de correo", () => {
+  const sync = readFileSync(new URL("../sync.svelte.ts", import.meta.url), "utf8");
+
+  it("la publica al cambiar", () => {
+    expect(sync).toMatch(/correo\.alPublicar\(/);
+  });
+
+  it("la ofrece al conectar, para los locales que ya estaban configurados", () => {
+    expect(sync).toMatch(/clave: CLAVE_CORREO/);
+  });
+
+  it("la adopta al recibirla", () => {
+    expect(sync).toMatch(/correo\.fusionar\(/);
   });
 });

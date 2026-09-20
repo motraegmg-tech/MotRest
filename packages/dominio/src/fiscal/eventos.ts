@@ -8,6 +8,7 @@
  * Estados: generado → (enviado) → timbrado | rechazado
  *                                → cancelado
  */
+import type { Centavos } from "../comun/dinero.js";
 import type { ID } from "../comun/ids.js";
 import type { EventoBase } from "../evento.js";
 import type { Comprobante } from "./comprobante.js";
@@ -29,6 +30,15 @@ export type EventoFiscal =
       serie: string;
       folio: string;
       comprobante: Comprobante;
+      /**
+       * A dónde mandarle la factura al comensal, si la pidió por correo.
+       *
+       * Con FacturAPI el envío lo hace FacturAPI misma (PDF y XML, desde su
+       * servidor): no gasta el Gmail del restaurante ni depende de que el Hub
+       * tenga el correo configurado. Opcional porque no todo comensal lo da, y
+       * por compatibilidad con los eventos anteriores a la 1.5.5.
+       */
+      correo_receptor?: string;
     })
   | (EventoBase & {
       tipo: "cfdi_timbrado";
@@ -48,6 +58,18 @@ export type EventoFiscal =
       sello_cfd?: string;
       sello_sat?: string;
       no_certificado_sat?: string;
+      /**
+       * Lo que dice el XML timbrado, cuando lo selló otro.
+       *
+       * Con FacturAPI el sello del emisor lo pone FacturAPI con el CSD de su
+       * panel, así que el número de certificado no está en el comprobante que
+       * armó la caja, y el total lo recalcula FacturAPI con seis decimales. La
+       * representación impresa y su QR tienen que usar ESTOS dos valores: el
+       * verificador del SAT coteja el total contra el del XML, y un centavo de
+       * diferencia basta para que diga que la factura no existe.
+       */
+      no_certificado_emisor?: string;
+      total_timbrado?: Centavos;
     })
   | (EventoBase & {
       tipo: "cfdi_rechazado";
@@ -89,6 +111,38 @@ export type EventoFiscal =
       cfdi_id: ID;
       codigo: string;
       motivo: string;
+    })
+  | (EventoBase & {
+      /**
+       * El Hub emitió la factura global de un mes: las cuentas cobradas que
+       * nadie facturó a su nombre, a PÚBLICO EN GENERAL.
+       *
+       * Queda en el registro —no solo en la base del Hub— por dos razones. La
+       * caja tiene que poder negarse a facturar a nombre de alguien un ticket
+       * que ya entró aquí (regla del SAT: habría que cancelar la global), y el
+       * reporte del contador tiene que descontarlo de la «venta sin facturar».
+       * Las dos cosas se leen de este hecho, sin preguntarle nada al Hub.
+       *
+       * Un mes grande puede ir en varias partes (FacturAPI admite hasta 5 000
+       * conceptos por factura): cada parte es un evento, con su `parte`.
+       */
+      tipo: "factura_global_emitida";
+      /** El mes que ampara, «AAAA-MM». */
+      periodo: string;
+      parte: number;
+      uuid: string;
+      /** El id de la factura en FacturAPI: con él se descarga o se cancela. */
+      externo_id: string;
+      /** Las cuentas que incluye, por `orden_id`. */
+      ordenes: ID[];
+      /** Lo que suman esas cuentas, con impuestos. */
+      total: Centavos;
+      fecha_timbrado?: string;
+      /**
+       * `pruebas` = timbrada con la llave de pruebas: sin validez ante el SAT.
+       * No bloquea nada ni cuenta como facturado; existe para ensayar el ciclo.
+       */
+      modo: "pruebas" | "produccion";
     });
 
 export type TipoEventoFiscal = EventoFiscal["tipo"];
@@ -110,6 +164,7 @@ export const TIPOS_EVENTO_FISCAL = [
   "cfdi_cancelacion_solicitada",
   "cfdi_cancelado",
   "cfdi_cancelacion_rechazada",
+  "factura_global_emitida",
 ] as const satisfies readonly TipoEventoFiscal[];
 
 /*
@@ -138,6 +193,11 @@ export interface RegistroCfdi {
   sello_cfd?: string;
   sello_sat?: string;
   no_certificado_sat?: string;
+  /** Del XML timbrado, cuando lo selló FacturAPI. Ver `cfdi_timbrado`. */
+  no_certificado_emisor?: string;
+  total_timbrado?: Centavos;
+  /** A dónde se mandó la factura, si el comensal dio su correo. */
+  correo_receptor?: string;
   /** Último error del PAC, si lo hubo. */
   error?: string;
   intentos: number;
@@ -166,6 +226,7 @@ export function aplicarEventoFiscal(
           estado: "generado",
           intentos: 0,
           generado_ts: ev.ts,
+          ...(ev.correo_receptor ? { correo_receptor: ev.correo_receptor } : {}),
         },
       ];
     }
@@ -182,6 +243,10 @@ export function aplicarEventoFiscal(
               sello_cfd: ev.sello_cfd,
               sello_sat: ev.sello_sat,
               no_certificado_sat: ev.no_certificado_sat,
+              ...(ev.no_certificado_emisor
+                ? { no_certificado_emisor: ev.no_certificado_emisor }
+                : {}),
+              ...(ev.total_timbrado !== undefined ? { total_timbrado: ev.total_timbrado } : {}),
               error: undefined,
             }
           : r,
@@ -237,6 +302,14 @@ export function aplicarEventoFiscal(
             }
           : r,
       );
+
+    /*
+     * La global no toca los comprobantes individuales: es otro documento, con
+     * su propia lectura (`facturasGlobales` en `global.ts`). Pasa por aquí solo
+     * para que esta proyección siga siendo exhaustiva.
+     */
+    case "factura_global_emitida":
+      return [...registros];
 
     default: {
       const _exhaustivo: never = ev;

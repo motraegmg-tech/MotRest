@@ -792,3 +792,82 @@ describe("representación impresa del CFDI", () => {
     expect(lineas.every((l) => l.length <= 42)).toBe(true);
   });
 });
+
+/*
+ * La firma del pie (pedido de Gonzalo, sep-2026). Tres cosas que antes no
+ * estaban: la versión que corre el local —lo primero que hay que saber cuando
+ * el restaurantero llama—, un renglón en blanco para que no se lea pegada a la
+ * despedida, y letra a doble alto, centrada.
+ */
+describe("la firma de MOTRAE al pie", () => {
+  const datos = {
+    folio: "A1B2C3D4",
+    ts: T0,
+    local: { nombre: "Rodizio" },
+    mesa: "12",
+    mesero: "Lucía",
+    renglones: [{ cantidad: 1, descripcion: "Limonada", importe: pesos(45) }],
+    subtotal: pesos(45),
+    descuentos: pesos(0) as Centavos,
+    cortesias: pesos(0) as Centavos,
+    iva: pesos(7.2),
+    ieps: pesos(0) as Centavos,
+    total: pesos(52.2),
+    propina: pesos(0) as Centavos,
+    pagos: [{ forma: "Efectivo", monto: pesos(52.2) }],
+    cambio: pesos(0) as Centavos,
+    textos: { agradecimiento: "¡Gracias por su visita!", aviso_factura: "" },
+  };
+
+  /*
+   * El aviso de cómo pedir factura (pedido de Gonzalo, sep-2026). Mientras no
+   * haya portal de autofactura, el comensal tiene que enterarse ANTES de irse:
+   * si se entera en su casa, vuelve al día siguiente y para entonces su ticket
+   * puede haber entrado en la factura global del mes.
+   */
+  it("dice cómo pedir factura, y el restaurante puede cambiar el texto", () => {
+    const { textos: _quitado, ...sinTextos } = datos;
+    expect(ticketVenta(sinTextos).aTexto()).toContain("¿Necesita factura?");
+    expect(
+      ticketVenta({ ...sinTextos, textos: { aviso_factura: "Factura con Lupita, en la caja" } }).aTexto(),
+    ).toContain("Factura con Lupita, en la caja");
+  });
+
+  it("con QR de autofactura el aviso sobra: el QR ya invita", () => {
+    const { textos: _quitado, ...sinTextos } = datos;
+    const texto = ticketVenta({ ...sinTextos, url_autofactura: "https://factura.motrae.mx/r/RODIZIO/A1B2C3D4" }).aTexto();
+    expect(texto).not.toContain("¿Necesita factura?");
+    expect(texto).toContain("Factura tu consumo");
+  });
+
+  it("lleva la versión que corre ese local", () => {
+    expect(ticketVenta({ ...datos, version: "1.5.5" }).aTexto()).toContain(
+      "MotRest 1.5.5 by Motrae",
+    );
+  });
+
+  it("sin versión sigue saliendo, con la firma de siempre", () => {
+    const texto = ticketVenta(datos).aTexto();
+    expect(texto).toContain("MotRest by Motrae");
+    expect(texto).not.toContain("undefined");
+  });
+
+  it("va al final y separada de la última línea del restaurante", () => {
+    const lineas = ticketVenta({ ...datos, version: "1.5.5" }).aTexto().split("\n");
+    const firma = lineas.findIndex((l) => l.includes("MotRest 1.5.5 by Motrae"));
+    const adios = lineas.findIndex((l) => l.includes("Gracias por su visita"));
+    expect(firma).toBeGreaterThan(adios);
+    // El renglón de en medio existe y está vacío: no van pegadas.
+    expect(lineas[firma - 1]!.trim()).toBe("");
+  });
+
+  it("sale a doble alto y centrada, no en letra normal", () => {
+    const bytes = ticketVenta({ ...datos, version: "1.5.5" }).construir();
+    // GS ! 0x10 enciende el doble alto, y GS ! 0x00 lo apaga después.
+    const conDobleAlto = [...bytes].some((b, i) => b === 0x1d && bytes[i + 1] === 0x21 && bytes[i + 2] === 0x10);
+    expect(conDobleAlto).toBe(true);
+    // ESC a 1 es el centrado del aparato.
+    const centrada = [...bytes].some((b, i) => b === 0x1b && bytes[i + 1] === 0x61 && bytes[i + 2] === 1);
+    expect(centrada).toBe(true);
+  });
+});

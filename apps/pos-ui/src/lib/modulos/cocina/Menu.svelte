@@ -11,6 +11,7 @@
   import { menu } from "../../menu.svelte";
   import { rutas } from "../../nav/rutas.svelte";
   import { convertirEnReventa, insumoEspejoDe } from "../../reventa.svelte";
+  import { subirAlPrincipio } from "../../subir";
   import EditorProducto from "./EditorProducto.svelte";
   import EditorPromociones from "./EditorPromociones.svelte";
   import EditorReceta from "./EditorReceta.svelte";
@@ -35,36 +36,20 @@
    * pulsaba Editar no veía pasar nada: el formulario se abría fuera de cuadro y
    * la pantalla se quedaba donde estaba, así que parecía que el botón no
    * servía. Subir la vista es lo que convierte el clic en algo que ocurrió.
+   *
+   * La subida la hace `subirAlPrincipio` (ver `subir.ts`), la misma para toda
+   * la aplicación: nació aquí y se sacó en cuanto hizo falta en otras pantallas.
+   * La comparten TODOS los botones de la tarjeta de un platillo que abren algo
+   * arriba —editar, receta, y «se vende tal cual»—: el recuadro de la
+   * conversión no es un panel, pero se dibuja en el mismo sitio y quien lo pulsa
+   * tiene el mismo problema.
    */
   let contenedor = $state<HTMLDivElement | null>(null);
-
-  /**
-   * Sube la vista al principio del módulo.
-   *
-   * Lo comparten TODOS los botones de la tarjeta de un platillo que abren algo
-   * arriba —editar, receta, y «se vende tal cual»—, y por eso está aquí suelta
-   * en vez de dentro de `abrir`: el recuadro de la conversión no es un panel,
-   * pero se dibuja en el mismo sitio y quien lo pulsa tiene el mismo problema.
-   *
-   * Se sube en el cuadro SIGUIENTE, no en este: lo que se abre se monta en este
-   * ciclo, y hasta que el navegador no recalcula el alto de la página el
-   * desplazamiento se haría contra la altura vieja.
-   */
-  function subirArriba() {
-    requestAnimationFrame(() => {
-      contenedor?.scrollTo({
-        top: 0,
-        behavior: window.matchMedia?.("(prefers-reduced-motion: reduce)").matches
-          ? "auto"
-          : "smooth",
-      });
-    });
-  }
 
   function abrir(destino: Panel) {
     panel = destino;
     if (destino.modo === "ninguno") return;
-    subirArriba();
+    subirAlPrincipio(contenedor);
   }
 
   const permisos = $derived(menu.permisos);
@@ -110,9 +95,16 @@
     if (r.ok) categoriaNueva = "";
   }
 
+  /*
+   * El aviso se escribe ENCIMA de la carta, pero los botones de una categoría
+   * —Eliminar, y Guardar al renombrarla— pueden estar tres categorías más
+   * abajo. Si algo falla hay que subir a decirlo: si no, el clic parece no
+   * haber hecho nada y la categoría sigue ahí sin explicación.
+   */
   function borrarCategoria(id: string, nombre: string) {
     const r = menu.borrarCategoria(id);
     aviso = r.ok ? "" : `${nombre}: ${r.problemas[0]?.mensaje ?? "no se pudo eliminar"}`;
+    if (!r.ok) subirAlPrincipio(contenedor);
   }
 
   // --- Editar una categoría ------------------------------------------------------
@@ -141,6 +133,7 @@
       aviso = "";
     } else {
       aviso = r.problemas[0]?.mensaje ?? "No se pudo renombrar";
+      subirAlPrincipio(contenedor);
     }
   }
 
@@ -486,7 +479,7 @@
                       convirtiendo = { id: p.id, nombre: p.nombre };
                       existenciaAlConvertir = "";
                       aviso = "";
-                      subirArriba();
+                      subirAlPrincipio(contenedor);
                     }}
                   >
                     Se vende tal cual

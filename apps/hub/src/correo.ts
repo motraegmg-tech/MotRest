@@ -264,7 +264,7 @@ export class Correo {
           enviado: false,
           razon:
             causa.codigo === 535
-              ? "Gmail no aceptó la contraseña de aplicación. Revísala en «Mensajes para el cliente»."
+              ? "Gmail no aceptó la contraseña de aplicación. Hay que revisarla: la instala el soporte de MOTRAE."
               : `Gmail lo rechazó: ${causa.message}`,
         };
       }

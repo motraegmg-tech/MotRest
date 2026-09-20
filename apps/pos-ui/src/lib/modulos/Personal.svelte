@@ -28,6 +28,7 @@
   import { prenomina } from "../prenomina.svelte";
   import { rutas } from "../nav/rutas.svelte";
   import { sesion } from "../sesion/sesion.svelte";
+  import { revelar, subirAlPrincipio } from "../subir";
   import RolDeMesas from "./personal/RolDeMesas.svelte";
 
   let seleccionado = $state<string>("");
@@ -44,6 +45,7 @@
   let mensaje = $state("");
   let error = $state("");
   let verificando = $state(false);
+  let raiz = $state<HTMLDivElement | null>(null);
 
   // Se refresca cada minuto para que las jornadas abiertas avancen solas.
   let ahora = $state(Date.now());
@@ -104,6 +106,14 @@
     mensaje = `${usuario?.nombre}: ${etiquetaChecada(r.tipo!).toLowerCase()} a las ${hora(Date.now())}`;
     pin = "";
     seleccionado = "";
+    /*
+     * La confirmación se escribe arriba, encima del checador, y el ✓ queda al
+     * pie del teclado: en una tableta de pie hay que bajar para alcanzarlo.
+     * Sin subir, quien checa no ve su «entrada a las 9:02» y lo vuelve a
+     * intentar — y el segundo intento ya no es su entrada, es el registro
+     * que le sigue.
+     */
+    subirAlPrincipio(raiz);
   }
 
   function teclear(digito: string) {
@@ -273,7 +283,7 @@
   }
 </script>
 
-<div class="seccion">
+<div class="seccion" bind:this={raiz}>
   <div class="encabezado">
     <div>
       <h1>Personal</h1>
@@ -518,7 +528,8 @@
         </div>
 
         {#if editandoTarifa}
-          <div class="guardar-tarifa">
+          <!-- Nace al pie de la tabla: con quince personas queda fuera de cuadro. -->
+          <div class="guardar-tarifa" use:revelar={editandoTarifa}>
             {#if errorTarifa}<span class="error">{errorTarifa}</span>{/if}
             <span class="pista">
               Tarifa por hora de {sesion.nombreDe(editandoTarifa)}. Queda en la
@@ -532,7 +543,9 @@
 
       <!-- La semana de sueldos de una persona -->
       {#if editandoSueldo}
-        <div class="editor-sueldo">
+        <!-- Se abre debajo de la prenómina entera: se baja hasta él, y de nuevo
+             si se pulsa a otra persona con el editor ya abierto. -->
+        <div class="editor-sueldo" use:revelar={editandoSueldo}>
           <div class="cab-sueldo">
             <h3>Sueldo por día · {sesion.nombreDe(editandoSueldo)}</h3>
             <span class="semana-total">

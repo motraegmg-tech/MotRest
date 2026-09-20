@@ -80,11 +80,23 @@ export function validarComprobante(c: Comprobante): ProblemaFiscal[] {
   }
 
   // --- Conceptos y cuadre ---
+  /*
+   * Una cuenta en $0 —cortesía completa, o solo productos sin precio— no se
+   * factura, y el mensaje lo dice así en vez de «el total debe ser mayor a
+   * cero»: quien lo lee es el cajero, y lo que necesita saber es que no hay
+   * nada que hacer, no qué regla del SAT se rompió.
+   */
   if (c.conceptos.length === 0) {
-    problemas.push({ campo: "conceptos", mensaje: "El comprobante no tiene conceptos" });
+    problemas.push({
+      campo: "conceptos",
+      mensaje: "No hay nada que facturar: todo lo de esta cuenta es de $0",
+    });
   }
   if (c.total <= 0) {
-    problemas.push({ campo: "totales", mensaje: "El total del comprobante debe ser mayor a cero" });
+    problemas.push({
+      campo: "totales",
+      mensaje: "No hay nada que facturar: la cuenta quedó en $0 (cortesía completa o productos sin precio)",
+    });
   }
 
   const sumaConceptos = sumar(...c.conceptos.map((x) => x.importe));

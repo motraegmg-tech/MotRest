@@ -28,6 +28,7 @@
   import { pos } from "../pos.svelte";
   import { inventario } from "../inventario.svelte";
   import { sesion } from "../sesion/sesion.svelte";
+  import { subirAlPrincipio } from "../subir";
 
   type Vista = "existencias" | "movimiento" | "conteo" | "costeo" | "rendimiento";
   let vista = $state<Vista>("existencias");
@@ -188,6 +189,22 @@
     >[];
   }
 
+  let raiz = $state<HTMLDivElement | null>(null);
+
+  /*
+   * VOLVER A EXISTENCIAS DESDE EL PIE DE UN FORMULARIO.
+   *
+   * El conteo lista la despensa entera y sus botones están al final; al
+   * cerrarlo se cambiaba de pestaña pero el scroll se quedaba donde estaba, así
+   * que se aterrizaba a media tabla de existencias, sin ver arriba el valor del
+   * inventario ya recalculado con lo que se acababa de contar. Lo mismo, en
+   * corto, al registrar un movimiento desde una tableta. Ver `subir.ts`.
+   */
+  function volverAExistencias() {
+    vista = "existencias";
+    subirAlPrincipio(raiz);
+  }
+
   function registrar() {
     error = "";
     const r = inventario.registrar(
@@ -203,7 +220,7 @@
     }
     cantidad = "";
     nota = "";
-    vista = "existencias";
+    volverAExistencias();
   }
 
   function cerrarConteo() {
@@ -218,11 +235,11 @@
       return;
     }
     contados = {};
-    vista = "existencias";
+    volverAExistencias();
   }
 </script>
 
-<div class="seccion">
+<div class="seccion" bind:this={raiz}>
   <div class="encabezado">
     <div>
       <h1>Inventario</h1>
@@ -519,7 +536,7 @@
       </p>
       {#if error}<p class="error" role="alert">{error}</p>{/if}
       <div class="botones">
-        <button class="secundario" onclick={() => (vista = "existencias")}>Cancelar</button>
+        <button class="secundario" onclick={volverAExistencias}>Cancelar</button>
         <button class="principal" onclick={registrar}>Registrar</button>
       </div>
     </section>
@@ -661,7 +678,7 @@
       </table>
       {#if error}<p class="error" role="alert">{error}</p>{/if}
       <div class="botones">
-        <button class="secundario" onclick={() => { contados = {}; vista = "existencias"; }}>
+        <button class="secundario" onclick={() => { contados = {}; volverAExistencias(); }}>
           Cancelar
         </button>
         <button class="principal" onclick={cerrarConteo}>Cerrar conteo</button>

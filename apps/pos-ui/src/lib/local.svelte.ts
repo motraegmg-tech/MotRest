@@ -53,6 +53,8 @@ export interface FichaDelLocal {
 export interface TextosDelTicket {
   encabezado: string;
   invitacion_opinion: string;
+  /** Cómo pedir factura, mientras no haya portal de autofactura. */
+  aviso_factura: string;
   agradecimiento: string;
   pie: string;
 }
@@ -87,6 +89,7 @@ export interface LogoDelTicket {
 export const TEXTOS_TICKET_INICIALES: TextosDelTicket = {
   encabezado: "",
   invitacion_opinion: "¿Cómo estuvo todo? Cuéntanos",
+  aviso_factura: "¿Necesita factura? Pídala con su mesero antes de irse.",
   agradecimiento: "¡Gracias por su visita!",
   pie: "",
 };

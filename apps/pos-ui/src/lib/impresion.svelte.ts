@@ -49,6 +49,7 @@ import {
 import type { Almacen } from "@motrest/protocolo-sync";
 import QRCode from "qrcode";
 import { local } from "./local.svelte";
+import { VERSION_MOTREST } from "./version";
 
 function conMatrizQr(datos: DatosPrecuenta): DatosPrecuenta {
   return {
@@ -570,7 +571,8 @@ class StoreImpresion {
    * queda en la vista previa y la operación sigue: pedir la cuenta nunca puede
    * bloquear una mesa.
    */
-  precuenta(datos: DatosPrecuenta): boolean {
+  precuenta(entrada: DatosPrecuenta): boolean {
+    const datos = { ...entrada, version: VERSION_MOTREST };
     const impresora = impresoraPara(this.impresoras, "caja");
     if (!impresora) {
       this.vistaPrevia = { titulo: `Cuenta ${datos.folio}`, texto: precuenta(datos).aTexto() };
@@ -636,7 +638,8 @@ class StoreImpresion {
     return local.logoParaTicket(impresora.ancho) ?? undefined;
   }
 
-  ticket(datos: DatosTicket): boolean {
+  ticket(entrada: DatosTicket): boolean {
+    const datos = { ...entrada, version: VERSION_MOTREST };
     const impresora = impresoraPara(this.impresoras, "caja");
     if (!impresora) {
       this.vistaPrevia = { titulo: `Ticket ${datos.folio}`, texto: ticketVenta(datos).aTexto() };
@@ -649,7 +652,8 @@ class StoreImpresion {
   }
 
   /** Copia simplificada que se queda en el restaurante después del cobro. */
-  ticketInterno(datos: DatosTicketInterno): boolean {
+  ticketInterno(entrada: DatosTicketInterno): boolean {
+    const datos = { ...entrada, version: VERSION_MOTREST };
     const impresora = impresoraPara(this.impresoras, "caja");
     if (!impresora) {
       this.vistaPrevia = {
@@ -674,10 +678,13 @@ class StoreImpresion {
   factura(rep: RepresentacionImpresa, folio: string): boolean {
     const impresora = impresoraPara(this.impresoras, "caja");
     if (!impresora) {
-      this.vistaPrevia = { titulo: `Factura ${folio}`, texto: representacionCfdi(rep).aTexto() };
+      this.vistaPrevia = {
+        titulo: `Factura ${folio}`,
+        texto: representacionCfdi(rep, 42, VERSION_MOTREST).aTexto(),
+      };
       return false;
     }
-    const ticket = representacionCfdi(rep, impresora.ancho);
+    const ticket = representacionCfdi(rep, impresora.ancho, VERSION_MOTREST);
     this.encolar(impresora, "factura", ticket, folio);
     this.vistaPrevia = { titulo: `Factura ${folio}`, texto: ticket.aTexto() };
     return true;
@@ -687,7 +694,10 @@ class StoreImpresion {
   async corte(cifras: CifrasCorte, datos: Omit<DatosCorte, "sello">): Promise<string> {
     const sello = await sellarCorte(cifras);
     const impresora = impresoraPara(this.impresoras, "caja");
-    const ticket = corteCaja({ ...datos, sello }, impresora?.ancho ?? 42);
+    const ticket = corteCaja(
+      { ...datos, sello, version: VERSION_MOTREST },
+      impresora?.ancho ?? 42,
+    );
 
     this.vistaPrevia = { titulo: `Corte ${datos.folio}`, texto: ticket.aTexto() };
     if (impresora) this.encolar(impresora, "corte", ticket, datos.folio);
@@ -703,7 +713,7 @@ class StoreImpresion {
    */
   cortePorFechas(datos: DatosCortePeriodo): void {
     const impresora = impresoraPara(this.impresoras, "caja");
-    const ticket = cortePeriodo(datos, impresora?.ancho ?? 42);
+    const ticket = cortePeriodo({ ...datos, version: VERSION_MOTREST }, impresora?.ancho ?? 42);
     const titulo = `Corte ${new Date(datos.desde).toLocaleDateString("es-MX")}`;
 
     this.vistaPrevia = { titulo, texto: ticket.aTexto() };

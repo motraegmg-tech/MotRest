@@ -506,3 +506,103 @@ describe("pre-cuenta: los renglones con IVA suman el total", () => {
     expect(importeConImpuesto(conIvaDentro)).toBe(pesos(58));
   });
 });
+
+/*
+ * Cortesía POR PIEZAS (sep-2026). Tres cervezas son un solo renglón con
+ * cantidad 3; Gonzalo pidió poder regalar una sin regalar las tres.
+ */
+describe("cortesía de algunas piezas de un renglón", () => {
+  function tresCervezas() {
+    const f = new FabricaEventos<EventoComanda>(CTX);
+    const orden_id = uuidv7();
+    const cervezas: RenglonComanda = { ...renglon(50, 15, "Cerveza"), cantidad: 3 };
+    const eventos: EventoComanda[] = [
+      f.crear("orden_creada", orden_id, { orden_id, mesa_id: "mesa-1", abierta_ts: Date.now() }),
+      f.crear("item_agregado", orden_id, { orden_id, renglon: cervezas }),
+    ];
+    return { f, orden_id, eventos, cervezas };
+  }
+
+  it("regala solo las piezas indicadas y cobra el resto", () => {
+    const { f, orden_id, eventos, cervezas } = tresCervezas();
+    const t = totalesComanda(
+      proyectarComanda([
+        ...eventos,
+        f.crear("cortesia_otorgada", orden_id, {
+          orden_id, renglon_id: cervezas.id, cantidad: 1, motivo: "Cumpleaños",
+        }),
+      ]),
+    );
+    expect(t.bruto).toBe(pesos(150));
+    expect(t.cortesias).toBe(pesos(50));
+    expect(t.subtotal).toBe(pesos(100));
+    // Las tres se sirvieron: el costo es de las tres.
+    expect(t.costo).toBe(pesos(45));
+  });
+
+  it("otorgar de nuevo sobre el mismo renglón cambia las piezas, no las suma", () => {
+    const { f, orden_id, eventos, cervezas } = tresCervezas();
+    const estado = proyectarComanda([
+      ...eventos,
+      f.crear("cortesia_otorgada", orden_id, { orden_id, renglon_id: cervezas.id, cantidad: 1, motivo: "x" }),
+      f.crear("cortesia_otorgada", orden_id, { orden_id, renglon_id: cervezas.id, cantidad: 2, motivo: "x" }),
+    ]);
+    expect(estado.cortesias).toHaveLength(1);
+    expect(totalesComanda(estado).cortesias).toBe(pesos(100));
+  });
+
+  it("si bajan las piezas por debajo de lo regalado, se regala lo que queda y nunca más", () => {
+    const { f, orden_id, eventos, cervezas } = tresCervezas();
+    const t = totalesComanda(
+      proyectarComanda([
+        ...eventos,
+        f.crear("cortesia_otorgada", orden_id, { orden_id, renglon_id: cervezas.id, cantidad: 2, motivo: "x" }),
+        f.crear("item_modificado", orden_id, { orden_id, renglon_id: cervezas.id, cantidad: 1 }),
+      ]),
+    );
+    expect(t.cortesias).toBe(pesos(50));
+    expect(t.total).toBe(CERO);
+  });
+
+  it("el descuento del renglón se calcula sobre las piezas que sí se cobran", () => {
+    const { f, orden_id, eventos, cervezas } = tresCervezas();
+    const t = totalesComanda(
+      proyectarComanda([
+        ...eventos,
+        f.crear("cortesia_otorgada", orden_id, { orden_id, renglon_id: cervezas.id, cantidad: 1, motivo: "x" }),
+        f.crear("descuento_aplicado", orden_id, {
+          orden_id, alcance: "renglon", renglon_id: cervezas.id, modo: "porcentaje", valor: 0.1, motivo: "Promo",
+        }),
+      ]),
+    );
+    expect(t.cortesias).toBe(pesos(50));
+    expect(t.descuentos).toBe(pesos(10));
+    expect(t.subtotal).toBe(pesos(90));
+  });
+
+  it("retirarla devuelve las tres piezas a la cuenta", () => {
+    const { f, orden_id, eventos, cervezas } = tresCervezas();
+    const t = totalesComanda(
+      proyectarComanda([
+        ...eventos,
+        f.crear("cortesia_otorgada", orden_id, { orden_id, renglon_id: cervezas.id, cantidad: 1, motivo: "x" }),
+        f.crear("cortesia_retirada", orden_id, { orden_id, renglon_id: cervezas.id }),
+      ]),
+    );
+    expect(t.cortesias).toBe(CERO);
+    expect(t.subtotal).toBe(pesos(150));
+  });
+
+  it("la cortesía de la cuenta completa sigue regalándolo todo", () => {
+    const { f, orden_id, eventos, cervezas } = tresCervezas();
+    const t = totalesComanda(
+      proyectarComanda([
+        ...eventos,
+        f.crear("cortesia_otorgada", orden_id, { orden_id, renglon_id: cervezas.id, cantidad: 1, motivo: "x" }),
+        f.crear("cortesia_otorgada", orden_id, { orden_id, motivo: "Invitación" }),
+      ]),
+    );
+    expect(t.cortesias).toBe(pesos(150));
+    expect(t.total).toBe(CERO);
+  });
+});

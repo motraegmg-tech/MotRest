@@ -15,6 +15,19 @@
  *
  * Por eso cada categoría declara si afecta al resultado. Las compras se
  * informan aparte, como salida de efectivo, que es lo que realmente son.
+ *
+ * LAS DOS UTILIDADES (sep-2026)
+ *
+ * Gonzalo pidió que la compra de insumos se restara de la utilidad. Restarla a
+ * la de arriba era el doble conteo de siempre, así que se enseñan DOS cifras, con
+ * nombre fijo en todas partes:
+ *
+ * - **Utilidad contable** (`resultado`): venta − costo de lo vendido − gastos de
+ *   operación. Los insumos pesan cuando se VENDEN. Es la que sirve para fijar
+ *   precios, y no cambió.
+ * - **Utilidad en efectivo** (`utilidad_efectivo`): venta − todo lo que salió,
+ *   compras incluidas. Los insumos pesan cuando se COMPRAN, y por eso no resta
+ *   el costo de lo vendido.
  */
 import { CERO, restar, sumar, type Centavos } from "../comun/dinero.js";
 import type { ID } from "../comun/ids.js";
@@ -355,6 +368,28 @@ export function deudaPorProveedor(registros: readonly RegistroEgreso[]): DeudaPr
 
 // --- El resultado ------------------------------------------------------------------------
 
+/**
+ * Los nombres de las dos utilidades, escritos UNA sola vez.
+ *
+ * Salen iguales en el resultado del día, en el del mes y en el PDF del estado
+ * financiero. Si cada pantalla los tecleara por su cuenta, tarde o temprano una
+ * diría «resultado», otra «ganancia» y el papel «utilidad», y el dueño
+ * preguntaría —con razón— si son tres números distintos.
+ */
+export const UTILIDAD_CONTABLE = "Utilidad contable";
+export const UTILIDAD_EN_EFECTIVO = "Utilidad en efectivo";
+
+/**
+ * En qué se diferencian, dicho como lo diría un restaurantero.
+ *
+ * Va junto a las dos cifras en todas partes. Sin esta línea, quien vea dos
+ * utilidades distintas del mismo día concluirá que una está mal.
+ */
+export const DIFERENCIA_ENTRE_UTILIDADES =
+  "La contable resta los insumos cuando se venden en los platillos; la de efectivo, " +
+  "el día que se compran. Por eso un día de surtido baja la de efectivo y no la " +
+  "contable. Para decidir precios, mire la contable.";
+
 export interface TotalCategoria {
   categoria: CategoriaEgreso;
   nombre: string;
@@ -371,15 +406,30 @@ export interface ResultadoPeriodo {
   margen_bruto: Centavos;
   /** Gastos que sí se restan (nómina, renta, servicios…). */
   egresos_operativos: Centavos;
-  /** Margen bruto − egresos operativos. La cifra que importa. */
+  /**
+   * La UTILIDAD CONTABLE: margen bruto − egresos operativos.
+   *
+   * Conserva el nombre de campo de siempre porque la leen la pantalla del día,
+   * el estado financiero y sus pruebas; lo que cambió es cómo se rotula, que es
+   * `UTILIDAD_CONTABLE` en todas partes.
+   */
   resultado: Centavos;
   /**
-   * Compras de insumos del período. NO se restan —su costo llega por el consumo
-   * de recetas— pero sí salieron de la caja, y hay que verlas.
+   * Compras de insumos del período. NO se restan a la utilidad contable —su
+   * costo llega por el consumo de recetas— pero sí salieron de la caja, y hay
+   * que verlas.
    */
   compras: Centavos;
-  /** Salida real de efectivo: todo lo que se pagó, compras incluidas. */
+  /** Todo lo gastado en el período, compras incluidas: operativos + compras. */
   salida_total: Centavos;
+  /**
+   * La UTILIDAD EN EFECTIVO: venta sin IVA − todo lo que salió (`salida_total`).
+   *
+   * NO resta el costo de lo vendido: aquí los insumos pesan el día que se
+   * compran, y restar también su consumo sería contarlos dos veces. Ver el
+   * cálculo en `calcularResultado`.
+   */
+  utilidad_efectivo: Centavos;
   por_categoria: TotalCategoria[];
   /** Costo sobre ingreso, como fracción. 0.31 = 31 %. */
   food_cost: number;
@@ -416,6 +466,38 @@ export function calcularResultado(
   const resultado = restar(margen_bruto, egresos_operativos);
   const salida_total = sumar(egresos_operativos, compras);
 
+  /*
+   * LA UTILIDAD EN EFECTIVO: lo que entró menos TODO lo que salió.
+   *
+   * Es la segunda utilidad que pidió Gonzalo: la compra de insumos resta aquí,
+   * el día que se compra. Por eso NO se resta el costo de lo vendido — ese es
+   * el mismo queso visto el día que se vende, y restar las dos cosas es el
+   * doble conteo que este módulo existe para evitar. Queda, al centavo:
+   *
+   *   contable − efectivo = compras de insumos − costo de lo vendido
+   *
+   * SIN IVA, igual que la contable. Se pensó en usar la venta cobrada con IVA
+   * —la que suma `flujo.entradas` en el estado financiero— y se descartó por
+   * tres razones:
+   *
+   * 1. El IVA cobrado no es del restaurante: se entrega al SAT el mes
+   *    siguiente. Enseñarlo como utilidad invita a gastárselo, y el día 17 no
+   *    hay con qué pagar.
+   * 2. Partiendo de la misma venta, lo ÚNICO que separa las dos utilidades es
+   *    cuándo pesan los insumos, y la diferencia se explica con una línea. Con
+   *    IVA se mezclaría con el 16 % y nadie podría explicarla.
+   * 3. La lectura con IVA ya existe y es otra pregunta: el movimiento del
+   *    dinero (`flujo`), que además suma propinas y traspasos y respeta el día
+   *    en que se paga lo comprado a crédito. Una tercera cifra «casi igual al
+   *    flujo, pero no» confundiría más que ayudar.
+   *
+   * Los gastos son los mismos que los de la contable, por la fecha en que se
+   * incurrieron: una compra a crédito pesa el día que llega la mercancía,
+   * igual que en «Salió de la caja hoy». El día exacto en que sale el dinero lo
+   * cuenta el flujo, no esta cifra.
+   */
+  const utilidad_efectivo = restar(ventas.subtotal, salida_total);
+
   return {
     ingreso: ventas.subtotal,
     costo: ventas.costo,
@@ -424,6 +506,7 @@ export function calcularResultado(
     resultado,
     compras,
     salida_total,
+    utilidad_efectivo,
     por_categoria,
     food_cost: ventas.subtotal > 0 ? ventas.costo / ventas.subtotal : 0,
   };
@@ -439,6 +522,7 @@ export function resultadoVacio(): ResultadoPeriodo {
     resultado: CERO,
     compras: CERO,
     salida_total: CERO,
+    utilidad_efectivo: CERO,
     por_categoria: [],
     food_cost: 0,
   };

@@ -389,6 +389,18 @@
           placeholder="https://maps.app.goo.gl/..."
         />
       </label>
+      <label class="ancho">
+        Cómo pedir factura
+        <input
+          value={local.textosTicket.aviso_factura}
+          oninput={(e) => local.fijarTextosTicket({ aviso_factura: e.currentTarget.value })}
+          placeholder="¿Necesita factura? Pídala con su mesero antes de irse."
+        />
+        <small>
+          Sale en la pre-cuenta y en el ticket cobrado, antes de la despedida.
+          Déjalo vacío para no imprimirlo.
+        </small>
+      </label>
       <label>
         Despedida
         <input

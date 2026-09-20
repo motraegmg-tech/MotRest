@@ -24,7 +24,13 @@
  */
 import type { DatabaseSync } from "node:sqlite";
 import { leerIdentidad } from "@motrest/dominio";
-import { YA_TIMBRADO, type Pac, type ResultadoTimbrado } from "./pac.js";
+import {
+  YA_TIMBRADO,
+  type Pac,
+  type PacDeDatos,
+  type ResultadoTimbrado,
+  type ResultadoTimbradoDatos,
+} from "./pac.js";
 
 /**
  * Cuántas veces se va por un timbre existente antes de llamar a una persona.
@@ -63,6 +69,17 @@ CREATE INDEX IF NOT EXISTS idx_timbrado_pendientes ON timbrado(estado, proximo_t
 export type ModoTimbrado = "timbrar" | "recuperar";
 
 export type EstadoTimbrado = "pendiente" | "timbrado" | "rechazado";
+
+/**
+ * Qué guarda la columna `xml` de una factura en cola.
+ *
+ * `xml_sellado` es lo de siempre: el comprobante ya sellado con el CSD del
+ * local, listo para un PAC. `facturapi` es la venta en el JSON de FacturAPI,
+ * que sella ella misma. Van en la misma cola —con la misma durabilidad y los
+ * mismos reintentos— porque el problema que resuelve la cola es el mismo:
+ * vender sin internet y timbrar cuando vuelva.
+ */
+export type FormatoTimbrado = "xml_sellado" | "facturapi";
 
 /** Una factura con desenlace, lista para anotarse en el registro del local. */
 export interface FacturaResuelta {
@@ -165,6 +182,34 @@ export class ColaDeTimbrado {
     if (!columnas.has("publicado")) {
       this.db.exec("ALTER TABLE timbrado ADD COLUMN publicado INTEGER NOT NULL DEFAULT 0");
     }
+    /*
+     * FacturAPI (1.5.5). Todo lo anterior queda como `xml_sellado`, que es lo
+     * que era. `externo_id` es el id de la factura del lado de FacturAPI: en
+     * cuanto existe se pregunta por ELLA en vez de crear otra.
+     */
+    if (!columnas.has("formato")) {
+      this.db.exec("ALTER TABLE timbrado ADD COLUMN formato TEXT NOT NULL DEFAULT 'xml_sellado'");
+    }
+    if (!columnas.has("externo_id")) {
+      this.db.exec("ALTER TABLE timbrado ADD COLUMN externo_id TEXT");
+    }
+  }
+
+  private facturapi: PacDeDatos | null = null;
+
+  /**
+   * Cambia el PAC de FacturAPI en caliente.
+   *
+   * La llave llega cuando llega —desde Central o desde la caja, con el Hub
+   * encendido— y quitarla tiene que surtir efecto sin reiniciar nada.
+   */
+  usarFacturapi(pac: PacDeDatos | null): void {
+    this.facturapi = pac;
+  }
+
+  /** Hay quien timbre lo que está en cola, en alguno de los dos formatos. */
+  get hayProveedor(): boolean {
+    return this.pac !== null || this.facturapi !== null;
   }
 
   /**
@@ -181,14 +226,16 @@ export class ColaDeTimbrado {
     serie: string;
     folio: string;
     total: number;
+    /** El XML sellado, o el JSON de FacturAPI según `formato`. */
     xml: string;
+    formato?: FormatoTimbrado;
   }): void {
     this.db
       .prepare(
         `INSERT OR IGNORE INTO timbrado
            (orden_id, cfdi_id, sucursal_id, serie, folio, total, xml,
-            estado, intentos, proximo_ts, creado_ts)
-         VALUES (?, ?, ?, ?, ?, ?, ?, 'pendiente', 0, 0, ?)`,
+            estado, intentos, proximo_ts, creado_ts, formato)
+         VALUES (?, ?, ?, ?, ?, ?, ?, 'pendiente', 0, 0, ?, ?)`,
       )
       .run(
         entrada.orden_id,
@@ -199,7 +246,50 @@ export class ColaDeTimbrado {
         entrada.total,
         entrada.xml,
         Date.now(),
+        entrada.formato ?? "xml_sellado",
       );
+  }
+
+  /**
+   * Da por rechazada una factura sin mandarla a nadie.
+   *
+   * Para lo que el propio Hub sabe que no debe timbrarse —un ticket que ya
+   * entró en la factura global—: queda en la cola con su motivo y el rechazo
+   * vuelve a la caja por el camino de siempre (`cfdi_rechazado`).
+   */
+  rechazarAhora(ordenId: string, codigo: string, motivo: string): void {
+    this.marcarRechazado(ordenId, `${codigo}: ${motivo}`);
+  }
+
+  /**
+   * Vuelve a intentar las que FacturAPI rechazó POR LA LLAVE (401/403).
+   *
+   * Se llama al llegar una llave nueva. Un rechazo por llave revocada no dice
+   * nada malo del comprobante: con la llave buena sale igual. Los demás
+   * rechazos (datos del receptor, por ejemplo) siguen esperando a una persona.
+   */
+  reintentarPorLlave(): number {
+    const r = this.db
+      .prepare(
+        `UPDATE timbrado
+            SET estado = 'pendiente', intentos = 0, proximo_ts = 0, problema = NULL, publicado = 0
+          WHERE estado = 'rechazado' AND formato = 'facturapi'
+            AND (problema LIKE '401:%' OR problema LIKE '403:%')`,
+      )
+      .run();
+    return Number(r.changes);
+  }
+
+  /** El id en FacturAPI de un comprobante, para cancelarlo. */
+  externoDeCfdi(cfdiId: string): string | null {
+    const fila = this.db
+      .prepare("SELECT externo_id FROM timbrado WHERE cfdi_id = ? AND externo_id IS NOT NULL")
+      .get(cfdiId) as { externo_id: string } | undefined;
+    return fila?.externo_id ?? null;
+  }
+
+  private anotarExterno(ordenId: string, externoId: string | null): void {
+    this.db.prepare("UPDATE timbrado SET externo_id = ? WHERE orden_id = ?").run(externoId, ordenId);
   }
 
   /**
@@ -230,18 +320,38 @@ export class ColaDeTimbrado {
   private porIntentar(
     limite: number,
     ahora: number,
-  ): { orden_id: string; xml: string; modo: ModoTimbrado; recuperaciones: number }[] {
+  ): {
+    orden_id: string;
+    xml: string;
+    modo: ModoTimbrado;
+    recuperaciones: number;
+    formato: FormatoTimbrado;
+    externo_id: string | null;
+  }[] {
+    /*
+     * Solo los formatos que alguien puede timbrar ahora. Sin esto, cien XML
+     * sellados esperando un PAC que ya no existe se comerían el límite de cada
+     * vuelta y las facturas de FacturAPI no saldrían nunca.
+     */
+    const formatos = [
+      ...(this.pac ? ["xml_sellado"] : []),
+      ...(this.facturapi ? ["facturapi"] : []),
+    ];
+    if (formatos.length === 0) return [];
     return this.db
       .prepare(
-        `SELECT orden_id, xml, modo, recuperaciones FROM timbrado
+        `SELECT orden_id, xml, modo, recuperaciones, formato, externo_id FROM timbrado
           WHERE estado = 'pendiente' AND proximo_ts <= ?
+            AND formato IN (${formatos.map(() => "?").join(", ")})
           ORDER BY creado_ts LIMIT ?`,
       )
-      .all(ahora, limite) as unknown as {
+      .all(ahora, ...formatos, limite) as unknown as {
       orden_id: string;
       xml: string;
       modo: ModoTimbrado;
       recuperaciones: number;
+      formato: FormatoTimbrado;
+      externo_id: string | null;
     }[];
   }
 
@@ -259,17 +369,30 @@ export class ColaDeTimbrado {
     let timbradas = 0;
     let rechazadas = 0;
 
-    if (!this.pac) {
+    if (!this.hayProveedor) {
       return { timbradas: 0, rechazadas: 0, pendientes: this.contar("pendiente") };
     }
 
     for (const fila of this.porIntentar(limite, ahora)) {
       let resultado: ResultadoTimbrado;
       try {
-        resultado =
-          fila.modo === "recuperar"
-            ? await this.intentarRecuperar(fila.xml, fila.recuperaciones)
-            : await this.pac.timbrar(fila.xml);
+        if (fila.formato === "facturapi") {
+          const datos: ResultadoTimbradoDatos = await this.facturapi!.timbrarDatos(
+            fila.xml,
+            fila.externo_id,
+          );
+          // Se guarda ANTES de interpretar el resto: si el Hub se apaga aquí,
+          // la próxima vuelta pregunta por esa factura en vez de crear otra.
+          if (datos.externo_id !== undefined && datos.externo_id !== fila.externo_id) {
+            this.anotarExterno(fila.orden_id, datos.externo_id);
+          }
+          resultado = datos;
+        } else {
+          resultado =
+            fila.modo === "recuperar"
+              ? await this.intentarRecuperar(fila.xml, fila.recuperaciones)
+              : await this.pac!.timbrar(fila.xml);
+        }
       } catch (error) {
         /*
          * Una excepción del adaptador es casi siempre red. Se trata como

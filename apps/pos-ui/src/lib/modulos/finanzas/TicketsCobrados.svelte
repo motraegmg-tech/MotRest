@@ -35,7 +35,7 @@
     type FormaPago,
     type Pago,
   } from "@motrest/dominio";
-  import { hora, mxn } from "../../formato";
+  import { hora, mxn, dia } from "../../formato";
   import { plano } from "../../plano.svelte";
   import { pos } from "../../pos.svelte";
   import { sesion } from "../../sesion/sesion.svelte";
@@ -219,6 +219,7 @@
     <table>
       <thead>
         <tr>
+          <th>Día</th>
           <th>Hora</th>
           <th>Mesa</th>
           <th>Folio</th>
@@ -233,6 +234,9 @@
       <tbody>
         {#each filas as f (f.comanda.orden_id)}
           <tr class:cancelada={f.estado === "cancelada"} class:revisar={f.aRevisar}>
+            <!-- El día, porque esta lista abarca varias jornadas: con la hora
+                 sola, dos tickets de las 21:15 eran indistinguibles. -->
+            <td class="tenue">{dia(f.cuando)}</td>
             <td>{hora(f.cuando)}</td>
             <td><b>{f.mesa}</b></td>
             <td class="folio">{f.folio}</td>

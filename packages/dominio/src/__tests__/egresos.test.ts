@@ -7,7 +7,7 @@
  * en pérdida cuando fue un día bueno.
  */
 import { describe, expect, it } from "vitest";
-import { pesos } from "../comun/dinero.js";
+import { pesos, restar } from "../comun/dinero.js";
 import { FabricaEventos } from "../evento.js";
 import {
   CATEGORIAS_EGRESO,
@@ -252,5 +252,123 @@ describe("resultado del período", () => {
     const vacio = resultadoVacio();
     expect(vacio.food_cost).toBe(0);
     expect(calcularResultado({ subtotal: pesos(0), costo: pesos(0) }, []).food_cost).toBe(0);
+  });
+});
+
+// --- Las dos utilidades -----------------------------------------------------------------------
+
+/*
+ * Gonzalo pidió que la compra de insumos se restara de la utilidad. Restarla a
+ * la contable contaría el queso dos veces, así que se enseñan DOS utilidades.
+ * Estas pruebas fijan con números la regla entera: la de efectivo resta la
+ * compra y NO el costo de lo vendido, la contable al revés, y entre las dos hay
+ * exactamente «compras − costo de lo vendido», ni un centavo más.
+ */
+describe("las dos utilidades", () => {
+  /** El día de la prueba: 10 000 de venta sin IVA y 3 000 de costo de lo vendido. */
+  const ventas = { subtotal: pesos(10000), costo: pesos(3000) };
+
+  it("un día de surtido: la de efectivo resta la compra y NO el costo de lo vendido", () => {
+    const f = fabrica();
+    const egresos = proyectarEgresos([
+      egreso(f, "e1", "insumos", 5000),
+      egreso(f, "e2", "nomina", 2000),
+    ]);
+    const r = calcularResultado(ventas, egresos);
+
+    // Contable: 10 000 − 3 000 de costo − 2 000 de nómina. La compra no pesa.
+    expect(r.resultado).toBe(pesos(5000));
+    // En efectivo: 10 000 − 2 000 de nómina − 5 000 de insumos. El costo no pesa.
+    expect(r.utilidad_efectivo).toBe(pesos(3000));
+
+    // Restar las DOS cosas —compra y costo— daría cero: el doble conteo que se evita.
+    expect(restar(r.margen_bruto, r.salida_total)).toBe(pesos(0));
+    expect(r.utilidad_efectivo).not.toBe(restar(r.margen_bruto, r.salida_total));
+
+    // Y la diferencia es exactamente compras − costo de lo vendido.
+    expect(restar(r.resultado, r.utilidad_efectivo)).toBe(restar(r.compras, r.costo));
+    expect(restar(r.resultado, r.utilidad_efectivo)).toBe(pesos(2000));
+  });
+
+  it("un día que vende de lo que ya había en la despensa: la de efectivo queda ARRIBA", () => {
+    // Sin compra, la de efectivo no carga el queso que sí se consumió.
+    const f = fabrica();
+    const r = calcularResultado(ventas, proyectarEgresos([egreso(f, "e1", "renta", 1000)]));
+
+    expect(r.resultado).toBe(pesos(6000));
+    expect(r.utilidad_efectivo).toBe(pesos(9000));
+    // La contable queda abajo justo por el costo de lo vendido.
+    expect(restar(r.utilidad_efectivo, r.resultado)).toBe(r.costo);
+  });
+
+  it("la de efectivo es la venta menos lo que dice «Salió de la caja», al centavo", () => {
+    // La pantalla enseña las dos cifras una debajo de la otra: tienen que cuadrar.
+    const f = fabrica();
+    const egresos = proyectarEgresos([
+      egreso(f, "e1", "insumos", 1234.56),
+      egreso(f, "e2", "servicios", 789.01),
+    ]);
+    const r = calcularResultado(ventas, egresos);
+
+    expect(r.utilidad_efectivo).toBe(restar(r.ingreso, r.salida_total));
+    // 10 000 − 1 234.56 − 789.01, hecho a mano en papel.
+    expect(r.utilidad_efectivo).toBe(pesos(7976.43));
+  });
+
+  it("parte de la venta SIN IVA, igual que la contable", () => {
+    // `subtotal` es la venta sin IVA: el IVA es del SAT. Sin gastos ni costo,
+    // las dos utilidades valen exactamente eso y nada del 16 %.
+    const r = calcularResultado({ subtotal: pesos(1000), costo: pesos(0) }, []);
+    expect(r.utilidad_efectivo).toBe(pesos(1000));
+    expect(r.resultado).toBe(pesos(1000));
+  });
+
+  it("un día en que salió más de lo que entró se ve negativo", () => {
+    const f = fabrica();
+    const r = calcularResultado(ventas, proyectarEgresos([egreso(f, "e1", "insumos", 14000)]));
+
+    expect(r.utilidad_efectivo).toBe(pesos(-4000));
+    // Y la contable sigue en positivo: el queso es inventario, no pérdida.
+    expect(r.resultado).toBe(pesos(7000));
+  });
+
+  it("el resultado vacío trae las dos en cero", () => {
+    expect(resultadoVacio().utilidad_efectivo).toBe(pesos(0));
+    expect(resultadoVacio().resultado).toBe(pesos(0));
+  });
+
+  /*
+   * LO YA REGISTRADO. Gonzalo pidió que alcanzara a los gastos que los
+   * restauranteros capturaron antes de esta versión. No hay nada que migrar:
+   * la cifra se deriva al leer el registro de eventos. Aquí se comprueba con
+   * eventos como los guardaba la versión anterior —sin `pagado`, sin
+   * renglones de mercancía— y leídos del disco, es decir, JSON de vuelta.
+   */
+  it("los gastos capturados antes de esta versión entran solos, sin migrar", () => {
+    const f = fabrica();
+    const guardados = [
+      egreso(f, "viejo-queso", "insumos", 4000),
+      egreso(f, "viejo-luz", "servicios", 500),
+      egreso(f, "viejo-anulado", "insumos", 9999),
+      f.crear("egreso_anulado", "finanzas:suc-1", {
+        egreso_id: "viejo-anulado",
+        motivo: "Capturado dos veces",
+      }),
+    ];
+    const delDisco = JSON.parse(JSON.stringify(guardados)) as EventoEgreso[];
+
+    // Tal como los dejó la versión anterior: sin ninguno de los campos nuevos.
+    for (const ev of delDisco) {
+      expect(ev).not.toHaveProperty("pagado");
+      expect(ev).not.toHaveProperty("lineas");
+    }
+
+    const r = calcularResultado(ventas, egresosEn(proyectarEgresos(delDisco), diaDe(HOY)));
+
+    expect(r.compras).toBe(pesos(4000));
+    // 10 000 − 500 de luz − 4 000 de queso. El anulado no cuenta.
+    expect(r.utilidad_efectivo).toBe(pesos(5500));
+    // La contable, la de siempre: 10 000 − 3 000 − 500.
+    expect(r.resultado).toBe(pesos(6500));
   });
 });

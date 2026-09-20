@@ -30,6 +30,13 @@ export function pct(fraccion: number): string {
  * evento. La aplicación no pinta un reloj propio — la hora actual la da el
  * sistema operativo de cada máquina (ADR-17).
  */
+const calendario = new Intl.DateTimeFormat("es-MX", { day: "2-digit", month: "short" });
+
 export function hora(ts: number): string {
   return reloj.format(new Date(ts));
+}
+
+/** El día de un hecho: «12 sep». Para listas que abarcan varias jornadas. */
+export function dia(ts: number): string {
+  return calendario.format(new Date(ts));
 }

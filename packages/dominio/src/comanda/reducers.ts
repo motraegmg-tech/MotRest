@@ -55,6 +55,8 @@ export interface Descuento {
 
 export interface Cortesia {
   renglon_id?: ID;
+  /** Piezas regaladas de ese renglón. Ausente = el renglón entero. */
+  cantidad?: number;
   motivo: string;
   autorizador_id?: ID;
 }
@@ -301,13 +303,22 @@ export function aplicarEvento(
         descuentos: estado.descuentos.filter((d) => d.id !== ev.descuento_id),
       };
 
+    /*
+     * Otorgar sobre un alcance que ya tenía cortesía la REEMPLAZA.
+     *
+     * Con la cortesía por piezas, cambiar «una cerveza» por «dos» es otorgar de
+     * nuevo sobre el mismo renglón. Si se acumularan, el renglón tendría dos
+     * cortesías vivas y retirar una dejaría la otra puesta sin que la pantalla
+     * lo explicara.
+     */
     case "cortesia_otorgada":
       return {
         ...estado,
         cortesias: [
-          ...estado.cortesias,
+          ...estado.cortesias.filter((c) => c.renglon_id !== ev.renglon_id),
           {
             renglon_id: ev.renglon_id,
+            ...(ev.renglon_id && ev.cantidad !== undefined ? { cantidad: ev.cantidad } : {}),
             motivo: ev.motivo,
             autorizador_id: ev.autorizador_id,
           },

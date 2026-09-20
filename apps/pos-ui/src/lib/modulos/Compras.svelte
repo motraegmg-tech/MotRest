@@ -33,6 +33,7 @@
   import { hora, mxn } from "../formato";
   import { inventario } from "../inventario.svelte";
   import { sesion } from "../sesion/sesion.svelte";
+  import { subirAlPrincipio } from "../subir";
 
   type Vista = "reponer" | "ordenes" | "proveedores" | "factura";
   let vista = $state<Vista>("reponer");
@@ -101,7 +102,9 @@
       factor: Number(factorTexto),
     });
     if (!r.ok) {
+      // El motivo sale encima de la tabla de conceptos, no junto a este botón.
       errorFactura = r.error ?? "";
+      subirAlPrincipio(raiz);
       return;
     }
     ensenando = null;
@@ -115,6 +118,9 @@
    */
   function recibirDesdeFactura() {
     if (!facturaLeida) return;
+    // Salga bien o mal, la respuesta se escribe arriba: el error encima de la
+    // tabla de conceptos, y el aviso en la pantalla de órdenes.
+    subirAlPrincipio(raiz);
     const lineas = propuesta
       .filter((p) => !p.requiere_mapeo && p.cantidad_base !== null)
       .map((p) => ({
@@ -147,6 +153,18 @@
   }
   let error = $state("");
   let aviso = $state("");
+
+  /*
+   * EL AVISO Y EL ERROR SE ESCRIBEN ARRIBA; LOS BOTONES QUE LOS PROVOCAN, NO.
+   *
+   * «Generar orden» está al pie de la lista de lo que hay que reponer, y
+   * «Recibir y pagar» dentro de una orden a media pantalla. Lo que contestan
+   * —«Orden generada», «el gasto ya bajó el dinero del restaurante», o por qué
+   * no se pudo— salía encima de todo, fuera de cuadro: quien recibía la
+   * mercancía no se enteraba de que el dinero ya se había movido, que es
+   * justo lo que esos avisos existen para decir. Ver `subir.ts`.
+   */
+  let raiz = $state<HTMLDivElement | null>(null);
 
   const puedeProveedores = $derived(sesion.puedeOperar("compras.proveedor.editar"));
   const puedeOrdenar = $derived(sesion.puedeOperar("compras.orden.generar"));
@@ -191,6 +209,8 @@
 
   function generarOrden() {
     limpiarMensajes();
+    // Salga bien o mal, la respuesta se escribe arriba.
+    subirAlPrincipio(raiz);
     const r = compras.crearOrden(proveedorId, lineasNuevas, notaOrden.trim() || undefined);
     if (!r.ok) {
       error = r.error;
@@ -248,6 +268,7 @@
 
   function confirmarRecepcion(orden: OrdenCompra) {
     limpiarMensajes();
+    subirAlPrincipio(raiz);
     const recibidas: LineaRecibida[] = pendienteDe(orden)
       .map((p) => ({
         insumo_id: p.insumo_id,
@@ -283,7 +304,10 @@
     const motivo = prompt("¿Por qué se cancela la orden?");
     if (motivo === null) return;
     const r = compras.cancelarOrden(orden.orden_id, motivo);
-    if (!r.ok) error = r.error ?? "No se pudo cancelar";
+    if (!r.ok) {
+      error = r.error ?? "No se pudo cancelar";
+      subirAlPrincipio(raiz);
+    }
   }
 
   /** Importe estimado de la recepción que se está capturando. */
@@ -329,7 +353,7 @@
   }
 </script>
 
-<div class="seccion">
+<div class="seccion" bind:this={raiz}>
   <div class="encabezado">
     <div>
       <h1>Compras</h1>

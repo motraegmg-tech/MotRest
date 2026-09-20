@@ -24,14 +24,19 @@ import {
   puedeEliminarA,
   puedeAutorizar,
   puedeGestionarA,
+  puedeGuardarSecretos,
   proyectarIdentidad,
   rolesAsignablesPor,
   streamIdentidad,
   type Accion,
+  type ClaseSecreto,
+  type EstadoFacturapi,
   type EstadoIdentidad,
+  type EstadoSecretos,
   type EventoBase,
   type EventoIdentidad,
   type ID,
+  type ModoFacturapi,
   type Usuario,
 } from "@motrest/dominio";
 import {
@@ -40,6 +45,7 @@ import {
   eventoValido,
   type Ack,
   type Catalogo,
+  type EstadoFacturaGlobal,
   type MensajeCliente,
   type MensajeHub,
 } from "@motrest/protocolo-sync";
@@ -129,8 +135,45 @@ export interface OpcionesHub {
     /** Manda al SAT las cancelaciones pedidas y publica su desenlace. */
     cancelador?: Cancelador;
     nombrePac?: string;
+    /**
+     * El nombre del proveedor que timbra AHORA. Con FacturAPI cambia en
+     * caliente —llega una llave, se quita— y un texto fijo mentiría.
+     */
+    nombrePacActual?: () => string | null;
+    /** El estado de FacturAPI, para que la caja lo enseñe junto a la cola. */
+    facturapi?: () => EstadoFacturapi;
+    /** La factura global del mes. */
+    global?: () => EstadoFacturaGlobal;
+    /**
+     * ¿Esta orden ya entró en una factura global? Devuelve el periodo.
+     *
+     * Reintentar la factura individual de un ticket que ya está en la global
+     * sería facturar dos veces la misma venta; el Hub se niega aquí aunque la
+     * caja no lo hubiera comprobado.
+     */
+    enGlobal?: (ordenId: ID) => string | null;
+  };
+  /**
+   * Las llaves del Hub (FacturAPI y Gmail). Opcional: un Hub de pruebas o de
+   * ensayo no las necesita.
+   */
+  secretos?: {
+    estado(): EstadoSecretos;
+    guardarDesdeCaja(entrada: {
+      clase?: ClaseSecreto;
+      valor?: string;
+      modo?: ModoFacturapi;
+      remitente?: string;
+    }): Promise<{ ok: boolean; problema?: string }>;
+    quitarDesdeCaja(clase: ClaseSecreto | undefined): Promise<{ ok: boolean; problema?: string }>;
   };
 }
+
+/** Lo que se contesta cuando el Hub no tiene dónde guardar llaves. */
+const SIN_SECRETOS: EstadoSecretos = {
+  facturapi: { configurada: false },
+  gmail: { configurada: false },
+};
 
 /** Eventos cuya emisión exige un permiso concreto, revalidado en el servidor. */
 const PERMISO_POR_EVENTO: Partial<Record<string, Accion>> = {
@@ -333,6 +376,9 @@ export class Hub {
         break;
       case "fiscal":
         if (this.exigirSaludo(sesion)) this.atenderFiscal(sesion, mensaje);
+        break;
+      case "secreto":
+        if (this.exigirSaludo(sesion)) void this.atenderSecreto(sesion, mensaje);
         break;
       case "ping":
         sesion.conexion.enviar({ tipo: "pong", ts: Date.now() });
@@ -1172,7 +1218,14 @@ export class Hub {
         this.anotar("aviso", "Se retiró el CSD de esta caja. No se podrá facturar hasta cargar otro.");
         break;
 
-      case "reintentar":
+      case "reintentar": {
+        const periodo = mensaje.orden_id ? fiscal.enGlobal?.(mensaje.orden_id) : null;
+        if (periodo) {
+          problema =
+            `Este ticket ya entró en la factura global de ${periodo}: facturarlo a nombre de ` +
+            "alguien exige cancelar antes la global (motivo 04). Pídelo a tu contador o a MOTRAE.";
+          break;
+        }
         if (mensaje.orden_id) fiscal.cola.reintentar(mensaje.orden_id);
         // Se intenta enseguida —quien reintenta a mano acaba de arreglar la
         // causa— pero sin bloquear la respuesta.
@@ -1183,6 +1236,7 @@ export class Hub {
             this.anotar("error", `Fallo al reintentar el timbrado: ${String(error)}`);
           });
         break;
+      }
 
       case "estado":
       case "listar_cola":
@@ -1199,11 +1253,104 @@ export class Hub {
         no_certificado: csd.no_certificado,
         valido_hasta: csd.valido_hasta,
         dias_restantes: csd.dias_restantes,
-        pac: fiscal.nombrePac ?? null,
+        pac: fiscal.nombrePacActual ? fiscal.nombrePacActual() : (fiscal.nombrePac ?? null),
         cola: fiscal.cola.resumen(),
+        ...(fiscal.facturapi ? { facturapi: fiscal.facturapi() } : {}),
+        ...(fiscal.global ? { global: fiscal.global() } : {}),
       },
       cola: mensaje.accion === "listar_cola" ? fiscal.cola.listar() : undefined,
     });
+  }
+
+  // --- Llaves del Hub ---------------------------------------------------------------------
+
+  /**
+   * FacturAPI y Gmail, desde la caja.
+   *
+   * Dos candados, como con el CSD: la terminal tiene que estar aprobada (el
+   * aparato es del local) y, para cambiar algo, la PERSONA tiene que ser el
+   * responsable o el soporte de MOTRAE. Esto último es por ROL y lo decide el
+   * Hub contra su propia tabla de usuarios: una terminal manipulada puede
+   * decir que es quien quiera, y un permiso concedido a mano no cuenta.
+   *
+   * Consultar sí lo puede cualquier terminal aprobada: quien cobra tiene que
+   * saber si la facturación está lista. Lo que viaja de vuelta es el estado,
+   * nunca la llave.
+   */
+  private async atenderSecreto(
+    sesion: Sesion,
+    mensaje: Extract<MensajeCliente, { tipo: "secreto" }>,
+  ): Promise<void> {
+    if (!this.log.dispositivo(sesion.device_id)?.aprobado) {
+      sesion.conexion.enviar({
+        tipo: "error",
+        codigo: "permiso_denegado",
+        mensaje: "Solo una terminal autorizada del local puede consultar las llaves",
+      });
+      return;
+    }
+
+    const secretos = this.opciones.secretos;
+    const responder = (ok: boolean, problema?: string) =>
+      sesion.conexion.enviar({
+        tipo: "secreto",
+        ok,
+        ...(problema ? { problema } : {}),
+        estado: secretos?.estado() ?? SIN_SECRETOS,
+      });
+
+    if (mensaje.accion === "consultar") {
+      responder(true);
+      return;
+    }
+    if (mensaje.accion !== "guardar" && mensaje.accion !== "quitar") {
+      responder(false, "No sé qué hacer con esa petición.");
+      return;
+    }
+    if (!secretos) {
+      responder(false, "Este Hub no puede guardar llaves.");
+      return;
+    }
+
+    const usuario = this.usuarioDe(mensaje.empleado_id);
+    if (!usuario || !puedeGuardarSecretos(usuario)) {
+      // Quién lo intentó, sí; qué tecleó, jamás.
+      this.anotar(
+        "aviso",
+        `Intento de cambiar la llave de ${mensaje.clase ?? "?"} sin permiso: ${mensaje.empleado_id}`,
+      );
+      responder(
+        false,
+        "Solo el responsable del restaurante o el soporte de MOTRAE pueden cambiar las llaves.",
+      );
+      return;
+    }
+
+    try {
+      const resultado =
+        mensaje.accion === "guardar"
+          ? await secretos.guardarDesdeCaja({
+              clase: mensaje.clase,
+              valor: mensaje.valor,
+              modo: mensaje.modo,
+              remitente: mensaje.remitente,
+            })
+          : await secretos.quitarDesdeCaja(mensaje.clase);
+      if (resultado.ok) {
+        this.anotar(
+          "info",
+          `Llave de ${mensaje.clase} ${mensaje.accion === "guardar" ? "guardada" : "quitada"} por ${usuario.nombre}.`,
+        );
+      }
+      responder(resultado.ok, resultado.problema);
+    } catch (error) {
+      // El texto de la excepción no se reenvía: podría arrastrar lo que se tecleó.
+      this.anotar(
+        "error",
+        `Fallo al guardar la llave de ${mensaje.clase}: ${error instanceof Error ? error.name : "error"}`,
+      );
+      responder(false, "No se pudo guardar la llave. Inténtalo otra vez.");
+    }
   }
 
   /** `null` si puede administrar el CSD; si no, por qué no. */

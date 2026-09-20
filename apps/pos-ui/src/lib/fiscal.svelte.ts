@@ -12,6 +12,11 @@ import {
   colaDeTimbrado,
   comprobanteAXml,
   construirComprobante,
+  facturasGlobales,
+  limitesDelPeriodo,
+  ordenEnFacturaGlobal,
+  periodoDe,
+  ticketPasaALaGlobal,
   problemaCancelacion,
   proyectarCfdis,
   representacionImpresa,
@@ -26,6 +31,7 @@ import {
   type DatosReceptor,
   type EstadoComanda,
   type EventoFiscal,
+  type FacturaGlobalRegistrada,
   type ID,
   type ProblemaFiscal,
   type RegistroCfdi,
@@ -124,6 +130,14 @@ class StoreFiscal {
 
   // --- Consultas -------------------------------------------------------------
 
+  /**
+   * Las facturas globales del registro (1.5.5). Los reportes las necesitan para
+   * no contar como «sin facturar» lo que ya entró en una global.
+   */
+  get globales(): FacturaGlobalRegistrada[] {
+    return facturasGlobales(this.eventos);
+  }
+
   get registros(): RegistroCfdi[] {
     return proyectarCfdis(this.eventos).sort((a, b) => b.generado_ts - a.generado_ts);
   }
@@ -160,7 +174,44 @@ class StoreFiscal {
    * Genera el comprobante de una cuenta. No lo timbra: eso requiere PAC y CSD.
    * El comprobante queda guardado y en cola.
    */
-  facturar(estado: EstadoComanda, receptor: DatosReceptor): ResultadoFactura {
+  facturar(
+    estado: EstadoComanda,
+    receptor: DatosReceptor,
+    opciones: {
+      /** A dónde manda FacturAPI la factura timbrada (PDF + XML). */
+      correo?: string;
+      /**
+       * El local emite factura global mensual (FacturAPI configurada). Con
+       * ella, un ticket de un mes ya cerrado pertenece a la global.
+       */
+      conGlobal?: boolean;
+    } = {},
+  ): ResultadoFactura {
+    /*
+     * LA REGLA DE LA GLOBAL (1.5.5), antes que nada. Una venta no puede ir en
+     * dos comprobantes: si el ticket ya entró en la global —o su mes ya cerró y
+     * va a entrar—, facturarlo a nombre de alguien exige cancelar la global
+     * ante el SAT, y eso no es algo que deba ocurrir con un clic en la caja.
+     * Decirlo aquí es mejor que dejar que el SAT lo rechace o, peor, que salga
+     * dos veces. Gonzalo: el comensal puede pedir su factura hasta fin de mes.
+     */
+    if (opciones.conGlobal) {
+      const global = ordenEnFacturaGlobal(this.eventos, estado.orden_id);
+      if (global) {
+        return {
+          ok: false,
+          error: `Este ticket ya va en la factura global de ${mesLegible(global.periodo)}. Para facturarlo a nombre del cliente habría que cancelar esa global: pídeselo a MOTRAE.`,
+        };
+      }
+      const cierre = estado.cerrada_ts ?? estado.abierta_ts;
+      if (ticketPasaALaGlobal(cierre, Date.now())) {
+        return {
+          ok: false,
+          error: `Este ticket es de ${mesLegible(periodoDe(cierre))}, que ya cerró: su venta va en la factura global de ese mes. La factura a nombre del cliente se podía pedir hasta fin de mes.`,
+        };
+      }
+    }
+
     if (!this.emisorCompleto) {
       return {
         ok: false,
@@ -193,6 +244,7 @@ class StoreFiscal {
         serie: this.serie,
         folio,
         comprobante,
+        ...(opciones.correo?.trim() ? { correo_receptor: opciones.correo.trim() } : {}),
       }),
     );
 
@@ -257,8 +309,26 @@ class StoreFiscal {
             rfc_pac: registro.pac ?? "",
           }
         : undefined;
-    return representacionImpresa(registro.comprobante, timbre);
+    /*
+     * CON FACTURAPI, LO QUE VALE ES LO QUE SE TIMBRÓ (1.5.5). FacturAPI arma y
+     * sella el XML con SU certificado y SU aritmética: el número de certificado
+     * y el total que certifica el SAT salen de ahí, no del comprobante que armó
+     * la caja. El QR de verificación lleva el total, así que un centavo de
+     * diferencia haría que el SAT dijera «no encontrado» al escanearlo.
+     */
+    const comprobante = {
+      ...registro.comprobante,
+      no_certificado: registro.no_certificado_emisor ?? registro.comprobante.no_certificado,
+      total: registro.total_timbrado ?? registro.comprobante.total,
+    };
+    return representacionImpresa(comprobante, timbre);
   }
 }
 
 export const fiscal = new StoreFiscal();
+
+/** «2026-08» → «agosto de 2026», para los mensajes de la global. */
+function mesLegible(periodo: string): string {
+  const { desde } = limitesDelPeriodo(periodo);
+  return new Date(desde).toLocaleDateString("es-MX", { month: "long", year: "numeric" });
+}

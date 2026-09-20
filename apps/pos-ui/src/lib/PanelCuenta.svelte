@@ -22,6 +22,7 @@
   import { pos } from "./pos.svelte";
   import { sesion } from "./sesion/sesion.svelte";
   import { socios } from "./socios.svelte";
+  import { revelar, subirAlPrincipio } from "./subir";
   import { vistaMesa } from "./vista-mesa.svelte";
 
   let facturando = $state(false);
@@ -44,6 +45,21 @@
   const paso = $derived(vistaMesa.de(pos.mesaActiva));
   const fijar = (cambios: Parameters<typeof vistaMesa.fijar>[1]) =>
     vistaMesa.fijar(pos.mesaActiva, cambios);
+
+  /*
+   * CAMBIAR DE PANEL Y SUBIR. La cuenta tiene su propio scroll: con una mesa
+   * larga, «Cobrar» se pulsa al pie y el panel de cobro empieza arriba, así que
+   * se aterrizaba a media pantalla sin ver el título ni las formas de pago.
+   *
+   * Aparte de `fijar` y no dentro: el `$effect` que devuelve a la cuenta cuando
+   * se pierde un permiso también llama a `fijar`, y ahí la pantalla no debe
+   * moverse sola.
+   */
+  let cuentaEl = $state<HTMLElement | null>(null);
+  function irA(cambios: Parameters<typeof vistaMesa.fijar>[1]) {
+    fijar(cambios);
+    subirAlPrincipio(cuentaEl);
+  }
 
   /**
    * Lo que paga el comensal por un renglón: el precio con SU impuesto dentro.
@@ -328,7 +344,101 @@
    * ocurrió y tiene que seguir contando completa en finanzas y en inteligencia.
    * Lo único distinto es que el dinero no entra al cajón.
    */
-  const cortesiaPuesta = $derived(pos.tieneCortesia(undefined));
+  // --- Cortesía: QUÉ se regala -------------------------------------------------
+  /*
+   * Pedido de Gonzalo (sep-2026): el botón regalaba la cuenta entera o nada.
+   * Ahora abre una ventana donde se marca toda la cuenta —como antes— o solo
+   * algunos productos, y de un renglón de varias piezas, cuántas. Es lo que
+   * permite llevar el control de qué se puede regalar y qué no: la bitácora
+   * dice «1 de 3 Cerveza», no «cuenta completa».
+   */
+  const MOTIVOS_CORTESIA = [
+    "Cortesía de la casa",
+    "Cumpleaños",
+    "Tardó la cocina",
+    "Error del servicio",
+  ];
+
+  const cortesiasPuestas = $derived(pos.comanda?.cortesias ?? []);
+  const cortesiaToda = $derived(cortesiasPuestas.some((c) => !c.renglon_id));
+  const productosRegalados = $derived(cortesiasPuestas.filter((c) => c.renglon_id).length);
+
+  /** Piezas de este renglón que ya van regaladas en la cuenta. */
+  function piezasRegaladas(renglon: RenglonComanda): number {
+    if (cortesiaToda) return renglon.cantidad;
+    const puesta = cortesiasPuestas.find((c) => c.renglon_id === renglon.id);
+    if (!puesta) return 0;
+    return Math.min(puesta.cantidad ?? renglon.cantidad, renglon.cantidad);
+  }
+
+  let regalando = $state(false);
+  let regalarToda = $state(false);
+  /** renglon_id → piezas marcadas en la ventana (0 = no se regala). */
+  let piezasRegalo = $state<Record<string, number>>({});
+  let motivoCortesia = $state(MOTIVOS_CORTESIA[0]!);
+
+  /** Abre la ventana con lo que YA está regalado marcado: se edita, no se empieza de cero. */
+  function abrirCortesia() {
+    regalarToda = cortesiaToda;
+    const actuales: Record<string, number> = {};
+    if (!cortesiaToda) {
+      for (const r of pos.renglones) {
+        const n = piezasRegaladas(r);
+        if (n > 0) actuales[r.id] = n;
+      }
+    }
+    piezasRegalo = actuales;
+    motivoCortesia = cortesiasPuestas[0]?.motivo ?? MOTIVOS_CORTESIA[0]!;
+    regalando = true;
+  }
+
+  function alternarToda() {
+    regalarToda = !regalarToda;
+    if (regalarToda) piezasRegalo = {};
+  }
+
+  /** Marcar un renglón lo regala entero; las piezas se ajustan después. */
+  function alternarRenglonRegalo(r: RenglonComanda) {
+    const n = piezasRegalo[r.id] ?? 0;
+    piezasRegalo = { ...piezasRegalo, [r.id]: n > 0 ? 0 : r.cantidad };
+    regalarToda = false;
+  }
+
+  function cambiarPiezasRegalo(r: RenglonComanda, delta: number) {
+    const n = Math.max(0, Math.min(r.cantidad, (piezasRegalo[r.id] ?? 0) + delta));
+    piezasRegalo = { ...piezasRegalo, [r.id]: n };
+  }
+
+  const seleccionRegalo = $derived(
+    Object.entries(piezasRegalo)
+      .filter(([, n]) => n > 0)
+      .map(([renglon_id, cantidad]) => ({ renglon_id, cantidad })),
+  );
+
+  /*
+   * Lo que va a pasar, antes de que pase: se proyecta la cuenta con la
+   * selección puesta y se leen sus totales, igual que la previa del descuento
+   * específico. Es la cifra exacta que se cobrará, no una regla de tres.
+   */
+  const previaCortesia = $derived.by(() => {
+    const comanda = pos.comanda;
+    if (!comanda) return null;
+    const cortesias = regalarToda
+      ? [{ motivo: motivoCortesia }]
+      : seleccionRegalo.map((s) => ({ ...s, motivo: motivoCortesia }));
+    const t2 = totalesComanda({ ...comanda, cortesias });
+    return { regalo: t2.cortesias, queda: t2.total };
+  });
+
+  const nadaMarcado = $derived(!regalarToda && seleccionRegalo.length === 0);
+
+  async function aplicarCortesia() {
+    const ok = await pos.fijarCortesias(
+      regalarToda ? { toda: true } : { toda: false, renglones: seleccionRegalo },
+      motivoCortesia.trim() || MOTIVOS_CORTESIA[0]!,
+    );
+    if (ok) regalando = false;
+  }
 
   const socioElegido = $derived(
     paso.socioElegido ? (socios.de(paso.socioElegido) ?? null) : null,
@@ -350,7 +460,7 @@
     // Se propone el único socio si solo hay uno: en un local con un socio,
     // elegirlo de una lista de uno es un toque de más en cada cuenta.
     const unico = socios.activos.length === 1 ? socios.activos[0]!.socio_id : null;
-    fijar({ vista: "socio", socioElegido: paso.socioElegido ?? unico, montoSocio: "" });
+    irA({ vista: "socio", socioElegido: paso.socioElegido ?? unico, montoSocio: "" });
   }
 
   async function cargarASocio() {
@@ -488,7 +598,7 @@
   }
 </script>
 
-<aside class="cuenta">
+<aside class="cuenta" bind:this={cuentaEl}>
   <!--
     ¿DEJÓ PROPINA? — la pregunta que espera, sin bloquear el software.
 
@@ -628,6 +738,12 @@
                   {etiquetaEstado[renglon.estado]}
                 </em>
               {/if}
+              {#if piezasRegaladas(renglon) > 0}
+                {@const regaladas = piezasRegaladas(renglon)}
+                <em class="est-r regalo">
+                  Cortesía{regaladas < renglon.cantidad ? ` · ${regaladas} de ${renglon.cantidad}` : ""}
+                </em>
+              {/if}
             </span>
             <span class="p">{mxn(conImpuesto(renglon))}</span>
             <span class="acciones">
@@ -667,7 +783,7 @@
                 class="mini glifo"
                 title="Traspasar a otra mesa"
                 aria-label="Traspasar {renglon.descripcion}"
-                onclick={() => fijar({ renglonATraspasar: renglon.id, vista: "traspaso" })}
+                onclick={() => irA({ renglonATraspasar: renglon.id, vista: "traspaso" })}
               ><Icono nombre="traspasar" tam={16} /></button>
               <span class="aparta"></span>
               <button
@@ -831,19 +947,25 @@
           {#if puedeCortesia}
             <span class="grupo">
               <!--
-                INTERRUPTOR: pulsarlo otra vez retira la cortesía.
-
-                Se pulsaba por error y la única salida era cancelar la cuenta
-                entera. Que quede encendido mientras está puesta es además lo que
-                hace evidente que la mesa está regalada.
+                Abre «¿Qué se regala?». Se queda ENCENDIDO mientras haya algo
+                regalado, y dice qué: así se ve de lejos que la mesa tiene
+                cortesía. Para quitarla se abre la misma ventana y se desmarca;
+                antes era un interruptor porque solo había una cosa que quitar.
               -->
               <button
                 class="mini"
-                class:on={cortesiaPuesta}
-                aria-pressed={cortesiaPuesta}
-                onclick={() => pos.alternarCortesia(undefined, "Cortesía de la casa")}
+                class:on={cortesiasPuestas.length > 0}
+                aria-pressed={cortesiasPuestas.length > 0}
+                onclick={abrirCortesia}
               >
-                {cortesiaPuesta ? "Cortesía ✓ · quitar" : "Cortesía"}
+                {#if cortesiaToda}
+                  Cortesía ✓ · toda la cuenta
+                {:else if productosRegalados > 0}
+                  Cortesía ✓ · {productosRegalados}
+                  {productosRegalados === 1 ? "producto" : "productos"}
+                {:else}
+                  Cortesía
+                {/if}
               </button>
             </span>
           {/if}
@@ -902,7 +1024,7 @@
           <button
             class="b2 cobrar"
             disabled={!pos.hayCuenta}
-            onclick={() => fijar({ vista: "cobro" })}
+            onclick={() => irA({ vista: "cobro" })}
           >
             <Icono nombre="cobrar" tam={17} />
             Cobrar {mxn(t.saldo)}
@@ -1071,7 +1193,7 @@
           <button class="mini" onclick={dividir}>Dividir y cobrar</button>
         </div>
 
-        <button class="volver" onclick={() => fijar({ vista: "cuenta" })}>← Volver a la cuenta</button>
+        <button class="volver" onclick={() => irA({ vista: "cuenta" })}>← Volver a la cuenta</button>
       </div>
     {:else if paso.vista === "socio"}
       <!--
@@ -1134,7 +1256,7 @@
           <p class="ayuda-socio">Elige de quién es el consumo.</p>
         {/if}
 
-        <button class="volver" onclick={() => fijar({ vista: "cuenta" })}>
+        <button class="volver" onclick={() => irA({ vista: "cuenta" })}>
           ← Volver a la cuenta
         </button>
       </div>
@@ -1367,7 +1489,225 @@
   </div>
 {/if}
 
+<!--
+  «¿QUÉ SE REGALA?» — la cortesía por producto.
+
+  Mismo armazón que el descuento específico (`.velo-op` + `.op`, la previa y
+  el botón grande): es otro diálogo de dinero de la misma pantalla y se lee
+  igual. Lo propio es la lista de renglones, con casilla y, en los de varias
+  piezas, cuántas se regalan.
+-->
+{#if regalando}
+  <div class="velo-op" role="presentation" onclick={() => (regalando = false)}></div>
+  <div class="op op-cortesia" role="dialog" aria-modal="true" aria-label="¿Qué se regala?">
+    <h3>¿Qué se regala?</h3>
+    <p class="pista-nombre">
+      Mesa {pos.nombreMesaActiva}. Queda en la bitácora qué se regaló, el motivo
+      y quién lo autorizó.
+    </p>
+
+    <button class="regalo-fila toda" class:on={regalarToda} aria-pressed={regalarToda} onclick={alternarToda}>
+      <span class="casilla" aria-hidden="true">{regalarToda ? "✓" : ""}</span>
+      <span class="que">Toda la cuenta</span>
+    </button>
+
+    <p class="o-bien">o solo algunos productos</p>
+    <ul class="regalos">
+      {#each pos.renglones as r (r.id)}
+        {@const n = regalarToda ? r.cantidad : (piezasRegalo[r.id] ?? 0)}
+        <li>
+          <button
+            class="regalo-fila"
+            class:on={n > 0}
+            aria-pressed={n > 0}
+            disabled={regalarToda}
+            onclick={() => alternarRenglonRegalo(r)}
+          >
+            <span class="casilla" aria-hidden="true">{n > 0 ? "✓" : ""}</span>
+            <span class="que">{r.cantidad > 1 ? `${r.cantidad}× ` : ""}{r.descripcion}</span>
+            <span class="cuanto">{mxn(conImpuesto(r))}</span>
+          </button>
+          <!--
+            Solo en los renglones de varias piezas: tres cervezas son un renglón,
+            y «regálale una» es el caso de todos los días.
+          -->
+          {#if r.cantidad > 1 && n > 0 && !regalarToda}
+            <div class="piezas" use:revelar>
+              <span>Se regalan</span>
+              <button onclick={() => cambiarPiezasRegalo(r, -1)} aria-label="Regalar una pieza menos">−</button>
+              <b>{n} de {r.cantidad}</b>
+              <button
+                onclick={() => cambiarPiezasRegalo(r, 1)}
+                disabled={n >= r.cantidad}
+                aria-label="Regalar una pieza más"
+              >+</button>
+            </div>
+          {/if}
+        </li>
+      {/each}
+    </ul>
+
+    <div class="motivos">
+      {#each MOTIVOS_CORTESIA as motivo (motivo)}
+        <button
+          class="mini"
+          class:on={motivoCortesia === motivo}
+          aria-pressed={motivoCortesia === motivo}
+          onclick={() => (motivoCortesia = motivo)}
+        >
+          {motivo}
+        </button>
+      {/each}
+    </div>
+    <label class="campo motivo-cortesia">
+      <span>Motivo (sale en la bitácora)</span>
+      <input type="text" bind:value={motivoCortesia} placeholder={MOTIVOS_CORTESIA[0]} />
+    </label>
+
+    {#if previaCortesia && previaCortesia.regalo > 0}
+      <p class="previa-descuento">
+        Se regalan <b>{mxn(previaCortesia.regalo)}</b> · la cuenta quedaría en
+        <b>{mxn(previaCortesia.queda)}</b>
+      </p>
+    {:else}
+      <p class="ayuda-descuento">
+        {cortesiasPuestas.length > 0
+          ? "Sin nada marcado, se retira la cortesía y la cuenta vuelve a cobrarse completa."
+          : "Marca lo que se regala."}
+      </p>
+    {/if}
+
+    <button
+      class="b1"
+      disabled={nadaMarcado && cortesiasPuestas.length === 0}
+      onclick={aplicarCortesia}
+    >
+      {nadaMarcado ? "Quitar la cortesía" : "Aplicar cortesía"}
+    </button>
+    <button class="saltar" onclick={() => (regalando = false)}>Cancelar</button>
+  </div>
+{/if}
+
 <style>
+  /* --- ¿Qué se regala? --- */
+  .op-cortesia {
+    /* Una cuenta de doce renglones no cabe en la ventanita del descuento. */
+    width: min(30rem, calc(100vw - 2rem));
+    max-height: calc(100vh - 3rem);
+    display: flex;
+    flex-direction: column;
+  }
+  .regalos {
+    list-style: none;
+    margin: 0 0 0.7rem;
+    padding: 0;
+    overflow-y: auto;
+    min-height: 3rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.35rem;
+  }
+  .regalo-fila {
+    width: 100%;
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    padding: 0.6rem 0.7rem;
+    border: 1.5px solid var(--borde);
+    border-radius: var(--r-md);
+    background: #fff;
+    font: inherit;
+    font-size: 0.88rem;
+    text-align: left;
+    cursor: pointer;
+  }
+  .regalo-fila.on {
+    border-color: var(--acento);
+    background: var(--claro);
+  }
+  .regalo-fila:disabled {
+    opacity: 0.55;
+    cursor: default;
+  }
+  .regalo-fila.toda {
+    font-weight: 700;
+  }
+  .casilla {
+    flex: none;
+    width: 1.3rem;
+    height: 1.3rem;
+    border: 1.5px solid var(--borde);
+    border-radius: 6px;
+    display: grid;
+    place-items: center;
+    font-size: 0.85rem;
+    font-weight: 700;
+    color: var(--sobre-acento);
+  }
+  .regalo-fila.on .casilla {
+    background: var(--acento);
+    border-color: var(--acento);
+  }
+  .regalo-fila .que {
+    flex: 1;
+  }
+  .regalo-fila .cuanto {
+    font-variant-numeric: tabular-nums;
+    color: var(--gris);
+  }
+  .o-bien {
+    margin: 0.55rem 0 0.4rem;
+    font-size: 0.74rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--gris);
+  }
+  .piezas {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 0.45rem;
+    padding: 0.3rem 0.4rem 0.1rem;
+    font-size: 0.8rem;
+    color: var(--gris);
+  }
+  .piezas button {
+    width: 2rem;
+    height: 2rem;
+    border: 1.5px solid var(--borde);
+    border-radius: var(--r-sm);
+    background: #fff;
+    font-size: 1rem;
+    font-weight: 700;
+  }
+  .piezas button:disabled {
+    opacity: 0.4;
+  }
+  .piezas b {
+    color: var(--pizarra);
+    font-variant-numeric: tabular-nums;
+    min-width: 3.5rem;
+    text-align: center;
+  }
+  .motivos {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 0.35rem;
+    margin-bottom: 0.55rem;
+  }
+  .motivo-cortesia {
+    text-align: left;
+    margin-bottom: 0.7rem;
+  }
+  /* La marca en el renglón: la misma píldora de estado, en tono de regalo. */
+  .est-r.regalo {
+    margin-left: 0.3rem;
+    color: #7a3d0c;
+    background: #fdeee2;
+  }
+
   .cuenta {
     position: relative;
     background: #fff;

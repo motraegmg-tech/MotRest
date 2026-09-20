@@ -20,7 +20,14 @@
  *    es para la experiencia; el Hub vuelve a comprobarlo porque un cliente
  *    manipulado puede mandar lo que quiera (TRD §10).
  */
-import type { EventoBase, ID } from "@motrest/dominio";
+import type {
+  ClaseSecreto,
+  EstadoFacturapi,
+  EstadoSecretos,
+  EventoBase,
+  ID,
+  ModoFacturapi,
+} from "@motrest/dominio";
 
 /** Versión del protocolo. Un cambio incompatible la sube. */
 export const VERSION_PROTOCOLO = 1;
@@ -133,6 +140,21 @@ export interface EstadoFiscal {
   dias_restantes: number | null;
   pac: string | null;
   cola: { pendientes: number; timbradas: number; rechazadas: number };
+  /**
+   * La facturación con FacturAPI, si el local la tiene (1.5.5). Con ella el
+   * CSD vive en el panel de FacturAPI y `csd_cargado` deja de importar: lo que
+   * dice si se puede facturar es esto.
+   */
+  facturapi?: EstadoFacturapi;
+  /** La factura global del mes: la última emitida y la que esté esperando. */
+  global?: EstadoFacturaGlobal;
+}
+
+/** Lo que la caja enseña de la factura global. Nada secreto. */
+export interface EstadoFacturaGlobal {
+  ultima?: { periodo: string; uuid: string; total: number; cuentas: number; emitida_ts: number };
+  /** Un mes cerrado cuya global todavía no sale (sin red, rechazada…). */
+  pendiente?: { periodo: string; desde_ts: number; problema?: string };
 }
 
 export interface FacturaEnCola {
@@ -213,6 +235,43 @@ export interface MensajeCredenciales {
   credenciales?: unknown[];
 }
 
+/**
+ * Los secretos del Hub: la llave de FacturAPI y la contraseña de Gmail.
+ *
+ * Por el canal CIFRADO y solo hacia el Hub: la llave se teclea en la caja, viaja
+ * aquí y se guarda en el Hub, nunca en la tableta. De vuelta solo viaja el
+ * estado (`EstadoSecretos`): configurada o no, de dónde salió y sus cuatro
+ * últimos caracteres.
+ *
+ * `consultar` lo puede cualquier terminal aprobada. `guardar` y `quitar` los
+ * revalida el Hub POR ROL con `puedeGuardarSecretos`: solo el responsable del
+ * restaurante (propietario) o el soporte de MOTRAE. Ni aunque le den permisos a
+ * mano a otro usuario.
+ */
+export interface MensajeSecreto {
+  tipo: "secreto";
+  accion: "consultar" | "guardar" | "quitar";
+  /** Quién lo pide: el Hub lo busca en SU tabla de usuarios, no se lo cree. */
+  empleado_id: ID;
+  /** `guardar` y `quitar`: cuál de los dos. */
+  clase?: ClaseSecreto;
+  /** `guardar`: la llave `sk_live_…`/`sk_test_…` o las 16 letras de Google. */
+  valor?: string;
+  /** `guardar` FacturAPI: si falta, se deduce del prefijo de la llave. */
+  modo?: ModoFacturapi;
+  /** `guardar` Gmail: la cuenta desde la que salen los correos. */
+  remitente?: string;
+}
+
+export interface MensajeSecretoRespuesta {
+  tipo: "secreto";
+  /** Si se hizo lo pedido. `consultar` siempre es `ok`. */
+  ok: boolean;
+  /** Qué salió mal, en palabras de persona. Nunca lleva la llave. */
+  problema?: string;
+  estado: EstadoSecretos;
+}
+
 export type MensajeCliente =
   | MensajeHola
   | MensajePush
@@ -221,7 +280,8 @@ export type MensajeCliente =
   | MensajeCatalogo
   | MensajeAdmin
   | MensajeCredenciales
-  | MensajeFiscal;
+  | MensajeFiscal
+  | MensajeSecreto;
 
 // --- Hub → Dispositivo -----------------------------------------------------------------
 
@@ -318,7 +378,8 @@ export type MensajeHub =
   | MensajeCredencialesDelHub
   | MensajeTerminales
   | MensajeEnlace
-  | MensajeFiscalRespuesta;
+  | MensajeFiscalRespuesta
+  | MensajeSecretoRespuesta;
 
 /**
  * ¿La versión entrante de un catálogo gana a la que ya se tiene?

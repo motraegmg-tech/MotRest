@@ -214,6 +214,15 @@ export type EventoComanda =
       tipo: "cortesia_otorgada";
       orden_id: ID;
       renglon_id?: ID;
+      /**
+       * Cuántas piezas del renglón se regalan. Ausente = el renglón entero.
+       *
+       * Existe porque tres cervezas son UN renglón con cantidad 3, y «regálale
+       * una» era imposible: o se regalaban las tres o ninguna. Pedido de
+       * Gonzalo (sep-2026), para llevar mejor la cuenta de qué se regala.
+       * Solo tiene sentido con `renglon_id`.
+       */
+      cantidad?: number;
       motivo: string;
       autorizador_id?: ID;
     })

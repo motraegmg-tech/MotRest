@@ -65,7 +65,12 @@ import {
   streamCorreo,
   uuidv7,
 } from "@motrest/dominio";
-import type { ConfiguracionCorreo } from "@motrest/dominio";
+import type {
+  ClaseSecreto,
+  ConfiguracionCorreo,
+  EstadoSecretos,
+  OrigenSecreto,
+} from "@motrest/dominio";
 import {
   cifrar,
   derivarClaves,
@@ -102,6 +107,18 @@ import { ColaDeTimbrado } from "./fiscal/cola-timbrado.js";
 import { Facturador } from "./fiscal/facturador.js";
 import { Cancelador } from "./fiscal/cancelador.js";
 import { MAPEO_REST_COMUN, PacHttp, consultaPorFolio } from "./fiscal/pac-http.js";
+import {
+  CanceladorFacturapi,
+  ClienteFacturapi,
+  PacFacturapi,
+  probarLlaveFacturapi,
+} from "./fiscal/facturapi.js";
+import { FacturaGlobalMensual } from "./fiscal/factura-global.js";
+import {
+  SecretosDelHub,
+  type AlmacenDeSecretos,
+  type FacturapiGuardada,
+} from "./secretos.js";
 import { enviarARed } from "./impresion/transporte-red.js";
 import {
   enviarAUsb,
@@ -692,6 +709,13 @@ const CLAVE_SECRETO = "clave_local";
  * la caja y las entrega solo a quien las pide estando autorizado.
  */
 const CLAVE_CREDENCIALES = "credenciales_personal";
+/** La llave de FacturAPI del restaurante y lo que se sabe de su organización. */
+const CLAVE_FACTURAPI = "facturapi";
+/**
+ * El par X25519 del Hub, junto a la base como la identidad del local. La
+ * privada abre los sobres que manda Central; no sale nunca de este equipo.
+ */
+const RUTA_PAR_SOBRE = join(dirname(RUTA_DB), "sobre-hub.json");
 
 /**
  * Secreto del local: con él se cifra todo lo que viaja por la red.
@@ -776,16 +800,167 @@ const almacenFiscal = new DatabaseSync(join(dirname(RUTA_DB), "fiscal.sqlite"));
 const sellador = new Sellador(carpetaDelCsd(dirname(RUTA_DB)));
 const pac = pacDelEntorno();
 const colaTimbrado = new ColaDeTimbrado(almacenFiscal, pac, registrar);
+/*
+ * LOS SECRETOS DEL RESTAURANTE: la llave de FacturAPI y la contraseña de Gmail.
+ *
+ * FacturAPI vive en su propia entrada del estado. La contraseña de Gmail sigue
+ * donde estaba —`llave` dentro de `correo_config`— con su fecha al lado, y al
+ * cambiar se aplica en caliente: la clase `Correo` lee `llaveResend` y
+ * `configCorreo` por función en cada envío.
+ */
+type CorreoGuardado = ConfiguracionCorreo & {
+  llave?: string;
+  llave_meta?: { emitido_ts: number; origen: OrigenSecreto; remitente?: string };
+};
+
+const almacenDeSecretos: AlmacenDeSecretos = {
+  leerFacturapi: async () => (await almacen.estado.cargar<FacturapiGuardada>(CLAVE_FACTURAPI)) ?? null,
+  guardarFacturapi: (dato) => almacen.estado.guardar(CLAVE_FACTURAPI, dato),
+  leerGmail: async () => {
+    const guardado = await almacen.estado.cargar<CorreoGuardado>(CLAVE_CORREO);
+    if (!guardado?.llave && !guardado?.llave_meta) return null;
+    return {
+      contrasena: guardado.llave || undefined,
+      // Una contraseña de antes de la 1.5.5 no tiene fecha: pierde contra cualquiera nueva.
+      emitido_ts: guardado.llave_meta?.emitido_ts ?? 0,
+      origen: guardado.llave_meta?.origen ?? "local",
+      remitente: guardado.llave_meta?.remitente ?? guardado.cuenta_gmail,
+    };
+  },
+  guardarGmail: async (dato) => {
+    const previo = (await almacen.estado.cargar<CorreoGuardado>(CLAVE_CORREO)) ?? { ...configCorreo };
+    const { llave: _vieja, llave_meta: _meta, ...config } = previo;
+    const siguiente: CorreoGuardado = {
+      ...config,
+      ...(dato.contrasena ? { llave: dato.contrasena } : {}),
+      llave_meta: {
+        emitido_ts: dato.emitido_ts,
+        origen: dato.origen,
+        ...(dato.remitente ? { remitente: dato.remitente } : {}),
+      },
+    };
+    // La cuenta con la que se entra a Gmail, si vino junto; el remitente
+    // visible solo si no había uno, para no pisar lo que eligió el local.
+    if (dato.remitente) {
+      siguiente.cuenta_gmail = dato.remitente;
+      if (!siguiente.remitente?.trim()) siguiente.remitente = dato.remitente;
+    }
+    await almacen.estado.guardar(CLAVE_CORREO, siguiente);
+
+    const { llave: _l, llave_meta: _m, ...enMemoria } = siguiente;
+    configCorreo = enMemoria;
+    llaveResend = process.env.MOTREST_RESEND_KEY ?? dato.contrasena ?? "";
+  },
+};
+
+const secretos = new SecretosDelHub({
+  almacen: almacenDeSecretos,
+  rutaPar: RUTA_PAR_SOBRE,
+  sucursal: () => sucursalDelLocal(),
+  probarFacturapi: (llave) => probarLlaveFacturapi(llave),
+  alCambiar: (clase) => alCambiarSecreto(clase),
+  registrar,
+});
+
+/** Con qué nombre se anota el timbre: las pruebas se dicen, para que nadie las confunda. */
+function nombreFacturapi(): string {
+  return secretos.facturapiVigente()?.modo === "pruebas" ? "FacturAPI (pruebas)" : "FacturAPI";
+}
+
 const facturador = new Facturador(
   almacen.log,
   sellador,
   colaTimbrado,
   almacenFiscal,
   registrar,
-  { hub_id: HUB_ID, nombrePac: pac?.nombre },
+  {
+    hub_id: HUB_ID,
+    nombrePac: pac?.nombre,
+    /*
+     * Con llave de FacturAPI, FacturAPI manda sobre el PAC de las variables de
+     * entorno y sobre el CSD de la caja: es el camino que eligió Gonzalo para
+     * la 1.5.5, y el otro queda solo para quien no lo tenga.
+     */
+    facturapi: {
+      activa: () => secretos.facturapiVigente() !== null,
+      nombre: nombreFacturapi,
+      enGlobal: (ordenId) => facturaGlobal.enGlobal(ordenId),
+    },
+  },
 );
 
 const cancelador = new Cancelador(almacen.log, sellador, almacenFiscal, pac, registrar, HUB_ID);
+
+/*
+ * La factura global del mes. Emite sola, desde el Hub, lo que nadie facturó a
+ * su nombre (decisión de Gonzalo: mensual y automática). Ver `factura-global.ts`.
+ */
+const facturaGlobal = new FacturaGlobalMensual({
+  db: almacenFiscal,
+  log: almacen.log,
+  sucursal: () => sucursalDelLocal(),
+  facturapi: () => {
+    const vigente = secretos.facturapiVigente();
+    if (!vigente) return null;
+    return {
+      cliente: new ClienteFacturapi({ llave: vigente.llave }),
+      modo: vigente.modo,
+      desde_ts: vigente.desde_ts,
+      cp: vigente.organizacion?.cp,
+    };
+  },
+  hub_id: HUB_ID,
+  // Por el Hub y no directo al registro: la caja tiene que enterarse ya, para
+  // bloquear la factura individual de lo que entró aquí.
+  inyectar: (eventos) => hub.inyectar(eventos),
+  anotar: registrar,
+});
+
+/**
+ * Engancha (o desengancha) FacturAPI en la cola y en el cancelador.
+ *
+ * Se llama al arrancar y cada vez que cambia la llave. Un cliente por llave:
+ * la llave vive dentro del cliente y no se reparte por el Hub.
+ */
+function engancharFacturapi(): void {
+  const vigente = secretos.facturapiVigente();
+  if (!vigente) {
+    colaTimbrado.usarFacturapi(null);
+    cancelador.usarFacturapi(null);
+    return;
+  }
+  const cliente = new ClienteFacturapi({ llave: vigente.llave });
+  colaTimbrado.usarFacturapi(new PacFacturapi(cliente, { nombre: nombreFacturapi(), anotar: registrar }));
+  cancelador.usarFacturapi(new CanceladorFacturapi(cliente), (cfdiId) => colaTimbrado.externoDeCfdi(cfdiId));
+}
+
+/**
+ * Cambió una llave del Hub, venga de Central o de la caja.
+ *
+ * Con FacturAPI es el mismo momento que instalar un CSD: lo que esperaba una
+ * llave sale ahora —los comprobantes acumulados y los que FacturAPI rechazó por
+ * la llave anterior—, sin esperar al siguiente cobro. Y el pulso sale enseguida
+ * para que Central vea el cambio sin esperar un día.
+ */
+function alCambiarSecreto(clase: ClaseSecreto): void {
+  if (clase === "facturapi") {
+    engancharFacturapi();
+    if (secretos.facturapiVigente()) {
+      const reabiertas = colaTimbrado.reintentarPorLlave();
+      const barrido = facturador.procesar(1000);
+      if (barrido.encolados > 0 || reabiertas > 0) {
+        registrar(
+          "info",
+          `Llave de FacturAPI lista: ${barrido.encolados} comprobante(s) nuevos en cola y ${reabiertas} que se reintentan.`,
+        );
+      }
+      void cicloFiscal()
+        .then(() => facturaGlobal.revisar())
+        .catch((error: unknown) => registrar("error", `Fallo al timbrar tras la llave nueva: ${String(error)}`));
+    }
+  }
+  reportarPulso();
+}
 
 /**
  * Un ciclo completo de facturación: sellar lo nuevo, timbrar, devolver el
@@ -843,7 +1018,22 @@ const hub = new Hub({
     solicitudesDeCorreo.atender(eventos);
     avisarPorLoQuePaso(eventos);
   },
-  fiscal: { sellador, cola: colaTimbrado, facturador, cancelador, nombrePac: pac?.nombre },
+  fiscal: {
+    sellador,
+    cola: colaTimbrado,
+    facturador,
+    cancelador,
+    nombrePac: pac?.nombre,
+    nombrePacActual: () => facturador.nombreActual,
+    facturapi: () => secretos.estado().facturapi,
+    global: () => facturaGlobal.estado(),
+    enGlobal: (ordenId) => facturaGlobal.enGlobal(ordenId),
+  },
+  secretos: {
+    estado: () => secretos.estado(),
+    guardarDesdeCaja: (entrada) => secretos.guardarDesdeCaja(entrada),
+    quitarDesdeCaja: (clase) => secretos.quitarDesdeCaja(clase),
+  },
   guardarCatalogo: (catalogo, origen) => {
     // Se guardan por origen: una terminal jamás puede dejar persistido un
     // estado que solo le corresponde anunciar al proceso del Hub.
@@ -852,6 +1042,10 @@ const hub = new Hub({
       const resto = (previos ?? []).filter((c) => c.clave !== catalogo.clave);
       void almacen.estado.guardar(claveDeEstado, [...resto, catalogo]);
     });
+
+    if (catalogo.clave === CLAVE_CORREO && origen === "terminal") {
+      void aplicarConfiguracionDeCorreo(catalogo.datos);
+    }
   },
   leerCredenciales: async () =>
     (await almacen.estado.cargar<Record<string, unknown[]>>(CLAVE_CREDENCIALES)) ?? {},
@@ -922,8 +1116,12 @@ if (sellador.listo) {
       `El CSD vence en ${estado.dias_restantes} días. Tramita la renovación en el portal del SAT.`,
     );
   }
-  // Lo que se cobró mientras el Hub estaba apagado se sella ahora.
-  facturador.procesar(1000);
+  /*
+   * Lo que se cobró mientras el Hub estaba apagado NO se sella aquí: todavía no
+   * se cargaron las llaves, y si el local factura con FacturAPI, sellarlo con
+   * el CSD de la caja lo dejaría esperando un PAC que no existe. Lo barre
+   * `prepararSecretos()`, ya sabiendo por dónde se factura.
+   */
 } else {
   const esperando = facturador.esperandoCsd();
   registrar(
@@ -2249,6 +2447,9 @@ async function arrancar(): Promise<void> {
   await prepararCorreo();
   // Después de preparar el correo, para que lo retomado tenga con qué salir.
   await retomarCorreosPendientes();
+  // Las llaves, ANTES de la nube: el pulso lleva la pública del Hub y un sobre
+  // que llegue al conectar tiene que poder abrirse ya.
+  await prepararSecretos();
   await conectarConLaNube();
 
   escuchar();
@@ -2567,7 +2768,46 @@ const PULSO_CADA_MS = 24 * 60 * 60 * 1000;
  * una avería —un local que cierra en cero un viernes tiene un problema—, no para
  * husmear. La operación vive en el local y esa es una ventaja del producto.
  */
-function pulsoDelLocal(): PulsoCliente {
+/**
+ * Carga el par del Hub y las llaves, y arranca su revisión horaria.
+ *
+ * Cada hora: comprobar una llave que llegó sin internet, refrescar lo que
+ * FacturAPI dice de la organización (el semáforo de Central) y ver si ya toca
+ * la factura global de algún mes.
+ */
+async function prepararSecretos(): Promise<void> {
+  try {
+    await secretos.cargar();
+  } catch (causa) {
+    registrar("error", `No se pudieron cargar las llaves del Hub: ${String(causa)}`);
+    return;
+  }
+  engancharFacturapi();
+  if (secretos.facturapiVigente()) registrar("info", `Facturación con ${nombreFacturapi()}.`);
+  // Lo cobrado con el Hub apagado, por el camino que toque: FacturAPI o el CSD.
+  facturador.procesar(1000);
+
+  const revisar = async (): Promise<void> => {
+    try {
+      await secretos.verificar();
+      await facturaGlobal.revisar();
+    } catch (causa) {
+      registrar("error", `Fallo en la revisión de la facturación: ${String(causa)}`);
+    }
+  };
+  void revisar();
+  setInterval(() => void revisar(), 60 * 60 * 1000).unref?.();
+}
+
+/**
+ * El pulso lleva además la pública del Hub y el ESTADO de sus llaves.
+ *
+ * Las dos columnas se llaman exactamente así en la tabla de la nube: si el Hub
+ * mandara una que la tabla no tiene, Postgres rechazaría el pulso entero.
+ */
+type PulsoDelHub = PulsoCliente & { llave_publica?: string; secretos?: EstadoSecretos };
+
+function pulsoDelLocal(): PulsoDelHub {
   const copias = listarRespaldos(RUTA_RESPALDOS);
   const crecimiento = evaluarCrecimiento(hub.seqActual, tamanoDelRegistro());
   const corte = ultimoCorteCerrado();
@@ -2596,6 +2836,9 @@ function pulsoDelLocal(): PulsoCliente {
     ...(copias[0] ? { respaldo_ts: copias[0].ts } : {}),
     ...(corte ? { ventas_dia: corte.ventas, cuentas_dia: corte.cuentas } : {}),
     ...(problemas.length > 0 ? { problemas } : {}),
+    ...(secretos.llavePublica() ? { llave_publica: secretos.llavePublica() } : {}),
+    // Solo el estado: configurada, de dónde, cuatro últimos caracteres. Nunca el valor.
+    secretos: secretos.estado(),
   };
 }
 
@@ -2834,15 +3077,78 @@ async function prepararCorreo(): Promise<void> {
     registrar,
   );
 
+  /*
+   * El reintento se arma SIEMPRE, con llave o sin ella.
+   *
+   * Antes solo se armaba si había llave al arrancar, y la función terminaba ahí.
+   * Como la configuración ahora llega en caliente desde las terminales, un local
+   * que arrancó sin llave y la recibe después se quedaba sin reintentos hasta el
+   * siguiente reinicio: una caída de internet a medianoche perdía las
+   * confirmaciones del día sin que nadie lo notara. Con la cola vacía, el
+   * intervalo no hace nada.
+   */
+  setInterval(() => void correo?.vaciarCola(), 5 * 60 * 1000).unref?.();
+
   if (!llaveResend) {
-    registrar("info", "Sin llave de Resend: el local no manda correos todavía.");
+    registrar("info", "Sin contraseña de correo: el local no manda correos todavía.");
     return;
   }
-
-  // Se reintenta lo pendiente cada pocos minutos: es lo que hace que una caída
-  // de internet a media noche no pierda las confirmaciones del día.
-  setInterval(() => void correo?.vaciarCola(), 5 * 60 * 1000).unref?.();
   registrar("info", `Correo listo. Remitente: ${configCorreo.remitente || "sin configurar"}`);
+}
+
+/**
+ * Adopta la configuración de correo que publicó una terminal.
+ *
+ * ## El defecto que cierra
+ *
+ * Lo que se configuraba en «Clientes → Correos al comensal» se quedaba en el
+ * disco de la terminal. El Hub —que es quien manda los correos— leía la suya una
+ * sola vez al arrancar y nunca se enteraba de un cambio; y como casi nunca había
+ * tenido una, contestaba «el restaurante todavía no configuró su remitente» a
+ * cada correo que se le pedía. Ahora la configuración viaja como catálogo y se
+ * aplica aquí en caliente: `configCorreo` es lo que lee la clase `Correo` en cada
+ * envío, así que el siguiente correo ya sale con lo nuevo.
+ *
+ * ## La contraseña no se toca
+ *
+ * En el estado del Hub la configuración y la contraseña de Gmail comparten la
+ * misma clave (`llave` va dentro de `correo_config`). Guardar lo que llega tal
+ * cual BORRARÍA la contraseña, porque las terminales nunca la mandan. Por eso se
+ * conserva la que hubiera, y por eso se descarta cualquier `llave` que venga en
+ * el catálogo: una tableta no puede cambiar la contraseña con la que se manda
+ * correo en nombre del restaurante.
+ */
+async function aplicarConfiguracionDeCorreo(datos: unknown): Promise<void> {
+  if (!datos || typeof datos !== "object") return;
+
+  const {
+    llave: _descartada,
+    llave_meta: _metaDescartada,
+    ...entrante
+  } = datos as ConfiguracionCorreo & { llave?: unknown; llave_meta?: unknown };
+  configCorreo = entrante as ConfiguracionCorreo;
+
+  try {
+    const guardada = await almacen.estado.cargar<CorreoGuardado>(
+      CLAVE_CORREO,
+    );
+    await almacen.estado.guardar(CLAVE_CORREO, {
+      ...configCorreo,
+      ...(guardada?.llave ? { llave: guardada.llave } : {}),
+      // Y su fecha: sin ella, cualquier sobre viejo de Central ganaría.
+      ...(guardada?.llave_meta ? { llave_meta: guardada.llave_meta } : {}),
+    });
+    registrar(
+      "info",
+      `Configuración de correo actualizada desde una terminal. Remitente: ${
+        configCorreo.remitente || "sin configurar"
+      }`,
+    );
+  } catch (causa) {
+    // Lo que importa —`configCorreo` en memoria— ya se aplicó; solo falló dejarlo
+    // escrito, y al reconectar la terminal lo vuelve a ofrecer.
+    registrar("error", `No se pudo guardar la configuración de correo: ${String(causa)}`);
+  }
 }
 
 /**
@@ -3147,6 +3453,7 @@ async function montarEnlaceDeNube(): Promise<void> {
     },
     alLlegarMensaje: (mensaje: MensajeDelComensal) => atenderMensajeDelComensal(mensaje),
     alLlegarLicencia: (recibida: unknown) => instalarLicenciaDeMotrae(recibida),
+    alLlegarSecreto: (fila: { clase: unknown; sobre: unknown }) => secretos.recibirDeLaNube(fila),
   };
 
   /*

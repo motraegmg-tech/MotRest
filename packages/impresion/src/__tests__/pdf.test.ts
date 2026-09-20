@@ -7,9 +7,20 @@
  * `xref`, sobre todo—, que es lo único que decide si abre.
  */
 import { describe, expect, it } from "vitest";
-import type { Centavos, EstadoFinanciero } from "@motrest/dominio";
+import {
+  DIFERENCIA_ENTRE_UTILIDADES,
+  UTILIDAD_CONTABLE,
+  UTILIDAD_EN_EFECTIVO,
+  type Centavos,
+  type EstadoFinanciero,
+} from "@motrest/dominio";
 import { CARTA, DocumentoPdf, anchoDeTexto, recortar } from "../pdf.js";
-import { estadoFinancieroPdf, importe, nombreArchivoEstado } from "../estado-financiero-pdf.js";
+import {
+  estadoFinancieroPdf,
+  importe,
+  nombreArchivoEstado,
+  partirEnRenglones,
+} from "../estado-financiero-pdf.js";
 
 const c = (n: number) => n as Centavos;
 
@@ -110,6 +121,18 @@ describe("medir texto", () => {
   it("no toca lo que ya cabe", () => {
     expect(recortar("Gas", "normal", 9, 200)).toBe("Gas");
   });
+
+  it("parte un párrafo en renglones que caben, sin perder ni cortar palabras", () => {
+    // La maqueta no reparte texto: si un renglón no cabe, se sale del papel.
+    const ancho = CARTA.ancho - 54 * 2;
+    const renglones = partirEnRenglones(DIFERENCIA_ENTRE_UTILIDADES, "normal", 7.5, ancho);
+
+    expect(renglones.length).toBeGreaterThan(1);
+    for (const r of renglones) {
+      expect(anchoDeTexto(r, "normal", 7.5)).toBeLessThanOrEqual(ancho);
+    }
+    expect(renglones.join(" ")).toBe(DIFERENCIA_ENTRE_UTILIDADES);
+  });
 });
 
 // --- Importes ------------------------------------------------------------------------------
@@ -206,6 +229,8 @@ function estadoDePrueba(gastos: number): EstadoFinanciero {
       resultado: c(19_220_00),
       compras: c(14_000_00),
       salida_total: c(21_000_00),
+      // 38 000 de venta sin IVA − 21 000 de todo lo que salió.
+      utilidad_efectivo: c(17_000_00),
       por_categoria: [
         { categoria: "servicios", nombre: "Servicios", monto: c(7_000_00), afectaResultado: true },
         { categoria: "insumos", nombre: "Compra de insumos", monto: c(14_000_00), afectaResultado: false },
@@ -271,9 +296,51 @@ describe("estado financiero en PDF", () => {
     expect(texto).toContain("NO se restan");
   });
 
+  /*
+   * LAS DOS UTILIDADES, con el mismo nombre que en la pantalla del día y la
+   * del mes. Los nombres vienen del dominio: si alguien los cambia ahí, el
+   * papel cambia con ellos, y si alguien los teclea aquí a mano, esto falla.
+   */
+  it("enseña las dos utilidades con su nombre y su cifra", () => {
+    const texto = comoTexto(estadoFinancieroPdf(estadoDePrueba(3)));
+
+    expect(texto).toContain(UTILIDAD_CONTABLE);
+    expect(texto).toContain(UTILIDAD_EN_EFECTIVO);
+    // La contable (19 220) y la de efectivo (17 000), tal como llegan del dominio.
+    expect(texto).toContain(importe(c(19_220_00)));
+    expect(texto).toContain(importe(c(17_000_00)));
+  });
+
+  it("dice en qué se diferencian las dos utilidades", () => {
+    const texto = comoTexto(estadoFinancieroPdf(estadoDePrueba(3)));
+    // El párrafo se parte en renglones; basta con su arranque.
+    expect(texto).toContain("La contable resta los insumos cuando se venden");
+    expect(DIFERENCIA_ENTRE_UTILIDADES.startsWith("La contable resta los insumos")).toBe(true);
+  });
+
+  it("una utilidad de siete cifras no rompe el papel", () => {
+    // Con cinco tarjetas en la hoja, la cifra baja de tamaño para caber en la suya.
+    const base = estadoDePrueba(3);
+    const bytes = estadoFinancieroPdf({
+      ...base,
+      resultado: { ...base.resultado, utilidad_efectivo: c(-1_234_567_89) },
+    });
+    expect(offsetsCuadran(bytes)).toBe(true);
+    expect(comoTexto(bytes)).toContain("-$1,234,567.89");
+  });
+
   it("nombra el archivo con el mes y el local, sin acentos ni espacios", () => {
     const nombre = nombreArchivoEstado(estadoDePrueba(1));
     expect(nombre).toBe("estado-financiero-2026-09-rodizio-pizzas-y-pasta.pdf");
+  });
+
+  it("al quitar los acentos del nombre NO se come dígitos ni letras", () => {
+    /*
+     * La expresión estaba escrita sin las `\u` y quitaba los caracteres 0, 3,
+     * 6 y f en vez de las marcas de acento: «La Fonda 360» salía «la-onda».
+     */
+    const nombre = nombreArchivoEstado({ ...estadoDePrueba(1), local: "La Fonda 360 · Café" });
+    expect(nombre).toBe("estado-financiero-2026-09-la-fonda-360-cafe.pdf");
   });
 
   it("un mes al que le retiraron historial lo dice ARRIBA, no al pie", () => {

@@ -10,6 +10,7 @@
   import { describirPromocion, estaVigente, pesos, uuidv7, type Promocion } from "@motrest/dominio";
   import { mxn } from "../../formato";
   import { menu } from "../../menu.svelte";
+  import { subirAlPrincipio } from "../../subir";
 
   interface Props {
     onCerrar: () => void;
@@ -145,7 +146,17 @@
     aviso = "";
   }
 
+  /** La tarjeta del editor: de ella se sube hasta el scroll del Menú. */
+  let raiz = $state<HTMLDivElement | null>(null);
+
+  /*
+   * «Editar» vive en la lista de promociones, AL PIE del editor, y el
+   * formulario que llena está arriba. Con más de un puñado de promociones la
+   * lista empuja el formulario fuera de cuadro: se pulsaba Editar, los campos
+   * se llenaban donde nadie los veía y parecía que el botón no hacía nada.
+   */
   function editar(p: Promocion) {
+    subirAlPrincipio(raiz);
     nombre = p.nombre;
     tipo = p.tipo;
     categoriasElegidas = [...p.categorias];
@@ -187,7 +198,7 @@
   }
 </script>
 
-<div class="editor">
+<div class="editor" bind:this={raiz}>
   <header>
     <h2>Promociones</h2>
     <button class="cerrar" onclick={onCerrar} aria-label="Cerrar">✕</button>

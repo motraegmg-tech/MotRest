@@ -72,6 +72,29 @@ export interface Pac {
   cancelar?(peticion: PeticionCancelacion): Promise<ResultadoCancelacion>;
 }
 
+/**
+ * Lo que devuelve un proveedor que timbra a partir de DATOS, no de un XML.
+ *
+ * `externo_id` es el id del documento del lado del proveedor. Llega en cuanto
+ * existe —aunque todavía no esté timbrado— y la cola lo guarda: a partir de
+ * ahí se pregunta por ESE documento en vez de volver a crearlo. `null` pide
+ * olvidarlo (el proveedor dice que no existe).
+ */
+export type ResultadoTimbradoDatos = ResultadoTimbrado & { externo_id?: string | null };
+
+/**
+ * Un proveedor que arma, sella y timbra él mismo: FacturAPI.
+ *
+ * No encaja en `Pac` porque no recibe un XML sellado: recibe la venta en JSON y
+ * sella con el CSD que el restaurante cargó en SU panel. Lo que sí comparte con
+ * `Pac` es la respuesta —timbrado, reintentable, rechazado—, que es lo que la
+ * cola sabe manejar.
+ */
+export interface PacDeDatos {
+  readonly nombre: string;
+  timbrarDatos(cuerpo: string, externoId: string | null): Promise<ResultadoTimbradoDatos>;
+}
+
 export interface PeticionCancelacion {
   uuid: string;
   rfc_emisor: string;

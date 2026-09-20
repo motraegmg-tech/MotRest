@@ -12,6 +12,10 @@ import {
   adopcionDeVersion,
   anotarEnHistorial,
   cerrarCofre,
+  cerrarSobre,
+  haySobres,
+  normalizarContrasenaGmail,
+  terminacion,
   cobradoEnPeriodo,
   comisionDeResultado,
   compararVersiones,
@@ -37,23 +41,62 @@ import {
   PUESTO_RESPONSABLE,
   USUARIO_RESPONSABLE_ID,
   type Centavos,
+  type ClaseSecreto,
   type ClienteMotRest,
   type Credencial,
   type CredencialSoporte,
   type EmisionLicencia,
   type Licencia,
   type MetodoDePago,
+  type ModoFacturapi,
   type PagoCliente,
   type ParDeLlaves,
   type Plan,
   type PerfilResponsable,
   type PulsoCliente,
   type ResultadoVerificado,
+  type Secreto,
+  type SecretoFacturapi,
+  type SecretoGmail,
+  type Sobre,
   type VersionDisponible,
 } from "@motrest/dominio";
+import {
+  BASE_FACTURAPI,
+  PAGINAS_MAXIMAS,
+  SIN_LLAVE_PUBLICA,
+  SIN_SOBRES,
+  correoValido,
+  errorDeFacturapi,
+  esIdDeFacturapi,
+  idDeLaLlaveNueva,
+  leerFilaSecreto,
+  leerLlaveDeRespuesta,
+  leerLlavesLive,
+  leerOrganizacion,
+  leerPaginaDeOrganizaciones,
+  leerSecretosDelPulso,
+  llaveDeUsuarioValida,
+  type FacturacionDeLocal,
+  type FilaSecretoPendiente,
+  type LlaveLive,
+  type OrganizacionFacturapi,
+  type SecretosDelLocal,
+} from "./facturacion";
 
 const LLAVE_CARTERA = "motrae.central.cartera";
 const LLAVE_PULSOS = "motrae.central.pulsos";
+/**
+ * Qué organización de FacturAPI y qué modo lleva cada local. Sin secretos: ver
+ * `FacturacionDeLocal`.
+ */
+const LLAVE_FACTURACION = "motrae.central.facturacion";
+/**
+ * La llave pública de cada Hub y el estado de sus secretos, tal como llegaron en
+ * el último pulso. Se guarda para que, con la nube caída al abrir, Central no
+ * diga de todos los locales que «necesitan la 1.5.5».
+ */
+const LLAVE_SECRETOS_DE_LOCALES = "motrae.central.secretos_de_locales";
 /** El histórico de partes, aparte de la cartera: crece solo y se puede tirar. */
 const LLAVE_HISTORIAL = "motrae.central.historial";
 /** Lo último que se publicó, para poder vigilar cómo va bajando. */
@@ -114,6 +157,12 @@ export interface Secretos {
   nube_url?: string;
   /** Cuándo se sacó el último respaldo portátil de las llaves. */
   ultimo_respaldo_ts?: number;
+  /**
+   * Si hay llave de usuario de FacturAPI, y sus cuatro últimos caracteres para
+   * reconocerla. NUNCA la llave: igual que la de servicio de la nube, abre las
+   * organizaciones de todos los restaurantes.
+   */
+  facturapi?: { termina_en: string };
 }
 
 interface SecretosProtegidos {
@@ -142,6 +191,18 @@ interface SecretosProtegidos {
    */
   nube_url?: string;
   nube_servicio?: string;
+  /**
+   * La llave de USUARIO de FacturAPI (`sk_user_…`), la de la cuenta de MOTRAE.
+   *
+   * Vive aquí, con la de servicio, por lo mismo: saca las llaves de facturación
+   * de cualquier restaurante y puede borrar organizaciones. En la aplicación
+   * instalada la lee Rust (`facturapi_peticion`) y no vuelve a la ventana.
+   *
+   * Las llaves de cada restaurante NO se guardan aquí ni en ninguna parte de
+   * Central: se piden a FacturAPI al enviarlas, se cierran en el sobre de ese
+   * Hub y se olvidan.
+   */
+  facturapi_usuario?: string;
   /** PINes de responsables, cifrados con DPAPI y nunca en la cartera. */
   responsables?: Record<string, ResponsableProtegido>;
   /**
@@ -267,6 +328,9 @@ function vistaDe(secretos: SecretosProtegidos): Secretos {
     ...(secretos.soporte_fijado_ts ? { soporte_fijado_ts: secretos.soporte_fijado_ts } : {}),
     ...(secretos.nube_url ? { nube_url: secretos.nube_url } : {}),
     ...(secretos.ultimo_respaldo_ts ? { ultimo_respaldo_ts: secretos.ultimo_respaldo_ts } : {}),
+    ...(secretos.facturapi_usuario
+      ? { facturapi: { termina_en: terminacion(secretos.facturapi_usuario) } }
+      : {}),
   };
 }
 
@@ -356,6 +420,7 @@ function decodificarSecretos(texto: string): SecretosProtegidos | null {
       (valor.publicacion !== undefined && !esPar(valor.publicacion)) ||
       (valor.nube_url !== undefined && typeof valor.nube_url !== "string") ||
       (valor.nube_servicio !== undefined && typeof valor.nube_servicio !== "string") ||
+      (valor.facturapi_usuario !== undefined && typeof valor.facturapi_usuario !== "string") ||
       (valor.responsables !== undefined && !esResponsablesProtegidos(valor.responsables))) {
       return null;
     }
@@ -485,6 +550,48 @@ async function peticionNube(
 }
 
 /**
+ * TODA petición a FacturAPI pasa por aquí, y en Central también la hace Rust.
+ *
+ * Es el mismo trato que la llave de servicio de la nube, por la misma razón: la
+ * llave de USUARIO saca las llaves de facturación de todos los restaurantes y
+ * puede borrar sus organizaciones. En la aplicación instalada la lee el proceso
+ * nativo del almacén DPAPI (`facturapi_peticion`), que además solo deja pasar
+ * una lista blanca de rutas; aquí no se le pasa, porque la ventana no la tiene.
+ *
+ * Fuera de Tauri —las pruebas y el navegador de desarrollo— va por `fetch` con
+ * la que haya en memoria, para que las pruebas comprueben el contrato con dobles.
+ */
+async function peticionFacturapi(
+  llave: string,
+  metodo: "GET" | "PUT" | "DELETE",
+  ruta: string,
+): Promise<{ estado: number; cuerpo: string }> {
+  if (isTauri()) {
+    return invoke<{ estado: number; cuerpo: string }>("facturapi_peticion", {
+      metodo,
+      ruta,
+      cuerpo: null,
+    });
+  }
+
+  const respuesta = await fetch(`${BASE_FACTURAPI}${ruta}`, {
+    method: metodo,
+    headers: { authorization: `Bearer ${llave}` },
+    signal: AbortSignal.timeout(30_000),
+  });
+  return { estado: respuesta.status, cuerpo: await respuesta.text() };
+}
+
+/** Lo que devuelve enviar un secreto a un restaurante. */
+export type ResultadoEnvioSecreto =
+  | {
+      ok: true;
+      /** Los cuatro últimos caracteres de lo que se mandó, para reconocerlo. */
+      termina_en: string;
+    }
+  | { ok: false; error: string };
+
+/**
  * ¿De dónde se le permite a un local bajar un instalador?
  *
  * De GitHub —el canal de respaldo— y de la nube del propio MOTRAE, que es por
@@ -612,6 +719,22 @@ export class StoreCentral {
   licenciasPendientes = $state<
     { sucursal_id: string; depositada_ts: number; conectado: boolean }[]
   >([]);
+  /** Qué organización de FacturAPI y qué modo lleva cada local. Sin secretos. */
+  facturacion = $state<Record<string, FacturacionDeLocal>>(
+    leer(LLAVE_FACTURACION, {} as Record<string, FacturacionDeLocal>),
+  );
+  /** La llave pública y el estado de secretos de cada Hub, del último pulso. */
+  secretosDeLocales = $state<Record<string, SecretosDelLocal>>(
+    leer(LLAVE_SECRETOS_DE_LOCALES, {} as Record<string, SecretosDelLocal>),
+  );
+  /** Las filas del buzón de secretos, sin el sobre. */
+  secretosPendientes = $state<FilaSecretoPendiente[]>([]);
+  errorSecretosPendientes = $state("");
+  /**
+   * Las organizaciones de la cuenta de FacturAPI. `null` = todavía no se han
+   * pedido. No se guarda: se pide al abrir la pestaña y basta para la sesión.
+   */
+  organizaciones = $state<OrganizacionFacturapi[] | null>(null);
   /** Solo públicas, repo y hash de soporte: nunca una privada. */
   secretos = $state<Secretos>(vistaDe(vacio()));
   estadoSecretos = $state<EstadoSecretos>("cargando");
@@ -630,6 +753,11 @@ export class StoreCentral {
   private inicializacion: Promise<void> | null = null;
   /** Evita que dos clics firmen el mismo `publicado_ts` antes de persistirlo. */
   private firmandoActualizacion = false;
+  /**
+   * Evita que dos clics en «Enviar al restaurante» creen dos llaves Live. Cada
+   * una es una llave de facturación de verdad que alguien tendría que revocar.
+   */
+  private enviandoSecreto = false;
   private sondeo: ReturnType<typeof setInterval> | null = null;
 
   constructor(activarReloj = true) {
@@ -1982,6 +2110,7 @@ export class StoreCentral {
       }
 
       let leidos = 0;
+      const secretos: Record<string, SecretosDelLocal> = {};
       for (const fila of filas) {
         const sucursal_id = fila.sucursal_id;
         const version = fila.version;
@@ -2017,9 +2146,23 @@ export class StoreCentral {
             ? { arranque_automatico: fila.arranque_automatico }
             : {}),
         } as PulsoCliente);
+        /*
+         * La llave pública y el estado de sus secretos van APARTE del pulso, y no
+         * dentro de `PulsoCliente`: el pulso se copia al historial en cada parte
+         * y esto no es historia, es solo «cómo está ahora». También se leen campo
+         * a campo — un estado de secretos es el último sitio donde se puede
+         * pintar algo que nadie decidió enseñar.
+         *
+         * Un pulso sin llave pública deja constancia de que no la tiene: es lo
+         * que permite decir «necesita la 1.5.5» en vez de fingir que se puede
+         * enviar.
+         */
+        secretos[sucursal_id] = leerSecretosDelPulso(fila);
         leidos++;
       }
 
+      this.secretosDeLocales = { ...this.secretosDeLocales, ...secretos };
+      escribir(LLAVE_SECRETOS_DE_LOCALES, this.secretosDeLocales);
       this.ultimaConsultaPulsos = Date.now();
       this.errorPulsos = "";
       return { ok: true, total: leidos };
@@ -2064,6 +2207,8 @@ export class StoreCentral {
     await this.traerSaludNube();
     /* Una renovación que lleva días sin recoger es el local que va a llamar. */
     await this.traerLicenciasPendientes();
+    /* Y una llave enviada que el Hub rechazó es un local que no puede facturar. */
+    await this.traerSecretosPendientes();
   }
 
   /**
@@ -2293,6 +2438,421 @@ export class StoreCentral {
     }
   }
 
+  // --- Facturación y correo de cada restaurante ------------------------------------------
+  //
+  // Decidido con Gonzalo el 19-sep-2026 (docs/PLAN-FACTURAPI-1.5.5.md): pega UNA
+  // vez su llave de usuario de FacturAPI en Llaves, y en cada restaurante elige
+  // su organización de una lista y pulsa «Enviar al restaurante». Nada de copiar
+  // llaves a mano del panel de FacturAPI al teléfono y del teléfono a la caja.
+  //
+  // El camino de la llave, de punta a punta: FacturAPI → esta ventana (en
+  // memoria, lo que dura el envío) → sobre cerrado para ESE Hub → buzón de la
+  // nube → Hub, que es el único que lo abre. Central no la guarda en ninguna
+  // parte, ni la registra, ni la vuelve a ver: de ella solo enseña los cuatro
+  // últimos caracteres.
+
+  /** ¿Hay llave de usuario de FacturAPI guardada? */
+  get puedeUsarFacturapi(): boolean {
+    return Boolean(this.protegidos.facturapi_usuario);
+  }
+
+  /**
+   * Guarda (o, vacía, quita) la llave de usuario de FacturAPI en DPAPI.
+   *
+   * Se exige `sk_user_` y no cualquier llave: una `sk_live_` pegada aquí por
+   * error parecería funcionar a medias —ve SU organización y ninguna más— y el
+   * fallo aparecería lejos, al no encontrar las de los demás restaurantes.
+   */
+  async guardarLlaveFacturapi(llave: string): Promise<Resultado> {
+    const limpia = llave.trim();
+    if (limpia && !llaveDeUsuarioValida(limpia)) {
+      return {
+        ok: false,
+        error:
+          "Esa no es una llave de usuario de FacturAPI: empieza por «sk_user_». " +
+          "Las «sk_live_» y «sk_test_» son de un restaurante, no de la cuenta.",
+      };
+    }
+    const { facturapi_usuario: _anterior, ...resto } = this.protegidos;
+    const siguiente: SecretosProtegidos = limpia ? { ...resto, facturapi_usuario: limpia } : resto;
+    const r = await this.reemplazarProtegidos(siguiente);
+    /* Otra llave puede ser otra cuenta: la lista vieja ya no dice nada. */
+    if (r.ok) this.organizaciones = null;
+    return r;
+  }
+
+  /** Una petición a FacturAPI con la llave de usuario, o por qué no se puede. */
+  private async facturapi(
+    metodo: "GET" | "PUT" | "DELETE",
+    ruta: string,
+  ): Promise<{ ok: true; estado: number; cuerpo: string } | { ok: false; error: string }> {
+    const llave = this.protegidos.facturapi_usuario ?? "";
+    if (!llave) {
+      return { ok: false, error: "Falta tu llave de usuario de FacturAPI (ve a Llaves → FacturAPI)" };
+    }
+    try {
+      const r = await peticionFacturapi(llave, metodo, ruta);
+      if (r.estado >= 300) return { ok: false, error: errorDeFacturapi(r.estado, r.cuerpo) };
+      return { ok: true, ...r };
+    } catch (causa) {
+      return { ok: false, error: `No se pudo hablar con FacturAPI: ${String(causa)}` };
+    }
+  }
+
+  /**
+   * Todas las organizaciones de la cuenta, página a página.
+   *
+   * De cien en cien y con tope en las treinta páginas que permite FacturAPI:
+   * una cartera de restaurantes cabe de sobra, y un bucle sin tope ante una
+   * respuesta rara es una ventana colgada.
+   */
+  async listarOrganizaciones(): Promise<
+    { ok: true; organizaciones: OrganizacionFacturapi[] } | { ok: false; error: string }
+  > {
+    const todas: OrganizacionFacturapi[] = [];
+    for (let pagina = 1; pagina <= PAGINAS_MAXIMAS; pagina++) {
+      const r = await this.facturapi("GET", `/v2/organizations?limit=100&page=${pagina}`);
+      if (!r.ok) return r;
+      const leida = leerPaginaDeOrganizaciones(r.cuerpo);
+      if (!leida) return { ok: false, error: "FacturAPI contestó algo que no es una lista de organizaciones" };
+      todas.push(...leida.organizaciones);
+      if (pagina >= leida.paginas || leida.organizaciones.length === 0) break;
+    }
+    todas.sort((a, b) => a.nombre.localeCompare(b.nombre, "es"));
+    this.organizaciones = todas;
+    return { ok: true, organizaciones: todas };
+  }
+
+  /** Una organización recién consultada: el semáforo tiene que ser de ahora. */
+  async consultarOrganizacion(
+    id: string,
+  ): Promise<{ ok: true; organizacion: OrganizacionFacturapi } | { ok: false; error: string }> {
+    if (!esIdDeFacturapi(id)) return { ok: false, error: "Ese no es un identificador de FacturAPI" };
+    const r = await this.facturapi("GET", `/v2/organizations/${id}`);
+    if (!r.ok) return r;
+    let organizacion: OrganizacionFacturapi | null = null;
+    try {
+      organizacion = leerOrganizacion(JSON.parse(r.cuerpo));
+    } catch {
+      /* Se dice abajo. */
+    }
+    if (!organizacion) return { ok: false, error: "FacturAPI contestó algo que no es una organización" };
+    /* Y se refresca en la lista, para que el nombre y el semáforo coincidan. */
+    if (this.organizaciones) {
+      this.organizaciones = this.organizaciones.map((o) => (o.id === id ? organizacion! : o));
+    }
+    return { ok: true, organizacion };
+  }
+
+  /** Las llaves Live de una organización: id, principio y fecha. Nunca la llave. */
+  async llavesLiveDe(
+    organizacionId: string,
+  ): Promise<{ ok: true; llaves: LlaveLive[] } | { ok: false; error: string }> {
+    if (!esIdDeFacturapi(organizacionId)) {
+      return { ok: false, error: "Ese no es un identificador de FacturAPI" };
+    }
+    const r = await this.facturapi("GET", `/v2/organizations/${organizacionId}/apikeys/live`);
+    if (!r.ok) return r;
+    const llaves = leerLlavesLive(r.cuerpo);
+    return llaves ? { ok: true, llaves } : { ok: false, error: "FacturAPI contestó algo que no es una lista de llaves" };
+  }
+
+  /**
+   * Revoca UNA llave Live. Es la respuesta a «se filtró la llave de un local»:
+   * como cada local tiene la suya, las demás siguen funcionando.
+   */
+  async revocarLlaveLive(organizacionId: string, llaveId: string): Promise<Resultado> {
+    if (!esIdDeFacturapi(organizacionId) || !esIdDeFacturapi(llaveId)) {
+      return { ok: false, error: "Ese no es un identificador de FacturAPI" };
+    }
+    const r = await this.facturapi("DELETE", `/v2/organizations/${organizacionId}/apikeys/live/${llaveId}`);
+    return r.ok ? { ok: true } : r;
+  }
+
+  /** De qué local es cada llave Live que creó Central, para rotular la lista. */
+  duenoDeLlaveLive(llaveId: string): { sucursal_id: string; vigente: boolean } | null {
+    for (const [sucursal_id, datos] of Object.entries(this.facturacion)) {
+      const llaves = datos.llaves_live ?? [];
+      const i = llaves.findIndex((l) => l.id === llaveId);
+      if (i >= 0) return { sucursal_id, vigente: i === llaves.length - 1 };
+    }
+    return null;
+  }
+
+  facturacionDe(sucursalId: string): FacturacionDeLocal {
+    return this.facturacion[sucursalId] ?? {};
+  }
+
+  private recordarFacturacion(sucursalId: string, cambios: Partial<FacturacionDeLocal>): void {
+    this.facturacion = {
+      ...this.facturacion,
+      [sucursalId]: { ...this.facturacionDe(sucursalId), ...cambios },
+    };
+    escribir(LLAVE_FACTURACION, this.facturacion);
+  }
+
+  /** Recuerda qué organización es la de este local. No envía nada todavía. */
+  elegirOrganizacion(sucursalId: string, organizacion: { id: string; nombre: string } | null): void {
+    if (organizacion && !esIdDeFacturapi(organizacion.id)) return;
+    this.recordarFacturacion(
+      sucursalId,
+      organizacion
+        ? { organizacion_id: organizacion.id, organizacion_nombre: organizacion.nombre }
+        : { organizacion_id: undefined, organizacion_nombre: undefined },
+    );
+  }
+
+  fijarModoFacturapi(sucursalId: string, modo: ModoFacturapi): void {
+    this.recordarFacturacion(sucursalId, { modo });
+  }
+
+  /** Lo último que dijo el Hub de este local sobre sus secretos. */
+  secretosDe(sucursalId: string): SecretosDelLocal {
+    return this.secretosDeLocales[sucursalId] ?? {};
+  }
+
+  filaSecretoDe(sucursalId: string, clase: ClaseSecreto): FilaSecretoPendiente | undefined {
+    return this.secretosPendientes.find((f) => f.sucursal_id === sucursalId && f.clase === clase);
+  }
+
+  /**
+   * El buzón de secretos, SIN el sobre: se pide por columnas a propósito. Central
+   * no lo necesita de vuelta, y traerlo sería mover por la red, sin motivo, la
+   * única pieza que de verdad hay que proteger.
+   */
+  async traerSecretosPendientes(): Promise<Resultado> {
+    const url = this.protegidos.nube_url?.trim().replace(/[/]+$/, "") ?? "";
+    const servicio = this.protegidos.nube_servicio ?? "";
+    if (!url || !servicio) return { ok: false, error: "No hay nube configurada (ver Llaves)" };
+    try {
+      const r = await peticionNube(
+        url,
+        servicio,
+        "/rest/v1/secretos_pendientes" +
+          "?select=sucursal_id,clase,depositado_ts,entregado_ts,aplicado_ts,ultimo_error",
+      );
+      if (r.estado >= 300) {
+        this.errorSecretosPendientes = `La nube respondió ${r.estado}`;
+        return { ok: false, error: this.errorSecretosPendientes };
+      }
+      const filas = JSON.parse(r.cuerpo) as unknown;
+      this.secretosPendientes = (Array.isArray(filas) ? filas : [])
+        .map(leerFilaSecreto)
+        .filter((f): f is FilaSecretoPendiente => f !== null);
+      this.errorSecretosPendientes = "";
+      return { ok: true };
+    } catch (causa) {
+      this.errorSecretosPendientes = `No se pudo hablar con la nube: ${String(causa)}`;
+      return { ok: false, error: this.errorSecretosPendientes };
+    }
+  }
+
+  /**
+   * Lo que hay que comprobar ANTES de sacar ninguna llave de FacturAPI.
+   *
+   * El orden importa: todo lo que puede impedir el envío se mira primero, porque
+   * crear una Live y no poder entregarla deja una llave de facturación suelta
+   * que alguien tendría que acordarse de revocar.
+   */
+  private async prepararEnvio(
+    sucursalId: string,
+  ): Promise<{ ok: true; publica: string } | { ok: false; error: string }> {
+    if (!this.clientes.some((c) => c.id === sucursalId)) return { ok: false, error: "No existe ese local" };
+    if (!this.puedeConsultarNube) {
+      return { ok: false, error: "Falta configurar la nube en Llaves (URL y llave de servicio)" };
+    }
+    const publica = this.secretosDe(sucursalId).llave_publica;
+    if (!publica) return { ok: false, error: SIN_LLAVE_PUBLICA };
+    if (!(await haySobres())) return { ok: false, error: SIN_SOBRES };
+    return { ok: true, publica };
+  }
+
+  /**
+   * El candado contra el doble clic, tomado ANTES del primer `await`: si se
+   * comprobara después, dos clics seguidos pasarían los dos y crearían dos
+   * llaves Live.
+   */
+  private async conCandado(
+    trabajo: () => Promise<ResultadoEnvioSecreto>,
+  ): Promise<ResultadoEnvioSecreto> {
+    if (this.enviandoSecreto) {
+      return { ok: false, error: "Ya se está enviando una llave; espera a que termine" };
+    }
+    this.enviandoSecreto = true;
+    try {
+      return await trabajo();
+    } finally {
+      this.enviandoSecreto = false;
+    }
+  }
+
+  /**
+   * Cierra el secreto en el sobre de ese Hub y lo deja en su buzón.
+   *
+   * Upsert sobre la pareja (local, clase): un envío nuevo sustituye al que
+   * todavía no se hubiera recogido, y limpia las tres marcas de la vez anterior
+   * —una llave nueva no hereda el «aplicada» ni el error de la vieja—.
+   */
+  private async depositarSecreto(publica: string, secreto: Secreto): Promise<Resultado> {
+    let sobre: Sobre;
+    try {
+      sobre = await cerrarSobre(publica, JSON.stringify(secreto));
+    } catch (causa) {
+      return { ok: false, error: causa instanceof Error ? causa.message : String(causa) };
+    }
+
+    const url = this.protegidos.nube_url?.trim().replace(/[/]+$/, "") ?? "";
+    const servicio = this.protegidos.nube_servicio ?? "";
+    try {
+      const r = await peticionNube(url, servicio, "/rest/v1/secretos_pendientes?on_conflict=sucursal_id,clase", {
+        metodo: "POST",
+        prefer: "resolution=merge-duplicates,return=minimal",
+        cuerpo: JSON.stringify({
+          sucursal_id: secreto.sucursal_id,
+          clase: secreto.clase,
+          sobre,
+          depositado_ts: new Date().toISOString(),
+          entregado_ts: null,
+          aplicado_ts: null,
+          ultimo_error: null,
+        }),
+      });
+      if (r.estado >= 300) return { ok: false, error: `La nube no aceptó el envío (${r.estado}): ${r.cuerpo}` };
+      return { ok: true };
+    } catch (causa) {
+      return { ok: false, error: `No se pudo hablar con la nube: ${String(causa)}` };
+    }
+  }
+
+  /**
+   * Manda al restaurante la llave de FacturAPI de su organización.
+   *
+   * PRODUCCIÓN CREA UNA LLAVE LIVE NUEVA, EXCLUSIVA DE ESTE LOCAL. Así, si un
+   * día se filtra, se revoca esa sola y los demás restaurantes de la misma
+   * organización ni se enteran (plan §6). PRUEBAS manda la Test de la
+   * organización, que es una sola y no timbra nada de verdad.
+   *
+   * Si la nube no acepta el sobre, la Live recién creada se revoca en el acto:
+   * una llave que no llegó a nadie no tiene por qué seguir existiendo.
+   */
+  async enviarFacturapi(sucursalId: string, ahora = Date.now()): Promise<ResultadoEnvioSecreto> {
+    const datos = this.facturacionDe(sucursalId);
+    const organizacion = datos.organizacion_id;
+    const modo = datos.modo ?? "pruebas";
+    if (!organizacion || !esIdDeFacturapi(organizacion)) {
+      return { ok: false, error: "Primero elige la organización de FacturAPI de este restaurante" };
+    }
+    if (!this.puedeUsarFacturapi) {
+      return { ok: false, error: "Falta tu llave de usuario de FacturAPI (ve a Llaves → FacturAPI)" };
+    }
+
+    return this.conCandado(async () => {
+      const listo = await this.prepararEnvio(sucursalId);
+      if (!listo.ok) return listo;
+
+      const pedida =
+        modo === "produccion"
+          ? await this.facturapi("PUT", `/v2/organizations/${organizacion}/apikeys/live`)
+          : await this.facturapi("GET", `/v2/organizations/${organizacion}/apikeys/test`);
+      if (!pedida.ok) return pedida;
+      const llave = leerLlaveDeRespuesta(pedida.cuerpo, modo);
+      if (!llave) return { ok: false, error: "FacturAPI no devolvió una llave con la forma esperada" };
+
+      /*
+       * El id de la Live recién creada: sin él no se podría revocar sola. Si la
+       * lista no contesta, el envío sigue — la llave sirve igual y la lista de
+       * llaves de la pestaña la enseñará como «no la creó Central».
+       */
+      let llaveId: string | undefined;
+      if (modo === "produccion") {
+        const lista = await this.llavesLiveDe(organizacion);
+        if (lista.ok) llaveId = idDeLaLlaveNueva(lista.llaves, llave);
+      }
+
+      const secreto: SecretoFacturapi = {
+        clase: "facturapi",
+        sucursal_id: sucursalId,
+        emitido_ts: ahora,
+        origen: "central",
+        llave,
+        modo,
+        organizacion_id: organizacion,
+        ...(datos.organizacion_nombre ? { organizacion_nombre: datos.organizacion_nombre } : {}),
+      };
+
+      const depositado = await this.depositarSecreto(listo.publica, secreto);
+      if (!depositado.ok) {
+        if (llaveId) await this.revocarLlaveLive(organizacion, llaveId);
+        return {
+          ok: false,
+          error:
+            depositado.error +
+            (modo !== "produccion"
+              ? ""
+              : llaveId
+                ? " La llave que se había creado ya se revocó."
+                : ` Quedó creada una llave que empieza por ${llave.slice(0, 12)}: revócala en la lista de llaves.`),
+        };
+      }
+
+      this.recordarFacturacion(sucursalId, {
+        modo,
+        facturapi_enviado_ts: ahora,
+        ...(llaveId
+          ? { llaves_live: [...(datos.llaves_live ?? []), { id: llaveId, creada_ts: ahora }].slice(-20) }
+          : {}),
+      });
+      return { ok: true, termina_en: terminacion(llave) };
+    });
+  }
+
+  /**
+   * Manda al restaurante la contraseña de aplicación de su Gmail.
+   *
+   * Hasta ahora no tenía dónde capturarse: la instalaba el soporte a mano en la
+   * caja. Viaja por el mismo sobre que la llave de FacturAPI, y en Central no se
+   * queda: el campo se vacía al enviar y de ella solo se ve la terminación que
+   * reporte el Hub.
+   */
+  async enviarGmail(
+    sucursalId: string,
+    datos: { contrasena: string; remitente?: string },
+    ahora = Date.now(),
+  ): Promise<ResultadoEnvioSecreto> {
+    const contrasena = normalizarContrasenaGmail(datos.contrasena);
+    if (!contrasena) {
+      return {
+        ok: false,
+        error: "Una contraseña de aplicación de Google son 16 letras (con o sin espacios)",
+      };
+    }
+    const remitente = datos.remitente?.trim() ?? "";
+    if (remitente && !correoValido(remitente)) {
+      return { ok: false, error: "La cuenta de Gmail no tiene forma de correo" };
+    }
+    return this.conCandado(async () => {
+      const listo = await this.prepararEnvio(sucursalId);
+      if (!listo.ok) return listo;
+
+      const secreto: SecretoGmail = {
+        clase: "gmail",
+        sucursal_id: sucursalId,
+        emitido_ts: ahora,
+        origen: "central",
+        contrasena,
+        ...(remitente ? { remitente } : {}),
+      };
+      const depositado = await this.depositarSecreto(listo.publica, secreto);
+      if (!depositado.ok) return depositado;
+
+      this.recordarFacturacion(sucursalId, {
+        gmail_enviado_ts: ahora,
+        ...(remitente ? { gmail_remitente: remitente } : {}),
+      });
+      return { ok: true, termina_en: terminacion(contrasena) };
+    });
+  }
+
   // --- Anillos de despliegue -------------------------------------------------------------
 
   /**
@@ -2391,6 +2951,12 @@ export class StoreCentral {
         /* Va dentro porque es el historial del negocio, no telemetría desechable. */
         historial: this.historial,
         ...(this.ultimaPublicacion ? { publicacion: this.ultimaPublicacion } : {}),
+        /*
+         * Qué organización de FacturAPI lleva cada local, y los ids de sus
+         * llaves Live. Sin ninguna llave: se puede mandar por correo, y sin esto
+         * una Central restaurada no sabría qué llave revocar si una se filtra.
+         */
+        facturacion: this.facturacion,
       },
       null,
       2,
@@ -2404,8 +2970,15 @@ export class StoreCentral {
         pulsos?: PulsoCliente[];
         historial?: Record<string, PulsoCliente[]>;
         publicacion?: PublicacionVigilada;
+        facturacion?: Record<string, FacturacionDeLocal>;
       };
       if (!Array.isArray(datos.clientes)) return { ok: false, error: "El archivo no trae clientes" };
+
+      /* Un respaldo anterior a la 1.5.5 no la trae: se conserva la que hay. */
+      if (datos.facturacion && typeof datos.facturacion === "object" && !Array.isArray(datos.facturacion)) {
+        this.facturacion = datos.facturacion;
+        escribir(LLAVE_FACTURACION, this.facturacion);
+      }
 
       this.clientes = carteraSinCredenciales(datos.clientes);
       this.pulsos = datos.pulsos ?? [];

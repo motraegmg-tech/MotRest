@@ -64,6 +64,18 @@ export interface OpcionesNube {
    * un cartero: puede no entregar, pero no puede falsificar.
    */
   alLlegarLicencia?: (licencia: unknown) => Promise<{ ok: boolean; error?: string }>;
+  /**
+   * Llega un secreto de Central (llave de FacturAPI, contraseña de Gmail),
+   * cerrado en un sobre que solo este Hub puede abrir.
+   *
+   * Igual que con la licencia, QUIEN DECIDE ES EL HUB: abre el sobre con su
+   * privada, comprueba que sea de este local y que sea más reciente que lo que
+   * tiene. La nube solo lo trae; no puede leerlo ni fabricarlo.
+   */
+  alLlegarSecreto?: (fila: { clase: unknown; sobre: unknown }) => Promise<{
+    aplicado: boolean;
+    problema?: string;
+  }>;
   alConectar?: () => void;
   registrar: (nivel: "info" | "aviso" | "error", texto: string) => void;
 }

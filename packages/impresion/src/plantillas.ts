@@ -135,6 +135,8 @@ export interface PagoTicket {
 }
 
 export interface DatosTicket {
+  /** La versión de MotRest que corre este local, para la firma del pie. */
+  version?: string;
   folio: string;
   ts: number;
   /**
@@ -204,6 +206,16 @@ export interface TextosTicket {
   encabezado?: string;
   /** Sobre el QR de facturación. */
   invitacion_factura?: string;
+  /**
+   * Cómo pedir factura cuando NO hay portal de autofactura.
+   *
+   * Es el caso de todos los locales hoy: la factura la emite el cajero con los
+   * datos del comensal, así que el ticket tiene que decirle que la pida ANTES
+   * de irse. Sin esta línea, el comensal se entera en su casa, vuelve al día
+   * siguiente y para entonces el ticket puede haber entrado en la global.
+   * Vacío = no se imprime.
+   */
+  aviso_factura?: string;
   /** Sobre el QR de la encuesta. */
   invitacion_opinion?: string;
   /** La despedida. */
@@ -213,25 +225,54 @@ export interface TextosTicket {
 }
 
 /** Lo que dice el ticket si el restaurante no ha cambiado nada. */
-export const TEXTOS_TICKET_POR_DEFECTO: Required<Omit<TextosTicket, "encabezado" | "pie">> & {
+export const TEXTOS_TICKET_POR_DEFECTO: Required<
+  Omit<TextosTicket, "encabezado" | "pie">
+> & {
   encabezado: string;
   pie: string;
 } = {
   encabezado: "",
   invitacion_factura: "Factura tu consumo",
+  aviso_factura: "¿Necesita factura? Pídala con su mesero antes de irse.",
   invitacion_opinion: "¿Cómo estuvo todo? Cuéntanos",
   agradecimiento: "¡Gracias por su visita!",
   pie: "",
 };
 
 /**
- * La firma de MOTRAE. NO es configurable.
+ * La firma de MOTRAE, al pie de todo lo que imprime el producto. NO es
+ * configurable: dice de dónde salió el software, no es un mensaje del
+ * restaurante.
  *
- * Va en cada ticket que imprime el producto: es de dónde salió el software, no
- * un mensaje del restaurante. Antes decía `MotRest v1` —la versión de la
- * plantilla— que no le dice nada a nadie y parecía un número de serie perdido.
+ * LLEVA LA VERSIÓN QUE CORRE ESE LOCAL (pedido de Gonzalo, sep-2026), y no es
+ * decoración: cuando el restaurantero llama por teléfono, lo primero que hay
+ * que saber es qué versión tiene delante, y hasta ahora había que ir a la caja
+ * a mirarlo. Ahora está en cualquier ticket que tenga a mano. Antes decía
+ * `MotRest v1` —la versión de la PLANTILLA—, que no le dice nada a nadie y
+ * parecía un número de serie perdido.
  */
-const FIRMA_MOTRAE = "MotRest by Motrae";
+function firmaMotrae(version?: string): string {
+  const v = (version ?? "").trim();
+  return v ? `MotRest ${v} by Motrae` : "MotRest by Motrae";
+}
+
+/**
+ * La firma, al pie: con un renglón en blanco delante, centrada y a doble alto.
+ *
+ * Los tres detalles los pidió Gonzalo. Iba pegada a la última línea del
+ * restaurante —su despedida y la firma parecían la misma frase— y en letra
+ * normal se perdía en un papel lleno de cifras.
+ *
+ * DOBLE ALTO Y NO «UN 50 % MÁS GRANDE»: una térmica solo sabe multiplicar la
+ * letra por números enteros; el medio paso no existe. Es el mismo tamaño con el
+ * que ya se imprimen el nombre del local y el TOTAL. Se deja el ancho normal a
+ * propósito: a doble ancho, «MotRest 1.5.5 by Motrae» no cabe en 42 columnas y
+ * partiría en dos renglones.
+ */
+function firmar(t: Ticket, version?: string): void {
+  t.salto();
+  t.linea(firmaMotrae(version), { alineacion: "centro", doble_alto: true });
+}
 
 /**
  * El logo del restaurante, arriba de todo.
@@ -331,9 +372,13 @@ export function ticketVenta(datos: DatosTicket, columnas: AnchoPapel = 42): Tick
   }
 
   t.salto();
+  // Antes del adiós: es lo último que se lee, y todavía está a tiempo de pedirla.
+  if (txt.aviso_factura && !datos.url_autofactura) {
+    for (const l of envolverPalabras(txt.aviso_factura, columnas)) t.linea(l, centrado);
+  }
   if (txt.agradecimiento) t.linea(txt.agradecimiento, centrado);
   if (txt.pie) for (const l of envolverPalabras(txt.pie, columnas)) t.linea(l, centrado);
-  t.linea(FIRMA_MOTRAE, centrado);
+  firmar(t, datos.version);
   return t.cortar();
 }
 
@@ -355,6 +400,8 @@ export interface RenglonPrecuenta {
 }
 
 export interface DatosPrecuenta {
+  /** La versión de MotRest que corre este local, para la firma del pie. */
+  version?: string;
   folio: string;
   ts: number;
   /**
@@ -484,15 +531,21 @@ export function precuenta(
   }
 
   t.salto();
+  // Antes del adiós: es lo último que se lee, y todavía está a tiempo de pedirla.
+  if (txt.aviso_factura) {
+    for (const l of envolverPalabras(txt.aviso_factura, columnas)) t.linea(l, centrado);
+  }
   if (txt.agradecimiento) t.linea(txt.agradecimiento, centrado);
   if (txt.pie) for (const l of envolverPalabras(txt.pie, columnas)) t.linea(l, centrado);
-  t.linea(FIRMA_MOTRAE, centrado);
+  firmar(t, datos.version);
   return t.cortar();
 }
 
 // --- Ticket interno -----------------------------------------------------------------
 
 export interface DatosTicketInterno {
+  /** La versión de MotRest que corre este local, para la firma del pie. */
+  version?: string;
   folio: string;
   ts: number;
   /** A nombre de quién iba la cuenta, si se le puso nombre. */
@@ -554,7 +607,7 @@ export function ticketInterno(datos: DatosTicketInterno, columnas: AnchoPapel = 
   if (datos.cambio > 0) t.columnasDobles("Cambio", mxn(datos.cambio), { negrita: true });
   t.salto(2);
   t.linea("Firma: __________________________", centrado);
-  t.linea(FIRMA_MOTRAE, centrado);
+  firmar(t, datos.version);
   return t.cortar();
 }
 
@@ -582,6 +635,8 @@ export function pruebaCodigosQr(
 // --- Corte de caja -------------------------------------------------------------------
 
 export interface DatosCorte {
+  /** La versión de MotRest que corre este local, para la firma del pie. */
+  version?: string;
   folio: string;
   local: string;
   cajero: string;
@@ -656,8 +711,7 @@ export function corteCaja(datos: DatosCorte, columnas: AnchoPapel = 42): Ticket 
   t.linea(datos.sello, { alineacion: "centro" });
   t.salto();
   t.linea("Firma: ____________________");
-  t.salto();
-  t.linea(FIRMA_MOTRAE, centrado);
+  firmar(t, datos.version);
 
   return t.cortar();
 }
@@ -691,6 +745,8 @@ export interface RenglonGasto {
 }
 
 export interface DatosCortePeriodo {
+  /** La versión de MotRest que corre este local, para la firma del pie. */
+  version?: string;
   local: string;
   /** Quién lo mandó imprimir, y cuándo. Un informe no se firma como un arqueo. */
   solicitante: string;
@@ -840,8 +896,7 @@ export function cortePeriodo(datos: DatosCortePeriodo, columnas: AnchoPapel = 42
   t.separador("=");
   t.linea("Informe, no sustituye el arqueo firmado", centrado);
   t.linea("de cada turno.", centrado);
-  t.salto();
-  t.linea(FIRMA_MOTRAE, centrado);
+  firmar(t, datos.version);
 
   return t.cortar();
 }
@@ -894,6 +949,8 @@ function envolverPalabras(texto: string, ancho: number): string[] {
 export function representacionCfdi(
   rep: RepresentacionImpresa,
   columnas: AnchoPapel = 42,
+  /** La versión de MotRest que corre este local, para la firma del pie. */
+  version?: string,
 ): Ticket {
   const t = new Ticket(columnas);
   const centrado: { alineacion: Alineacion } = { alineacion: "centro" };
@@ -964,6 +1021,6 @@ export function representacionCfdi(
 
   t.salto();
   for (const linea of envolverPalabras(rep.leyenda, columnas)) t.linea(linea, centrado);
-  t.linea(FIRMA_MOTRAE, centrado);
+  firmar(t, version);
   return t.cortar();
 }

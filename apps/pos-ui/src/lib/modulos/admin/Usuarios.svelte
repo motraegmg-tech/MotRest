@@ -9,11 +9,28 @@
   import { arranque } from "../../persistencia/arranque.svelte";
   import EditorPermisos from "../../sesion/EditorPermisos.svelte";
   import { sesion } from "../../sesion/sesion.svelte";
+  import { revelar, subirAlPrincipio } from "../../subir";
 
   let confirmandoReinicio = $state(false);
 
   type Vista = { modo: "lista" } | { modo: "nuevo" } | { modo: "editar"; usuario: Usuario };
   let vista = $state<Vista>({ modo: "lista" });
+
+  let raiz = $state<HTMLDivElement | null>(null);
+
+  /*
+   * CADA CAMBIO DE PANTALLA EMPIEZA ARRIBA.
+   *
+   * La lista, el alta y los permisos de alguien comparten la misma `.seccion`,
+   * así que al pasar de una a otra el scroll se quedaba donde estaba. Quien
+   * pulsaba «Permisos» en el décimo usuario aterrizaba a media lista de
+   * actividades, sin ver arriba de quién eran; y al guardar desde el pie del
+   * editor, volvía a la lista por la mitad.
+   */
+  function mostrar(v: Vista) {
+    vista = v;
+    subirAlPrincipio(raiz);
+  }
 
   let nombre = $state("");
   let puesto = $state("");
@@ -43,7 +60,7 @@
     pin = "";
     permisos = sesion.plantilla(inicial);
     error = "";
-    vista = { modo: "nuevo" };
+    mostrar({ modo: "nuevo" });
   }
 
   function cambiarRol(nuevoRol: RolId) {
@@ -59,14 +76,14 @@
     error = "";
     const r = await sesion.crearUsuario({ nombre, puesto, rol_id: rolId, permisos, pin });
     guardando = false;
-    if (r.ok) vista = { modo: "lista" };
+    if (r.ok) mostrar({ modo: "lista" });
     else error = r.error ?? "No se pudo crear el usuario";
   }
 
   function editar(usuario: Usuario) {
     permisosEdicion = usuario.permisos.map((p) => ({ ...p }));
     error = "";
-    vista = { modo: "editar", usuario };
+    mostrar({ modo: "editar", usuario });
   }
 
   /*
@@ -107,12 +124,12 @@
 
   function guardarEdicion(usuario: Usuario) {
     const r = sesion.actualizarPermisos(usuario.id, permisosEdicion);
-    if (r.ok) vista = { modo: "lista" };
+    if (r.ok) mostrar({ modo: "lista" });
     else error = r.error ?? "";
   }
 </script>
 
-<div class="seccion">
+<div class="seccion" bind:this={raiz}>
   {#if vista.modo === "lista"}
     <div class="encabezado">
       <div>
@@ -213,7 +230,13 @@
     {/if}
 
     {#if eliminando}
-      <div class="eliminar" role="alertdialog" aria-labelledby="eliminar-titulo">
+      <!-- Sale al final de la lista de usuarios: se baja hasta la confirmación. -->
+      <div
+        class="eliminar"
+        role="alertdialog"
+        aria-labelledby="eliminar-titulo"
+        use:revelar={eliminando.id}
+      >
         <h2 id="eliminar-titulo">Eliminar a {eliminando.nombre}</h2>
         <p>
           Desaparecerá de la plantilla y su PIN dejará de servir para entrar y para
@@ -307,7 +330,7 @@
 
     {#if error}<p class="error" role="alert">{error}</p>{/if}
     <div class="botones">
-      <button class="secundario" onclick={() => (vista = { modo: "lista" })}>Cancelar</button>
+      <button class="secundario" onclick={() => mostrar({ modo: "lista" })}>Cancelar</button>
       <button class="principal" onclick={guardar} disabled={guardando}>
         {guardando ? "Creando…" : "Crear usuario"}
       </button>
@@ -342,7 +365,7 @@
 
     {#if error}<p class="error" role="alert">{error}</p>{/if}
     <div class="botones">
-      <button class="secundario" onclick={() => (vista = { modo: "lista" })}>
+      <button class="secundario" onclick={() => mostrar({ modo: "lista" })}>
         {editable ? "Cancelar" : "Volver"}
       </button>
       {#if editable}

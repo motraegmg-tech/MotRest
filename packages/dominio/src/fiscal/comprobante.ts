@@ -14,9 +14,9 @@ import type { ID } from "../comun/ids.js";
 import { desglosarConTasas } from "../comun/impuestos.js";
 import type { CatalogoIndex } from "../catalogo/productos.js";
 import type { FormaPago } from "../comanda/eventos.js";
-import { renglonesActivos, type EstadoComanda } from "../comanda/reducers.js";
-import { importeRenglon } from "../comanda/renglon.js";
-import { totalesComanda } from "../comanda/totales.js";
+import { renglonesActivos, type Descuento, type EstadoComanda } from "../comanda/reducers.js";
+import { importeRenglon, type RenglonComanda } from "../comanda/renglon.js";
+import { cortesiaDeRenglon } from "../comanda/totales.js";
 import {
   CLAVE_PRODSERV_RESTAURANTE,
   CLAVE_UNIDAD_SERVICIO,
@@ -184,44 +184,138 @@ function formaPredominante(estado: EstadoComanda): FormaPago {
   return mayor;
 }
 
+/** La rebaja de un descuento sobre un importe. La misma regla que los totales. */
+function rebajaDe(descuento: Descuento, base: Centavos): Centavos {
+  return descuento.modo === "porcentaje"
+    ? porFraccion(base, descuento.valor)
+    : (Math.min(descuento.valor, base) as Centavos);
+}
+
+/** Un renglón de la cuenta con lo que costaba y lo que de verdad se cobró. */
+export interface RenglonCobrado {
+  renglon: RenglonComanda;
+  /**
+   * El importe del renglón antes de cualquier rebaja, en la misma unidad que su
+   * precio de carta: con el impuesto dentro si el renglón lo trae incluido, sin
+   * él si no. Quien sabe separarlo es `desglosarConTasas`.
+   */
+  bruto: Centavos;
+  /** Lo que quedó por cobrar de él, en la misma unidad: bruto − cortesía − descuentos. */
+  cobrado: Centavos;
+}
+
+/**
+ * Lo que se cobró de cada renglón, con el MISMO reparto que el ticket.
+ *
+ * POR QUÉ NO SE PRORRATEA TODO EN PROPORCIÓN, que es lo que se hacía: con la
+ * cortesía por renglón —tres cervezas, una regalada— repartir el regalo entre
+ * todos los platillos haría un CFDI que dice que la pizza salió más barata y la
+ * cerveza más cara de lo que dice el ticket. El comensal los pone uno junto al
+ * otro, y el contador también. Cada rebaja cae donde cayó en la cuenta:
+ *
+ *   1. La cortesía, en su renglón, por `cortesiaDeRenglon` —la ÚNICA respuesta
+ *      del sistema a «cuánto se regaló de esto», la misma que usan los totales—.
+ *   2. Los descuentos de renglón, sobre lo que quedó de ESE renglón.
+ *   3. Los descuentos de cuenta, prorrateados entre lo que aún tiene base, con
+ *      el residuo en el último para que cuadre al centavo.
+ *
+ * Es paso por paso el algoritmo de `totalesComanda`, y tiene que seguir
+ * siéndolo: `comprobante-cortesias.test.ts` compara el total del CFDI contra
+ * el de la cuenta en los casos que se han visto torcerse. Lo usa también la
+ * factura global, que tiene que sumar lo mismo que los tickets que ampara.
+ * Si un día los totales exportan sus bases por renglón, esto debe usarlas en
+ * vez de repetir la cuenta.
+ */
+export function cobradoPorRenglon(estado: EstadoComanda): RenglonCobrado[] {
+  const filas: RenglonCobrado[] = [];
+
+  for (const renglon of renglonesActivos(estado)) {
+    const bruto = importeRenglon(renglon);
+    const regalado = cortesiaDeRenglon(estado, renglon);
+    if (regalado >= bruto) {
+      filas.push({ renglon, bruto, cobrado: CERO });
+      continue;
+    }
+
+    let cobrado = restar(bruto, regalado);
+    for (const descuento of estado.descuentos) {
+      if (descuento.alcance !== "renglon" || descuento.renglon_id !== renglon.id) continue;
+      cobrado = restar(cobrado, rebajaDe(descuento, cobrado));
+    }
+    filas.push({ renglon, bruto, cobrado });
+  }
+
+  for (const descuento of estado.descuentos.filter((d) => d.alcance === "cuenta")) {
+    const baseTotal = filas.reduce((acc, f) => sumar(acc, f.cobrado), CERO);
+    if (baseTotal <= 0) break;
+    const rebaja = rebajaDe(descuento, baseTotal);
+
+    let repartido = CERO;
+    filas.forEach((f, i) => {
+      if (f.cobrado <= 0) return;
+      const esUltimo = i === filas.length - 1;
+      const parte = esUltimo
+        ? restar(rebaja, repartido)
+        : (Math.round((rebaja * f.cobrado) / baseTotal) as Centavos);
+      const aplicada = Math.min(parte, f.cobrado) as Centavos;
+      f.cobrado = restar(f.cobrado, aplicada);
+      repartido = sumar(repartido, aplicada);
+    });
+  }
+
+  return filas;
+}
+
 /**
  * Construye el CFDI a partir de la cuenta.
  *
- * Los descuentos de la cuenta se prorratean entre los conceptos, porque el SAT
- * exige el descuento a nivel concepto y que la suma cuadre con el del
- * comprobante.
+ * Cada concepto lleva SU rebaja —la cortesía y los descuentos que le tocaron en
+ * el ticket— porque el SAT exige el descuento a nivel concepto y que la suma
+ * cuadre con el del comprobante. Y el total cuadra al centavo con el de
+ * `totalesComanda`: es lo que pagó el comensal.
+ *
+ * DOS REGLAS DEL SAT QUE DECIDEN QUÉ ENTRA:
+ *
+ *   - **Un renglón de $0 no es concepto.** En un CFDI de ingreso el
+ *     `ValorUnitario` tiene que ser mayor que cero, así que un producto de
+ *     precio cero (la salsa extra, el pan de la casa) se queda fuera. Lo
+ *     regalado NO es eso: una cerveza de $45 regalada vale $45 y sale con
+ *     descuento de $45.
+ *   - **Un concepto sin base no lleva traslado.** La base de un traslado tiene
+ *     que ser mayor que cero; un renglón regalado entero sale como «no objeto de
+ *     impuesto» en vez de con un IVA de base cero que el SAT rechazaría.
+ *
+ * UNA CUENTA EN $0 NO SE FACTURA, y esto no lanza por ello: devuelve el
+ * comprobante vacío o en cero y `validarComprobante` lo dice en palabras de
+ * persona («No hay nada que facturar…»). Así la caja lo lee por el mismo camino
+ * que cualquier otro problema, sin un `try` aparte.
  */
 export function construirComprobante(
   estado: EstadoComanda,
   catalogo: CatalogoIndex,
   opciones: OpcionesComprobante,
 ): Comprobante {
-  const activos = renglonesActivos(estado);
-  const totales = totalesComanda(estado);
-
-  // Proporción de rebaja global (descuentos + cortesías) sobre el bruto.
-  const rebajaTotal = sumar(totales.descuentos, totales.cortesias);
-  const fraccionRebaja = totales.bruto > 0 ? rebajaTotal / totales.bruto : 0;
-
   const conceptos: ConceptoCfdi[] = [];
-  let descuentoRepartido = CERO;
 
-  activos.forEach((renglon, indice) => {
+  for (const { renglon, bruto, cobrado } of cobradoPorRenglon(estado)) {
+    if (bruto <= 0) continue;
     const producto = catalogo.productos.get(renglon.producto_id);
-    const importeBruto = importeRenglon(renglon);
 
-    // El último concepto absorbe el residuo para que la suma cuadre al centavo.
-    const esUltimo = indice === activos.length - 1;
-    const descuento = esUltimo
-      ? restar(rebajaTotal, descuentoRepartido)
-      : porFraccion(importeBruto, fraccionRebaja);
-    descuentoRepartido = sumar(descuentoRepartido, descuento);
+    // Lo que valía sin impuesto, y la base de lo que se cobró.
+    const importe = desglosarConTasas(bruto, renglon.impuesto).base;
+    const desglose = desglosarConTasas(cobrado, renglon.impuesto);
 
-    const baseConImpuesto = restar(importeBruto, descuento);
-    const desglose = desglosarConTasas(baseConImpuesto, renglon.impuesto);
+    /*
+     * El descuento del concepto es la diferencia entre los dos, no el desglose
+     * de la rebaja por separado. Desglosar por separado redondea dos veces y
+     * deja `Importe − Descuento` a un centavo de la base del traslado: el total
+     * del CFDI dejaba de ser el del ticket. Así, además, un renglón regalado
+     * entero sale con descuento = importe, exacto.
+     */
+    const descuento = restar(importe, desglose.base);
 
     const traslados: TrasladoConcepto[] = [];
-    if (renglon.impuesto.tasa_iva > 0) {
+    if (desglose.base > 0 && renglon.impuesto.tasa_iva > 0) {
       traslados.push({
         base: desglose.base,
         impuesto: IMPUESTO_IVA,
@@ -230,7 +324,7 @@ export function construirComprobante(
         importe: desglose.iva,
       });
     }
-    if (renglon.impuesto.tasa_ieps > 0) {
+    if (desglose.base > 0 && renglon.impuesto.tasa_ieps > 0) {
       traslados.push({
         base: desglose.base,
         impuesto: IMPUESTO_IEPS,
@@ -240,10 +334,9 @@ export function construirComprobante(
       });
     }
 
-    // El valor unitario va sin impuesto: se deriva del bruto sin la rebaja.
-    const brutoSinImpuesto = desglosarConTasas(importeBruto, renglon.impuesto).base;
+    // El valor unitario va sin impuesto y sin la rebaja.
     const valorUnitario = (renglon.cantidad > 0
-      ? Math.round(brutoSinImpuesto / renglon.cantidad)
+      ? Math.round(importe / renglon.cantidad)
       : 0) as Centavos;
 
     conceptos.push({
@@ -254,12 +347,12 @@ export function construirComprobante(
         ? `${renglon.descripcion} (${renglon.detalle})`
         : renglon.descripcion,
       valor_unitario: valorUnitario,
-      importe: brutoSinImpuesto,
-      descuento: desglosarConTasas(descuento, renglon.impuesto).base,
+      importe,
+      descuento,
       objeto_imp: traslados.length > 0 ? OBJETO_IMPUESTO_SI : OBJETO_IMPUESTO_NO,
       traslados,
     });
-  });
+  }
 
   // Resumen de impuestos, agrupado por impuesto y tasa.
   const agrupados = new Map<string, TrasladoResumen>();

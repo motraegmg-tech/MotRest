@@ -43,6 +43,23 @@ const EMPLEADO_SISTEMA = "sistema";
 import type { LogHub } from "@motrest/protocolo-sync/sqlite";
 import type { ColaDeTimbrado } from "./cola-timbrado.js";
 import type { Sellador } from "./sellador.js";
+import { comprobanteAFacturapi, datosDelXml } from "./facturapi.js";
+
+/**
+ * FacturAPI, visto desde el facturador. Se pregunta en cada barrido y no se
+ * fija al construir: la llave llega o se quita con el Hub encendido.
+ */
+export interface FacturapiEnFacturador {
+  /** ¿Hay llave? Con ella no se sella: se encola la venta en JSON. */
+  activa: () => boolean;
+  /** El nombre con el que se anota el timbre («FacturAPI (pruebas)»…). */
+  nombre: () => string;
+  /**
+   * La factura global que ya ampara esta orden, si la hay (su periodo).
+   * Facturarla además a nombre de alguien sería timbrar dos veces la venta.
+   */
+  enGlobal?: (ordenId: ID) => string | null;
+}
 
 const TIPO = "cfdi_generado";
 const MARCA = "ultimo_seq_cfdi";
@@ -61,6 +78,7 @@ interface EventoCfdiGenerado extends EventoBase {
   serie: string;
   folio: string;
   comprobante: Comprobante;
+  correo_receptor?: string;
 }
 
 export class Facturador {
@@ -73,10 +91,11 @@ export class Facturador {
     private cola: ColaDeTimbrado,
     private db: DatabaseSync,
     private anotar: (nivel: "info" | "aviso" | "error", mensaje: string) => void = () => {},
-    opciones: { hub_id?: ID; nombrePac?: string } = {},
+    opciones: { hub_id?: ID; nombrePac?: string; facturapi?: FacturapiEnFacturador } = {},
   ) {
     this.db.exec(ESQUEMA);
     this.nombrePac = opciones.nombrePac ?? "PAC";
+    this.facturapi = opciones.facturapi ?? null;
 
     /*
      * El Hub firma estos hechos a su propio nombre.
@@ -93,6 +112,13 @@ export class Facturador {
       empleado_id: EMPLEADO_SISTEMA,
       sucursal_id: "",
     });
+  }
+
+  private facturapi: FacturapiEnFacturador | null;
+
+  /** El nombre de quien timbra ahora mismo, para el evento y la pantalla. */
+  get nombreActual(): string {
+    return this.facturapi?.activa() ? this.facturapi.nombre() : this.nombrePac;
   }
 
   private get marca(): number {
@@ -117,6 +143,14 @@ export class Facturador {
   procesar(limite = 100): { encolados: number; sinCsd: number } {
     const pendientes = this.log.porTipo(TIPO, this.marca, limite);
     if (pendientes.length === 0) return { encolados: 0, sinCsd: 0 };
+
+    /*
+     * CON FACTURAPI NO SE SELLA. FacturAPI arma y sella el XML con el CSD de su
+     * panel; lo que se encola es la venta traducida a su JSON, con la misma
+     * durabilidad y los mismos reintentos. El CSD de la caja, si lo hay, deja de
+     * usarse — y tiene prioridad sobre el PAC de variables de entorno.
+     */
+    if (this.facturapi?.activa()) return this.encolarParaFacturapi(pendientes);
 
     if (!this.sellador.listo) {
       /*
@@ -180,8 +214,60 @@ export class Facturador {
     return { encolados, sinCsd: 0 };
   }
 
+  private encolarParaFacturapi(
+    pendientes: ReturnType<LogHub["porTipo"]>,
+  ): { encolados: number; sinCsd: number } {
+    let encolados = 0;
+    let ultimo = this.marca;
+
+    for (const evento of pendientes) {
+      const cfdi = evento as unknown as EventoCfdiGenerado;
+      ultimo = evento.seq;
+      if (!cfdi.comprobante || !cfdi.orden_id || !cfdi.cfdi_id) {
+        this.anotar("aviso", `Comprobante ${evento.id} ilegible: se omite.`);
+        continue;
+      }
+
+      this.cola.encolar({
+        orden_id: cfdi.orden_id,
+        cfdi_id: cfdi.cfdi_id,
+        sucursal_id: cfdi.sucursal_id,
+        serie: cfdi.serie,
+        folio: cfdi.folio,
+        total: cfdi.comprobante.total,
+        xml: JSON.stringify(
+          comprobanteAFacturapi(cfdi.comprobante, cfdi.cfdi_id, { correo: cfdi.correo_receptor }),
+        ),
+        formato: "facturapi",
+      });
+
+      /*
+       * El ticket ya entró en la global: el SAT no deja ampararlo dos veces.
+       * Se rechaza aquí, con el motivo, y la caja se entera por el mismo camino
+       * que cualquier rechazo. Si la caja lo hubiera comprobado antes —que es
+       * lo que debe hacer— esto no llega a pasar; está por si una terminal sin
+       * red facturó con la información vieja.
+       */
+      const periodo = this.facturapi?.enGlobal?.(cfdi.orden_id);
+      if (periodo) {
+        this.cola.rechazarAhora(
+          cfdi.orden_id,
+          "GLOBAL",
+          `Este ticket ya entró en la factura global de ${periodo}. Para facturarlo a nombre del ` +
+            "cliente hay que cancelar antes esa global (motivo 04).",
+        );
+      }
+      encolados += 1;
+    }
+
+    this.marca = ultimo;
+    if (encolados > 0) this.anotar("info", `${encolados} comprobante(s) en cola para FacturAPI.`);
+    return { encolados, sinCsd: 0 };
+  }
+
   /** Cuántos comprobantes esperan un CSD para poder sellarse. */
   esperandoCsd(): number {
+    if (this.facturapi?.activa()) return 0;
     if (this.sellador.listo) return 0;
     return this.log.porTipo(TIPO, this.marca, 1000).length;
   }
@@ -220,13 +306,19 @@ export class Facturador {
       const factura = fila.estado === "timbrado" ? this.cola.facturaDe(fila.orden_id) : null;
       const timbre = factura ? leerTimbre(factura.xml) : null;
 
+      // Con FacturAPI el XML trae SU sello y SU total: la caja los necesita
+      // para que el QR del ticket verifique en el portal del SAT.
+      const delXml = factura ? datosDelXml(factura.xml) : {};
+
       const evento =
         fila.estado === "timbrado"
           ? this.fabrica.crear("cfdi_timbrado", stream, {
               cfdi_id: fila.cfdi_id,
               uuid: fila.uuid ?? "",
               fecha_timbrado: timbre?.fecha_timbrado || new Date().toISOString(),
-              pac: this.nombrePac,
+              pac: this.nombreActual,
+              ...(delXml.no_certificado ? { no_certificado_emisor: delXml.no_certificado } : {}),
+              ...(delXml.total !== undefined ? { total_timbrado: delXml.total } : {}),
               // Del XML timbrado que ya está guardado: la caja los necesita para
               // imprimir la representación con su QR de verificación.
               sello_cfd: timbre?.sello_cfd,

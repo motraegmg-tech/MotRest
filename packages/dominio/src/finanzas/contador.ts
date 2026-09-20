@@ -24,6 +24,7 @@ import type { EstadoComanda } from "../comanda/reducers.js";
 import { totalesComanda } from "../comanda/totales.js";
 import { etiquetaFormaPago, type FormaPago } from "../comanda/eventos.js";
 import type { RegistroCfdi } from "../fiscal/eventos.js";
+import { vendidoEnGlobales, type FacturaGlobalRegistrada } from "../fiscal/global.js";
 import type { RegistroEgreso } from "./egresos.js";
 import type { Rango } from "../inteligencia/reportes.js";
 
@@ -54,12 +55,21 @@ export interface ReporteContable {
   cfdi_iva: Centavos;
   cfdi_cancelados: number;
   /**
-   * Lo vendido que NO se facturó individualmente.
+   * Lo vendido que NO se facturó individualmente NI entró en una global.
    *
-   * Es la base de la factura global del periodo, y el número que el contador
-   * busca primero.
+   * El número que el contador busca primero. Con la global automática (1.5.5)
+   * debería quedar en cero una vez cerrado el mes; si no, algo se quedó fuera
+   * —un mes anterior a FacturAPI, una global que no pudo timbrarse— y es
+   * exactamente lo que hay que revisar.
    */
   sin_facturar: Centavos;
+  /**
+   * Lo vendido del periodo que ya quedó amparado por una factura global.
+   *
+   * Opcional solo por los reportes que se arman a mano (el PDF de prueba); el
+   * que sale de `reporteContable` siempre lo trae.
+   */
+  global_facturado?: Centavos;
   egresos: Centavos;
   /** Cuentas que se cobraron, se reabrieron y se volvieron a cobrar. */
   cuentas_reabiertas: number;
@@ -71,6 +81,12 @@ export function reporteContable(
   cfdis: readonly RegistroCfdi[],
   egresos: readonly RegistroEgreso[],
   rango: Rango,
+  /**
+   * Las facturas globales del registro (`facturasGlobales`). Opcional para no
+   * romper a quien todavía no las pasa: sin ellas, la venta sin facturar se
+   * calcula como antes.
+   */
+  globales: readonly FacturaGlobalRegistrada[] = [],
 ): ReporteContable {
   let subtotal = 0;
   let iva = 0;
@@ -112,6 +128,14 @@ export function reporteContable(
   const cancelados = delPeriodo.filter((r) => r.estado === "cancelado");
 
   const cfdiTotal = timbrados.reduce((n, r) => n + r.comprobante.total, 0);
+  /*
+   * Lo que ya fue a la global del mes tampoco está «sin facturar». Antes de la
+   * 1.5.5 la global la hacía el contador por su cuenta y este número era
+   * justamente su base; ahora la emite el Hub, y si no se descontara el reporte
+   * le pediría facturar otra vez lo que ya se timbró.
+   */
+  const enGlobal = vendidoEnGlobales(comandas, globales);
+
   const cfdiIva = timbrados.reduce(
     (n, r) => n + r.comprobante.total_impuestos_trasladados,
     0,
@@ -142,7 +166,8 @@ export function reporteContable(
     cfdi_cancelados: cancelados.length,
     // No puede ser negativo: si se facturó más de lo vendido en el periodo
     // —una factura de una venta de ayer— la diferencia no es "sin facturar".
-    sin_facturar: Math.max(0, total - cfdiTotal) as Centavos,
+    sin_facturar: Math.max(0, total - cfdiTotal - enGlobal) as Centavos,
+    global_facturado: enGlobal,
     egresos: egresos.reduce((n, e) => n + e.monto, 0) as Centavos,
     cuentas_reabiertas: reabiertas,
   };
@@ -196,7 +221,8 @@ export function resumenCsv(r: ReporteContable): string {
     ["Total facturado", importe(r.cfdi_total)],
     ["IVA facturado", importe(r.cfdi_iva)],
     ["CFDI cancelados", String(r.cfdi_cancelados)],
-    ["Venta SIN facturar (base de la factura global)", importe(r.sin_facturar)],
+    ["Incluido en la factura global", importe(r.global_facturado ?? (0 as Centavos))],
+    ["Venta SIN facturar", importe(r.sin_facturar)],
     [],
     ["EGRESOS DEL PERIODO", importe(r.egresos)],
   ];

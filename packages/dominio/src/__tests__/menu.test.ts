@@ -218,13 +218,26 @@ describe("validación de productos", () => {
     expect(validarProducto(borrador(), menu)).toEqual([]);
   });
 
-  it("exige nombre, precio positivo y costo no negativo", () => {
+  it("exige nombre, precio no negativo y costo no negativo", () => {
     const p = validarProducto(
-      borrador({ nombre: "A", precio: pesos(0), costo: -100 as never }),
+      borrador({ nombre: "A", precio: -100 as never, costo: -100 as never }),
       menu,
     );
     expect(p.map((x) => x.campo).sort()).toEqual(["costo", "nombre", "precio"]);
     expect(bloquean(p)).toBe(true);
+  });
+
+  /*
+   * $0 se permite desde sep-2026 (guarniciones incluidas, pan de la casa), pero
+   * avisa: un cero puesto por error regalaría el platillo en cada venta.
+   */
+  it("acepta un producto de $0, con advertencia y sin bloquear", () => {
+    const p = validarProducto(borrador({ precio: pesos(0), costo: pesos(8) }), menu);
+    const delPrecio = p.filter((x) => x.campo === "precio");
+    expect(delPrecio).toHaveLength(1);
+    expect(delPrecio[0]!.gravedad).toBe("advertencia");
+    expect(delPrecio[0]!.mensaje).toMatch(/sin cobrar/);
+    expect(bloquean(p)).toBe(false);
   });
 
   it("rechaza un nombre repetido en la misma categoría, sin importar acentos", () => {

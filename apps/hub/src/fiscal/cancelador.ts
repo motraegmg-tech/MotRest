@@ -19,7 +19,19 @@ import {
 } from "@motrest/dominio";
 import type { LogHub } from "@motrest/protocolo-sync/sqlite";
 import type { Sellador } from "./sellador.js";
-import type { Pac } from "./pac.js";
+import type { Pac, ResultadoCancelacion } from "./pac.js";
+
+/**
+ * Cancelar con FacturAPI: por el id de SU factura, no por el UUID.
+ *
+ * `consultar` existe porque el Hub vive en la red del local y no puede recibir
+ * webhooks: cuando el SAT espera al receptor (hasta 72 horas), la única forma
+ * de enterarse es volver a preguntar.
+ */
+export interface CancelacionPorFacturapi {
+  cancelar(externoId: string, motivo: string, sustitucion?: string): Promise<ResultadoCancelacion>;
+  consultar(externoId: string): Promise<ResultadoCancelacion>;
+}
 
 const TIPO_SOLICITUD = "cfdi_cancelacion_solicitada";
 const TIPO_TIMBRADO = "cfdi_timbrado";
@@ -30,6 +42,13 @@ const ESQUEMA = `
 CREATE TABLE IF NOT EXISTS marcas_cancelacion (
   clave TEXT PRIMARY KEY,
   valor TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS cancelaciones_facturapi (
+  solicitud_id  TEXT PRIMARY KEY,
+  cfdi_id       TEXT NOT NULL,
+  externo_id    TEXT NOT NULL,
+  estado        TEXT NOT NULL,
+  actualizado_ts INTEGER NOT NULL
 );
 `;
 
@@ -61,6 +80,40 @@ export class Cancelador {
       empleado_id: EMPLEADO_SISTEMA,
       sucursal_id: "",
     });
+  }
+
+  private facturapi: { cancelacion: CancelacionPorFacturapi; externoDe: (cfdiId: ID) => string | null } | null =
+    null;
+
+  /**
+   * Engancha FacturAPI en caliente, como la cola de timbrado.
+   *
+   * `externoDe` dice si un comprobante se timbró con FacturAPI (tiene id allá).
+   * Los que no —timbrados antes con el PAC de siempre— siguen por el camino
+   * del UUID.
+   */
+  usarFacturapi(
+    cancelacion: CancelacionPorFacturapi | null,
+    externoDe: (cfdiId: ID) => string | null = () => null,
+  ): void {
+    this.facturapi = cancelacion ? { cancelacion, externoDe } : null;
+  }
+
+  private estadoFacturapi(solicitudId: ID): "solicitada" | "resuelta" | null {
+    const fila = this.db
+      .prepare("SELECT estado FROM cancelaciones_facturapi WHERE solicitud_id = ?")
+      .get(solicitudId) as { estado: "solicitada" | "resuelta" } | undefined;
+    return fila?.estado ?? null;
+  }
+
+  private anotarFacturapi(sol: EventoBase & { cfdi_id: ID }, externo: string, estado: "solicitada" | "resuelta"): void {
+    this.db
+      .prepare(
+        `INSERT INTO cancelaciones_facturapi (solicitud_id, cfdi_id, externo_id, estado, actualizado_ts)
+         VALUES (?, ?, ?, ?, ?)
+         ON CONFLICT(solicitud_id) DO UPDATE SET estado = excluded.estado, actualizado_ts = excluded.actualizado_ts`,
+      )
+      .run(sol.id, sol.cfdi_id, externo, estado, Date.now());
   }
 
   private get marca(): number {
@@ -104,9 +157,34 @@ export class Cancelador {
     // que no se resolvió mantiene la marca antes de sí, para retomarlo tal cual.
     let ultimoFirme = this.marca;
 
+    /*
+     * Con FacturAPI una solicitud en espera del receptor NO frena a las demás:
+     * esa espera puede durar tres días. Las de detrás se resuelven igual y se
+     * anotan como resueltas en su tabla, para que al volver a pasar —la marca
+     * se queda antes de la que espera— no se publiquen dos veces.
+     */
+    let hayUnaEsperando = false;
+
     for (const evento of pendientes) {
       const sol = evento as unknown as EventoSolicitud;
 
+      const externo = this.facturapi?.externoDe(sol.cfdi_id) ?? null;
+      if (this.facturapi && externo) {
+        const desenlace = await this.cancelarConFacturapi(sol, evento.sucursal_id, externo);
+        if (desenlace === "firme") {
+          resueltas += 1;
+          if (!hayUnaEsperando) ultimoFirme = evento.seq;
+        } else if (desenlace === "ya_resuelta") {
+          if (!hayUnaEsperando) ultimoFirme = evento.seq;
+        } else {
+          hayUnaEsperando = true;
+        }
+        continue;
+      }
+
+      // Un comprobante del PAC de siempre, con una en espera delante: se deja
+      // para cuando se resuelva, con el orden de antes.
+      if (hayUnaEsperando) break;
       if (!this.pac?.cancelar) break; // Sin PAC no se resuelve nada; se espera.
 
       const uuid = this.uuidDe(sol.cfdi_id);
@@ -156,6 +234,52 @@ export class Cancelador {
 
     this.marca = ultimoFirme;
     return { resueltas };
+  }
+
+  /**
+   * Una solicitud por FacturAPI. La primera vez se pide (`DELETE`); si queda
+   * en espera del receptor, las siguientes solo preguntan.
+   */
+  private async cancelarConFacturapi(
+    sol: EventoSolicitud,
+    sucursal: ID,
+    externo: string,
+  ): Promise<"firme" | "ya_resuelta" | "pendiente"> {
+    const previo = this.estadoFacturapi(sol.id);
+    if (previo === "resuelta") return "ya_resuelta";
+
+    const proveedor = this.facturapi!.cancelacion;
+    let resultado: ResultadoCancelacion;
+    try {
+      resultado =
+        previo === "solicitada"
+          ? await proveedor.consultar(externo)
+          : await proveedor.cancelar(externo, sol.motivo, sol.uuid_sustitucion);
+    } catch (error) {
+      this.anotar("aviso", `Cancelación de ${sol.cfdi_id} no se pudo enviar: ${String(error)}`);
+      return "pendiente";
+    }
+
+    if (resultado.estado === "cancelado") {
+      this.publicarCancelado(sol, sucursal, resultado.fecha);
+      this.anotarFacturapi(sol, externo, "resuelta");
+      this.anotar("info", `CFDI ${sol.cfdi_id} cancelado ante el SAT (FacturAPI).`);
+      return "firme";
+    }
+    if (resultado.estado === "rechazado") {
+      this.publicarRechazo(sol, sucursal, resultado.codigo, resultado.motivo);
+      this.anotarFacturapi(sol, externo, "resuelta");
+      this.anotar("aviso", `Cancelación de ${sol.cfdi_id} rechazada: ${resultado.motivo}`);
+      return "firme";
+    }
+    if (resultado.estado === "en_espera") {
+      if (previo !== "solicitada") {
+        this.anotarFacturapi(sol, externo, "solicitada");
+        this.anotar("info", `Cancelación de ${sol.cfdi_id} a la espera de aceptación del receptor.`);
+      }
+      return "pendiente";
+    }
+    return "pendiente";
   }
 
   private publicarCancelado(sol: EventoSolicitud, sucursal: ID, fecha: string): void {

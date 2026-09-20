@@ -160,11 +160,30 @@ export function validarProducto(
     });
   }
 
-  if (!Number.isInteger(borrador.precio) || borrador.precio <= 0) {
+  /*
+   * $0 SÍ SE PERMITE (pedido de Gonzalo, sep-2026): la guarnición que va
+   * incluida, el pan de la casa, el refill. Antes se exigía un precio mayor a
+   * cero y el restaurante inventaba un «$0.01» para poder capturarlos, que
+   * ensuciaba el ticket y la factura. Lo que no tiene sentido es un precio
+   * negativo: eso es un descuento, y tiene su propio camino.
+   *
+   * Va con ADVERTENCIA y no en silencio: un $0 puesto por error regalaría el
+   * platillo en cada venta sin que nadie lo notara hasta el corte.
+   */
+  if (!Number.isInteger(borrador.precio) || borrador.precio < 0) {
     problemas.push({
       campo: "precio",
-      mensaje: "El precio debe ser mayor a cero",
+      mensaje: "El precio no puede ser negativo",
       gravedad: "error",
+    });
+  } else if (borrador.precio === 0) {
+    problemas.push({
+      campo: "precio",
+      mensaje:
+        borrador.costo > 0
+          ? "Precio $0: se servirá sin cobrar, y cada uno cuesta sus insumos. No aparece en la factura."
+          : "Precio $0: se servirá sin cobrar. No aparece en la factura.",
+      gravedad: "advertencia",
     });
   }
 

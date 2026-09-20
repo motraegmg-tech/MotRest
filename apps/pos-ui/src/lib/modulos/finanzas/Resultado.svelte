@@ -6,19 +6,23 @@
    * resultados de contador; son tres cifras que un restaurantero puede leer de
    * un vistazo antes de cerrar.
    *
-   * Ojo con la línea de compras: aparece aparte y NO se resta. El costo de lo
-   * vendido ya viene de las recetas, y restar además la compra de insumos haría
-   * que un día de surtido apareciera en pérdida.
+   * Ojo con la compra de insumos: hay DOS utilidades (pedido de Gonzalo,
+   * sep-2026). La contable no la resta —el costo de lo vendido ya viene de las
+   * recetas, y restarla también contaría el mismo queso dos veces—; la de
+   * efectivo sí, el día que se compra, y por eso no resta el costo de lo
+   * vendido. Los nombres y la explicación vienen del dominio, iguales que en el
+   * mes y en el PDF.
    */
   import {
     CATEGORIAS_EGRESO,
     CERO,
+    DIFERENCIA_ENTRE_UTILIDADES,
     FORMAS_PAGO,
+    UTILIDAD_CONTABLE,
+    UTILIDAD_EN_EFECTIVO,
     avisoDe,
     cuentasCerradasEn,
     etiquetaFormaPago,
-    mesasDeComanda,
-    totalesComanda,
     egresosEn,
     formatearCantidad,
     pesos,
@@ -36,9 +40,8 @@
   import { licencia } from "../../licencia.svelte";
   import { local } from "../../local.svelte";
   import { menu } from "../../menu.svelte";
-  import { plano } from "../../plano.svelte";
   import { pos } from "../../pos.svelte";
-  import VisorTicket from "./VisorTicket.svelte";
+  import { revelar } from "../../subir";
   import { tesoreria } from "../../tesoreria.svelte";
   import { mxn, hora } from "../../formato";
   import { sesion } from "../../sesion/sesion.svelte";
@@ -83,7 +86,7 @@
    * es dinero que entró y hay que entregarlo, y esconderlo del corte sería la
    * forma más rápida de que el cajón nunca cuadre. Se dice en su renglón.
    */
-  const reporteHoy = $derived(reporteContable(cerradasHoy, fiscal.registros, [], rango));
+  const reporteHoy = $derived(reporteContable(cerradasHoy, fiscal.registros, [], rango, fiscal.globales));
 
   const formasEfectivo = new Set(FORMAS_PAGO.filter((f) => f.efectivo).map((f) => f.valor));
   const formasTarjeta = new Set<string>(["tarjeta_debito", "tarjeta_credito"]);
@@ -109,26 +112,7 @@
     };
   });
 
-  // --- Las cuentas de hoy, para poder ver su ticket ---------------------------
 
-  let verCuentas = $state(false);
-  let viendoTicket = $state<string | null>(null);
-
-  const cuentasDeHoy = $derived.by(() =>
-    [...cerradasHoy]
-      // De la más reciente hacia atrás: quien reclama algo reclama lo último.
-      .sort((a, b) => (b.cerrada_ts ?? b.abierta_ts) - (a.cerrada_ts ?? a.abierta_ts))
-      .map((c) => ({
-        orden_id: c.orden_id,
-        folio: c.orden_id.slice(-8).toUpperCase(),
-        mesa: plano.etiquetaMesas(mesasDeComanda(c)),
-        cuando: c.cerrada_ts ?? c.abierta_ts,
-        total: totalesComanda(c).total,
-        formas:
-          [...new Set(c.pagos.map((p) => etiquetaFormaPago(p.forma)))].join(" + ") || "—",
-        corregido: c.pagos.some((p) => p.forma_original),
-      })),
-  );
 
   // --- Captura ---
   let abierto = $state(false);
@@ -292,11 +276,16 @@
 -->
 <section class="tarjeta">
   <div class="cabecera-tarjeta">
-    <h2>Venta de hoy</h2>
+    <h2>Venta y resultado de hoy</h2>
     <span class="cuentas">
       {reporteHoy.cuentas}
       {reporteHoy.cuentas === 1 ? "cuenta cobrada" : "cuentas cobradas"}
     </span>
+    {#if puedeRegistrar}
+      <button class="mini" onclick={() => (abierto = !abierto)}>
+        {abierto ? "Cerrar" : "Registrar gasto"}
+      </button>
+    {/if}
   </div>
 
   <div class="venta-total">
@@ -347,72 +336,23 @@
   </p>
 
   <!--
-    LAS CUENTAS DE HOY, UNA POR UNA.
-
-    La tarjeta daba el total del día y nada más. «Vendimos 38 400» no sirve
-    cuando alguien reclama un cobro: hay que poder bajar hasta la cuenta y ver
-    su ticket. Va plegada porque el total es lo que se consulta a cada rato y el
-    detalle solo cuando hay una pregunta concreta.
+    Y DEBAJO, EL RESULTADO. Antes eran dos tarjetas separadas —«Venta de hoy» y
+    «Resultado de hoy»— que contestaban la misma pregunta con las mismas cifras
+    repetidas: la venta salía dos veces, una con IVA y otra sin él, sin que nada
+    dijera que eran la misma. Se fundieron (pedido de Gonzalo, sep-2026) en un
+    solo recorrido: cuánto entró y cómo se cobró, y a partir de ahí qué quedó.
   -->
-  {#if cerradasHoy.length > 0}
-    <button class="desplegar" onclick={() => (verCuentas = !verCuentas)}>
-      <span class="flecha">{verCuentas ? "▾" : "▸"}</span>
-      {verCuentas ? "Ocultar" : "Ver"} las {cerradasHoy.length} cuentas de hoy
-    </button>
-
-    {#if verCuentas}
-      <div class="marco-cuentas">
-        <table class="cuentas-hoy">
-          <thead>
-            <tr>
-              <th>Hora</th>
-              <th>Mesa</th>
-              <th>Folio</th>
-              <th class="num">Total</th>
-              <th>Cobro</th>
-              <th></th>
-            </tr>
-          </thead>
-          <tbody>
-            {#each cuentasDeHoy as c (c.orden_id)}
-              <tr>
-                <td class="tenue">{hora(c.cuando)}</td>
-                <td><b>{c.mesa}</b></td>
-                <td class="folio">{c.folio}</td>
-                <td class="num">{mxn(c.total)}</td>
-                <td class="tenue">
-                  {c.formas}
-                  {#if c.corregido}<small class="corregido">corregido</small>{/if}
-                </td>
-                <td>
-                  <button class="mini" onclick={() => (viendoTicket = c.orden_id)}>
-                    Ver ticket
-                  </button>
-                </td>
-              </tr>
-            {/each}
-          </tbody>
-        </table>
-      </div>
-    {/if}
-  {/if}
-
-</section>
-
-<section class="tarjeta">
-  <div class="cabecera-tarjeta">
-    <h2>Resultado de hoy</h2>
-    {#if puedeRegistrar}
-      <button class="mini" onclick={() => (abierto = !abierto)}>
-        {abierto ? "Cerrar" : "Registrar gasto"}
-      </button>
-    {/if}
+  <div class="corte">
+    <h3>Resultado del día</h3>
   </div>
 
   {#if puedeVerCostos}
     <div class="cifras">
       <div>
-        <span>Venta (sin IVA)</span>
+        <span>
+          Venta (sin IVA)
+          <small>la de arriba, menos {mxn(reporteHoy.iva)} de IVA</small>
+        </span>
         <b>{mxn(resultado.ingreso)}</b>
       </div>
       <div>
@@ -440,46 +380,47 @@
         </div>
       {/each}
       <div class="destacado" class:perdida={resultado.resultado < 0}>
-        <span>{resultado.resultado < 0 ? "Pérdida" : "Resultado"}</span>
+        <span>{UTILIDAD_CONTABLE}</span>
         <b>{mxn(resultado.resultado)}</b>
       </div>
     </div>
 
     <!--
-      LO QUE SALIÓ DEL CAJÓN, aparte y debajo. Pedido de Gonzalo, sep-2026.
+      LA UTILIDAD EN EFECTIVO, aparte y debajo. Pedido de Gonzalo, sep-2026:
+      que la compra de insumos reste. Aquí resta, el día que se compra, junto
+      con todo lo demás que salió; por eso este bloque NO resta el costo de lo
+      vendido. Si restara las dos cosas contaría el mismo queso dos veces y
+      pondría en pérdida cualquier día de surtido.
 
-      Antes esto era una frase al pie que casi nadie leía, y la pregunta que
-      dejaba sin contestar —«¿cuánto dinero salió hoy?»— es la que un
-      restaurantero hace al cerrar. Va como bloque propio y con su suma.
-
-      NO se mezcla con el resultado, y ésta es la razón de todo el diseño:
-      comprar insumos no es un gasto del día, es inventario. Su costo entra
-      arriba, en «Costo de lo vendido», cuando esos insumos se venden. Restarlo
-      también aquí contaría el mismo queso dos veces y pondría en pérdida
-      cualquier día de surtido.
+      Parte de la misma venta sin IVA que la contable: así lo ÚNICO que separa
+      las dos cifras es cuándo pesan los insumos, y la nota de abajo lo explica
+      en una línea. Se enseña aunque hoy no haya salido nada, para que la
+      pantalla tenga siempre la misma forma y nadie busque la cifra que falta.
     -->
-    {#if resultado.salida_total > 0}
-      <div class="cifras caja-salida">
-        <div class="destacado">
-          <span>Salió de la caja hoy</span>
-          <b class="resta">−{mxn(resultado.salida_total)}</b>
-        </div>
-        {#each resultado.por_categoria as linea (linea.categoria)}
-          <div class="detalle">
-            <span>{linea.nombre}</span>
-            <b class="resta">−{mxn(linea.monto)}</b>
-          </div>
-        {/each}
+    <div class="cifras caja-salida">
+      <div>
+        <span>Venta (sin IVA)</span>
+        <b>{mxn(resultado.ingreso)}</b>
       </div>
-    {/if}
+      <div>
+        <span>Todo lo que salió hoy</span>
+        <b class="resta">−{mxn(resultado.salida_total)}</b>
+      </div>
+      {#each resultado.por_categoria as linea (linea.categoria)}
+        <div class="detalle">
+          <span>{linea.nombre}</span>
+          <b class="resta">−{mxn(linea.monto)}</b>
+        </div>
+      {/each}
+      <div class="destacado" class:perdida={resultado.utilidad_efectivo < 0}>
+        <span>{UTILIDAD_EN_EFECTIVO}</span>
+        <b>{mxn(resultado.utilidad_efectivo)}</b>
+      </div>
+    </div>
 
     <p class="nota">
+      {DIFERENCIA_ENTRE_UTILIDADES}
       Food cost {(resultado.food_cost * 100).toFixed(1)} %.
-      {#if resultado.compras > 0}
-        La <b>compra de insumos</b> sale del cajón pero no resta al resultado: su
-        costo llega arriba, en «costo de lo vendido», cuando esos insumos se
-        venden. Restarla aquí la contaría dos veces.
-      {/if}
     </p>
   {:else}
     <p class="nota">
@@ -490,7 +431,9 @@
 </section>
 
 {#if abierto && puedeRegistrar}
-  <section class="tarjeta">
+  <!-- «Registrar gasto» se pulsa arriba y el formulario nace bajo el resultado,
+       fuera de cuadro en una tableta: se baja hasta él. -->
+  <section class="tarjeta" use:revelar>
     <h2>Registrar un gasto</h2>
     <div class="campos">
       <label>
@@ -778,73 +721,7 @@
 
 
 <!-- El mismo visor que usa la lista de tickets cobrados. -->
-{#if viendoTicket}
-  <VisorTicket ordenId={viendoTicket} onCerrar={() => (viendoTicket = null)} />
-{/if}
-
 <style>
-  /* --- Las cuentas de hoy, plegadas --- */
-  .desplegar {
-    display: flex;
-    align-items: center;
-    gap: 0.45rem;
-    margin-top: 0.9rem;
-    padding: 0.45rem 0;
-    background: none;
-    border: none;
-    font: inherit;
-    font-size: 0.84rem;
-    font-weight: 600;
-    color: var(--acento-texto);
-  }
-  .desplegar .flecha {
-    color: var(--gris);
-    font-size: 0.75rem;
-  }
-  .marco-cuentas {
-    overflow-x: auto;
-    margin-top: 0.2rem;
-  }
-  .cuentas-hoy {
-    width: 100%;
-    border-collapse: collapse;
-    font-size: 0.84rem;
-  }
-  .cuentas-hoy th {
-    text-align: left;
-    font-size: 0.68rem;
-    font-weight: 700;
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
-    color: var(--gris);
-    padding: 0.35rem 0.45rem;
-    border-bottom: 1px solid var(--borde);
-    white-space: nowrap;
-  }
-  .cuentas-hoy td {
-    padding: 0.4rem 0.45rem;
-    border-bottom: 1px solid #f2f0ee;
-    vertical-align: top;
-  }
-  .cuentas-hoy .num {
-    text-align: right;
-    font-variant-numeric: tabular-nums;
-    white-space: nowrap;
-  }
-  .cuentas-hoy .tenue {
-    color: var(--gris);
-  }
-  .cuentas-hoy .folio {
-    font-family: ui-monospace, Consolas, monospace;
-    font-size: 0.76rem;
-    color: var(--gris);
-  }
-  .cuentas-hoy .corregido {
-    display: block;
-    font-size: 0.68rem;
-    font-style: italic;
-    color: var(--acento-texto);
-  }
   /* Fondo, borde, radio y sombra los pone `.tarjeta` en base.css: aquí solo
      queda lo que es propio de esta pantalla. */
   .tarjeta {
@@ -939,6 +816,19 @@
     line-height: 1.35;
   }
 
+  /* El corte entre lo que entró y lo que quedó, dentro de la misma tarjeta. */
+  .corte {
+    margin: 1.1rem 0 0.8rem;
+    padding-top: 0.9rem;
+    border-top: 1px solid var(--borde);
+  }
+  .corte h3 {
+    font-size: 0.78rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--gris);
+  }
   .cifras {
     display: flex;
     flex-direction: column;
@@ -953,6 +843,13 @@
   .cifras span {
     font-size: 0.88rem;
     color: var(--gris);
+  }
+  /* La aclaración de que es la MISMA venta de arriba, sin competir con ella. */
+  .cifras span small {
+    display: block;
+    font-size: 0.72rem;
+    color: var(--gris);
+    opacity: 0.85;
   }
   .cifras b {
     font-variant-numeric: tabular-nums;

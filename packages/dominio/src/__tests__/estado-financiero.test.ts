@@ -8,8 +8,8 @@
  * llevaría a cerrar un mes bueno creyendo que fue malo.
  */
 import { describe, expect, it } from "vitest";
-import { CERO, pesos } from "../comun/dinero.js";
-import { FabricaEventos } from "../evento.js";
+import { CERO, pesos, restar } from "../comun/dinero.js";
+import { FabricaEventos, type EventoBase } from "../evento.js";
 import type { EventoComanda } from "../comanda/eventos.js";
 import type { EventoCaja } from "../caja/eventos.js";
 import { proyectarComanda } from "../comanda/reducers.js";
@@ -17,20 +17,49 @@ import { totalesComanda } from "../comanda/totales.js";
 import { IVA_16, snapshotTasas } from "../comun/impuestos.js";
 import { uuidv7 } from "../comun/ids.js";
 import { proyectarSesiones as sesionesDe } from "../caja/reducers.js";
-import { proyectarEgresos, type EventoEgreso } from "../finanzas/egresos.js";
-import { armarEstadoFinanciero } from "../finanzas/estado-financiero.js";
+import {
+  calcularResultado,
+  egresosEn,
+  proyectarEgresos,
+  type EventoEgreso,
+} from "../finanzas/egresos.js";
+import { armarEstadoFinanciero, resultadoDelPeriodo } from "../finanzas/estado-financiero.js";
+import { cuentasCerradasEn, resumenVentas } from "../inteligencia/reportes.js";
 import type { EventoTesoreria } from "../finanzas/tesoreria.js";
 
 const CTX = { device_id: "dev-1", empleado_id: "usr-gerente", sucursal_id: "suc-1" };
-const fComanda = () => new FabricaEventos<EventoComanda>(CTX);
-const fCaja = () => new FabricaEventos<EventoCaja>(CTX);
-const fEgreso = () => new FabricaEventos<EventoEgreso>(CTX);
-const fTesoreria = () => new FabricaEventos<EventoTesoreria>(CTX);
 
 const SEPTIEMBRE = {
   desde: new Date("2026-09-01T06:00:00Z").getTime(),
   hasta: new Date("2026-10-01T06:00:00Z").getTime(),
 };
+
+/*
+ * EL RELOJ DE LAS PRUEBAS VIVE DENTRO DE SEPTIEMBRE.
+ *
+ * `FabricaEventos` sella cada evento con `Date.now()`, y todo este archivo
+ * mide contra un SEPTIEMBRE fijo. Escritas en septiembre de 2026, las pruebas
+ * pasaban solo porque el reloj de la máquina caía dentro del mes: el 1 de
+ * octubre habrían empezado a fallar todas a la vez, sin que nada del código
+ * hubiera cambiado. Cada evento avanza un minuto desde el día 2, así que el
+ * orden en que se crean sigue siendo el orden en que ocurren.
+ */
+let reloj = SEPTIEMBRE.desde + 2 * 86_400_000;
+
+function fabricaEnSeptiembre<E extends EventoBase>(): FabricaEventos<E> {
+  const f = new FabricaEventos<E>(CTX);
+  const crear = f.crear.bind(f);
+  f.crear = ((tipo, stream_id, datos) => {
+    reloj += 60_000;
+    return { ...crear(tipo, stream_id, datos), ts: reloj };
+  }) as typeof f.crear;
+  return f;
+}
+
+const fComanda = () => fabricaEnSeptiembre<EventoComanda>();
+const fCaja = () => fabricaEnSeptiembre<EventoCaja>();
+const fEgreso = () => fabricaEnSeptiembre<EventoEgreso>();
+const fTesoreria = () => fabricaEnSeptiembre<EventoTesoreria>();
 
 /**
  * Una cuenta cobrada, con su platillo y su forma de pago.
@@ -128,6 +157,46 @@ describe("estado financiero del mes", () => {
     expect(estado.resultado.compras).toBe(pesos(800));
   });
 
+  /*
+   * LAS DOS UTILIDADES DEL MES. Venta sin IVA 1 600, costo de lo vendido el
+   * 30 % (480), queso 800 y luz 300.
+   */
+  it("trae las dos utilidades, y difieren exactamente en compras − costo", () => {
+    const r = estado.resultado;
+    expect(r.costo).toBe(pesos(480));
+
+    // Contable: 1 600 − 480 de costo − 300 de luz. El queso es inventario.
+    expect(r.resultado).toBe(pesos(820));
+    // En efectivo: 1 600 − 300 de luz − 800 de queso. El costo NO se resta.
+    expect(r.utilidad_efectivo).toBe(pesos(500));
+
+    expect(restar(r.resultado, r.utilidad_efectivo)).toBe(restar(r.compras, r.costo));
+    // Y en efectivo se resta exactamente lo que dice «Gastos del mes».
+    expect(r.utilidad_efectivo).toBe(restar(r.ingreso, estado.total_gastos));
+  });
+
+  it("la utilidad en efectivo parte de la venta SIN IVA, no de lo cobrado", () => {
+    // Lo cobrado con IVA (1 856) es lo que suma el movimiento del dinero. El
+    // 16 % es del SAT: la utilidad no se lo queda.
+    expect(estado.resultado.ingreso).toBe(estado.ventas.subtotal);
+    expect(estado.resultado.ingreso).not.toBe(estado.flujo.entradas);
+  });
+
+  it("el día, el mes y el papel dan la misma cifra con los mismos hechos", () => {
+    // Así arma la pantalla del día su resultado: cuentas cerradas del rango,
+    // resumidas, contra los gastos incurridos en el rango.
+    const comoElDia = calcularResultado(
+      resumenVentas(cuentasCerradasEn(comandas, SEPTIEMBRE)),
+      egresosEn(egresos, SEPTIEMBRE),
+    );
+    // Así la pantalla del mes.
+    const comoElMes = resultadoDelPeriodo(comandas, egresos, SEPTIEMBRE);
+
+    expect(comoElMes).toEqual(comoElDia);
+    // Y el PDF dibuja `estado.resultado`, que es el mismo objeto.
+    expect(estado.resultado).toEqual(comoElMes);
+  });
+
   it("pero SÍ baja el dinero: los mil cien salieron de la caja", () => {
     expect(estado.flujo.salidas).toBe(pesos(1_100));
     // Entra lo COBRADO, con IVA: es lo que de verdad llega al cajón y al banco.
@@ -188,6 +257,15 @@ describe("el gasto a crédito en el informe", () => {
     expect(estado.flujo.salidas).toBe(CERO);
     expect(estado.por_pagar).toBe(pesos(2_000));
     expect(estado.documentos_por_pagar).toBe(1);
+
+    /*
+     * Decisión deliberada: la utilidad en efectivo usa los MISMOS gastos que la
+     * contable —por la fecha en que se incurrieron—, así que la compra a
+     * crédito pesa el mes en que llega la mercancía, igual que en «Gastos del
+     * mes». El día exacto en que sale el dinero lo cuenta el flujo (arriba).
+     */
+    expect(estado.resultado.utilidad_efectivo).toBe(pesos(-2_000));
+    expect(estado.resultado.resultado).toBe(CERO);
   });
 });
 

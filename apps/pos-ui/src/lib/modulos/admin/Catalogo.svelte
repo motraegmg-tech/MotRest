@@ -186,7 +186,8 @@
     if (r.nombre.trim().length < 2) return "El nombre necesita al menos dos letras";
 
     const precio = Number(r.precio);
-    if (r.precio.trim() === "" || !Number.isFinite(precio) || precio <= 0) {
+    // Vacío sí es un olvido; «0» es una decisión (se permite desde sep-2026).
+    if (r.precio.trim() === "" || !Number.isFinite(precio) || precio < 0) {
       return "Falta a cómo se vende";
     }
     if (r.costo.trim() !== "" && (!Number.isFinite(Number(r.costo)) || Number(r.costo) < 0)) {
@@ -282,6 +283,7 @@
 </script>
 
 <script lang="ts">
+  import { subirAlPrincipio } from "../../subir";
 
   /*
    * La pestaña se puede pedir desde la URL (`…/catalogo?ver=estaciones`).
@@ -295,6 +297,24 @@
     VISTAS.includes(pedida as Vista) ? (pedida as Vista) : "insumos",
   );
   let problemas = $state<ProblemaMenu[]>([]);
+
+  /*
+   * EL FORMULARIO Y LOS AVISOS ESTÁN ARRIBA; LOS BOTONES QUE LOS LLENAN, ABAJO.
+   *
+   * Pedido de Gonzalo, con este mismo ejemplo: en Insumos y estaciones se
+   * pulsaba «Editar» en un insumo de la mitad de la despensa y el formulario se
+   * llenaba arriba, fuera de cuadro, así que parecía que el botón no hacía nada.
+   * Lo mismo con lo que sale mal en un renglón —renombrar, mover, dar de baja,
+   * ponerlo en la carta—: el motivo se escribe encima de todo, donde nadie
+   * estaba mirando. Ver `subir.ts`.
+   */
+  let raiz = $state<HTMLDivElement | null>(null);
+
+  /** Publica lo que dijo el catálogo y, si dijo algo, sube a enseñarlo. */
+  function publicar(lista: ProblemaMenu[]) {
+    problemas = lista;
+    if (lista.length > 0) subirAlPrincipio(raiz);
+  }
 
   /**
    * Cambiar de pestaña a mano cancela la vuelta automática a Insumos.
@@ -355,6 +375,9 @@
     iMinimo = String(i.stock_minimo);
     iCategoria = i.categoria ?? "";
     problemas = [];
+    // Vale igual para el «Editar» de la tabla que para el de una categoría
+    // desplegada: los dos llenan el formulario de arriba de Insumos.
+    subirAlPrincipio(raiz);
   }
 
   function guardarInsumo() {
@@ -373,7 +396,7 @@
   }
 
   function borrarInsumo(id: string) {
-    problemas = menu.borrarInsumo(id).problemas;
+    publicar(menu.borrarInsumo(id).problemas);
   }
 
   // --- Categorías de insumo -----------------------------------------------------------
@@ -548,7 +571,7 @@
   function guardarCategoria() {
     if (!catEditando) return;
     const r = menu.renombrarCategoriaInsumo(catEditando, catNombre);
-    problemas = r.problemas;
+    publicar(r.problemas);
     if (r.ok) {
       // La desplegada sigue el nuevo nombre: si no, el panel abierto se
       // quedaría apuntando a una categoría que ya no existe y se vería vacío.
@@ -559,7 +582,7 @@
 
   function borrarCategoria(nombre: string) {
     const r = menu.borrarCategoriaInsumo(nombre);
-    problemas = r.problemas;
+    publicar(r.problemas);
     if (r.ok && catAbierta === nombre) catAbierta = null;
   }
 
@@ -567,7 +590,7 @@
   function moverInsumos(desde: string) {
     if (!catDestino.trim()) return;
     const r = menu.moverInsumosDeCategoria(desde, catDestino);
-    problemas = r.problemas;
+    publicar(r.problemas);
     if (r.ok) catDestino = "";
   }
 
@@ -587,6 +610,7 @@
     eObjetivo = String(e.minutos_objetivo);
     eLimite = String(e.minutos_limite);
     problemas = [];
+    subirAlPrincipio(raiz);
   }
 
   function guardarEstacion() {
@@ -739,7 +763,7 @@
       precio: pesos(Number(cPrecio) || 0),
       impuesto_id: menu.impuestos[0]?.id ?? "",
     });
-    problemas = r.problemas;
+    publicar(r.problemas);
     // Se cierra por `creado` y no por `ok`, por lo mismo que en el alta
     // rápida: el producto puede haber quedado creado con un aviso colgando.
     if (r.creado) {
@@ -749,7 +773,7 @@
   }
 </script>
 
-<div class="seccion">
+<div class="seccion" bind:this={raiz}>
   <div class="encabezado">
     <div>
       <h1>Catálogo del local</h1>
@@ -1214,7 +1238,7 @@
                   <button onclick={() => editarEstacion(estacion.id)}>Editar</button>
                   <button
                     class="peligro"
-                    onclick={() => (problemas = menu.borrarEstacion(estacion.id).problemas)}
+                    onclick={() => publicar(menu.borrarEstacion(estacion.id).problemas)}
                     title={cuantos > 0 ? `${cuantos} producto(s) quedarán sin ruteo` : "Eliminar"}
                   >
                     Eliminar

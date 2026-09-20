@@ -30,11 +30,15 @@
    */
   import {
     CATEGORIAS_EGRESO,
+    DIFERENCIA_ENTRE_UTILIDADES,
+    UTILIDAD_CONTABLE,
+    UTILIDAD_EN_EFECTIVO,
     armarEstadoFinanciero,
     cuentasCerradasEn,
     detalleCsv,
     egresosEn,
     reporteContable,
+    resultadoDelPeriodo,
     resumenCsv,
     CLASES_AJUSTE,
     CUENTAS_TESORERIA,
@@ -227,6 +231,19 @@
     };
   });
 
+  /*
+   * LAS DOS UTILIDADES DEL MES, en pantalla y no solo en el PDF.
+   *
+   * Sale de `resultadoDelPeriodo`, la MISMA función que usa el estado
+   * financiero: si la pantalla armara su propia cuenta, el día que discreparan
+   * del papel no habría forma de saber cuál miente. Se recalcula sola al cambiar
+   * de mes, y alcanza también a los gastos que se capturaron antes de que
+   * existiera la utilidad en efectivo, porque se deriva al leer.
+   */
+  const resultadoMes = $derived(
+    resultadoDelPeriodo(pos.todasLasComandas, egresos.registros, rangoMes),
+  );
+
   /**
    * EL AVISO DE QUE SÍ SE DESCARGÓ.
    *
@@ -279,6 +296,7 @@
         fiscal.registros,
         egresosEn(egresos.registros, rangoMes),
         rangoMes,
+        fiscal.globales,
       ),
     };
   }
@@ -290,6 +308,7 @@
         comandas: pos.todasLasComandas,
         egresos: egresos.registros,
         cfdis: fiscal.registros,
+        globales: fiscal.globales,
         sesiones: caja.sesiones,
         tesoreria: tesoreria.todosLosEventos,
         // Sin esto el informe de un mes viejo saldría en ceros y con el dinero
@@ -537,6 +556,20 @@
             Detalle (CSV)
           </button>
         </div>
+
+        <div class="utilidades-mes">
+          <div class="utilidad" class:perdida={resultadoMes.resultado < 0}>
+            <span>{UTILIDAD_CONTABLE}</span>
+            <b>{mxn(resultadoMes.resultado)}</b>
+            <small>Insumos al venderse</small>
+          </div>
+          <div class="utilidad" class:perdida={resultadoMes.utilidad_efectivo < 0}>
+            <span>{UTILIDAD_EN_EFECTIVO}</span>
+            <b>{mxn(resultadoMes.utilidad_efectivo)}</b>
+            <small>Insumos al comprarse · salió {mxn(resultadoMes.salida_total)}</small>
+          </div>
+        </div>
+        <p class="explica-tarjeta">{DIFERENCIA_ENTRE_UTILIDADES}</p>
 
         <!--
           EL ACUSE. El navegador guarda el archivo sin abrir nada, así que pulsar
@@ -933,6 +966,44 @@
   }
   .fila-cierre button:disabled {
     opacity: 0.55;
+  }
+  /* Las dos utilidades del mes elegido, lado a lado y con el mismo peso: ninguna
+     es «la buena», contestan dos preguntas distintas. */
+  .utilidades-mes {
+    margin-top: 1rem;
+    margin-bottom: 0.5rem;
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr));
+    gap: 0.6rem;
+  }
+  .utilidad {
+    border: 1px solid var(--borde);
+    border-radius: var(--r-md, 10px);
+    padding: 0.7rem 0.85rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.15rem;
+  }
+  .utilidad span {
+    font-size: 0.74rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--gris);
+  }
+  .utilidad b {
+    font-family: var(--font-titulo);
+    font-size: 1.3rem;
+    font-weight: 700;
+    color: #57ad30;
+    font-variant-numeric: tabular-nums;
+  }
+  .utilidad.perdida b {
+    color: #e0392b;
+  }
+  .utilidad small {
+    font-size: 0.72rem;
+    color: var(--gris);
   }
   .acuse {
     margin-top: 0.8rem;

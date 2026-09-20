@@ -5,7 +5,7 @@
  *
  * A tres personas, y por eso el orden de las secciones es el que es:
  *
- * - **A sí mismo**, para saber cómo fue el mes: por eso lo primero son cuatro
+ * - **A sí mismo**, para saber cómo fue el mes: por eso lo primero son cinco
  *   cifras grandes que se leen de pie y sin lentes.
  * - **A su contador**, que busca la venta, el IVA y los gastos con comprobante.
  * - **Al banco o a un socio**, que quiere ver que el negocio gana y que el
@@ -18,14 +18,23 @@
  * la caja —se surtió la despensa— y quien vea las dos cifras juntas sin
  * explicación pensará que el sistema se equivocó. La explicación va impresa,
  * no en la cabeza de quien lo entrega.
+ *
+ * Y el resultado trae DOS utilidades (sep-2026): la contable, donde los
+ * insumos pesan al venderse, y la de efectivo, donde pesan al comprarse. Van
+ * con el mismo nombre que en la pantalla del día y la del mes —los nombres
+ * vienen del dominio, no se teclean aquí— y con la línea que dice en qué se
+ * diferencian.
  */
-import type {
-  BloqueGastos,
-  Centavos,
-  EstadoFinanciero,
-  RenglonConSaldo,
+import {
+  DIFERENCIA_ENTRE_UTILIDADES,
+  UTILIDAD_CONTABLE,
+  UTILIDAD_EN_EFECTIVO,
+  type BloqueGastos,
+  type Centavos,
+  type EstadoFinanciero,
+  type RenglonConSaldo,
 } from "@motrest/dominio";
-import { CARTA, DocumentoPdf, Pagina, recortar } from "./pdf.js";
+import { CARTA, DocumentoPdf, Pagina, anchoDeTexto, recortar, type Fuente } from "./pdf.js";
 
 const MARGEN = 54;
 const ANCHO_UTIL = CARTA.ancho - MARGEN * 2;
@@ -71,6 +80,53 @@ export function nombreDelPeriodo(desde: number): string {
 
 function porcentaje(fraccion: number): string {
   return `${(fraccion * 100).toFixed(1)} %`;
+}
+
+/**
+ * Parte un texto en renglones que quepan en un ancho, sin cortar palabras.
+ *
+ * La maqueta escribe donde se le dice y no reparte texto: las notas largas se
+ * partían a mano, y un párrafo que se alarga —con un importe de siete cifras,
+ * por ejemplo— se salía del papel sin que nada fallara. Se mide con la misma
+ * tabla de anchos que usa `recortar`.
+ */
+export function partirEnRenglones(
+  texto: string,
+  fuente: Fuente,
+  tamano: number,
+  ancho: number,
+): string[] {
+  const renglones: string[] = [];
+  let actual = "";
+
+  for (const palabra of texto.split(/\s+/).filter(Boolean)) {
+    const propuesta = actual ? `${actual} ${palabra}` : palabra;
+    if (actual && anchoDeTexto(propuesta, fuente, tamano) > ancho) {
+      renglones.push(actual);
+      actual = palabra;
+    } else {
+      actual = propuesta;
+    }
+  }
+  if (actual) renglones.push(actual);
+
+  // Una sola palabra más ancha que la hoja no tiene dónde partirse: se recorta.
+  return renglones.map((r) => recortar(r, fuente, tamano, ancho));
+}
+
+/**
+ * El tamaño mayor —hasta 12 pt— con el que una cifra cabe en su tarjeta.
+ *
+ * Con cinco tarjetas en el ancho de la hoja, «-$1,234,567.89» a 12 pt se
+ * saldría de la suya y se montaría sobre la de al lado. Un restaurante que
+ * vende siete cifras al mes existe; bajar el tamaño solo cuando hace falta
+ * deja las cifras normales tan grandes como antes.
+ */
+function tamanoQueCabe(texto: string, ancho: number): number {
+  for (let tamano = 12; tamano > 7; tamano -= 0.5) {
+    if (anchoDeTexto(texto, "cifra-negrita", tamano) <= ancho) return tamano;
+  }
+  return 7;
 }
 
 // --- La maqueta ----------------------------------------------------------------------------
@@ -247,6 +303,13 @@ class Maqueta {
     this.pagina.texto(MARGEN, this.y + 8, texto, { tamano: 7.5, gris: 0.5 });
     this.y += 14;
   }
+
+  /** Una nota larga, partida en renglones que caben en la hoja. */
+  parrafo(texto: string): void {
+    for (const renglon of partirEnRenglones(texto, "normal", 7.5, ANCHO_UTIL)) {
+      this.nota(renglon);
+    }
+  }
 }
 
 // --- Las secciones ---------------------------------------------------------------------------
@@ -298,17 +361,20 @@ function avisoDeHistorialRetirado(m: Maqueta, estado: EstadoFinanciero): void {
 }
 
 /**
- * Las cuatro cifras de arriba.
+ * Las cinco cifras de arriba.
  *
- * Es lo único que mucha gente va a mirar, así que son las cuatro que de verdad
- * resumen un mes: lo que se vendió, lo que se gastó, si se ganó y con cuánto
- * dinero se cerró.
+ * Es lo único que mucha gente va a mirar, así que son las que de verdad
+ * resumen un mes: lo que se vendió, lo que se gastó, si se ganó —contado de
+ * las dos formas— y con cuánto dinero se cerró.
+ *
+ * Las dos utilidades van juntas y con el pie que dice cuándo pesan los
+ * insumos: es la diferencia entera entre ellas, y en el papel no hay nadie al
+ * lado para explicarla.
  */
 function tarjetasResumen(m: Maqueta, estado: EstadoFinanciero): void {
   m.asegurar(74);
   const hoja = m.hoja;
   const y = m.cursor;
-  const ancho = (ANCHO_UTIL - 3 * 10) / 4;
 
   const tarjetas: { rotulo: string; valor: Centavos; pie: string }[] = [
     {
@@ -322,9 +388,14 @@ function tarjetasResumen(m: Maqueta, estado: EstadoFinanciero): void {
       pie: `${estado.gastos.length} categorías`,
     },
     {
-      rotulo: "Resultado",
+      rotulo: UTILIDAD_CONTABLE,
       valor: estado.resultado.resultado,
-      pie: `Food cost ${porcentaje(estado.resultado.food_cost)}`,
+      pie: "Insumos al venderse",
+    },
+    {
+      rotulo: UTILIDAD_EN_EFECTIVO,
+      valor: estado.resultado.utilidad_efectivo,
+      pie: "Insumos al comprarse",
     },
     {
       rotulo: "Dinero al cierre",
@@ -333,16 +404,24 @@ function tarjetasResumen(m: Maqueta, estado: EstadoFinanciero): void {
     },
   ];
 
+  const separacion = 8;
+  const ancho = (ANCHO_UTIL - (tarjetas.length - 1) * separacion) / tarjetas.length;
+  const util = ancho - 18;
+
   tarjetas.forEach((t, i) => {
-    const x = MARGEN + i * (ancho + 10);
+    const x = MARGEN + i * (ancho + separacion);
     hoja.rectangulo(x, y, ancho, 60, 0.96);
-    // El filo de color solo en la primera y en la del resultado: si todas lo
-    // llevaran dejaría de señalar nada.
+    // El filo de color solo en la utilidad contable, que es la que decide
+    // precios: si todas lo llevaran dejaría de señalar nada.
     hoja.rectangulo(x, y, 2.5, 60, i === 2 ? VERDE : 0.8);
 
-    hoja.texto(x + 9, y + 16, t.rotulo, { tamano: 7.5, gris: 0.45 });
-    hoja.texto(x + 9, y + 36, importe(t.valor), { fuente: "cifra-negrita", tamano: 12 });
-    hoja.texto(x + 9, y + 51, recortar(t.pie, "normal", 7, ancho - 18), {
+    const cifra = importe(t.valor);
+    hoja.texto(x + 9, y + 16, recortar(t.rotulo, "normal", 7.5, util), { tamano: 7.5, gris: 0.45 });
+    hoja.texto(x + 9, y + 36, cifra, {
+      fuente: "cifra-negrita",
+      tamano: tamanoQueCabe(cifra, util),
+    });
+    hoja.texto(x + 9, y + 51, recortar(t.pie, "normal", 7, util), {
       tamano: 7,
       gris: 0.5,
     });
@@ -377,13 +456,22 @@ function seccionIngresos(m: Maqueta, estado: EstadoFinanciero): void {
     });
   }
 
-  if (v.cfdi_timbrados > 0 || v.sin_facturar > 0) {
+  const enGlobal = v.global_facturado ?? (0 as Centavos);
+  if (v.cfdi_timbrados > 0 || v.sin_facturar > 0 || enGlobal > 0) {
     m.espacio(8);
     m.renglon("Comprobantes fiscales", "", { fuerte: true });
     m.renglon("Facturado y timbrado", v.cfdi_total, {
       sangria: 12,
       nota: `${v.cfdi_timbrados} CFDI`,
     });
+    // Desde la 1.5.5 el Hub emite sola la global del mes con FacturAPI: lo que
+    // entró ahí ya está facturado y no puede seguir leyéndose como pendiente.
+    if (enGlobal > 0) {
+      m.renglon("Incluido en la factura global", enGlobal, {
+        sangria: 12,
+        nota: "público en general",
+      });
+    }
     m.renglon("Venta sin facturar", v.sin_facturar, {
       sangria: 12,
       nota: "base de la factura global",
@@ -427,7 +515,8 @@ function detalleDeCategoria(m: Maqueta, bloque: BloqueGastos): void {
   m.espacio(6);
   m.renglon(bloque.nombre, bloque.total, {
     fuerte: true,
-    nota: bloque.afectaResultado ? undefined : "no resta a la utilidad",
+    // «a la utilidad» a secas ya no es cierto: la de efectivo sí la resta.
+    nota: bloque.afectaResultado ? undefined : "no resta a la utilidad contable",
   });
 
   for (const r of bloque.renglones) {
@@ -440,16 +529,29 @@ function detalleDeCategoria(m: Maqueta, bloque: BloqueGastos): void {
 }
 
 /**
- * El resultado, con la advertencia de las compras impresa.
+ * El resultado: las dos utilidades, cada una con su cuenta a la vista.
  *
- * Sin ese párrafo, un dueño que ve «compras 48 000» arriba y no las encuentra
- * restadas abajo concluye que el informe está mal. Está bien: el queso comprado
- * es inventario hasta que se vende, y su costo ya viene por las recetas.
+ * Primero la contable —la de siempre, la que decide precios— y debajo la de
+ * efectivo, que pidió Gonzalo para ver la compra de insumos restada. Cada una
+ * lleva sus renglones: dos cifras sin la cuenta que las produce solo invitan a
+ * pensar que una está mal.
+ *
+ * La advertencia de las compras sigue impresa. Sin ella, un dueño que ve
+ * «compras 48 000» en los gastos y no las encuentra restadas en la contable
+ * concluye que el informe está mal. Está bien: el queso comprado es inventario
+ * hasta que se vende, y su costo ya viene por las recetas.
+ *
+ * Las cifras vienen hechas del dominio; aquí no se resta nada, ni siquiera la
+ * diferencia entre las dos. Ver `estadoFinancieroPdf`.
  */
 function seccionResultado(m: Maqueta, estado: EstadoFinanciero): void {
   const r = estado.resultado;
-  m.titulo("Resultado del mes", "¿Ganó dinero el negocio? Ingreso menos costo menos gastos.");
+  m.titulo(
+    "Resultado del mes",
+    "¿Ganó dinero el negocio? Se contesta de dos formas, y las dos son correctas.",
+  );
 
+  // --- La contable: los insumos pesan cuando se venden.
   m.renglon("Ingreso (venta sin IVA)", r.ingreso);
   m.renglon("Costo de lo vendido", -r.costo as Centavos, {
     nota: `food cost ${porcentaje(r.food_cost)}`,
@@ -464,17 +566,28 @@ function seccionResultado(m: Maqueta, estado: EstadoFinanciero): void {
   m.separador();
   m.renglon("Gastos operativos", -r.egresos_operativos as Centavos, { fuerte: true });
   m.espacio(6);
-  m.renglon("RESULTADO DEL MES", r.resultado, { fuerte: true });
+  m.renglon(UTILIDAD_CONTABLE, r.resultado, { fuerte: true, nota: "insumos al venderse" });
 
+  // --- La de efectivo: los insumos pesan cuando se compran, y el costo no.
+  m.espacio(12);
+  m.renglon("Ingreso (venta sin IVA)", r.ingreso);
+  m.renglon("Gastos operativos", -r.egresos_operativos as Centavos);
+  m.renglon("Compra de insumos", -r.compras as Centavos);
+  m.separador();
+  m.renglon(UTILIDAD_EN_EFECTIVO, r.utilidad_efectivo, {
+    fuerte: true,
+    nota: "insumos al comprarse",
+  });
+
+  m.espacio(6);
+  m.parrafo(DIFERENCIA_ENTRE_UTILIDADES);
   if (r.compras > 0) {
-    m.espacio(6);
-    m.nota(
-      `Las compras de insumos del mes (${importe(r.compras)}) NO se restan aquí: son ` +
-        "mercancía que se vuelve costo al venderse, y ese costo ya está arriba, en el",
-    );
-    m.nota(
-      "costo de lo vendido. Restarlas otra vez pondría en pérdida cualquier mes de " +
-        "surtido. Sí salieron de la caja, y por eso aparecen en el movimiento del dinero.",
+    m.parrafo(
+      `Las compras de insumos del mes (${importe(r.compras)}) NO se restan a la ` +
+        "utilidad contable: son mercancía que se vuelve costo al venderse, y ese costo " +
+        `ya está arriba, en el costo de lo vendido (${importe(r.costo)}). La utilidad ` +
+        "en efectivo hace lo contrario —resta la compra y no el costo—, así que ninguna " +
+        "de las dos cuenta el mismo insumo dos veces.",
     );
   }
   m.espacio();
@@ -503,9 +616,17 @@ function seccionFlujo(m: Maqueta, estado: EstadoFinanciero): void {
   m.renglon("Banco", f.final.banco, { sangria: 12 });
 
   m.espacio(6);
-  m.nota(
-    "El resultado y el dinero no son el mismo número, y los dos son correctos: se " +
-      "puede ganar dinero y tener menos en la caja si se surtió la despensa.",
+  /*
+   * Con la utilidad en efectivo en el papel, esta es la confusión nueva que hay
+   * que atajar: «si ya dice cuánto quedó en efectivo, ¿por qué esta diferencia
+   * es otra?». Se dice por qué, con las tres razones que la separan.
+   */
+  m.parrafo(
+    "Las utilidades y el dinero no son el mismo número, y todos son correctos: se " +
+      "puede ganar dinero y tener menos en la caja si se surtió la despensa. Aquí " +
+      "entra lo cobrado con IVA y con propinas, y lo comprado a crédito sale el día " +
+      "que se paga; la utilidad en efectivo parte de la venta sin IVA y resta cada " +
+      "gasto en el mes en que se registró.",
   );
   m.espacio();
 }
@@ -651,7 +772,12 @@ export function nombreArchivoEstado(estado: EstadoFinanciero): string {
   const local = estado.local
     .toLowerCase()
     .normalize("NFD")
-    .replace(/[0300-036f]/g, "")
+    /*
+     * Las marcas de acento que deja `normalize("NFD")`. Estaba escrito como
+     * `[0300-036f]`, sin las `\u`: en vez de los acentos quitaba los dígitos 0,
+     * 3 y 6 y la letra f, y «La Fonda 360» salía como «la-onda».
+     */
+    .replace(/[̀-ͯ]/g, "")
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-|-$/g, "");
   return `estado-financiero-${mes}${local ? `-${local}` : ""}.pdf`;

@@ -42,13 +42,29 @@ export interface TotalesComanda {
   cambio: Centavos;
 }
 
-/** Renglones que quedaron cubiertos por una cortesía. */
-function idsEnCortesia(estado: EstadoComanda): Set<ID> {
-  const ids = new Set<ID>();
-  for (const cortesia of estado.cortesias) {
-    if (cortesia.renglon_id) ids.add(cortesia.renglon_id);
-  }
-  return ids;
+/**
+ * Cuánto se regaló de un renglón, con impuestos, en centavos.
+ *
+ * La ÚNICA respuesta a esa pregunta en todo el sistema: la usan los totales de
+ * la cuenta y la factura. Si cada uno hiciera su cuenta, el ticket diría que se
+ * regaló una cerveza y el CFDI repartiría el regalo entre todos los platillos.
+ *
+ * - Cortesía de la cuenta completa → el renglón entero.
+ * - Cortesía del renglón sin `cantidad` → el renglón entero.
+ * - Con `cantidad` → la parte proporcional de esas piezas. Si después bajaron
+ *   las piezas del renglón por debajo de lo regalado, se regala lo que queda y
+ *   nunca más: una cortesía no puede dejar un renglón en negativo.
+ */
+export function cortesiaDeRenglon(estado: EstadoComanda, renglon: RenglonComanda): Centavos {
+  const importe = importeRenglon(renglon);
+  if (estado.cortesias.some((c) => !c.renglon_id)) return importe;
+
+  const cortesia = estado.cortesias.find((c) => c.renglon_id === renglon.id);
+  if (!cortesia) return CERO;
+  if (cortesia.cantidad === undefined || cortesia.cantidad >= renglon.cantidad) return importe;
+  if (cortesia.cantidad <= 0 || renglon.cantidad <= 0) return CERO;
+
+  return Math.round((importe * cortesia.cantidad) / renglon.cantidad) as Centavos;
 }
 
 /** Aplica un descuento a un importe. */
@@ -60,19 +76,6 @@ function rebajaDe(descuento: Descuento, base: Centavos): Centavos {
 
 export function totalesComanda(estado: EstadoComanda): TotalesComanda {
   const activos = renglonesActivos(estado);
-  const enCortesia = idsEnCortesia(estado);
-  const cortesiaTotal = estado.cortesias.some((c) => !c.renglon_id);
-
-  // Descuentos por renglón, para restarlos antes del impuesto.
-  const rebajaPorRenglon = new Map<ID, Centavos>();
-  for (const descuento of estado.descuentos) {
-    if (descuento.alcance !== "renglon" || !descuento.renglon_id) continue;
-    const renglon = activos.find((r) => r.id === descuento.renglon_id);
-    if (!renglon) continue;
-    const previa = rebajaPorRenglon.get(renglon.id) ?? CERO;
-    const base = restar(importeRenglon(renglon), previa);
-    rebajaPorRenglon.set(renglon.id, sumar(previa, rebajaDe(descuento, base)));
-  }
 
   let bruto = CERO;
   let cortesias = CERO;
@@ -85,17 +88,30 @@ export function totalesComanda(estado: EstadoComanda): TotalesComanda {
   for (const renglon of activos) {
     const importe = importeRenglon(renglon);
     bruto = sumar(bruto, importe);
+    // Las piezas regaladas también se sirvieron: su costo cuenta completo.
     costo = sumar(costo, costoRenglon(renglon));
 
-    if (cortesiaTotal || enCortesia.has(renglon.id)) {
-      cortesias = sumar(cortesias, importe);
+    const regalado = cortesiaDeRenglon(estado, renglon);
+    cortesias = sumar(cortesias, regalado);
+    if (regalado >= importe) {
       bases.push({ renglon, base: CERO });
       continue;
     }
 
-    const rebaja = rebajaPorRenglon.get(renglon.id) ?? CERO;
-    descuentos = sumar(descuentos, rebaja);
-    bases.push({ renglon, base: restar(importe, rebaja) });
+    /*
+     * Los descuentos del renglón se aplican sobre lo que QUEDA después de la
+     * cortesía. Con tres cervezas, una regalada y un 10 % al renglón, el 10 %
+     * es de las dos que se cobran: calcularlo sobre las tres cobraría de menos
+     * un descuento que nadie autorizó.
+     */
+    let base = restar(importe, regalado);
+    for (const descuento of estado.descuentos) {
+      if (descuento.alcance !== "renglon" || descuento.renglon_id !== renglon.id) continue;
+      const rebaja = rebajaDe(descuento, base);
+      descuentos = sumar(descuentos, rebaja);
+      base = restar(base, rebaja);
+    }
+    bases.push({ renglon, base });
   }
 
   // Descuentos sobre el total de la cuenta: se prorratean entre los renglones

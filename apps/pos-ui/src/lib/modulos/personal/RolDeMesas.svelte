@@ -23,6 +23,7 @@
   import { asignaciones } from "../../asignaciones.svelte";
   import { plano } from "../../plano.svelte";
   import { sesion } from "../../sesion/sesion.svelte";
+  import { revelar } from "../../subir";
 
   const puedeEditar = $derived(sesion.puedeOperar("rrhh.empleado.editar"));
   const hoy = $derived(asignaciones.hoy);
@@ -144,7 +145,9 @@
     <!-- Editor de una celda: todas las mesas del local, como interruptores. -->
     {#if editando}
       {@const quien = sesion.nombreDe(editando.meseroId)}
-      <div class="editor">
+      <!-- Se abre debajo de la semana entera: se baja hasta él, y otra vez al
+           pulsar otra celda con el editor ya abierto. -->
+      <div class="editor" use:revelar={`${editando.meseroId}:${editando.dia}`}>
         <div class="cab-editor">
           <h3>{quien} · {nombreDia(editando.dia)}</h3>
           <span class="cuantas">
