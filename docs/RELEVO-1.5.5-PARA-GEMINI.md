@@ -25,11 +25,26 @@
 >   Central, la lista blanca de rutas NO es greppable (Rust la compila a
 >   comparaciones de bytes): se comprueba con `cargo test`.
 >
-> **Lo que falta, con Gonzalo:**
-> 1. Que pruebe MotRest 1.5.5 y Central 1.4.4 en su máquina (Central no se
->    actualiza sola: hay que reinstalarla).
-> 2. Commitear por lista explícita y publicar (§7), resolviendo antes las tres
->    cosas que siguen mal.
+> **Estado del lanzamiento (19-sep, noche):**
+> - Gonzalo probó la 1.5.5 instalada y dio el visto bueno.
+> - **Commiteado y subido**: `3eb327f` en `feature/ticket-asistencia-y-plano`, 94
+>   archivos, por lista explícita. **NO está en `main`.**
+> - **Anclajes liberados**: `version_fijada = null` en los tres locales, así que
+>   el canal vuelve a mandar. Hoy ofrece 1.5.4 y pasará a 1.5.5 al publicar.
+> - **Ensayo del viernes SUPERADO** contra el binario instalado: 39/39 ventas,
+>   cero duplicados, registro sano y respaldo verificado.
+> - **Instalador**: `MotRest_1.5.5_x64-setup.exe`, 27 260 779 bytes, SHA-256
+>   `543e393630b502503bef1cd629d5f56dcf15e608f84c2ab24e36e2d74d4ccd92`.
+>   Central: `MotRest Central_1.4.4_x64-setup.exe`.
+> - **Falta SOLO firmar y publicar**, y eso lo hace Gonzalo desde
+>   Central → Versiones: la privada vive en su DPAPI. En la nube Y en GitHub,
+>   etiqueta `1.5.5` desnuda.
+>
+> **TRAMPA NUEVA, costó un rechazo de GitHub:** las llaves FALSAS de las pruebas
+> empiezan con `sk_live_`/`sk_test_`, igual que las de Stripe, y la protección de
+> secretos de GitHub **rechaza el push entero**. Se armaron en dos trozos
+> (`` `sk_${"live"}_…` ``). Si vuelve a pasar: un commit posterior que quite la
+> cadena NO desbloquea nada, hay que rehacer el commit que la introdujo.
 
 ---
 
