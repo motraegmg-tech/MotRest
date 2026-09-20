@@ -36,9 +36,15 @@
 > - **Instalador**: `MotRest_1.5.5_x64-setup.exe`, 27 260 779 bytes, SHA-256
 >   `543e393630b502503bef1cd629d5f56dcf15e608f84c2ab24e36e2d74d4ccd92`.
 >   Central: `MotRest Central_1.4.4_x64-setup.exe`.
-> - **Falta SOLO firmar y publicar**, y eso lo hace Gonzalo desde
->   Central → Versiones: la privada vive en su DPAPI. En la nube Y en GitHub,
->   etiqueta `1.5.5` desnuda.
+> - **PUBLICADA el 19-sep a las 20:03** por Gonzalo desde Central, en la nube Y en
+>   GitHub (etiqueta `1.5.5` desnuda). Comprobado: el manifiesto de GitHub y el de
+>   la nube son el MISMO (misma firma, mismas notas, mismo `publicado_ts`), su
+>   firma verifica contra la pública que llevan los Hubs, la URL usa la etiqueta
+>   correcta, y el `.exe` bajado de GitHub tiene la huella firmada, idéntica a la
+>   del que se compiló aquí. Los cuatro locales reciben 1.5.5.
+> - **OJO al próximo release:** al publicar, Central volvió a poner
+>   `version_fijada = '1.5.5'` en los tres locales. Mientras siga clavado, la
+>   1.5.6 NO les llegará: hay que despejarlo otra vez (§7).
 >
 > **TRAMPA NUEVA, costó un rechazo de GitHub:** las llaves FALSAS de las pruebas
 > empiezan con `sk_live_`/`sk_test_`, igual que las de Stripe, y la protección de
