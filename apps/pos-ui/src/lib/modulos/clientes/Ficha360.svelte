@@ -19,6 +19,15 @@
   } from "@motrest/dominio";
   import VentanaAmplia from "../../VentanaAmplia.svelte";
   import { mxn } from "../../formato";
+  import Ordenar from "../../listas/Ordenar.svelte";
+  import VerMas from "../../listas/VerMas.svelte";
+  import {
+    Paginado,
+    ordenRecordado,
+    ordenar,
+    ordenesComunes,
+    type OpcionOrden,
+  } from "../../listas/listas.svelte";
   import { opiniones } from "../../opiniones.svelte";
   import { pos } from "../../pos.svelte";
   import { reservas } from "../../reservas.svelte";
@@ -47,9 +56,48 @@
 
   const seVan = $derived(enRiesgoDePerderse(fichas.map((f) => f.ficha)));
 
+  /*
+   * «ORDENAR» Y «VER MÁS» (1.5.6, pedido de Gonzalo).
+   *
+   * Cada cuenta a nombre de alguien y cada reserva suman un comensal, así que
+   * esta lista crece sin techo, y se pintaba entera: con quinientos
+   * reconocidos, la página no se acababa nunca. Ahora se ven 10 y el resto a
+   * petición.
+   *
+   * El orden de siempre —el que más ha gastado, primero— sigue siendo el de
+   * entrada. Los demás contestan otras preguntas: quién vino hace poco (la
+   * última visita), quién viene más, o simplemente encontrarlo por nombre.
+   */
+  type Renglon = (typeof fichas)[number];
+  const opcionesComensales: OpcionOrden<Renglon>[] = [
+    {
+      id: "gasto",
+      etiqueta: "Más gasto primero",
+      comparar: (a, b) => b.ficha.gastado - a.ficha.gastado,
+    },
+    {
+      id: "visitas",
+      etiqueta: "Más visitas primero",
+      comparar: (a, b) => b.ficha.visitas - a.ficha.visitas,
+    },
+    ...ordenesComunes<Renglon>({
+      nombre: (f) => f.ficha.nombre,
+      fecha: (f) => f.ficha.ultima_visita,
+    }).map((o) =>
+      // La fecha de un comensal es la de su última visita: que lo diga.
+      o.id === "recientes"
+        ? { ...o, etiqueta: "Vinieron hace poco" }
+        : o.id === "antiguos"
+          ? { ...o, etiqueta: "Hace más que no vienen" }
+          : o,
+    ),
+  ];
+  let ordenComensales = $state(ordenRecordado("clientes.comensales", "gasto"));
+  const pag = new Paginado();
+
   const listadas = $derived.by(() => {
     const texto = filtro.trim().toLowerCase();
-    const todas = [...fichas].sort((a, b) => b.ficha.gastado - a.ficha.gastado);
+    const todas = ordenar(fichas, opcionesComensales.find((o) => o.id === ordenComensales));
     if (!texto) return todas;
     return todas.filter(
       (f) =>
@@ -132,7 +180,23 @@
       </VentanaAmplia>
     {/if}
 
-    <input class="buscar" bind:value={filtro} placeholder="Buscar por nombre o teléfono…" />
+    <div class="barra">
+      <!-- Otra búsqueda es otra lista: vuelve a los 10 primeros. -->
+      <input
+        class="buscar"
+        bind:value={filtro}
+        oninput={() => pag.reiniciar()}
+        placeholder="Buscar por nombre o teléfono…"
+      />
+      {#if fichas.length > 1}
+        <Ordenar
+          opciones={opcionesComensales}
+          bind:valor={ordenComensales}
+          recordar="clientes.comensales"
+          onCambiar={() => pag.reiniciar()}
+        />
+      {/if}
+    </div>
 
     {#if listadas.length === 0}
       <p class="nota">
@@ -141,7 +205,7 @@
       </p>
     {/if}
 
-    {#each listadas as { id, ficha } (id)}
+    {#each pag.de(listadas) as { id, ficha } (id)}
       <article class="ficha" class:abierta={abierta === id}>
         <button class="cabecera" onclick={() => (abierta = abierta === id ? null : id)}>
           <span class="nombre">{ficha.nombre}</span>
@@ -192,6 +256,7 @@
         {/if}
       </article>
     {/each}
+    <VerMas {pag} lista={listadas} />
   {/if}
 </div>
 
@@ -258,6 +323,17 @@
   }
   .chip b {
     color: var(--pizarra);
+  }
+  /* El buscador y «Ordenar» en una línea; el margen de abajo es el de la barra. */
+  .barra {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 0.6rem;
+    margin-bottom: 0.8rem;
+  }
+  .barra .buscar {
+    margin-bottom: 0;
   }
   .buscar {
     width: 100%;

@@ -23,10 +23,35 @@
     type TipoBeneficio,
   } from "@motrest/dominio";
   import { mxn } from "../../formato";
+  import Ordenar from "../../listas/Ordenar.svelte";
+  import {
+    ordenRecordado,
+    ordenar,
+    ordenesComunes,
+    type OpcionOrden,
+  } from "../../listas/listas.svelte";
   import { sesion } from "../../sesion/sesion.svelte";
   import { socios } from "../../socios.svelte";
 
   const puedeEditar = $derived(sesion.puedeOperar("admin.socio.editar"));
+
+  /*
+   * «ORDENAR» LOS SOCIOS (1.5.6, pedido de Gonzalo). De la A a la Z, que es
+   * como salían siempre y como siguen entrando; por fecha de alta, o por lo que
+   * le toca a cada uno del negocio. Solo la vista de esta terminal.
+   */
+  const opcionesSocios: OpcionOrden<Socio>[] = [
+    ...ordenesComunes<Socio>({ nombre: (s) => s.nombre, fecha: (s) => s.registrado_ts }),
+    {
+      id: "participacion",
+      etiqueta: "Más participación primero",
+      comparar: (a, b) => (b.participacion ?? 0) - (a.participacion ?? 0),
+    },
+  ];
+  let ordenSocios = $state(ordenRecordado("admin.socios", "az"));
+  const sociosVistos = $derived(
+    ordenar(socios.socios, opcionesSocios.find((o) => o.id === ordenSocios)),
+  );
 
   // --- Alta y edición ------------------------------------------------------------
 
@@ -184,16 +209,17 @@
   <!--
     LA REGLA QUE MÁS SE MALINTERPRETA, DICHA ARRIBA.
 
-    Que el socio no pague no significa que la venta no exista: el producto salió
-    de la cocina y el insumo del almacén. Si esas cuentas se descontaran de la
-    venta, el food cost y el ticket promedio del local dirían cosas falsas justo
-    en un restaurante donde los socios comen seguido.
+    Hasta la 1.5.5 el consumo de un socio contaba como venta, porque se anotaba
+    como una forma de pago más. Gonzalo lo cambió en la 1.5.6: no entró dinero,
+    y contarlo inflaba la venta del día y del mes. Pero el producto sí salió de
+    la cocina y el insumo del almacén, así que su COSTO sigue contando: esconderlo
+    haría que el acuerdo con el socio pareciera gratis.
   -->
   <p class="nota-regla">
-    <b>El consumo de un socio sí es una venta.</b> Se registra a precio de carta y
-    cuenta completo en Finanzas y en Inteligencia; lo único distinto es que el
-    dinero no entra al cajón, sale de su bolsa. Así el costo de los insumos y el
-    ticket promedio del local siguen siendo ciertos.
+    <b>El consumo de un socio no es una venta.</b> Sale de la venta del día y del
+    mes, de la factura global y del ticket promedio, y aparece aparte como
+    «Consumo de socios». Lo que sí cuenta completo es su <b>costo</b>: los insumos
+    se gastaron de verdad, y así se ve lo que le cuesta al local cada acuerdo.
   </p>
 
   {#if socios.socios.length === 0}
@@ -202,8 +228,13 @@
       aparecen en la cuenta durante el servicio.
     </p>
   {:else}
+    {#if socios.socios.length > 1}
+      <div class="barra-lista">
+        <Ordenar opciones={opcionesSocios} bind:valor={ordenSocios} recordar="admin.socios" />
+      </div>
+    {/if}
     <div class="lista">
-      {#each socios.socios as socio (socio.socio_id)}
+      {#each sociosVistos as socio (socio.socio_id)}
         {@const bolsa = socios.bolsa(socio)}
         <section class="tarjeta socio" class:baja={!socio.activo}>
           <div class="cab">
@@ -404,6 +435,11 @@
     display: flex;
     flex-direction: column;
     gap: 0.85rem;
+  }
+  /* «Ordenar», a la derecha y justo encima de la lista que ordena. */
+  .barra-lista {
+    display: flex;
+    justify-content: flex-end;
   }
   /* Fondo, borde, radio y sombra los pone `.tarjeta` en base.css: aquí solo
      queda lo que es propio de esta pantalla. */

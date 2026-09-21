@@ -39,11 +39,13 @@ import { compras } from "../compras.svelte";
 import { opiniones } from "../opiniones.svelte";
 import { reservas } from "../reservas.svelte";
 import { correo } from "../correo.svelte";
+import { facturacion } from "../facturacion.svelte";
 import { actualizaciones } from "../actualizaciones.svelte";
 import { benchmark } from "../benchmark.svelte";
 import { grupo } from "../grupo.svelte";
 import { licencia } from "../licencia.svelte";
 import { modoAbierto } from "../modo-abierto.svelte";
+import { autofactura } from "../autofactura.svelte";
 import { canales } from "../canales.svelte";
 import { prenomina } from "../prenomina.svelte";
 import { socios } from "../socios.svelte";
@@ -460,6 +462,9 @@ class Arranque {
       reservas.conectarAlmacen(almacen);
       socios.conectarAlmacen(almacen);
       await correo.hidratar(almacen);
+      await facturacion.hidratar(almacen);
+      // Los datos fiscales del restaurante viajan con la configuración (1.5.6).
+      await fiscal.enlazarConLaConfiguracion();
       await canales.hidratar(almacen);
       /*
        * La licencia y las actualizaciones las decide el Hub. Aquí solo se
@@ -469,6 +474,7 @@ class Arranque {
        */
       await licencia.hidratar(almacen);
       await modoAbierto.hidratar(almacen);
+      await autofactura.hidratar(almacen);
       await actualizaciones.hidratar(almacen);
       await grupo.hidratar(almacen);
       await benchmark.hidratar(almacen);

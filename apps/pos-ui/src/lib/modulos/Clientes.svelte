@@ -7,6 +7,7 @@
    * a dónde mandar un domicilio. Los datos fiscales que se capturan aquí son los
    * mismos que pide el CFDI, así que prellenan el diálogo de factura tal cual.
    */
+  import { untrack } from "svelte";
   import {
     REGIMENES_FISCALES,
     USOS_CFDI,
@@ -18,9 +19,11 @@
     type DatosReceptor,
     type Domicilio,
     type ID,
+    type Reserva,
     type TipoCorreo,
   } from "@motrest/dominio";
   import { clientes } from "../clientes.svelte";
+  import { borrador } from "./clientes/borrador-de-reserva.svelte";
   import { correo as correos, type SolicitudCorreo } from "../correo.svelte";
   import {
     cuandoDeReserva,
@@ -30,6 +33,9 @@
     reservaProximaDe,
   } from "../correos-del-comensal";
   import EnvioCorreo from "../EnvioCorreo.svelte";
+  import Ordenar from "../listas/Ordenar.svelte";
+  import VerMas from "../listas/VerMas.svelte";
+  import { Paginado, ordenRecordado, ordenar, ordenesComunes } from "../listas/listas.svelte";
   import { rutas } from "../nav/rutas.svelte";
   import { reservas } from "../reservas.svelte";
   import { sesion } from "../sesion/sesion.svelte";
@@ -38,7 +44,26 @@
   const puedeEditar = $derived(sesion.puedeOperar("crm.cliente.editar"));
 
   let termino = $state("");
-  const lista = $derived(clientes.buscar(termino));
+
+  /*
+   * «ORDENAR» Y «VER MÁS» EN LAS FICHAS (1.5.6, pedido de Gonzalo).
+   *
+   * Las fichas crecen con cada comensal que deja su RFC o su domicilio, y se
+   * pintaban todas: con trescientas, llegar al final de la página era un viaje.
+   * Ahora se ven 10 y el resto a petición —el buscador sigue siendo el camino
+   * corto para dar con alguien—, y se pueden ordenar por nombre o por cuándo se
+   * dio de alta la ficha. El orden de siempre, de la A a la Z, es el de
+   * entrada. Cambia solo la vista de esta terminal.
+   */
+  const opcionesFichas = ordenesComunes<Cliente>({
+    nombre: (c) => c.nombre,
+    fecha: (c) => c.registrado_ts,
+  });
+  let ordenFichas = $state(ordenRecordado("clientes.fichas", "az"));
+  const lista = $derived(
+    ordenar(clientes.buscar(termino), opcionesFichas.find((o) => o.id === ordenFichas)),
+  );
+  const pagFichas = new Paginado();
 
   let error = $state("");
 
@@ -101,6 +126,106 @@
     creando = false;
     editando = null;
     error = "";
+  }
+
+  // --- El viaje desde Reservas, y la vuelta ---
+
+  /*
+   * «+ NUEVO CLIENTE» EN RESERVAS TRAE HASTA AQUÍ, Y ESTO DEVUELVE ALLÁ.
+   *
+   * Gonzalo lo pidió con estas palabras: «que al darle clic en nuevo cliente,
+   * automáticamente los lleve a la ventana de agregar comensal que está en el
+   * módulo de ficha del comensal, y que al darle guardar, automáticamente los
+   * regrese al módulo de reservas y espera, a donde ya estaban anteriormente».
+   *
+   * El viaje se hace con la RUTA —`#/clientes/clientes?nuevo=1&volver=reservas`—
+   * y no con un diálogo flotante sobre Reservas, para que el alta sea la de
+   * verdad: la misma que pide el domicilio, los datos fiscales y el permiso de
+   * publicidad. Un alta recortada «para la puerta» es como se acaba con fichas
+   * de dos calidades distintas.
+   *
+   * Lo tecleado en la reserva no viaja por la ruta sino por el borrador del
+   * módulo (`borrador-de-reserva.svelte.ts`), que sobrevive al cambio de
+   * pantalla.
+   */
+  let volviendoAReservas = $state(false);
+
+  function atenderLaRuta(params: Record<string, string>) {
+    if (params.nuevo === "1" && puedeEditar) {
+      nuevo();
+      volviendoAReservas = params.volver === "reservas";
+      /*
+       * Si alguien recargó la aplicación con esta dirección en la barra, el
+       * borrador está recién nacido y nadie está esperando una ficha. La ruta
+       * dice de dónde se venía, así que se repara la intención en vez de
+       * guardar el cliente y dejarlo colgado en una pantalla que ya no sabe
+       * para qué lo pidió.
+       */
+      if (volviendoAReservas && borrador.esperandoFicha === null) borrador.pedirFicha("reserva");
+      const tecleado = borrador.loTecleado();
+      nombre = tecleado.nombre;
+      telefono = tecleado.telefono;
+      correo = tecleado.correo;
+      return;
+    }
+
+    /* El camino contrario: un nombre de Reservas que lleva a su ficha. */
+    const c = params.ficha ? clientes.porId(params.ficha) : undefined;
+    if (!c) return;
+    if (puedeEditar) abrirEdicion(c);
+    /* Quien solo consulta no abre el editor: se le deja la ficha a la vista. */
+    else termino = c.nombre;
+  }
+
+  /*
+   * Solo la RUTA dispara esto. Lo de dentro va en `untrack` a propósito: lee la
+   * lista de clientes y el permiso, y sin eso el efecto volvería a correr cada
+   * vez que se guardara una ficha —reabriendo el editor encima de lo que se
+   * estuviera escribiendo—.
+   */
+  $effect(() => {
+    const params = rutas.actual.params;
+    untrack(() => atenderLaRuta(params));
+  });
+
+  /** Cerrar el alta a la que se llegó desde Reservas devuelve a Reservas. */
+  function cerrarOVolver() {
+    if (!volviendoAReservas) {
+      cerrar();
+      return;
+    }
+    /* Se cancela el viaje, no el borrador: lo tecleado en la reserva sigue ahí. */
+    volviendoAReservas = false;
+    borrador.cancelarViaje();
+    cerrar();
+    rutas.ir("clientes", "reservas");
+  }
+
+  /**
+   * Apartar mesa para este comensal: la reserva nace ligada a su ficha.
+   *
+   * Es la otra mitad de lo que pidió Gonzalo. Antes solo se podía ir de la
+   * reserva a la ficha; desde su ficha —donde se ve que viene cada quince días
+   * y que gasta lo que gasta— no había manera de apartarle mesa.
+   */
+  function apartarMesaPara(c: Cliente) {
+    borrador.apartarPara({
+      cliente_id: c.cliente_id,
+      nombre: c.nombre,
+      telefono: c.telefono,
+      correo: c.correo,
+    });
+    cerrar();
+    rutas.ir("clientes", "reservas");
+  }
+
+  /** Cómo quedó una reserva, en palabras de la puerta. */
+  function comoQuedoLaReserva(r: Reserva): { texto: string; tono: "bien" | "mal" | "espera" } {
+    if (r.estado === "sentada") return { texto: "Vino", tono: "bien" };
+    if (r.estado === "apartada") return { texto: "Mesa apartada", tono: "espera" };
+    if (r.estado === "solicitada") return { texto: "Pidió mesa, falta confirmar", tono: "espera" };
+    if (r.estado === "no_llego") return { texto: "No llegó", tono: "mal" };
+    return { texto: `Cancelada: ${r.motivo_cancelacion ?? "sin motivo"}`, tono: "mal" };
   }
 
   function armar(): DatosCliente | null {
@@ -171,6 +296,24 @@
         })
       : clientes.registrar(datos);
     if (!r.ok) { error = r.error ?? "No se pudo guardar"; return; }
+
+    /*
+     * La ficha recién creada vuelve al formulario de Reservas que la pidió, con
+     * el cliente ya puesto y sin que se haya perdido lo que se llevaba tecleado.
+     */
+    if (!editando && volviendoAReservas && r.id) {
+      borrador.recibirFicha({
+        cliente_id: r.id,
+        nombre: datos.nombre,
+        telefono: datos.telefono,
+        correo: datos.correo,
+      });
+      volviendoAReservas = false;
+      cerrar();
+      rutas.ir("clientes", "reservas");
+      return;
+    }
+
     cerrar();
   }
 
@@ -286,7 +429,9 @@
   }
 
   function etiquetaCorreo(tipo: TipoCorreo): string {
-    return definicionCorreo(tipo)?.etiqueta ?? tipo;
+    // Con la configuración: los correos que creó el restaurante tienen su
+    // propio nombre, y uno ya borrado se dice así en vez de enseñar su id.
+    return definicionCorreo(tipo, correos.config)?.etiqueta ?? tipo;
   }
 
   /**
@@ -330,6 +475,38 @@
   </div>
 {/snippet}
 
+<!--
+  SUS RESERVAS, EN SU FICHA.
+  Desde la 1.5.6 una reserva apartada en la caja queda ligada a la ficha, así
+  que aquí se puede ver de una vez quién viene, quién vino y quién dejó la mesa
+  puesta. Y se aparta mesa desde aquí mismo: es el camino contrario del que ya
+  existía, y el que faltaba.
+-->
+{#snippet susReservas(c: Cliente)}
+  {@const suyas = reservas.deCliente(c.cliente_id, c.telefono)}
+  <div class="ultimos">
+    <h3>Sus reservas</h3>
+    {#if suyas.length === 0}
+      <p class="vacio">Todavía no ha apartado mesa.</p>
+    {:else}
+      <ul>
+        {#each suyas.slice(0, 5) as r (r.id)}
+          {@const quedo = comoQuedoLaReserva(r)}
+          <li>
+            <span class="que">{fecha(r.para_ts)}</span>
+            <span class="cuando">
+              {r.personas}
+              {r.personas === 1 ? "persona" : "personas"}
+            </span>
+            <span class="quedo {quedo.tono}">{quedo.texto}</span>
+          </li>
+        {/each}
+      </ul>
+    {/if}
+    <button class="mini apartar" onclick={() => apartarMesaPara(c)}>Apartar mesa</button>
+  </div>
+{/snippet}
+
 <div class="seccion">
   <div class="encabezado">
     <div>
@@ -350,7 +527,20 @@
   </div>
 
   <div class="buscador">
-    <input bind:value={termino} placeholder="Buscar por nombre, teléfono o RFC…" />
+    <!-- Otra búsqueda es otra lista: vuelve a los 10 primeros. -->
+    <input
+      bind:value={termino}
+      oninput={() => pagFichas.reiniciar()}
+      placeholder="Buscar por nombre, teléfono o RFC…"
+    />
+    {#if clientes.clientes.length > 1}
+      <Ordenar
+        opciones={opcionesFichas}
+        bind:valor={ordenFichas}
+        recordar="clientes.fichas"
+        onCambiar={() => pagFichas.reiniciar()}
+      />
+    {/if}
   </div>
 
   <section class="tarjeta">
@@ -366,7 +556,7 @@
           </tr>
         </thead>
         <tbody>
-          {#each lista as c (c.cliente_id)}
+          {#each pagFichas.de(lista) as c (c.cliente_id)}
             <tr>
               <td><b>{c.nombre}</b>{#if c.notas}<small>{c.notas}</small>{/if}</td>
               <td class="tenue">
@@ -387,6 +577,8 @@
                   {#if correoPlausible(c.correo)}
                     <button class="mini correo" onclick={() => abrirCorreo(c)}>Mandar correo</button>
                   {/if}
+                  <!-- Se aparta mesa desde la ficha, y la reserva nace ligada. -->
+                  <button class="mini" onclick={() => apartarMesaPara(c)}>Apartar mesa</button>
                   <button class="mini" onclick={() => abrirEdicion(c)}>Editar</button>
                   <button class="mini" onclick={() => darDeBaja(c)}>Baja</button>
                 {/if}
@@ -395,17 +587,27 @@
           {/each}
         </tbody>
       </table>
+      <VerMas pag={pagFichas} {lista} />
     {/if}
   </section>
 </div>
 
 {#if abierto && puedeEditar}
-  <div class="velo" role="presentation" onclick={cerrar}></div>
+  <div class="velo" role="presentation" onclick={cerrarOVolver}></div>
   <div class="panel" role="dialog" aria-modal="true" aria-label="Ficha del cliente">
     <header>
       <h2>{editando ? "Editar cliente" : "Nuevo cliente"}</h2>
-      <button class="cerrar" onclick={cerrar} aria-label="Cerrar">×</button>
+      <button class="cerrar" onclick={cerrarOVolver} aria-label="Cerrar">×</button>
     </header>
+
+    {#if volviendoAReservas}
+      <!-- Se dice a dónde lleva el botón ANTES de pulsarlo: quien está en la
+           puerta con el cliente al teléfono no puede permitirse averiguarlo. -->
+      <p class="alerta">
+        Al guardar vuelves a <b>Reservas y espera</b>, con este cliente puesto y
+        sin perder lo que ya llevabas escrito.
+      </p>
+    {/if}
 
     <div class="campos">
       <label class="ancho">
@@ -450,6 +652,7 @@
 
     {#if editando}
       {@render ultimosCorreos(editando.cliente_id)}
+      {@render susReservas(editando)}
     {/if}
 
     <label class="switch">
@@ -501,7 +704,9 @@
     {#if error}<p class="error" role="alert">{error}</p>{/if}
 
     <div class="botones">
-      <button class="secundario" onclick={cerrar}>Cancelar</button>
+      <button class="secundario" onclick={cerrarOVolver}>
+        {volviendoAReservas ? "Volver sin guardar" : "Cancelar"}
+      </button>
       <button class="principal" onclick={guardar}>Guardar</button>
     </div>
   </div>
@@ -629,8 +834,16 @@
     font-size: 1.3rem;
     margin-top: 0.2rem;
   }
+  /* El buscador y el botón de «Ordenar», en una línea; en una tableta angosta
+     el botón baja debajo. */
+  .buscador {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 0.6rem;
+  }
   .buscador input {
-    width: 100%;
+    flex: 1 1 16rem;
     padding: 0.65rem 0.85rem;
     border: 1.5px solid var(--borde);
     border-radius: var(--r-md);
@@ -885,6 +1098,13 @@
   }
   .ultimos .cuando {
     color: var(--gris);
+  }
+  /* «Apartar mesa» desde la ficha, al pie de sus reservas. */
+  .mini.apartar {
+    margin-top: 0.6rem;
+    min-height: var(--toque);
+    border-color: var(--acento);
+    color: var(--acento-texto);
   }
   .quedo {
     font-weight: 600;

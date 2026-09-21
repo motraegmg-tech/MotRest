@@ -22,6 +22,8 @@ import {
   moverCategoria,
   moverInsumosDeCategoria,
   recolorearCategoria,
+  reordenarCategorias,
+  reordenarProductos,
   renombrarCategoria,
   renombrarCategoriaInsumo,
   validarCategoriaInsumo,
@@ -403,6 +405,48 @@ class StoreMenu {
     if (!this.datos || !this.permisos.editarProductos) return { ok: false, problemas: [] };
     this.aplicar((m) => moverCategoria(m, categoriaId, direccion));
     return SIN_PROBLEMAS;
+  }
+
+  /**
+   * Reescribe el orden de las categorías de la carta (1.5.6, «Ordenar»).
+   *
+   * No es una vista: por decisión de Gonzalo, ordenar la carta cambia las
+   * pestañas que ven los meseros en la caja, en todas las terminales. Por eso
+   * pasa por `aplicar`, como las flechas —se guarda, sube de versión y se
+   * publica al resto del local—, y pide el mismo permiso que ellas.
+   *
+   * Si el orden pedido ya era el de la carta no se aplica nada: el dominio
+   * devuelve el mismo menú, y guardarlo y publicarlo otra vez sería mandar la
+   * carta entera por la red a todas las terminales para no cambiar nada.
+   */
+  ordenarCategorias(idsEnOrden: readonly ID[]): ResultadoMenu {
+    if (!this.datos || !this.permisos.editarProductos) return this.sinPermisoDeCarta();
+    const nuevo = reordenarCategorias(this.datos, idsEnOrden);
+    if (nuevo !== this.datos) this.aplicar(() => nuevo);
+    return SIN_PROBLEMAS;
+  }
+
+  /** Lo mismo con los platillos de una categoría: el orden dentro de su pestaña. */
+  ordenarProductos(categoriaId: ID, idsEnOrden: readonly ID[]): ResultadoMenu {
+    if (!this.datos || !this.permisos.editarProductos) return this.sinPermisoDeCarta();
+    const nuevo = reordenarProductos(this.datos, categoriaId, idsEnOrden);
+    if (nuevo !== this.datos) this.aplicar(() => nuevo);
+    return SIN_PROBLEMAS;
+  }
+
+  /**
+   * El rechazo, CON el porqué. Las flechas devuelven `ok: false` a secas porque
+   * solo se le enseñan a quien puede usarlas; aquí la carta se reescribe
+   * entera tras una confirmación, y si algo lo impide la pantalla tiene que
+   * poder decir qué.
+   */
+  private sinPermisoDeCarta(): ResultadoMenu {
+    return {
+      ok: false,
+      problemas: [
+        { campo: "permiso", mensaje: "Tu perfil no puede cambiar el orden de la carta", gravedad: "error" },
+      ],
+    };
   }
 
   borrarCategoria(categoriaId: ID): ResultadoMenu {

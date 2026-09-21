@@ -14,6 +14,8 @@
     type EventoIdentidad,
   } from "@motrest/dominio";
   import { hora, mxn } from "../../formato";
+  import VerMas from "../../listas/VerMas.svelte";
+  import { Paginado } from "../../listas/listas.svelte";
   import { pos } from "../../pos.svelte";
   import { sesion } from "../../sesion/sesion.svelte";
   import { socios } from "../../socios.svelte";
@@ -207,6 +209,25 @@
   );
 
   const entradas = $derived(filtro === "alertas" ? todas.filter((e) => e.tono === "alerta") : todas);
+
+  /*
+   * «VER MÁS» (1.5.6, pedido de Gonzalo). La bitácora es el event log entero
+   * —cada platillo agregado, cada envío a cocina, cada cobro—, y se pintaba
+   * completa: decenas de miles de renglones al cabo de unas semanas, una página
+   * que tardaba en abrir y que nadie recorría hasta el fondo. Se ven los 10 más
+   * recientes y el resto a petición. Las cifras de los filtros siguen contando
+   * TODO.
+   *
+   * No lleva «Ordenar»: una bitácora se lee en el orden en que pasaron las
+   * cosas, y revuelta deja de explicar nada.
+   */
+  const pag = new Paginado();
+
+  /** Otro filtro es otra lista: se vuelve a los 10 primeros. */
+  function filtrar(f: "todo" | "alertas") {
+    filtro = f;
+    pag.reiniciar();
+  }
 </script>
 
 <div class="seccion">
@@ -219,17 +240,17 @@
       </p>
     </div>
     <div class="filtros">
-      <button class:on={filtro === "todo"} onclick={() => (filtro = "todo")}>
+      <button class:on={filtro === "todo"} onclick={() => filtrar("todo")}>
         Todo ({todas.length})
       </button>
-      <button class:on={filtro === "alertas"} onclick={() => (filtro = "alertas")}>
+      <button class:on={filtro === "alertas"} onclick={() => filtrar("alertas")}>
         Alertas ({todas.filter((e) => e.tono === "alerta").length})
       </button>
     </div>
   </div>
 
   <div class="lista">
-    {#each entradas as entrada (entrada.id)}
+    {#each pag.de(entradas) as entrada (entrada.id)}
       <div class="entrada {entrada.tono}">
         <span class="hora">{hora(entrada.ts)}</span>
         <span class="actor">{entrada.actor}</span>
@@ -238,6 +259,7 @@
     {:else}
       <p class="vacia">No hay registros que mostrar.</p>
     {/each}
+    <VerMas {pag} lista={entradas} />
   </div>
 </div>
 

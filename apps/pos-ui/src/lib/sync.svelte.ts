@@ -32,12 +32,18 @@ import type {
   RolDeMesas,
 } from "@motrest/dominio";
 import { CLAVE_CORREO, correo } from "./correo.svelte";
+import {
+  CLAVE_FACTURACION,
+  facturacion,
+  type ConfiguracionFacturacion,
+} from "./facturacion.svelte";
 import { CLAVE_MENU, menu } from "./menu.svelte";
 import { CLAVE_PLANO, plano } from "./plano.svelte";
 import { CLAVE_ASIGNACIONES, asignaciones } from "./asignaciones.svelte";
 import { CLAVE_ACTUALIZACION, actualizaciones } from "./actualizaciones.svelte";
 import { CLAVE_LICENCIA, licencia, type VeredictoLicencia } from "./licencia.svelte";
 import { CLAVE_MODO_ABIERTO, modoAbierto } from "./modo-abierto.svelte";
+import { CLAVE_AUTOFACTURA_ESTADO, autofactura } from "./autofactura.svelte";
 import { failover } from "./failover.svelte";
 import { SUCURSAL_ID, obtenerDeviceId } from "./presentacion";
 
@@ -384,6 +390,7 @@ class StoreSync {
         // la pantalla parpadee a vacío tras cada consulta de estado.
         if (cola) this.colaFiscal = cola;
         this.problemaFiscal = problema ?? "";
+        this.esperandoGlobal?.(problema ?? "");
       },
       alRecibirSecretos: (estado, ok, problema) => {
         this.secretos = estado;
@@ -462,6 +469,9 @@ class StoreSync {
      * Hub (ver `correo.paraPublicar`).
      */
     correo.alPublicar((datos) => this.publicar(CLAVE_CORREO, datos));
+    // Y cómo factura el local: el Hub es quien emite la global del mes, así que
+    // el modo —manual o automática— tiene que llegarle por el mismo camino.
+    facturacion.alPublicar((datos) => this.publicar(CLAVE_FACTURACION, datos));
 
     void this.cliente.conectar();
   }
@@ -511,6 +521,14 @@ class StoreSync {
       updated_at: configCorreo.updated_at,
       datos: configCorreo,
     });
+
+    const configFactura = facturacion.paraPublicar;
+    catalogos.push({
+      clave: CLAVE_FACTURACION,
+      version: configFactura.version,
+      updated_at: configFactura.updated_at,
+      datos: configFactura,
+    });
     return catalogos;
   }
 
@@ -525,6 +543,10 @@ class StoreSync {
         if (asignaciones.fusionar(catalogo.datos as RolDeMesas)) this.catalogosRecibidos += 1;
       } else if (catalogo.clave === CLAVE_CORREO) {
         if (correo.fusionar(catalogo.datos as ConfiguracionCorreo)) this.catalogosRecibidos += 1;
+      } else if (catalogo.clave === CLAVE_FACTURACION) {
+        if (facturacion.fusionar(catalogo.datos as ConfiguracionFacturacion)) {
+          this.catalogosRecibidos += 1;
+        }
       } else if (catalogo.clave === CLAVE_LICENCIA) {
         /*
          * El veredicto lo calcula el HUB, que es donde vive la llave. Esta
@@ -536,6 +558,9 @@ class StoreSync {
         actualizaciones.fusionar(catalogo.datos as EstadoActualizacion);
       } else if (catalogo.clave === CLAVE_MODO_ABIERTO) {
         modoAbierto.fusionar(catalogo.datos as { activo: boolean });
+      } else if (catalogo.clave === CLAVE_AUTOFACTURA_ESTADO) {
+        // El portal de autofactura (1.5.6): lo decide la nube, lo anuncia el Hub.
+        autofactura.fusionar(catalogo.datos);
       }
     }
   }
@@ -668,6 +693,61 @@ class StoreSync {
   }
 
   /** Reencola una factura rechazada, después de arreglar la causa. */
+  /** Quien espera la respuesta de la última orden de emitir una global. */
+  private esperandoGlobal: ((problema: string) => void) | null = null;
+
+  /**
+   * Manda al Hub la factura global del mes con LAS cuentas que eligió el
+   * restaurantero (1.5.6).
+   *
+   * Quien timbra es el Hub: con su llave, su idempotencia y sus reintentos. La
+   * caja solo dice qué. Y el Hub no se fía de la lista: vuelve a comprobar cada
+   * cuenta y el permiso de la PERSONA, y descarta lo que no deba entrar.
+   *
+   * Por eso la respuesta no es un sí o un no: `problema` puede traer a la vez
+   * que se emitió Y que N cuentas quedaron fuera, y la pantalla lo enseña tal
+   * cual. Sin `problema`, salió limpia.
+   *
+   * Se espera como mucho un minuto. Si el Hub no contesta, se dice en claro en
+   * vez de dejar el botón girando: la orden pudo llegar igual, y el historial
+   * del mes lo dirá cuando se timbre.
+   */
+  emitirFacturaGlobal(
+    empleadoId: string,
+    periodo: string,
+    ordenes: readonly string[],
+  ): Promise<{ ok: boolean; problema: string }> {
+    if (!this.cliente || this.estado !== "sincronizado") {
+      return Promise.resolve({
+        ok: false,
+        problema:
+          "Esta terminal no está conectada al Hub. La global la emite la caja: hazlo desde ahí o espera a que vuelva la conexión.",
+      });
+    }
+    return new Promise((resolver) => {
+      const plazo = setTimeout(() => {
+        this.esperandoGlobal = null;
+        resolver({
+          ok: false,
+          problema:
+            "El Hub no contestó a tiempo. La orden pudo llegar igual: revisa el historial del mes en un momento antes de volver a emitir.",
+        });
+      }, 60_000);
+      this.esperandoGlobal = (problema) => {
+        clearTimeout(plazo);
+        this.esperandoGlobal = null;
+        resolver({ ok: problema === "", problema });
+      };
+      this.problemaFiscal = "";
+      this.cliente!.fiscal({
+        accion: "emitir_global",
+        empleado_id: empleadoId,
+        periodo,
+        ordenes: [...ordenes],
+      });
+    });
+  }
+
   reintentarFactura(empleadoId: string, ordenId: string): void {
     this.problemaFiscal = "";
     this.cliente?.fiscal({ accion: "reintentar", empleado_id: empleadoId, orden_id: ordenId });

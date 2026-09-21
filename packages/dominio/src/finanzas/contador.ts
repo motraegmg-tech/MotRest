@@ -19,9 +19,9 @@
  *    en vez de mostrar «Ma?ana». Son dos detalles feos que deciden si el
  *    archivo se abre bien o el contador tiene que pelearse con él.
  */
-import { aPesos, type Centavos } from "../comun/dinero.js";
+import { aPesos, porFraccion, restar, type Centavos } from "../comun/dinero.js";
 import type { EstadoComanda } from "../comanda/reducers.js";
-import { totalesComanda } from "../comanda/totales.js";
+import { consumoDeSocio, totalesComanda } from "../comanda/totales.js";
 import { etiquetaFormaPago, type FormaPago } from "../comanda/eventos.js";
 import type { RegistroCfdi } from "../fiscal/eventos.js";
 import { vendidoEnGlobales, type FacturaGlobalRegistrada } from "../fiscal/global.js";
@@ -46,6 +46,15 @@ export interface ReporteContable {
   total: Centavos;
   /** Las propinas NO son ingreso del restaurante: son del personal. */
   propinas: Centavos;
+  /**
+   * Lo que cubrieron las bolsas de los socios, con impuestos.
+   *
+   * Tampoco es ingreso, y desde la 1.5.6 **no está dentro de `total` ni de
+   * `subtotal`**: no entró un peso. Se informa aparte para poder mirar el
+   * acuerdo con los socios de frente, y para que nadie lo eche de menos al
+   * comparar con el corte.
+   */
+  consumo_socios: Centavos;
   descuentos: Centavos;
   cortesias: Centavos;
   por_forma_pago: RenglonFormaPago[];
@@ -95,19 +104,36 @@ export function reporteContable(
   let propinas = 0;
   let descuentos = 0;
   let cortesias = 0;
+  let consumoSocios = 0;
   let reabiertas = 0;
 
   const porForma = new Map<FormaPago, { cuentas: number; importe: number }>();
 
   for (const c of comandas) {
     const t = totalesComanda(c);
-    subtotal += t.subtotal;
-    iva += t.iva;
-    ieps += t.ieps;
-    total += t.total;
+
+    /*
+     * LO QUE CUBRIÓ UN SOCIO NO ES VENTA (1.5.6). Se descuenta en proporción,
+     * igual que en `resumenVentas`, para que base e impuestos bajen juntos y el
+     * desglose fiscal del día siga cuadrando. Ver `consumoDeSocio`.
+     *
+     * Importa también para la facturación: lo del socio no se factura a nadie
+     * ni entra en la global, así que si siguiera dentro del total aparecería
+     * eternamente como «venta sin facturar».
+     */
+    const delSocio = consumoDeSocio(c);
+    const fraccion = t.total > 0 ? Math.min(delSocio / t.total, 1) : 0;
+    const sinSocio = (monto: Centavos) =>
+      fraccion > 0 ? restar(monto, porFraccion(monto, fraccion)) : monto;
+
+    consumoSocios += delSocio;
+    subtotal += sinSocio(t.subtotal);
+    iva += sinSocio(t.iva);
+    ieps += sinSocio(t.ieps);
+    total += sinSocio(t.total);
     propinas += t.propina;
-    descuentos += t.descuentos;
-    cortesias += t.cortesias;
+    descuentos += sinSocio(t.descuentos);
+    cortesias += sinSocio(t.cortesias);
     if (c.reabierta) reabiertas += 1;
 
     for (const pago of c.pagos) {
@@ -150,6 +176,7 @@ export function reporteContable(
     ieps: ieps as Centavos,
     total: total as Centavos,
     propinas: propinas as Centavos,
+    consumo_socios: consumoSocios as Centavos,
     descuentos: descuentos as Centavos,
     cortesias: cortesias as Centavos,
     por_forma_pago: [...porForma.entries()]
@@ -209,6 +236,7 @@ export function resumenCsv(r: ReporteContable): string {
     ["Total cobrado", importe(r.total)],
     ["Descuentos", importe(r.descuentos)],
     ["Cortesias", importe(r.cortesias)],
+    ["Consumo de socios (no es venta)", importe(r.consumo_socios)],
     [],
     ["PROPINAS (no son ingreso del negocio)", importe(r.propinas)],
     [],

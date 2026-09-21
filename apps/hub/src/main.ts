@@ -49,8 +49,13 @@ import type {
 import {
   CERO,
   aplazar,
+  armarAvisoDeFacturaRechazada,
+  indexar,
+  CLAVE_FACTURACION_CONFIG,
+  configuracionFacturacionVacia,
   configuracionVacia,
   debeInstalar,
+  leerConfiguracionFacturacion,
   estadoInicial,
   hayNovedad,
   hayTurnoAbierto,
@@ -68,12 +73,16 @@ import {
 import type {
   ClaseSecreto,
   ConfiguracionCorreo,
+  ConfiguracionFacturacion,
+  MenuLocal,
   EstadoSecretos,
   OrigenSecreto,
 } from "@motrest/dominio";
 import {
+  CLAVE_AUTOFACTURA_ESTADO,
   cifrar,
   derivarClaves,
+  derivarSecretoAutofactura,
   derivarSecretoPortal,
   descifrar,
   generarClaveLocal,
@@ -114,6 +123,7 @@ import {
   probarLlaveFacturapi,
 } from "./fiscal/facturapi.js";
 import { FacturaGlobalMensual } from "./fiscal/factura-global.js";
+import { AutofacturaDelHub } from "./fiscal/autofactura.js";
 import {
   SecretosDelHub,
   type AlmacenDeSecretos,
@@ -206,6 +216,8 @@ let arranqueAutomatico: autoarranque.EstadoAutoarranque = { soportado: false, ac
  * sin haber hablado con ella.
  */
 let secretoPortal = "";
+/** Firma el código del QR de autofactura (1.5.6). Se deriva al arrancar. */
+let secretoAutofactura = "";
 
 /**
  * El enlace con MOTRAE y la cola de avisos. Nulos si el local todavía no lo tiene.
@@ -272,6 +284,14 @@ const CLAVE_CORREO = "correo_config";
 /** Estado persistente que impide aceptar un release firmado pero más viejo. */
 const CLAVE_MEMORIA_ACTUALIZACIONES = "actualizaciones_memoria";
 let configCorreo: ConfiguracionCorreo = configuracionVacia();
+/**
+ * Cómo factura este local (1.5.6). Viaja como catálogo, igual que el correo.
+ *
+ * Arranca en `manual` a propósito: un local que se actualiza y no toca nada deja
+ * de emitir globales solo. Equivocarse hacia «no emitas» cuesta un clic;
+ * equivocarse hacia «emite todo» cuesta una cancelación ante el SAT.
+ */
+let configFacturacion: ConfiguracionFacturacion = configuracionFacturacionVacia();
 /** Llave de Resend, o contraseña de aplicación de Gmail según el modo. */
 let llaveResend = "";
 
@@ -910,9 +930,54 @@ const facturaGlobal = new FacturaGlobalMensual({
     };
   },
   hub_id: HUB_ID,
+  // En caliente: el modo se cambia desde la caja y el Hub no se reinicia.
+  modo: () => configFacturacion.modo_global,
   // Por el Hub y no directo al registro: la caja tiene que enterarse ya, para
   // bloquear la factura individual de lo que entró aquí.
   inyectar: (eventos) => hub.inyectar(eventos),
+  anotar: registrar,
+});
+
+/*
+ * El portal de autofactura (1.5.6). Publica los tickets que se pueden facturar,
+ * recoge lo que piden los comensales y lo timbra con la llave de este local.
+ * Ver `fiscal/autofactura.ts` y `docs/PLAN-1.5.6.md` §6.
+ *
+ * Las dependencias son funciones: el enlace con la nube, el Hub y el correo
+ * todavía no existen aquí, y cambian en caliente.
+ */
+const autofactura = new AutofacturaDelHub({
+  db: almacenFiscal,
+  log: almacen.log,
+  nube: () => (enlaceNube instanceof EnlaceSupabase && enlaceNube.conectado() ? enlaceNube : null),
+  secreto: () => secretoAutofactura || null,
+  abrir: (sobre) => secretos.abrir(sobre),
+  facturapiActiva: () => secretos.facturapiVigente() !== null,
+  emisor: () => configFacturacion.emisor,
+  catalogo: () => {
+    const menu = hub.catalogoDe("menu_local") as MenuLocal | undefined;
+    return menu?.productos ? indexar(menu) : null;
+  },
+  enGlobal: (ordenId) => facturaGlobal.enGlobal(ordenId) !== null,
+  sucursal: () => sucursalDelLocal(),
+  hub_id: HUB_ID,
+  inyectar: (eventos) => hub.inyectar(eventos),
+  // Que salga ya, sin esperar los cinco minutos del reloj de timbrado.
+  alGenerar: () => {
+    void cicloFiscal()
+      .then(() => autofactura.sincronizar())
+      .catch((error: unknown) => registrar("error", `Fallo al timbrar una autofactura: ${String(error)}`));
+  },
+  // A TODAS las terminales, encendido o apagado: cualquier caja imprime tickets.
+  alCambiarEstado: () => {
+    const e = autofactura.estado();
+    hub.publicarCatalogo(CLAVE_AUTOFACTURA_ESTADO, e ? { activo: true, ...e } : { activo: false });
+  },
+  avisarRechazo: async (para, datos) => {
+    if (!correo) return;
+    const r = await correo.mandarAviso(armarAvisoDeFacturaRechazada(para, configCorreo, datos));
+    if (!r.enviado) registrar("aviso", `No salió el aviso de factura rechazada: ${r.razon ?? "sin motivo"}`);
+  },
   anotar: registrar,
 });
 
@@ -959,6 +1024,8 @@ function alCambiarSecreto(clase: ClaseSecreto): void {
         .catch((error: unknown) => registrar("error", `Fallo al timbrar tras la llave nueva: ${String(error)}`));
     }
   }
+  // Sin FacturAPI no hay portal: el QR se apaga (o se enciende) en las cajas.
+  autofactura.anunciarSiCambio();
   reportarPulso();
 }
 
@@ -1017,6 +1084,7 @@ const hub = new Hub({
   alIngerir: (eventos) => {
     solicitudesDeCorreo.atender(eventos);
     avisarPorLoQuePaso(eventos);
+    autofactura.alIngerir(eventos);
   },
   fiscal: {
     sellador,
@@ -1028,6 +1096,7 @@ const hub = new Hub({
     facturapi: () => secretos.estado().facturapi,
     global: () => facturaGlobal.estado(),
     enGlobal: (ordenId) => facturaGlobal.enGlobal(ordenId),
+    emitirGlobal: (peticion) => facturaGlobal.emitirManual(peticion),
   },
   secretos: {
     estado: () => secretos.estado(),
@@ -1045,6 +1114,9 @@ const hub = new Hub({
 
     if (catalogo.clave === CLAVE_CORREO && origen === "terminal") {
       void aplicarConfiguracionDeCorreo(catalogo.datos);
+    }
+    if (catalogo.clave === CLAVE_FACTURACION_CONFIG && origen === "terminal") {
+      void aplicarConfiguracionDeFacturacion(catalogo.datos);
     }
   },
   leerCredenciales: async () =>
@@ -2391,6 +2463,7 @@ async function arrancar(): Promise<void> {
   claveLocal = await resolverClaveLocal();
   clavesHub = await derivarClaves(claveLocal, "hub");
   secretoPortal = await derivarSecretoPortal(claveLocal);
+  secretoAutofactura = await derivarSecretoAutofactura(claveLocal);
   tls = await certificadoTls(carpetaCertificados(RUTA_DB), lan, `${NOMBRE_RED}.local`);
 
   // Antes de aceptar una sola terminal, el Hub ya conoce quién puede hacer
@@ -2447,6 +2520,9 @@ async function arrancar(): Promise<void> {
   await prepararCorreo();
   // Después de preparar el correo, para que lo retomado tenga con qué salir.
   await retomarCorreosPendientes();
+  // ANTES de las llaves: `prepararSecretos` dispara la primera revisión de la
+  // factura global, y esa revisión tiene que saber ya si el local emite solo.
+  await prepararFacturacion();
   // Las llaves, ANTES de la nube: el pulso lleva la pública del Hub y un sobre
   // que llegue al conectar tiene que poder abrirse ya.
   await prepararSecretos();
@@ -3152,6 +3228,74 @@ async function aplicarConfiguracionDeCorreo(datos: unknown): Promise<void> {
 }
 
 /**
+ * Adopta el modo de facturación que publicó una terminal (1.5.6).
+ *
+ * ## Qué decide esto
+ *
+ * Si el barrido de la factura global timbra solo (`automatica`) o si espera a que
+ * una persona elija qué cuentas entran (`manual`). Es la decisión de Gonzalo:
+ * «el restaurantero elige y es dueño de su tipo de facturación». Hasta la 1.5.5
+ * el Hub emitía por él, con todo lo no facturado, y nadie podía cambiarlo.
+ *
+ * ## Por qué viaja como catálogo y no como evento
+ *
+ * Porque no es un hecho del negocio —no hay que poder reconstruir la historia de
+ * los cambios de modo— sino un ajuste del local que se sobrescribe. El canal ya
+ * resuelve el reparto y el «gana el más nuevo» con `catalogoMasNuevo`, así que se
+ * aplica igual que la configuración de correo: la caja lo publica, el Hub lo
+ * adopta en caliente y Central lo ve en el pulso.
+ *
+ * `modo_global` que no se reconozca vuelve a `manual`: ver
+ * `leerConfiguracionFacturacion`.
+ */
+async function aplicarConfiguracionDeFacturacion(datos: unknown): Promise<void> {
+  const entrante = leerConfiguracionFacturacion(datos);
+  const cambio = entrante.modo_global !== configFacturacion.modo_global;
+  configFacturacion = entrante;
+
+  try {
+    await almacen.estado.guardar(CLAVE_FACTURACION_CONFIG, configFacturacion);
+  } catch (causa) {
+    // Lo que importa —el modo en memoria— ya se aplicó; solo falló dejarlo
+    // escrito, y al reconectar la terminal lo vuelve a ofrecer.
+    registrar("error", `No se pudo guardar el modo de facturación: ${String(causa)}`);
+  }
+
+  if (!cambio) return;
+  registrar(
+    "info",
+    configFacturacion.modo_global === "automatica"
+      ? "Facturación global AUTOMÁTICA: el Hub emitirá la global del mes cerrado con todo lo no facturado."
+      : "Facturación global MANUAL: el Hub ya no emite la global solo; la autoriza una persona desde la caja.",
+  );
+
+  /*
+   * Al pasar a automático se revisa enseguida y no en la siguiente hora: el
+   * local que acaba de elegirlo puede tener meses cerrados esperando, y la
+   * pantalla que lo cambió tiene que ver el resultado sin adivinar cuándo toca.
+   */
+  if (configFacturacion.modo_global === "automatica") {
+    void facturaGlobal
+      .revisar()
+      .catch((error: unknown) => registrar("error", `Fallo al revisar la factura global: ${String(error)}`));
+  }
+}
+
+/** El modo de facturación que quedó escrito la última vez. */
+async function prepararFacturacion(): Promise<void> {
+  try {
+    const guardada = await almacen.estado.cargar<ConfiguracionFacturacion>(CLAVE_FACTURACION_CONFIG);
+    if (guardada) configFacturacion = leerConfiguracionFacturacion(guardada);
+  } catch (causa) {
+    registrar("error", `No se pudo leer el modo de facturación: ${String(causa)}`);
+  }
+  registrar(
+    "info",
+    `Factura global en modo ${configFacturacion.modo_global === "automatica" ? "automático" : "manual"}.`,
+  );
+}
+
+/**
  * Las peticiones de correo que el Hub dejó sin contestar antes de apagarse.
  *
  * La cola del correo vive en memoria: un Hub que se reinicia —y se reinicia
@@ -3450,7 +3594,11 @@ async function montarEnlaceDeNube(): Promise<void> {
       // En cuanto hay enlace, MOTRAE sabe qué versión corre este local. Es el
       // momento útil: justo después de una actualización, el Hub reconecta.
       reportarPulso();
+      // Lo que pidieron los comensales mientras no había red.
+      void autofactura.sincronizar();
     },
+    alLlegarSolicitudDeFactura: (fila: { id: string; orden_id: string; sobre: unknown }) =>
+      void autofactura.recibir(fila),
     alLlegarMensaje: (mensaje: MensajeDelComensal) => atenderMensajeDelComensal(mensaje),
     alLlegarLicencia: (recibida: unknown) => instalarLicenciaDeMotrae(recibida),
     alLlegarSecreto: (fila: { clase: unknown; sobre: unknown }) => secretos.recibirDeLaNube(fila),
@@ -3714,6 +3862,15 @@ function escuchar(): void {
     // Se publica SIEMPRE, también cuando está apagado: así una terminal que se
     // enciende después recibe el estado real en vez de quedarse con el anterior.
     hub.publicarCatalogo("modo_abierto", { activo: !EXIGIR_APROBACION });
+
+    /*
+     * El portal de autofactura (1.5.6): se anuncia apagado hasta que la nube
+     * diga otra cosa, para que ninguna terminal se quede con un QR de antes. Y
+     * una pasada por minuto: publicar lo cobrado, recoger lo pedido y contestar.
+     */
+    autofactura.anunciarSiCambio();
+    void autofactura.arrancar().then(() => autofactura.sincronizar());
+    setInterval(() => void autofactura.sincronizar(), 60_000).unref?.();
     registrar("info", "Canal CIFRADO con la clave del local (AES-256-GCM).");
   });
 

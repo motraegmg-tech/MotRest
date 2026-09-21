@@ -9,12 +9,12 @@
  * Es también la materia prima de las capacidades AI-first de F3: el gemelo
  * digital y el menu engineering con IA se alimentan de estas mismas series.
  */
-import { CERO, restar, sumar, type Centavos } from "../comun/dinero.js";
+import { CERO, porFraccion, restar, sumar, type Centavos } from "../comun/dinero.js";
 import { desglosarConTasas } from "../comun/impuestos.js";
 import type { ID } from "../comun/ids.js";
 import { renglonesActivos, type EstadoComanda } from "../comanda/reducers.js";
 import { costoRenglon, importeRenglon } from "../comanda/renglon.js";
-import { totalesComanda } from "../comanda/totales.js";
+import { consumoDeSocio, totalesComanda } from "../comanda/totales.js";
 
 /** Ventana de tiempo del reporte, en epoch ms del reloj del dispositivo. */
 export interface Rango {
@@ -206,6 +206,14 @@ export function cuentasCerradasEn(
 
 export interface ResumenVentas {
   cuentas: number;
+  /**
+   * Lo que cubrieron las bolsas de los socios, con impuestos. NO está dentro de
+   * `total` ni de `subtotal`: no fue venta (1.5.6). Su COSTO sí está en
+   * `costo`, porque esos insumos se gastaron igual.
+   */
+  consumo_socios: Centavos;
+  /** Cuántas de esas cuentas llevaron consumo de socio. */
+  cuentas_con_socio: number;
   platillos: number;
   bruto: Centavos;
   descuentos: Centavos;
@@ -235,24 +243,58 @@ export function resumenVentas(comandas: readonly EstadoComanda[]): ResumenVentas
   let costo = CERO;
   let propinas = CERO;
   let platillos = 0;
+  let consumo_socios = CERO;
+  let cuentas_con_socio = 0;
+  let cuentas_solo_socio = 0;
 
   for (const comanda of comandas) {
     const t = totalesComanda(comanda);
-    bruto = sumar(bruto, t.bruto);
-    descuentos = sumar(descuentos, t.descuentos);
-    cortesias = sumar(cortesias, t.cortesias);
-    subtotal = sumar(subtotal, t.subtotal);
-    iva = sumar(iva, t.iva);
-    ieps = sumar(ieps, t.ieps);
-    total = sumar(total, t.total);
     costo = sumar(costo, t.costo);
     propinas = sumar(propinas, t.propina);
     platillos += renglonesActivos(comanda).reduce((n, r) => n + r.cantidad, 0);
+
+    /*
+     * EL CONSUMO DE SOCIO SE DESCUENTA DE LA VENTA (1.5.6, decisión de Gonzalo).
+     *
+     * Se resta EN PROPORCIÓN y no de un solo renglón: la bolsa del socio cubre
+     * un importe con impuestos dentro, así que quitarlo entero del subtotal
+     * dejaría un IVA sin venta que lo sostenga, y el desglose fiscal del día
+     * dejaría de cuadrar. Con la proporción, base e impuestos bajan juntos.
+     *
+     * El COSTO no se toca, y ahí está el fondo del asunto: el platillo salió de
+     * la cocina y sus insumos se gastaron. Ver `consumoDeSocio`.
+     */
+    const delSocio = consumoDeSocio(comanda);
+    const fraccion = t.total > 0 ? Math.min(delSocio / t.total, 1) : 0;
+    if (delSocio > 0) {
+      consumo_socios = sumar(consumo_socios, delSocio);
+      cuentas_con_socio += 1;
+      if (fraccion >= 1) cuentas_solo_socio += 1;
+    }
+
+    const sinSocio = (monto: Centavos) =>
+      fraccion > 0 ? restar(monto, porFraccion(monto, fraccion)) : monto;
+
+    bruto = sumar(bruto, sinSocio(t.bruto));
+    descuentos = sumar(descuentos, sinSocio(t.descuentos));
+    cortesias = sumar(cortesias, sinSocio(t.cortesias));
+    subtotal = sumar(subtotal, sinSocio(t.subtotal));
+    iva = sumar(iva, sinSocio(t.iva));
+    ieps = sumar(ieps, sinSocio(t.ieps));
+    total = sumar(total, sinSocio(t.total));
   }
 
   const cuentas = comandas.length;
+  /*
+   * El ticket promedio se mide sobre las cuentas que DEJARON venta. Una mesa
+   * cubierta entera por un socio suma cero a la venta; contarla en el divisor
+   * haría que el promedio bajara por una cuenta que nunca fue venta.
+   */
+  const cuentasQueVendieron = Math.max(0, cuentas - cuentas_solo_socio);
   return {
     cuentas,
+    consumo_socios,
+    cuentas_con_socio,
     platillos,
     bruto,
     descuentos,
@@ -265,7 +307,8 @@ export function resumenVentas(comandas: readonly EstadoComanda[]): ResumenVentas
     propinas,
     margen: restar(subtotal, costo),
     foodCost: subtotal > 0 ? costo / subtotal : 0,
-    ticketPromedio: cuentas > 0 ? (Math.round(total / cuentas) as Centavos) : CERO,
+    ticketPromedio:
+      cuentasQueVendieron > 0 ? (Math.round(total / cuentasQueVendieron) as Centavos) : CERO,
   };
 }
 

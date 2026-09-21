@@ -30,6 +30,13 @@ import { createClient, type RealtimeChannel, type SupabaseClient } from "@supaba
 import WebSocket from "ws";
 import type { Aviso } from "./avisos.js";
 import type { EnlaceConMotrae, MensajeDelComensal, OpcionesNube } from "./enlace-motrae.js";
+import type {
+  CambiosSolicitud,
+  ClaveDelLocal,
+  FilaSolicitud,
+  FilaTicketFacturable,
+  NubeDeAutofactura,
+} from "./fiscal/autofactura.js";
 
 /** El buzón de cada Hub en Supabase Auth. No recibe correo; es un identificador. */
 const DOMINIO_HUBS = "hubs.motrae.mx";
@@ -138,7 +145,7 @@ export function pareceNubeSupabase(url: string): boolean {
   return /^https?:\/\//i.test(url.trim());
 }
 
-export class EnlaceSupabase implements EnlaceConMotrae {
+export class EnlaceSupabase implements EnlaceConMotrae, NubeDeAutofactura {
   private cliente: SupabaseClient | null = null;
   private canal: RealtimeChannel | null = null;
   private intentos = 0;
@@ -267,6 +274,15 @@ export class EnlaceSupabase implements EnlaceConMotrae {
         { event: "*", schema: "public", table: "secretos_pendientes", filter: suyo },
         (carga) => void this.atenderSecreto(carga.new as Record<string, unknown>),
       )
+      /*
+       * El portal de autofactura (1.5.6). Solo INSERT: cada solicitud es una
+       * fila nueva, y las actualizaciones las hace este mismo Hub.
+       */
+      .on(
+        "postgres_changes",
+        { event: "INSERT", schema: "public", table: "solicitudes_de_factura", filter: suyo },
+        (carga) => this.atenderSolicitudDeFactura(carga.new as Record<string, unknown>),
+      )
       .subscribe((estado) => {
         if (estado === "CHANNEL_ERROR" || estado === "TIMED_OUT") {
           this.caer(`Se perdió la escucha de la nube (${estado})`);
@@ -314,6 +330,113 @@ export class EnlaceSupabase implements EnlaceConMotrae {
       this.opciones.registrar("info", `${mensajes.length} mensaje(s) llegaron con el local apagado.`);
       for (const mensaje of mensajes) await this.atenderMensaje(mensaje as Record<string, unknown>);
     }
+  }
+
+  private atenderSolicitudDeFactura(fila: Record<string, unknown>): void {
+    if (typeof fila?.id !== "string" || typeof fila.orden_id !== "string") return;
+    this.opciones.alLlegarSolicitudDeFactura?.({ id: fila.id, orden_id: fila.orden_id, sobre: fila.sobre });
+  }
+
+  // --- El portal de autofactura (1.5.6) ----------------------------------------------------
+  //
+  // Lo que `AutofacturaDelHub` necesita de la nube. Todo devuelve en vez de
+  // lanzar: sin red, la siguiente pasada lo vuelve a intentar. El sucursal_id
+  // que se escribe lo comprueba la base contra el token (RLS): no hay forma de
+  // publicar a nombre de otro local.
+
+  async miClave(): Promise<ClaveDelLocal | null> {
+    if (!this.cliente || !this.dentro) throw new Error("Sin enlace con la nube");
+    const { data, error } = await this.cliente
+      .from("claves_de_autofactura")
+      .select("clave, portal_url")
+      .maybeSingle();
+    if (error) throw new Error(error.message);
+    if (!data) return null;
+    const fila = data as { clave?: unknown; portal_url?: unknown };
+    return typeof fila.clave === "string" && typeof fila.portal_url === "string"
+      ? { clave: fila.clave, portal_url: fila.portal_url }
+      : null;
+  }
+
+  async publicarTickets(filas: FilaTicketFacturable[]): Promise<boolean> {
+    if (!this.cliente || !this.dentro || filas.length === 0) return false;
+    /*
+     * Sin `estado`: la columna tiene su valor por omisión y volver a publicar
+     * un ticket (la cuenta se reabrió) no puede devolver a «disponible» uno que
+     * el comensal ya pidió.
+     */
+    const aFila = (f: FilaTicketFacturable) => ({
+      sucursal_id: this.opciones.sucursal_id,
+      orden_id: f.orden_id,
+      folio: f.folio,
+      total: f.total,
+      cerrada_ts: new Date(f.cerrada_ts).toISOString(),
+      codigo: f.codigo,
+      vence_ts: new Date(f.vence_ts).toISOString(),
+    });
+    const tabla = () => this.cliente!.from("tickets_facturables");
+    const { error } = await tabla().upsert(filas.map(aFila), { onConflict: "sucursal_id,orden_id" });
+    if (!error) return true;
+
+    /*
+     * Un folio repetido (23505) es de uno solo: el folio son los últimos ocho
+     * caracteres de la orden y dos pueden coincidir. Ese ticket se queda sin
+     * portal —se factura en la caja—, pero no puede bloquear a los demás. Se
+     * reintenta uno por uno; cualquier otro error es de red y se deja para la
+     * siguiente pasada.
+     */
+    if (error.code !== "23505") {
+      this.opciones.registrar("aviso", `No se pudieron publicar los tickets facturables: ${error.message}`);
+      return false;
+    }
+    for (const f of filas) {
+      const r = await tabla().upsert([aFila(f)], { onConflict: "sucursal_id,orden_id" });
+      if (r.error && r.error.code !== "23505") return false;
+      if (r.error) {
+        this.opciones.registrar("aviso", `El ticket ${f.folio} no se puede ofrecer en el portal: su folio choca con otro.`);
+      }
+    }
+    return true;
+  }
+
+  async marcarFacturados(ordenes: string[]): Promise<boolean> {
+    if (!this.cliente || !this.dentro || ordenes.length === 0) return false;
+    const { error } = await this.cliente
+      .from("tickets_facturables")
+      .update({ estado: "facturado" })
+      .in("orden_id", ordenes)
+      .eq("estado", "disponible");
+    return !error;
+  }
+
+  async purgarVencidos(antesDe: number): Promise<void> {
+    if (!this.cliente || !this.dentro) return;
+    await this.cliente.from("tickets_facturables").delete().lt("vence_ts", new Date(antesDe).toISOString());
+  }
+
+  async solicitudesPendientes(): Promise<FilaSolicitud[]> {
+    if (!this.cliente || !this.dentro) return [];
+    const { data, error } = await this.cliente
+      .from("solicitudes_de_factura")
+      .select("id, orden_id, sobre")
+      .is("resultado", null)
+      .order("creado_ts", { ascending: true })
+      .limit(50);
+    if (error) return [];
+    return (data ?? []) as FilaSolicitud[];
+  }
+
+  async marcarSolicitud(id: string, cambios: CambiosSolicitud): Promise<boolean> {
+    if (!this.cliente || !this.dentro) return false;
+    const fecha = (ts: number | undefined) => (ts === undefined ? undefined : new Date(ts).toISOString());
+    const fila: Record<string, unknown> = {};
+    if (cambios.entregado_ts !== undefined) fila.entregado_ts = fecha(cambios.entregado_ts);
+    if (cambios.resuelto_ts !== undefined) fila.resuelto_ts = fecha(cambios.resuelto_ts);
+    if (cambios.resultado) fila.resultado = cambios.resultado;
+    if (cambios.uuid_cfdi) fila.uuid_cfdi = cambios.uuid_cfdi.slice(0, 36);
+    if (cambios.error) fila.error = cambios.error.slice(0, 1000);
+    const { error } = await this.cliente.from("solicitudes_de_factura").update(fila).eq("id", id);
+    return !error;
   }
 
   private async atenderMensaje(fila: Record<string, unknown>): Promise<void> {

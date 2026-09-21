@@ -8,17 +8,31 @@
  */
 import { describe, expect, it } from "vitest";
 import {
+  ARRANQUES_DE_CORREO,
   CATALOGO_CORREOS,
+  EJEMPLOS_DE_CORREO,
+  TOPES_CORREO,
   armarCorreo,
+  catalogoDeCorreos,
   configuracionVacia,
   correoPlausible,
   definicionCorreo,
+  esEnlaceSeguro,
+  esTipoPropio,
+  estaEditado,
   estadosDeCorreo,
   esCuentaGmail,
+  limpiarBorrador,
+  marcadoresDe,
+  pideMensaje,
+  plantillaDe,
   problemasDeRemitente,
+  problemasDelBorrador,
+  propiosDe,
   puedeMandarCorreo,
   remitenteGmail,
   type ConfiguracionCorreo,
+  type CorreoPropio,
   type EventoCorreo,
 } from "../clientes/correo.js";
 
@@ -461,5 +475,449 @@ describe("el estado de un correo pedido", () => {
       pedido("s1", 100),
     ]);
     expect(e.get("s1")?.estado).toBe("enviado");
+  });
+});
+
+// --- Los correos que escribe el restaurante (1.5.6) -----------------------------------------
+
+/**
+ * LOS SEIS SE PUEDEN EDITAR, Y SE PUEDEN CREAR MÁS.
+ *
+ * Gonzalo: «que los restauranteros puedan escribir ellos mismos cómo quieren
+ * que sea ese tipo de correo», y que puedan crear los suyos, que nacen ya
+ * redactados. Lo que el restaurante escribe son PALABRAS dentro del diseño de la
+ * casa: se escapan como lo que escribe un comensal, y la baja la sigue poniendo
+ * `armarCorreo`, no la plantilla.
+ */
+describe("los seis de fábrica, editados por el restaurante", () => {
+  const AVISOS = { ...CONFIG, activos: { ...CONFIG.activos, gracias: true } };
+
+  /*
+   * EL EJEMPLO ES EL CORREO DE SIEMPRE. Un restaurante que nunca toca «Editar»
+   * tiene que seguir mandando exactamente lo que mandaba el código de antes, con
+   * las mismas negritas.
+   */
+  it("sin editar, sale el mismo correo que antes de la 1.5.6", () => {
+    const c = armarCorreo("reserva_confirmada", "a@b.mx", CONFIG, {
+      nombre: "Familia Ramírez",
+      cuando: "viernes 24 de julio a las 21:00",
+      personas: 4,
+    });
+    expect(c.html).toContain('<h1 style="font-size:20px;margin:0 0 16px">Rodizio</h1>');
+    expect(c.html).toContain("Su reserva en <b>Rodizio</b> quedó confirmada.");
+    expect(c.html).toContain("<b>viernes 24 de julio a las 21:00</b>");
+    expect(c.html).toContain("Para 4 personas.");
+    expect(c.html).toContain("Si necesita cambiarla o cancelarla");
+    expect(estaEditado("reserva_confirmada", CONFIG)).toBe(false);
+  });
+
+  it("«1 persona», no «1 personas»", () => {
+    const c = armarCorreo("reserva_confirmada", "a@b.mx", CONFIG, { cuando: "hoy", personas: 1 });
+    expect(c.html).toContain("Para 1 persona.");
+  });
+
+  it("una plantilla editada es la que sale, en el HTML y en el texto", () => {
+    const editada: ConfiguracionCorreo = {
+      ...AVISOS,
+      asuntos: { gracias: "Gracias, {{nombre}}" },
+      plantillas: {
+        gracias: {
+          titulo: "¡Qué gusto, {{nombre}}!",
+          texto: "Fue un placer tenerlo en {{local}}.\n\nLa próxima, el café va por nuestra cuenta.",
+        },
+      },
+    };
+    const c = armarCorreo("gracias", "a@b.mx", editada, { nombre: "Ana" });
+
+    expect(c.asunto).toBe("Gracias, Ana");
+    expect(c.html).toContain(">¡Qué gusto, Ana!</h1>");
+    expect(c.html).toContain("Fue un placer tenerlo en <b>Rodizio</b>.");
+    expect(c.html).toContain("La próxima, el café va por nuestra cuenta.");
+    // Dos párrafos, no uno: la línea en blanco separa.
+    expect(c.html.match(/line-height:1\.6/g)).toHaveLength(2);
+    expect(c.html).not.toContain("Lo esperamos pronto");
+    expect(c.texto).toContain("Fue un placer tenerlo en Rodizio.");
+    // Las marcas internas de las negritas no se cuelan en la versión de texto.
+    expect(c.texto).not.toMatch(/[\u0001-\u0003]/);
+    expect(estaEditado("gracias", editada)).toBe(true);
+  });
+
+  it("lo que no se editó sigue saliendo del ejemplo, campo por campo", () => {
+    const soloTitulo: ConfiguracionCorreo = {
+      ...AVISOS,
+      plantillas: { gracias: { titulo: "Gracias de parte de todo {{local}}" } },
+    };
+    const p = plantillaDe("gracias", soloTitulo)!;
+    expect(p.titulo).toBe("Gracias de parte de todo {{local}}");
+    expect(p.texto).toBe(EJEMPLOS_DE_CORREO.gracias.texto);
+    expect(p.asunto).toBe(definicionCorreo("gracias")!.asuntoPorDefecto);
+  });
+
+  /*
+   * «VOLVER AL EJEMPLO» ES BORRAR LO SUYO. Un campo vacío no manda un correo
+   * vacío: vuelve el ejemplo.
+   */
+  it("volver al ejemplo: sin lo suyo, o con campos vacíos, sale el de fábrica", () => {
+    const vacia: ConfiguracionCorreo = {
+      ...AVISOS,
+      asuntos: { gracias: "  " },
+      plantillas: { gracias: { titulo: "", texto: "   ", boton: "" } },
+    };
+    const c = armarCorreo("gracias", "a@b.mx", vacia, { nombre: "Ana" });
+    expect(c.asunto).toBe("Gracias por su visita a Rodizio");
+    expect(c.html).toContain("Gracias por venir a <b>Rodizio</b>. Lo esperamos pronto.");
+    expect(estaEditado("gracias", vacia)).toBe(false);
+  });
+
+  it("los marcadores se sustituyen por los datos de verdad", () => {
+    const editada: ConfiguracionCorreo = {
+      ...CONFIG,
+      asuntos: { reserva_confirmada: "{{nombre}}, lo esperamos {{cuando}}" },
+      plantillas: {
+        reserva_confirmada: {
+          texto: "{{nombre}}: su mesa para {{personas}} en {{local}} está lista para el {{cuando}}.",
+        },
+      },
+    };
+    const c = armarCorreo("reserva_confirmada", "a@b.mx", editada, {
+      nombre: "Ana",
+      cuando: "viernes a las 21:00",
+      personas: 4,
+    });
+    expect(c.asunto).toBe("Ana, lo esperamos viernes a las 21:00");
+    expect(c.html).toContain(
+      "Ana: su mesa para 4 personas en <b>Rodizio</b> está lista para el <b>viernes a las 21:00</b>.",
+    );
+    expect(c.html).not.toContain("{{");
+    expect(c.texto).not.toContain("{{");
+  });
+
+  it("un dato que no viene se lleva su renglón; el nombre, solo su puntuación", () => {
+    const editada: ConfiguracionCorreo = {
+      ...CONFIG,
+      asuntos: { reserva_confirmada: "¡Nos vemos en {{local}}, {{nombre}}!" },
+      plantillas: {
+        reserva_confirmada: {
+          texto: "Hola {{nombre}}, qué gusto.\nPara {{personas}}.\n{{cuando}}\nLo esperamos.",
+        },
+      },
+    };
+    const c = armarCorreo("reserva_confirmada", "a@b.mx", editada, {});
+    expect(c.asunto).toBe("¡Nos vemos en Rodizio!");
+    expect(c.html).toContain("Hola, qué gusto.<br>Lo esperamos.");
+    expect(c.html).not.toContain("Para .");
+  });
+
+  /*
+   * LO QUE ESCRIBE EL RESTAURANTE SE ESCAPA IGUAL QUE LO DEL COMENSAL. Una
+   * tableta manipulada, o un texto pegado de una página web, no pueden meter
+   * etiquetas en el correo que sale con el nombre del restaurante.
+   */
+  it("el texto malicioso del restaurante sale escapado, en todos los campos", () => {
+    const maliciosa: ConfiguracionCorreo = {
+      ...CONFIG,
+      enlace_encuesta: "https://g.page/r/rodizio/review",
+      activos: { encuesta: true },
+      asuntos: { encuesta: "Hola\r\nBcc: espia@ejemplo.com" },
+      plantillas: {
+        encuesta: {
+          titulo: '<img src=x onerror="alert(1)">',
+          texto: '<script>alert("x")</script>\n\n<a href="javascript:alert(1)">aquí</a>',
+          boton: '"><script>alert(2)</script>',
+        },
+      },
+    };
+    const c = armarCorreo("encuesta", "a@b.mx", maliciosa, { nombre: "Ana" });
+
+    expect(c.html).not.toMatch(/<script|<img|<a href="javascript/i);
+    expect(c.html).toContain("&lt;script&gt;");
+    expect(c.html).toContain("&lt;img src=x onerror=&quot;alert(1)&quot;&gt;");
+    expect(c.asunto).not.toMatch(/[\r\n]/);
+  });
+
+  it("un enlace de datos que no es web ya no se vuelve botón", () => {
+    const c = armarCorreo("gracias", "a@b.mx", AVISOS, { enlace: "javascript:alert(1)" });
+    expect(c.html).not.toContain("javascript:");
+  });
+
+  it("el botón de la encuesta dice lo que escribió el restaurante", () => {
+    const c = armarCorreo(
+      "encuesta",
+      "a@b.mx",
+      {
+        ...CONFIG,
+        enlace_encuesta: "https://g.page/r/rodizio/review",
+        plantillas: { encuesta: { boton: "Calificarnos en Google" } },
+      },
+      {},
+    );
+    expect(c.html).toContain(">Calificarnos en Google</a>");
+    expect(c.texto).toContain("Calificarnos en Google: https://g.page/r/rodizio/review");
+  });
+
+  /*
+   * El cupón de fábrica es solo `{{mensaje}}`: pide mensaje al mandarlo, como
+   * siempre. Si el restaurante lo deja escrito, ya no.
+   */
+  it("el cupón pide mensaje mientras su texto lo lleve", () => {
+    expect(pideMensaje("cupon", CONFIG)).toBe(true);
+    expect(pideMensaje("gracias", CONFIG)).toBe(false);
+    const escrito = { ...CONFIG, plantillas: { cupon: { texto: "2×1 todos los martes." } } };
+    expect(pideMensaje("cupon", escrito)).toBe(false);
+    const c = armarCorreo("cupon", "a@b.mx", escrito, {});
+    expect(c.html).toContain("2×1 todos los martes.");
+    expect(c.html).toContain("responda <b>BAJA</b>");
+  });
+
+  it("el mensaje de varios renglones respeta sus párrafos", () => {
+    const c = armarCorreo("cupon", "a@b.mx", CONFIG, { mensaje: "2×1 en pizzas.\n\nSolo el martes." });
+    expect(c.html.match(/line-height:1\.6/g)).toHaveLength(2);
+  });
+});
+
+describe("los correos nuevos del restaurante", () => {
+  const EVENTO: CorreoPropio = {
+    tipo: "propio:evento-1",
+    nombre: "Noche italiana",
+    asunto: "Una noche italiana en {{local}}",
+    titulo: "Lo invitamos, {{nombre}}",
+    texto: "El viernes preparamos una noche italiana en {{local}}.\n\nLo esperamos.",
+    boton: "Apartar mi lugar",
+    enlace: "https://rodizio.mx/noche-italiana",
+    activo: true,
+  };
+  const CON_EVENTO: ConfiguracionCorreo = { ...CONFIG, propios: [EVENTO] };
+
+  /* LA DECISIÓN DE GONZALO: los nuevos son siempre publicidad. */
+  it("son publicidad siempre, hasta sin la configuración a mano", () => {
+    expect(esTipoPropio("propio:evento-1")).toBe(true);
+    expect(esTipoPropio("propio:")).toBe(false);
+    expect(esTipoPropio("cupon")).toBe(false);
+    expect(definicionCorreo("propio:evento-1")!.clase).toBe("marketing");
+    expect(definicionCorreo("propio:evento-1", CON_EVENTO)!.etiqueta).toBe("Noche italiana");
+    expect(definicionCorreo("propio:borrado", CON_EVENTO)!.clase).toBe("marketing");
+  });
+
+  it("aparecen en el catálogo detrás de los seis", () => {
+    const catalogo = catalogoDeCorreos(CON_EVENTO);
+    expect(catalogo).toHaveLength(7);
+    expect(catalogo[6]!.tipo).toBe("propio:evento-1");
+    expect(catalogoDeCorreos(CONFIG)).toHaveLength(6);
+  });
+
+  it("solo llegan a quien aceptó promociones", () => {
+    const sin = puedeMandarCorreo("propio:evento-1", "a@b.mx", CON_EVENTO, false);
+    expect(sin.puede).toBe(false);
+    if (!sin.puede) expect(sin.razon).toContain("no aceptó recibir promociones");
+    expect(puedeMandarCorreo("propio:evento-1", "a@b.mx", CON_EVENTO, true).puede).toBe(true);
+  });
+
+  it("apagado no sale, y borrado se rechaza diciendo que ya no existe", () => {
+    const apagado = { ...CONFIG, propios: [{ ...EVENTO, activo: false }] };
+    const v1 = puedeMandarCorreo("propio:evento-1", "a@b.mx", apagado, true);
+    expect(v1.puede).toBe(false);
+    if (!v1.puede) expect(v1.razon).toContain("apagado");
+
+    const v2 = puedeMandarCorreo("propio:evento-1", "a@b.mx", CONFIG, true);
+    expect(v2.puede).toBe(false);
+    if (!v2.puede) expect(v2.razon).toContain("ya no existe");
+  });
+
+  it("se arma con su texto, su botón y SIEMPRE su baja", () => {
+    const c = armarCorreo("propio:evento-1", "a@b.mx", CON_EVENTO, { nombre: "Ana" });
+    expect(c.asunto).toBe("Una noche italiana en Rodizio");
+    expect(c.html).toContain(">Lo invitamos, Ana</h1>");
+    expect(c.html).toContain("El viernes preparamos una noche italiana en <b>Rodizio</b>.");
+    expect(c.html).toContain('href="https://rodizio.mx/noche-italiana"');
+    expect(c.html).toContain(">Apartar mi lugar</a>");
+    expect(c.html).toContain("responda <b>BAJA</b>");
+    expect(c.texto).toContain("Para no recibir más, responda BAJA");
+  });
+
+  it("ni escribiendo sobre la baja se quita: el pie va después de todo lo suyo", () => {
+    const tramposo = {
+      ...CONFIG,
+      propios: [{ ...EVENTO, texto: 'Oferta.\n\n<p style="display:none">' }],
+    };
+    const c = armarCorreo("propio:evento-1", "a@b.mx", tramposo, {});
+    expect(c.html).not.toContain('<p style="display:none">');
+    expect(c.html.indexOf("responda <b>BAJA</b>")).toBeGreaterThan(c.html.indexOf("Oferta."));
+  });
+
+  /*
+   * SOLO `https://`. Se comprueba al guardar y otra vez al armar: una
+   * configuración que llegue por otro camino no pone un `javascript:` en un
+   * botón con el nombre del restaurante encima.
+   */
+  it("el enlace del botón solo puede ser https", () => {
+    expect(esEnlaceSeguro("https://rodizio.mx/menu")).toBe(true);
+    for (const malo of [
+      "http://rodizio.mx/menu",
+      "javascript:alert(1)",
+      "data:text/html,hola",
+      "rodizio.mx/menu",
+      "https://banco.mx@otro.sitio/",
+      "https://localhost/",
+      "https://rodizio.mx/ con espacio",
+      `https://rodizio.mx/${"x".repeat(TOPES_CORREO.enlace)}`,
+    ]) {
+      expect(esEnlaceSeguro(malo), malo).toBe(false);
+    }
+
+    const conJs = { ...CONFIG, propios: [{ ...EVENTO, enlace: "javascript:alert(1)" }] };
+    const c = armarCorreo("propio:evento-1", "a@b.mx", conJs, {});
+    expect(c.html).not.toContain("javascript:");
+    expect(c.html).not.toContain("Apartar mi lugar");
+  });
+
+  it("con {{mensaje}}, lo que se escribe al mandarlo va en su lugar", () => {
+    const delDia = {
+      ...CONFIG,
+      propios: [{ ...EVENTO, texto: "{{mensaje}}\n\nVálido solo hoy." }],
+    };
+    expect(pideMensaje("propio:evento-1", delDia)).toBe(true);
+    const c = armarCorreo("propio:evento-1", "a@b.mx", delDia, { mensaje: "Lasaña al 2×1" });
+    expect(c.html).toContain("Lasaña al 2×1");
+    expect(c.html).toContain("Válido solo hoy.");
+  });
+
+  /*
+   * Un catálogo inflado o mal formado —una tableta vieja, un respaldo editado a
+   * mano— no puede colar más correos de los que caben ni tumbar la pantalla.
+   */
+  it("la lista se sanea: sin basura, sin repetidos y hasta el tope", () => {
+    const muchos = Array.from({ length: 30 }, (_, i) => ({ ...EVENTO, tipo: `propio:p${i}` as const }));
+    const sucia = {
+      ...CONFIG,
+      propios: [
+        null,
+        { tipo: "cupon", nombre: "x", asunto: "x", texto: "x" },
+        { ...EVENTO, texto: 5 },
+        EVENTO,
+        EVENTO,
+        ...muchos,
+      ] as unknown as CorreoPropio[],
+    };
+    const sanos = propiosDe(sucia);
+    expect(sanos).toHaveLength(TOPES_CORREO.propios);
+    expect(sanos[0]!.tipo).toBe("propio:evento-1");
+    expect(new Set(sanos.map((p) => p.tipo)).size).toBe(sanos.length);
+  });
+
+  it("un texto enorme que llegue por otro camino se corta al armar", () => {
+    const enorme = { ...CONFIG, propios: [{ ...EVENTO, texto: "a".repeat(50_000) }] };
+    const c = armarCorreo("propio:evento-1", "a@b.mx", enorme, {});
+    expect(c.html.length).toBeLessThan(TOPES_CORREO.texto + 3_000);
+  });
+});
+
+describe("lo que no deja guardar el editor", () => {
+  const bien = { asunto: "Gracias", titulo: "{{local}}", texto: "Gracias por venir, {{nombre}}." };
+
+  it("un correo bien escrito no tiene problemas", () => {
+    expect(problemasDelBorrador("gracias", bien)).toEqual([]);
+  });
+
+  it("falta el asunto o el texto: se dice, marcado como vacío", () => {
+    const p = problemasDelBorrador("gracias", { asunto: " ", titulo: "", texto: "" });
+    expect(p.map((x) => x.campo)).toEqual(["asunto", "texto"]);
+    expect(p.every((x) => x.vacio)).toBe(true);
+  });
+
+  it("un marcador que no aplica, uno inventado y el mensaje fuera del texto", () => {
+    const p = problemasDelBorrador("gracias", {
+      asunto: "Su reserva {{cuando}}",
+      titulo: "{{nombre_completo}}",
+      texto: "{{mensaje}}",
+    });
+    expect(p.find((x) => x.campo === "asunto")?.mensaje).toContain("no aplica");
+    expect(p.find((x) => x.campo === "titulo")?.mensaje).toContain("no es un dato");
+    // `{{mensaje}}` no aplica a «gracias», que no se escribe al mandarlo.
+    expect(p.find((x) => x.campo === "texto")?.mensaje).toContain("no aplica");
+
+    const enAsunto = problemasDelBorrador("cupon", { asunto: "{{mensaje}}", titulo: "", texto: "{{mensaje}}" });
+    expect(enAsunto).toHaveLength(1);
+    expect(enAsunto[0]!.mensaje).toContain("solo puede ir en el texto");
+  });
+
+  it("los marcadores que ofrece cada correo son los que puede llenar", () => {
+    expect(marcadoresDe("gracias").map((m) => m.clave)).toEqual(["nombre", "local"]);
+    expect(marcadoresDe("reserva_recordatorio").map((m) => m.clave)).toEqual([
+      "nombre",
+      "local",
+      "cuando",
+      "personas",
+    ]);
+    expect(marcadoresDe("propio:x").map((m) => m.clave)).toContain("mensaje");
+  });
+
+  it("demasiado largo no se guarda", () => {
+    const p = problemasDelBorrador("gracias", { ...bien, texto: "a".repeat(TOPES_CORREO.texto + 1) });
+    expect(p[0]!.mensaje).toContain("demasiado largo");
+  });
+
+  it("un propio necesita nombre, y su enlace tiene que ser https", () => {
+    const p = problemasDelBorrador("propio:x", {
+      ...bien,
+      nombre: "",
+      boton: "Ver",
+      enlace: "http://rodizio.mx",
+    });
+    expect(p.map((x) => x.campo)).toEqual(["nombre", "enlace"]);
+    expect(p[1]!.mensaje).toContain("https://");
+  });
+
+  it("un botón sin enlace se avisa", () => {
+    const p = problemasDelBorrador("propio:x", { ...bien, nombre: "X", boton: "Ver el menú", enlace: "" });
+    expect(p[0]!.mensaje).toContain("necesita a dónde llevar");
+  });
+
+  it("limpia lo que se pega de otro programa", () => {
+    const l = limpiarBorrador({
+      nombre: "  Evento \t",
+      asunto: "Hola\r\nmundo",
+      titulo: " x ",
+      texto: "  uno\r\n\r\ndos\u0007  ",
+    });
+    expect(l).toEqual({ nombre: "Evento", asunto: "Hola mundo", titulo: "x", texto: "uno\n\ndos" });
+  });
+});
+
+/**
+ * LOS CORREOS NUEVOS NACEN ESCRITOS. Cada arranque es un correo completo; lo
+ * único que no dejan guardar son los huecos entre corchetes, que es lo que solo
+ * sabe el restaurante.
+ */
+describe("los arranques de un correo nuevo", () => {
+  it("están los que pidió el plan, y uno en blanco", () => {
+    const ids = ARRANQUES_DE_CORREO.map((a) => a.id);
+    expect(ids).toEqual(["evento", "temporada", "aniversario", "promocion-del-dia", "en-blanco"]);
+  });
+
+  it("solo les falta lo que va entre corchetes, y el enlace si traen botón", () => {
+    for (const a of ARRANQUES_DE_CORREO.filter((x) => x.id !== "en-blanco")) {
+      const problemas = problemasDelBorrador("propio:nuevo", a.borrador);
+      for (const p of problemas) {
+        expect(p.mensaje, `${a.id}: ${p.mensaje}`).toMatch(/entre corchetes|necesita a dónde llevar/);
+      }
+    }
+  });
+
+  it("con los huecos llenos, se guardan", () => {
+    const evento = ARRANQUES_DE_CORREO.find((a) => a.id === "evento")!;
+    const lleno = {
+      ...evento.borrador,
+      texto: evento.borrador.texto
+        .replace("[día]", "viernes 3 de octubre")
+        .replace("[hora]", "las 20:00")
+        .replace("[qué habrá esa noche]", "música en vivo"),
+    };
+    expect(problemasDelBorrador("propio:nuevo", lleno)).toEqual([]);
+  });
+
+  it("la promoción del día pide su mensaje al mandarla", () => {
+    const promo = ARRANQUES_DE_CORREO.find((a) => a.id === "promocion-del-dia")!;
+    expect(problemasDelBorrador("propio:nuevo", promo.borrador)).toEqual([]);
+    expect(promo.borrador.texto).toContain("{{mensaje}}");
   });
 });

@@ -180,6 +180,42 @@ export async function derivarSecretoPortal(claveLocal: string): Promise<string> 
 }
 
 /**
+ * El secreto con que se firma el código `t` del QR de autofactura (1.5.6).
+ *
+ * Mismo patrón que `derivarSecretoPortal`, con su propia etiqueta HKDF: el
+ * código de la factura no abre la encuesta ni al revés, y rotar uno no obliga a
+ * rotar el otro. Lo derivan igual el Hub y cada terminal, así la caja imprime el
+ * QR con el mismo código que el Hub publica en la nube, aunque estén sin red
+ * entre ellos.
+ */
+export async function derivarSecretoAutofactura(claveLocal: string): Promise<string> {
+  if (!claveValida(claveLocal)) {
+    throw new Error("La clave del local no tiene la forma esperada");
+  }
+
+  const material = await crypto.subtle.importKey(
+    "raw",
+    deBase64Url(claveLocal) as BufferSource,
+    "HKDF",
+    false,
+    ["deriveBits"],
+  );
+
+  const bits = await crypto.subtle.deriveBits(
+    {
+      name: "HKDF",
+      hash: "SHA-256",
+      salt: new Uint8Array(0),
+      info: new TextEncoder().encode("motrest:autofactura:codigo-de-ticket:v1"),
+    },
+    material,
+    256,
+  );
+
+  return aBase64Url(new Uint8Array(bits));
+}
+
+/**
  * El secreto con que una terminal se identifica para subir fotos al Hub.
  *
  * POR QUÉ NO SE MANDA LA CLAVE DEL LOCAL Y YA

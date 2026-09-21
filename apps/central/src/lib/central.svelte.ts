@@ -8,6 +8,8 @@
  */
 import { invoke, isTauri } from "@tauri-apps/api/core";
 import {
+  FORMA_CLAVE_AUTOFACTURA,
+  proponerClaveDeAutofactura,
   abrirCofre,
   adopcionDeVersion,
   anotarEnHistorial,
@@ -155,6 +157,8 @@ export interface Secretos {
    * que exista la URL.
    */
   nube_url?: string;
+  /** La dirección del portal de autofactura (1.5.6). No es secreta. */
+  portal_autofactura?: string;
   /** Cuándo se sacó el último respaldo portátil de las llaves. */
   ultimo_respaldo_ts?: number;
   /**
@@ -191,6 +195,13 @@ interface SecretosProtegidos {
    */
   nube_url?: string;
   nube_servicio?: string;
+  /**
+   * La dirección del portal de autofactura (1.5.6): hoy la gratuita de Vercel
+   * (decisión de Gonzalo), mañana quizá un dominio propio. Va aquí por ser
+   * ajuste de Central, no porque sea secreta: se escribe en la fila de cada
+   * local en la nube y de ahí la imprime cada ticket.
+   */
+  portal_autofactura?: string;
   /**
    * La llave de USUARIO de FacturAPI (`sk_user_…`), la de la cuenta de MOTRAE.
    *
@@ -327,6 +338,7 @@ function vistaDe(secretos: SecretosProtegidos): Secretos {
     ...(secretos.soporte ? { soporte: secretos.soporte } : {}),
     ...(secretos.soporte_fijado_ts ? { soporte_fijado_ts: secretos.soporte_fijado_ts } : {}),
     ...(secretos.nube_url ? { nube_url: secretos.nube_url } : {}),
+    ...(secretos.portal_autofactura ? { portal_autofactura: secretos.portal_autofactura } : {}),
     ...(secretos.ultimo_respaldo_ts ? { ultimo_respaldo_ts: secretos.ultimo_respaldo_ts } : {}),
     ...(secretos.facturapi_usuario
       ? { facturapi: { termina_en: terminacion(secretos.facturapi_usuario) } }
@@ -420,6 +432,7 @@ function decodificarSecretos(texto: string): SecretosProtegidos | null {
       (valor.publicacion !== undefined && !esPar(valor.publicacion)) ||
       (valor.nube_url !== undefined && typeof valor.nube_url !== "string") ||
       (valor.nube_servicio !== undefined && typeof valor.nube_servicio !== "string") ||
+      (valor.portal_autofactura !== undefined && typeof valor.portal_autofactura !== "string") ||
       (valor.facturapi_usuario !== undefined && typeof valor.facturapi_usuario !== "string") ||
       (valor.responsables !== undefined && !esResponsablesProtegidos(valor.responsables))) {
       return null;
@@ -2991,6 +3004,142 @@ export class StoreCentral {
       return { ok: true };
     } catch {
       return { ok: false, error: "No se pudo leer el archivo" };
+    }
+  }
+
+  // --- El portal de autofactura (1.5.6) ------------------------------------------------
+  //
+  // Encender el portal de un restaurante es darle una CLAVE en la nube
+  // (`claves_de_autofactura`): el Hub la lee, publica sus tickets y lo anuncia a
+  // sus cajas, que imprimen el QR. Apagarlo es quitársela. Decisión de Gonzalo:
+  // la clave se propone sola a partir del nombre y él la cambia aquí.
+
+  /** Las claves de todos los locales, por sucursal. `null` = sin leer todavía. */
+  clavesDeAutofactura = $state<Record<string, { clave: string; portal_url: string }> | null>(null);
+  errorClaves = $state("");
+
+  private nube(): { url: string; servicio: string } | null {
+    const url = this.protegidos.nube_url?.trim().replace(/[/]+$/, "") ?? "";
+    const servicio = this.protegidos.nube_servicio ?? "";
+    return url && servicio ? { url, servicio } : null;
+  }
+
+  async traerClavesDeAutofactura(): Promise<Resultado> {
+    const nube = this.nube();
+    if (!nube) return { ok: false, error: "No hay nube configurada (ver Llaves)" };
+    try {
+      const r = await peticionNube(
+        nube.url,
+        nube.servicio,
+        "/rest/v1/claves_de_autofactura?select=clave,sucursal_id,portal_url",
+      );
+      if (r.estado >= 300) {
+        this.errorClaves = r.estado === 404 ? "La nube todavía no tiene el portal de autofactura." : `La nube respondió ${r.estado}`;
+        return { ok: false, error: this.errorClaves };
+      }
+      const filas = JSON.parse(r.cuerpo) as { clave?: unknown; sucursal_id?: unknown; portal_url?: unknown }[];
+      const claves: Record<string, { clave: string; portal_url: string }> = {};
+      for (const f of Array.isArray(filas) ? filas : []) {
+        if (typeof f.sucursal_id === "string" && typeof f.clave === "string" && typeof f.portal_url === "string") {
+          claves[f.sucursal_id] = { clave: f.clave, portal_url: f.portal_url };
+        }
+      }
+      this.clavesDeAutofactura = claves;
+      this.errorClaves = "";
+      return { ok: true };
+    } catch (causa) {
+      this.errorClaves = `No se pudo hablar con la nube: ${String(causa)}`;
+      return { ok: false, error: this.errorClaves };
+    }
+  }
+
+  /** La clave que se le propone a un local: la palabra que lo distingue, sin repetir. */
+  proponerClave(sucursalId: string): string {
+    const cliente = this.clientes.find((c) => c.id === sucursalId);
+    const ocupadas = Object.entries(this.clavesDeAutofactura ?? {})
+      .filter(([id]) => id !== sucursalId)
+      .map(([, c]) => c.clave);
+    return proponerClaveDeAutofactura(cliente?.nombre ?? "", ocupadas);
+  }
+
+  /** Enciende el portal de un local con esta clave, o se la cambia. */
+  async fijarClaveDeAutofactura(sucursalId: string, clave: string): Promise<Resultado> {
+    const nube = this.nube();
+    if (!nube) return { ok: false, error: "No hay nube configurada (ver Llaves)" };
+    const portal = this.protegidos.portal_autofactura?.trim() ?? "";
+    if (!portal) return { ok: false, error: "Primero pon la dirección del portal de autofactura." };
+    const limpia = clave.trim().toUpperCase();
+    if (!FORMA_CLAVE_AUTOFACTURA.test(limpia)) {
+      return { ok: false, error: "La clave va en mayúsculas, de 3 a 20 letras, números o guiones." };
+    }
+    try {
+      const r = await peticionNube(
+        nube.url,
+        nube.servicio,
+        "/rest/v1/claves_de_autofactura?on_conflict=sucursal_id",
+        {
+          metodo: "POST",
+          cuerpo: JSON.stringify({ clave: limpia, sucursal_id: sucursalId, portal_url: portal }),
+          prefer: "resolution=merge-duplicates,return=minimal",
+        },
+      );
+      if (r.estado === 409) return { ok: false, error: `La clave ${limpia} ya la tiene otro restaurante.` };
+      if (r.estado >= 300) return { ok: false, error: `La nube respondió ${r.estado}` };
+      await this.traerClavesDeAutofactura();
+      return { ok: true };
+    } catch (causa) {
+      return { ok: false, error: `No se pudo hablar con la nube: ${String(causa)}` };
+    }
+  }
+
+  /** Apaga el portal de un local: su caja deja de imprimir el QR en un minuto. */
+  async apagarAutofactura(sucursalId: string): Promise<Resultado> {
+    const nube = this.nube();
+    if (!nube) return { ok: false, error: "No hay nube configurada (ver Llaves)" };
+    try {
+      const r = await peticionNube(
+        nube.url,
+        nube.servicio,
+        `/rest/v1/claves_de_autofactura?sucursal_id=eq.${encodeURIComponent(sucursalId)}`,
+        { metodo: "DELETE", prefer: "return=minimal" },
+      );
+      if (r.estado >= 300) return { ok: false, error: `La nube respondió ${r.estado}` };
+      await this.traerClavesDeAutofactura();
+      return { ok: true };
+    } catch (causa) {
+      return { ok: false, error: `No se pudo hablar con la nube: ${String(causa)}` };
+    }
+  }
+
+  /**
+   * Cambia la dirección del portal y la reescribe en la fila de CADA local que
+   * ya lo tiene encendido: si solo se guardara aquí, los tickets seguirían
+   * imprimiendo la dirección vieja.
+   */
+  async guardarPortalAutofactura(direccion: string): Promise<Resultado> {
+    const limpia = direccion.trim().replace(/[/]+$/, "");
+    if (!/^https:[/][/][^\s/@]+([/][^\s]*)?$/i.test(limpia)) {
+      return { ok: false, error: "La dirección del portal tiene que empezar con https://" };
+    }
+    const guardado = await this.reemplazarProtegidos({ ...this.protegidos, portal_autofactura: limpia });
+    if (!guardado.ok) return guardado;
+
+    const nube = this.nube();
+    if (!nube || !this.clavesDeAutofactura || Object.keys(this.clavesDeAutofactura).length === 0) return { ok: true };
+    try {
+      const r = await peticionNube(
+        nube.url,
+        nube.servicio,
+        "/rest/v1/claves_de_autofactura?sucursal_id=not.is.null",
+        { metodo: "PATCH", cuerpo: JSON.stringify({ portal_url: limpia }), prefer: "return=minimal" },
+      );
+      if (r.estado >= 300) {
+        return { ok: false, error: `Se guardó aquí, pero la nube respondió ${r.estado}: los locales siguen con la anterior.` };
+      }
+      await this.traerClavesDeAutofactura();
+      return { ok: true };
+    } catch (causa) {
+      return { ok: false, error: `Se guardó aquí, pero no se pudo hablar con la nube: ${String(causa)}` };
     }
   }
 }

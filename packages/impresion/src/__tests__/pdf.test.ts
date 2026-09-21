@@ -169,6 +169,8 @@ function estadoDePrueba(gastos: number): EstadoFinanciero {
       desde,
       hasta,
       cuentas: 412,
+      // Un socio consumió en el mes: entró al local, pero no es venta (1.5.6).
+      consumo_socios: c(1_200_00),
       subtotal: c(38_000_00),
       iva: c(6_080_00),
       ieps: c(0),

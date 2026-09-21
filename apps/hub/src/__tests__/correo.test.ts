@@ -157,3 +157,66 @@ describe("cuando vuelve internet", () => {
     expect(c.pendientes).toBe(500);
   });
 });
+
+/**
+ * LO QUE ESCRIBE EL RESTAURANTE (1.5.6), en el Hub.
+ *
+ * La configuración se lee en CADA intento, así que lo que se cambia en la caja
+ * vale para el siguiente envío —y también para lo que espera en la cola—.
+ */
+describe("los correos que escribe el restaurante", () => {
+  const NOCHE = {
+    tipo: "propio:noche" as const,
+    nombre: "Noche italiana",
+    asunto: "Noche italiana en {{local}}",
+    titulo: "Lo esperamos",
+    texto: "Este viernes, noche italiana en {{local}}.",
+    activo: true,
+  };
+
+  it("sale con el texto que escribió el restaurante", async () => {
+    const llamada = vi.fn(ok);
+    const config = {
+      ...CONFIG,
+      activos: { ...CONFIG.activos, gracias: true },
+      plantillas: { gracias: { texto: "Fue un gusto, {{nombre}}. Vuelva pronto a {{local}}." } },
+    };
+    await correo(llamada, () => AHORA, config).mandar({
+      tipo: "gracias",
+      para: "a@b.mx",
+      datos: { nombre: "Ana" },
+    });
+
+    const cuerpo = JSON.parse(
+      (llamada.mock.calls as unknown as [string, RequestInit][])[0]![1].body as string,
+    );
+    expect(cuerpo.html).toContain("Fue un gusto, Ana. Vuelva pronto a <b>Rodizio</b>.");
+    expect(cuerpo.text).toContain("Fue un gusto, Ana. Vuelva pronto a Rodizio.");
+  });
+
+  it("uno que se borra mientras espera internet ya no sale", async () => {
+    let hayRed = false;
+    let config: typeof CONFIG = { ...CONFIG, propios: [NOCHE] };
+    const llamada = vi.fn(() => (hayRed ? ok() : Promise.reject(new Error("sin red"))));
+    const c = new Correo(() => config, () => "re_llave", () => {}, () => AHORA, llamada as never);
+
+    let desenlace: { enviado: boolean; razon?: string } | undefined;
+    await c.mandar({
+      tipo: "propio:noche",
+      para: "a@b.mx",
+      datos: {},
+      aceptaMarketing: true,
+      alResolverse: (r) => (desenlace = r),
+    });
+    expect(c.pendientes).toBe(1);
+
+    // Alguien lo borra en la caja; la configuración nueva llega al Hub.
+    config = { ...CONFIG, propios: [] };
+    hayRed = true;
+    await c.vaciarCola();
+
+    expect(llamada).toHaveBeenCalledTimes(1); // solo el intento sin red
+    expect(desenlace?.enviado).toBe(false);
+    expect(desenlace?.razon).toContain("ya no existe");
+  });
+});

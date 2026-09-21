@@ -16,13 +16,22 @@
     etiquetaMotivo,
     formatearCantidad,
     valorDe,
+    type Insumo,
     type MotivoMovimiento,
     calcularRendimiento
   } from "@motrest/dominio";
   import SelectorInsumo from "../SelectorInsumo.svelte";
-  import VentanaAmplia from "../VentanaAmplia.svelte";
   import { catalogo } from "../catalogo";
   import { hora, mxn, pct } from "../formato";
+  import Ordenar from "../listas/Ordenar.svelte";
+  import VerMas from "../listas/VerMas.svelte";
+  import {
+    Paginado,
+    ordenRecordado,
+    ordenar,
+    ordenesComunes,
+    type OpcionOrden,
+  } from "../listas/listas.svelte";
   import { local } from "../local.svelte";
   import { menu } from "../menu.svelte";
   import { pos } from "../pos.svelte";
@@ -155,14 +164,61 @@
   /** Insumo cuyo historial se está mirando desplegado. Vacío = ninguno. */
   let detalle = $state("");
 
-  /**
-   * Cuántos movimientos se listan en la tarjeta antes de pedir «Ver más».
+  /*
+   * «ORDENAR» LA DESPENSA (1.5.6, pedido de Gonzalo).
    *
-   * Veinticinco cubren un servicio entero; el resto se mira cuando se está
-   * aclarando una diferencia, y para eso está la ventana.
+   * Dentro de cada estante los insumos salían en el orden en que se dieron de
+   * alta, y ese orden no lo tiene nadie en la cabeza: buscar la mozzarella entre
+   * cuarenta lácteos era leerlos todos. El botón cambia solo la VISTA de esta
+   * terminal —no toca el catálogo— y se recuerda aquí.
+   *
+   * Un insumo no guarda su fecha de alta, pero el catálogo sí guarda el orden en
+   * que se capturaron: eso es «más recientes / más antiguos». Y el orden de
+   * siempre, el de alta, sigue siendo el de entrada, para que nadie abra la
+   * pantalla y la encuentre cambiada.
+   *
+   * Los dos criterios propios son los que sirven para decidir algo: los que
+   * están más cerca de acabarse —medidos contra su propio mínimo, porque 500 g
+   * de sal y 500 g de queso no se comparan— y los que más dinero tienen parado.
    */
-  const TOPE_MOVIMIENTOS = 25;
-  let verMovimientos = $state(false);
+  const altaInsumo = $derived(new Map(menu.insumos.map((x, i) => [x.id, i])));
+
+  /** Cuántas veces cabe el mínimo en lo que hay. Sin mínimo, nunca urge. */
+  function holgura(i: Insumo): number {
+    return i.stock_minimo > 0 ? cantidadDe(i.id) / i.stock_minimo : Number.POSITIVE_INFINITY;
+  }
+
+  const opcionesInsumos: OpcionOrden<Insumo>[] = [
+    ...ordenesComunes<Insumo>({ nombre: (i) => i.nombre, fecha: (i) => altaInsumo.get(i.id) }),
+    {
+      id: "bajos",
+      etiqueta: "Los más bajos primero",
+      comparar: (a, b) => holgura(a) - holgura(b),
+    },
+    {
+      id: "valor",
+      etiqueta: "Más dinero primero",
+      comparar: (a, b) =>
+        valorDe(b, Math.max(0, cantidadDe(b.id))) - valorDe(a, Math.max(0, cantidadDe(a.id))),
+    },
+  ];
+  let ordenInsumos = $state(ordenRecordado("inventario.existencias", "antiguos"));
+
+  /** La despensa, estante por estante, con cada estante en el orden elegido. */
+  const despensa = $derived.by(() => {
+    const opcion = opcionesInsumos.find((o) => o.id === ordenInsumos);
+    return porCategoria.map((g) => ({ ...g, insumos: ordenar(g.insumos, opcion) }));
+  });
+
+  /*
+   * «VER MÁS» EN LOS ÚLTIMOS MOVIMIENTOS (1.5.6).
+   *
+   * Antes se listaban 25 y el resto se abría en una ventana aparte con TODO el
+   * histórico de golpe —miles de renglones en un local con un año encima—. Ahora
+   * sigue la regla de toda la caja: 10 al entrar y 15 más por cada «Ver más»,
+   * en la misma tarjeta, sin perder el sitio.
+   */
+  const pagMovimientos = new Paginado();
 
   /*
    * EL SIGNO, A LA VISTA MIENTRAS SE TECLEA.
@@ -311,6 +367,15 @@
         contraste es el que enseña un problema: un insumo con mucha merma y poca
         venta está costando dinero sin producirlo.
       -->
+      {#if menu.insumos.length > 1}
+        <div class="cabecera-lista">
+          <Ordenar
+            opciones={opcionesInsumos}
+            bind:valor={ordenInsumos}
+            recordar="inventario.existencias"
+          />
+        </div>
+      {/if}
       <table>
         <thead>
           <tr>
@@ -330,7 +395,7 @@
             de la propia tabla. Antes había que leer la columna «Insumo» entera
             para saber dónde empezaban los lácteos.
           -->
-          {#each porCategoria as grupo (grupo.nombre)}
+          {#each despensa as grupo (grupo.nombre)}
             <tr class="cab-cat">
               <th colspan="8" scope="colgroup">
                 {grupo.nombre}
@@ -454,24 +519,10 @@
       {#if inventario.movimientos.length === 0}
         <p class="vacio">Sin movimientos todavía.</p>
       {:else}
-        {@render listaMovimientos(inventario.movimientos.slice(0, TOPE_MOVIMIENTOS))}
-        {#if inventario.movimientos.length > TOPE_MOVIMIENTOS}
-          <button class="ver-todo" onclick={() => (verMovimientos = true)}>
-            Ver más ({inventario.movimientos.length - TOPE_MOVIMIENTOS} movimientos más)
-          </button>
-        {/if}
+        {@render listaMovimientos(pagMovimientos.de(inventario.movimientos))}
+        <VerMas pag={pagMovimientos} lista={inventario.movimientos} />
       {/if}
     </section>
-
-    {#if verMovimientos}
-      <VentanaAmplia
-        titulo="Movimientos de inventario"
-        subtitulo="{inventario.movimientos.length} movimientos registrados, del más reciente al más antiguo"
-        onCerrar={() => (verMovimientos = false)}
-      >
-        {@render listaMovimientos(inventario.movimientos)}
-      </VentanaAmplia>
-    {/if}
   {:else if vista === "movimiento"}
     <section class="tarjeta">
       <h2>Registrar movimiento</h2>
@@ -813,6 +864,12 @@
   .tarjeta {
     padding: 1.1rem 1.25rem;
     overflow-x: auto;
+  }
+  /* El botón de «Ordenar», a la derecha y encima de la tabla que ordena. */
+  .cabecera-lista {
+    display: flex;
+    justify-content: flex-end;
+    margin-bottom: 0.6rem;
   }
   h2 {
     font-size: 1.05rem;

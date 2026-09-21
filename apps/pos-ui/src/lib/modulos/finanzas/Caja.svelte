@@ -11,6 +11,8 @@
   import { caja } from "../../caja.svelte";
   import { impresion } from "../../impresion.svelte";
   import { mxn, hora } from "../../formato";
+  import VerMas from "../../listas/VerMas.svelte";
+  import { Paginado } from "../../listas/listas.svelte";
   import { sesion } from "../../sesion/sesion.svelte";
   import { sync } from "../../sync.svelte";
 
@@ -58,6 +60,17 @@
   const activa = $derived(caja.activa);
   const corte = $derived(caja.corteEnVivo);
   const cerradas = $derived(caja.sesiones.filter((s) => s.cerrada));
+
+  /*
+   * «VER MÁS» EN LOS CORTES ANTERIORES (1.5.6, pedido de Gonzalo). Uno o dos
+   * cortes por día, todos pintados: al cabo de un año, trescientos renglones
+   * entre el corte en vivo y lo que Finanzas tiene debajo. Se ven los 10 más
+   * recientes. Solo cuentan los que tienen resumen, que son los que la tabla
+   * pinta: contar los demás haría que «Ver más» prometiera renglones que no
+   * aparecen.
+   */
+  const cortesAnteriores = $derived(cerradas.filter((s) => s.resumen));
+  const pagCortes = new Paginado();
 
   let error = $state("");
 
@@ -379,7 +392,7 @@
         </tr>
       </thead>
       <tbody>
-        {#each cerradas as s (s.sesion_id)}
+        {#each pagCortes.de(cortesAnteriores) as s (s.sesion_id)}
           {#if s.resumen}
             <tr>
               <td>{s.cerrada_ts ? hora(s.cerrada_ts) : "—"}</td>
@@ -395,6 +408,7 @@
         {/each}
       </tbody>
     </table>
+    <VerMas pag={pagCortes} lista={cortesAnteriores} />
   </section>
 {/if}
 

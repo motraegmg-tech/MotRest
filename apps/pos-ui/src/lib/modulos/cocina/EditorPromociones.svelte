@@ -9,6 +9,13 @@
    */
   import { describirPromocion, estaVigente, pesos, uuidv7, type Promocion } from "@motrest/dominio";
   import { mxn } from "../../formato";
+  import Ordenar from "../../listas/Ordenar.svelte";
+  import {
+    ordenRecordado,
+    ordenar,
+    ordenesComunes,
+    type OpcionOrden,
+  } from "../../listas/listas.svelte";
   import { menu } from "../../menu.svelte";
   import { subirAlPrincipio } from "../../subir";
 
@@ -37,6 +44,37 @@
 
   const permisos = $derived(menu.permisos);
   const promociones = $derived(menu.promociones);
+
+  /*
+   * «ORDENAR» LAS PROMOCIONES (1.5.6, pedido de Gonzalo).
+   *
+   * A diferencia de la carta, aquí ordenar cambia solo la VISTA de esta
+   * terminal: el POS aplica todas las vigentes sin importar en qué renglón
+   * estén, así que no hay un orden que los meseros vean.
+   *
+   * Una promoción no guarda su fecha, pero el catálogo la guarda en el orden en
+   * que se guardó por última vez: eso es «más recientes / más antiguos», y el de
+   * siempre. «Vigentes ahora» es la pregunta de quien entra aquí a media cena.
+   */
+  const lugarDePromo = $derived(new Map(promociones.map((p, i) => [p.id, i])));
+  const opcionesPromos: OpcionOrden<Promocion>[] = [
+    ...ordenesComunes<Promocion>({ nombre: (p) => p.nombre, fecha: (p) => lugarDePromo.get(p.id) }),
+    {
+      id: "vigentes",
+      etiqueta: "Vigentes ahora primero",
+      comparar: (a, b) =>
+        Number(estaVigente(b, Date.now())) - Number(estaVigente(a, Date.now())),
+    },
+    {
+      id: "encendidas",
+      etiqueta: "Encendidas primero",
+      comparar: (a, b) => Number(b.activa) - Number(a.activa),
+    },
+  ];
+  let ordenPromos = $state(ordenRecordado("cocina.promociones", "antiguos"));
+  const promocionesVistas = $derived(
+    ordenar(promociones, opcionesPromos.find((o) => o.id === ordenPromos)),
+  );
 
   /** El borrador tal como quedaría guardado, para poder describirlo en vivo. */
   const borrador = $derived<Promocion>({
@@ -348,8 +386,13 @@
   {/if}
 
   {#if promociones.length > 0}
+    {#if promociones.length > 1}
+      <div class="barra-lista">
+        <Ordenar opciones={opcionesPromos} bind:valor={ordenPromos} recordar="cocina.promociones" />
+      </div>
+    {/if}
     <ul class="lista">
-      {#each promociones as p (p.id)}
+      {#each promocionesVistas as p (p.id)}
         <li class:apagada={!p.activa}>
           <div class="datos">
             <b>{p.nombre}</b>
@@ -580,6 +623,11 @@
     gap: 0.4rem;
     border-top: 1px solid var(--borde);
     padding-top: 0.85rem;
+  }
+  /* «Ordenar», a la derecha y justo encima de la lista que ordena. */
+  .barra-lista {
+    display: flex;
+    justify-content: flex-end;
   }
   .lista li {
     display: flex;

@@ -6,6 +6,8 @@
  * comprobantes quedan en la cola hasta que exista PAC y CSD.
  */
 import {
+  SERIE_BASE,
+  cfdiAmpara,
   serieDeTerminal,
   siguienteFolio,
   FabricaEventos,
@@ -15,8 +17,6 @@ import {
   facturasGlobales,
   limitesDelPeriodo,
   ordenEnFacturaGlobal,
-  periodoDe,
-  ticketPasaALaGlobal,
   problemaCancelacion,
   proyectarCfdis,
   representacionImpresa,
@@ -38,6 +38,7 @@ import {
 } from "@motrest/dominio";
 import type { Almacen } from "@motrest/protocolo-sync";
 import { catalogo } from "./catalogo";
+import { facturacion } from "./facturacion.svelte";
 import { SUCURSAL_ID, obtenerDeviceId } from "./presentacion";
 
 export const CLAVE_EMISOR = "datos_fiscales_emisor";
@@ -68,7 +69,7 @@ class StoreFiscal {
    * La que se usa al facturar es `serieTerminal`: esta más el código de ESTA
    * terminal. Así dos cajas nunca emiten el mismo identificador, ni sin red.
    */
-  serieBase = $state("A");
+  serieBase = $state(SERIE_BASE);
 
   /** La serie con la que factura esta terminal. */
   get serie(): string {
@@ -123,9 +124,41 @@ class StoreFiscal {
     });
   }
 
+  /**
+   * Guarda los datos fiscales del restaurante en esta tableta Y los publica
+   * para las demás y para el Hub (1.5.6), que ahora emite por su cuenta las
+   * autofacturas del portal.
+   */
   async guardarEmisor(datos: DatosEmisor): Promise<void> {
+    await this.adoptarEmisor(datos);
+    facturacion.fijarEmisor({ ...datos });
+  }
+
+  /** Los toma como propios SIN volver a publicarlos: ya vienen de la red. */
+  async adoptarEmisor(datos: DatosEmisor): Promise<void> {
     this.emisor = { ...datos };
-    await this.almacen?.estado.guardar(CLAVE_EMISOR, this.emisor);
+    await this.almacen?.estado.guardar(CLAVE_EMISOR, { ...datos });
+  }
+
+  /**
+   * Enlaza los datos fiscales de esta tableta con los compartidos. Se llama al
+   * arrancar, cuando ya están cargados los dos.
+   *
+   *  - Si el local ya los compartió, se adoptan: una tableta nueva no tiene que
+   *    volver a capturarlos.
+   *  - Si no, y ESTA tableta los tiene (un local que viene de la 1.5.5), los
+   *    publica ella. Así el Hub los recibe sin que nadie tenga que abrir
+   *    Finanzas y volver a guardar.
+   *  - Y a partir de ahí, lo que cambie otra terminal llega solo.
+   */
+  async enlazarConLaConfiguracion(): Promise<void> {
+    facturacion.alCambiarEmisor((emisor) => void this.adoptarEmisor(emisor));
+    const compartido = facturacion.emisor;
+    if (compartido) {
+      await this.adoptarEmisor(compartido);
+    } else if (this.emisorCompleto) {
+      facturacion.fijarEmisor({ ...this.emisor });
+    }
   }
 
   // --- Consultas -------------------------------------------------------------
@@ -136,6 +169,17 @@ class StoreFiscal {
    */
   get globales(): FacturaGlobalRegistrada[] {
     return facturasGlobales(this.eventos);
+  }
+
+  /**
+   * Los hechos fiscales en crudo.
+   *
+   * Los pide la pantalla de la factura global para preguntarle al DOMINIO si
+   * una cuenta ya está amparada, en vez de deducirlo aquí con otra cuenta que
+   * algún día diría algo distinto de lo que dice el Hub al emitir.
+   */
+  get eventosFiscales(): readonly EventoFiscal[] {
+    return this.eventos;
   }
 
   get registros(): RegistroCfdi[] {
@@ -163,9 +207,18 @@ class StoreFiscal {
     );
   }
 
-  /** Folio consecutivo, a partir de lo ya emitido. */
+  /**
+   * El comprobante de una cuenta: el que la ampara, si lo hay; si no, el último
+   * intento —un rechazado—, para poder enseñar por qué no salió.
+   *
+   * Antes devolvía el PRIMERO que encontrara. Con un rechazo por datos del
+   * cliente eso dejaba la cuenta atada para siempre a una factura que el SAT
+   * nunca vio, y desde la 1.5.6 se puede volver a facturar con los datos
+   * corregidos —en la caja o desde el portal—.
+   */
   cfdiDeOrden(ordenId: ID): RegistroCfdi | undefined {
-    return this.registros.find((r) => r.orden_id === ordenId && r.estado !== "cancelado");
+    const suyos = this.registros.filter((r) => r.orden_id === ordenId && r.estado !== "cancelado");
+    return suyos.find((r) => cfdiAmpara(r.estado)) ?? suyos.at(-1);
   }
 
   // --- Emisión ------------------------------------------------------------------
@@ -188,12 +241,16 @@ class StoreFiscal {
     } = {},
   ): ResultadoFactura {
     /*
-     * LA REGLA DE LA GLOBAL (1.5.5), antes que nada. Una venta no puede ir en
-     * dos comprobantes: si el ticket ya entró en la global —o su mes ya cerró y
-     * va a entrar—, facturarlo a nombre de alguien exige cancelar la global
-     * ante el SAT, y eso no es algo que deba ocurrir con un clic en la caja.
-     * Decirlo aquí es mejor que dejar que el SAT lo rechace o, peor, que salga
-     * dos veces. Gonzalo: el comensal puede pedir su factura hasta fin de mes.
+     * UNA VENTA NO PUEDE IR EN DOS COMPROBANTES, y ese es el único bloqueo que
+     * queda. Si el ticket ya entró en una global, facturarlo a nombre de alguien
+     * exigiría cancelar esa global ante el SAT, y eso no puede ocurrir con un
+     * clic en la caja.
+     *
+     * En la 1.5.5 también se bloqueaba por «su mes ya cerró». Se retiró en la
+     * 1.5.6: ahora el restaurantero elige qué entra en cada global, así que una
+     * cuenta que se quedó fuera sigue disponible —para un cliente que vuelve por
+     * su factura, o para una global posterior— y darla por perdida por el
+     * calendario sería mentirle.
      */
     if (opciones.conGlobal) {
       const global = ordenEnFacturaGlobal(this.eventos, estado.orden_id);
@@ -201,13 +258,6 @@ class StoreFiscal {
         return {
           ok: false,
           error: `Este ticket ya va en la factura global de ${mesLegible(global.periodo)}. Para facturarlo a nombre del cliente habría que cancelar esa global: pídeselo a MOTRAE.`,
-        };
-      }
-      const cierre = estado.cerrada_ts ?? estado.abierta_ts;
-      if (ticketPasaALaGlobal(cierre, Date.now())) {
-        return {
-          ok: false,
-          error: `Este ticket es de ${mesLegible(periodoDe(cierre))}, que ya cerró: su venta va en la factura global de ese mes. La factura a nombre del cliente se podía pedir hasta fin de mes.`,
         };
       }
     }
@@ -218,8 +268,9 @@ class StoreFiscal {
         error: "Faltan los datos fiscales del restaurante. Complétalos en Finanzas.",
       };
     }
+    // Un rechazado no cuenta: el SAT nunca lo vio y se puede corregir.
     const yaFacturada = this.cfdiDeOrden(estado.orden_id);
-    if (yaFacturada) {
+    if (yaFacturada && cfdiAmpara(yaFacturada.estado)) {
       return { ok: false, error: `Esta cuenta ya tiene el comprobante ${yaFacturada.serie}-${yaFacturada.folio}` };
     }
 

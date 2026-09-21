@@ -1,5 +1,88 @@
 # Relevo de la 1.5.5 — para Gemini
 
+> ## ⚡ LO MÁS NUEVO: la 1.5.6 (20-sep-2026), en curso
+> Plan y decisiones de Gonzalo en `docs/PLAN-1.5.6.md`. Estado:
+> - ✅ **Consumo de socio fuera de la venta** (dominio: `consumoDeSocio` en
+>   `comanda/totales.ts`; `resumenVentas` y `reporteContable` lo descuentan en
+>   proporción; el costo SÍ cuenta; fuera de la global). Pantalla y PDF hechos.
+> - ✅ **Factura global que elige el restaurantero**: Hub y protocolo (acción
+>   `fiscal` → `emitir_global`, catálogo `facturacion_config` con
+>   `modo_global: "manual" | "automatica"`, manual por defecto); caja:
+>   `apps/pos-ui/src/lib/facturacion.svelte.ts`, `modulos/finanzas/FacturaGlobal.svelte`,
+>   `sync.emitirFacturaGlobal`. Se retiró el bloqueo por «mes cerrado»: solo
+>   bloquea que la venta ya esté en una global.
+> - ✅ **Reservas ↔ ficha del comensal** (`SelectorDeFicha.svelte`,
+>   `borrador-de-reserva.svelte.ts`, liga por teléfono normalizado, alta
+>   automática, ida y vuelta a «+ Nuevo cliente»).
+> - ✅ **(21-sep) Emitir CFDI con fichas** (`DialogoFactura.svelte`): buscador
+>   por nombre o RFC con lista corta, «Hacer la Ficha de este Comensal» con la
+>   leyenda y los campos que faltan, **correo obligatorio**. La regla (ligar por
+>   teléfono, completar sin pisar) vive en `clientes.fichaDesdeFactura`, con 7
+>   pruebas en `__tests__/ficha-desde-factura.test.ts`.
+> - ✅ **(21-sep) Tarjeta «Gastos»** (`modulos/finanzas/Gastos.svelte`, montada
+>   tras `TicketsCobrados`): Hoy / 7 días / Este mes / Todo + calendario de
+>   meses, Ordenar y Ver más. «Gastos de hoy» y «Cuentas por pagar» salieron de
+>   `Resultado.svelte`. El formulario de gasto es UNO, compartido por
+>   `formulario-de-gasto.svelte.ts` (`revelar` con clave `pedido`).
+> - ✅ **(21-sep) Ver más + Ordenar en toda la caja** (agente Listas, revisado):
+>   herramientas en `apps/pos-ui/src/lib/listas/`. En la carta, Ordenar
+>   REESCRIBE el orden para todas las terminales tras confirmar
+>   (`reordenarCategorias` / `reordenarProductos` en el dominio, pruebas en
+>   `orden-de-la-carta.test.ts` de dominio y de pos-ui). Claude añadió Ordenar +
+>   Ver más a `FacturaGlobal.svelte` y a los correos propios.
+> - ✅ **(21-sep) Correos editables y nuevos** (agente Correos, revisado):
+>   `ConfiguracionCorreo.plantillas` y `.propios` (`propio:<uuid>`, tope 20),
+>   viajan en `correo_config`. Los propios son SIEMPRE publicidad:
+>   `puedeMandarCorreo` exige `acepta_promociones` y el Hub lo revisa contra la
+>   ficha en cada intento; la baja se añade fuera del texto del restaurante;
+>   enlaces solo `https://`. Central no los muestra todavía.
+> - ✅ Arreglos menores: texto de Socios («el consumo de un socio NO es una
+>   venta»), el nombre de los correos propios en la ficha, y el día en las
+>   reservas «Por llegar» que no son de hoy.
+> - **Pruebas al 21-sep:** dominio 1354, protocolo 80, impresión 137, hub 526
+>   (+2 omitidas), pos-ui 395; `svelte-check` 0/0. Central sin cambios (129).
+> - ⏳ Falta: versión 1.5.6, instalador, verificación sobre el paquete, publicar.
+>   **Gonzalo: no compilar ni generar versión hasta que lo diga.**
+> - ✅ **(21-sep) Portal de autofactura: lado nube y Vercel TERMINADO** (3.ª
+>   entrega de Gemini + correcciones de Claude). Migración
+>   `20260920000000_autofactura.sql` completa: `claves_de_autofactura` (con
+>   `portal_url`, la dirección es un ajuste; el Hub lee SU fila),
+>   `tickets_facturables` (código con el alfabeto de `acceso.ts`),
+>   `solicitudes_de_factura` (índice único parcial, `creado_ts`, Realtime),
+>   trigger `privado.ticket_sigue_a_su_solicitud` (rechazada → disponible,
+>   timbrada → facturado), `intentos_factura` con dos contadores. El portal
+>   normaliza clave/folio/código a mayúsculas y valida su forma antes de tocar
+>   la base. 15 pruebas, `tsc` limpio. **NADA aplicado en la nube todavía; NO
+>   commiteado** (portal, migración, `pnpm-lock.yaml`).
+>   **Lado Hub, en curso (21-sep):** HECHO y probado —dominio
+>   `fiscal/autofactura.ts` (código, URL, qué es facturable, lectura del sobre,
+>   clave propuesta; 24 pruebas), `derivarSecretoAutofactura` (protocolo),
+>   `emisor` dentro de `facturacion_config` (la caja lo publica y lo adopta),
+>   `cfdiDeOrden` que prefiere el que ampara, la cola que reemplaza un rechazado
+>   que nunca se timbró (4 pruebas), `armarAvisoDeFacturaRechazada` +
+>   `Correo.mandarAviso`, `SecretosDelHub.abrir`, y
+>   `apps/hub/src/fiscal/autofactura.ts` (`AutofacturaDelHub`, 12 pruebas).
+>   **(21-sep, noche) TODO CONSTRUIDO Y PROBADO:** `EnlaceSupabase` implementa
+>   `NubeDeAutofactura` (+ Realtime de `solicitudes_de_factura`); cableado en
+>   `main.ts` (reloj de 1 min, `alIngerir`, `alGenerar` → `cicloFiscal`); el Hub
+>   reparte `autofactura_estado` (catálogo RESERVADO) a todas las cajas; la caja
+>   imprime el QR primero en la pre-cuenta con «Clave: X   Folio: Y» y la
+>   dirección (`portal.qrDeFactura`, store `autofactura.svelte.ts`); el portal
+>   enseña el estado al reabrir el QR (`consultarTicket`); Central maneja claves
+>   y dirección en el panel Facturación («Factura por internet»).
+>   **Pruebas:** dominio 1380, protocolo 83, impresión 138, hub 542 (+2),
+>   pos-ui 399, central 136, portal 19; `svelte-check` 0/0.
+>   **Falta para salir (NADA hecho aún, pedir OK a Gonzalo):** aplicar la
+>   migración `20260920000000_autofactura.sql` en la nube; desplegar
+>   `apps/portal-factura` en Vercel con `SUPABASE_URL` y
+>   `SUPABASE_SERVICE_ROLE_KEY`; poner la dirección y las claves en Central;
+>   compilar y commitear (ahora SÍ entran el portal, la migración y el lock).
+>   Decisiones de Gonzalo en `docs/PLAN-1.5.6.md` §6. Diseño acordado: el
+>   código `t` = `firmarCuenta(orden_id, derivarSecretoAutofactura(claveLocal))`,
+>   así la caja lo imprime y el Hub lo publica sin hablarse. Hallazgo: los datos
+>   fiscales del emisor viven SOLO en cada tableta (`CLAVE_EMISOR` en su
+>   almacén) y nunca llegan al Hub; hay que replicarlos en `facturacion_config`.
+
 > **Si estás leyendo esto, la sesión anterior se cortó y tú continúas.**
 > Este documento se mantiene al día en cada hito, así que lo que dice es el
 > estado real. Verifica igual antes de confiar: corre las pruebas (§5) y mira

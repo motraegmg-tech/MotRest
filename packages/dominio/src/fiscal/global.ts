@@ -26,8 +26,9 @@ import type { ID } from "../comun/ids.js";
 import { desglosarConTasas } from "../comun/impuestos.js";
 import type { FormaPago } from "../comanda/eventos.js";
 import type { EstadoComanda } from "../comanda/reducers.js";
+import { consumoDeSocio } from "../comanda/totales.js";
 import { totalesComanda } from "../comanda/totales.js";
-import { cobradoPorRenglon, formaPagoSat } from "./comprobante.js";
+import { cobradoPorRenglon, formaPagoSat, type DatosEmisor } from "./comprobante.js";
 import type { EstadoCfdi, EventoFiscal, RegistroCfdi } from "./eventos.js";
 
 /** La hora del día 1 a la que el mes anterior se da por cerrado. */
@@ -37,6 +38,105 @@ export const HORA_DE_CIERRE_GLOBAL = 6;
 export const CLAVE_PRODSERV_GLOBAL = "01010101";
 export const CLAVE_UNIDAD_GLOBAL = "ACT";
 export const DESCRIPCION_GLOBAL = "Venta";
+
+// --- Quién manda sobre la global (1.5.6) --------------------------------------------------
+
+/**
+ * Cómo se emite la global en este local.
+ *
+ * - `manual`: **por defecto**. Nadie timbra nada sin que una persona mire el mes,
+ *   elija qué cuentas entran y lo autorice. El Hub sigue avisando cuando el mes
+ *   cierra y cuando corren las 72 horas del SAT, pero no emite por su cuenta.
+ * - `automatica`: lo de la 1.5.5. A las 06:00 del día 1 el Hub junta todo lo no
+ *   facturado del mes anterior y lo timbra solo.
+ *
+ * EL PORQUÉ. Hasta la 1.5.5 solo existía lo segundo, y eso convertía al Hub en
+ * quien decide qué declara el restaurante ante el SAT. Gonzalo lo dio vuelta en
+ * la 1.5.6: «el restaurantero elige y es dueño de su tipo de facturación». Por
+ * eso el valor por omisión es `manual`: un local que se actualiza sin tocar nada
+ * deja de emitir solo, que es el comportamiento del que nadie se arrepiente —lo
+ * contrario, timbrar sin que nadie lo pidiera, no se puede deshacer sin cancelar
+ * ante el SAT.
+ */
+export type ModoFacturacionGlobal = "manual" | "automatica";
+
+/**
+ * Clave del catálogo donde viaja esta decisión, al estilo de `correo_config`.
+ *
+ * Es un catálogo y no un evento porque no es un hecho del negocio: es un ajuste
+ * del local que se sobrescribe, y a nadie le importa el historial de cuándo se
+ * cambió de modo. Se publica desde la caja, el Hub lo aplica al recibirlo y
+ * Central lo ve.
+ */
+export const CLAVE_FACTURACION_CONFIG = "facturacion_config";
+
+/** Lo que viaja dentro de ese catálogo. */
+export interface ConfiguracionFacturacion {
+  modo_global: ModoFacturacionGlobal;
+  version: number;
+  updated_at: number;
+  /**
+   * Los datos fiscales del restaurante (1.5.6).
+   *
+   * Hasta la 1.5.5 vivían solo en el almacén de CADA tableta: el Hub nunca los
+   * tuvo, y una tableta nueva tenía que volver a capturarlos. Viajan aquí porque
+   * el Hub ahora emite por su cuenta —las autofacturas del portal— y el
+   * comprobante los lleva. No son secretos: van impresos en cada factura.
+   */
+  emisor?: DatosEmisor;
+}
+
+/** El punto de partida de un local que nunca tocó el ajuste: nadie emite solo. */
+export function configuracionFacturacionVacia(): ConfiguracionFacturacion {
+  return { modo_global: "manual", version: 0, updated_at: 0 };
+}
+
+/**
+ * Interpreta lo que llegó en el catálogo, sin fiarse de la forma.
+ *
+ * Por el canal puede llegar un objeto de una versión anterior, de una terminal a
+ * medio actualizar o directamente basura. Un `modo_global` que no se reconozca
+ * NO se toma por bueno ni se inventa: se vuelve a `manual`, porque equivocarse
+ * hacia «no emitas nada» solo cuesta un clic, y equivocarse hacia «emite todo»
+ * cuesta una cancelación ante el SAT.
+ */
+export function leerConfiguracionFacturacion(datos: unknown): ConfiguracionFacturacion {
+  const vacia = configuracionFacturacionVacia();
+  if (!datos || typeof datos !== "object") return vacia;
+  const crudo = datos as Partial<ConfiguracionFacturacion>;
+  const emisor = leerEmisor(crudo.emisor);
+  return {
+    modo_global: crudo.modo_global === "automatica" ? "automatica" : "manual",
+    version: Number.isSafeInteger(crudo.version) && crudo.version! >= 0 ? crudo.version! : 0,
+    updated_at: Number.isSafeInteger(crudo.updated_at) && crudo.updated_at! >= 0 ? crudo.updated_at! : 0,
+    ...(emisor ? { emisor } : {}),
+  };
+}
+
+/**
+ * Los datos del emisor, solo si tienen forma de datos del emisor. No se
+ * validan contra el SAT aquí —eso lo hace `validarComprobante` al facturar—:
+ * solo se descarta lo que no es texto o es desmedido, para que un catálogo mal
+ * formado no acabe dentro de un comprobante.
+ */
+function leerEmisor(dato: unknown): DatosEmisor | undefined {
+  if (!dato || typeof dato !== "object") return undefined;
+  const d = dato as Record<string, unknown>;
+  const texto = (v: unknown, tope: number) => (typeof v === "string" && v.length <= tope ? v : null);
+  const rfc = texto(d.rfc, 13);
+  const nombre = texto(d.nombre, 300);
+  const regimen = texto(d.regimen_fiscal, 3);
+  const cp = texto(d.codigo_postal, 5);
+  if (rfc === null || nombre === null || regimen === null || cp === null) return undefined;
+  const comercial = texto(d.nombre_comercial, 120);
+  return {
+    rfc,
+    nombre,
+    regimen_fiscal: regimen,
+    codigo_postal: cp,
+    ...(comercial ? { nombre_comercial: comercial } : {}),
+  };
+}
 
 // --- El periodo ---------------------------------------------------------------------------
 
@@ -125,6 +225,10 @@ export interface FacturaGlobalRegistrada {
   total: Centavos;
   fecha_timbrado?: string;
   modo: "pruebas" | "produccion";
+  /** Barrido del Hub o decisión de una persona. Sin él, automática (1.5.5). */
+  origen?: ModoFacturacionGlobal;
+  /** Quién la autorizó, cuando la emitió una persona. */
+  autorizador_id?: ID;
   ts: number;
 }
 
@@ -150,6 +254,13 @@ export function facturasGlobales(
       total: ev.total,
       fecha_timbrado: ev.fecha_timbrado,
       modo: ev.modo,
+      /*
+       * Sin `origen` la global es de la 1.5.5, y en la 1.5.5 TODAS salían del
+       * barrido del Hub. Rellenarlo aquí evita que cada pantalla que lo lea
+       * tenga que acordarse de ese detalle histórico.
+       */
+      origen: ev.origen ?? "automatica",
+      ...(ev.autorizador_id ? { autorizador_id: ev.autorizador_id } : {}),
       ts: ev.ts,
     });
   }
@@ -192,6 +303,11 @@ const AMPARAN: ReadonlySet<EstadoCfdi> = new Set<EstadoCfdi>([
   "cancelacion_solicitada",
   "cancelacion_rechazada",
 ]);
+
+/** ¿Este CFDI ya ampara su venta? Ver `AMPARAN`. */
+export function cfdiAmpara(estado: EstadoCfdi): boolean {
+  return AMPARAN.has(estado);
+}
 
 /** Lo que se imprime en la global como número de ticket (NoIdentificacion). */
 export function folioDeTicket(ordenId: ID): string {
@@ -289,6 +405,13 @@ export function ticketsParaGlobal(opciones: {
     if (c.cerrada_ts < desde || c.cerrada_ts >= hasta) continue;
     if (amparadas.has(c.orden_id) || vistas.has(c.orden_id)) continue;
 
+    /*
+     * EL CONSUMO DE SOCIO NO VA EN LA GLOBAL (1.5.6). No fue una venta al
+     * público: lo cubrió la bolsa que ese socio tiene pactada con el negocio.
+     * Meterlo declararía ante el SAT un ingreso que nunca entró.
+     */
+    if (consumoDeSocio(c) > 0) continue;
+
     const conceptos = conceptosDeTicket(c);
     const total = sumar(...conceptos.map((x) => x.total));
     if (conceptos.length === 0 || total <= 0) continue;
@@ -304,6 +427,172 @@ export function ticketsParaGlobal(opciones: {
     });
   }
   return tickets.sort((a, b) => a.cerrada_ts - b.cerrada_ts);
+}
+
+// --- La selección del restaurantero (1.5.6) -----------------------------------------------
+
+/** Por qué una cuenta elegida en la caja no pudo entrar en la global. */
+export type MotivoDescarte =
+  | "desconocida"
+  | "sin_cobrar"
+  | "otro_periodo"
+  | "ya_facturada"
+  | "en_global"
+  | "consumo_socio"
+  | "sin_importe";
+
+export interface CuentaDescartada {
+  orden_id: ID;
+  motivo: MotivoDescarte;
+}
+
+export interface SeleccionParaGlobal {
+  /** Lo que sí entra, en el orden en que se cobró. */
+  tickets: TicketGlobal[];
+  /** Lo que se cayó del filtro, con su razón. */
+  descartadas: CuentaDescartada[];
+}
+
+/**
+ * Filtra las cuentas que eligió el restaurantero para su global manual.
+ *
+ * ## POR QUÉ SE VUELVE A FILTRAR LO QUE YA ELIGIÓ UNA PERSONA
+ *
+ * La pantalla de la caja ya enseña el estado de cada cuenta, así que en el caso
+ * normal aquí no se cae ninguna. Pero entre que la pantalla pintó la lista y que
+ * el dedo tocó «Emitir» pueden pasar minutos, y en esos minutos otra terminal
+ * pudo facturar un ticket a nombre del comensal. Emitir la global con ese ticket
+ * dentro declararía la misma venta dos veces ante el SAT, y deshacerlo exige
+ * cancelar la global entera (motivo 04) y volver a empezar. El filtro es barato;
+ * la cancelación no.
+ *
+ * Y la razón dura: lo que llega por el canal lo manda una tableta, y una tableta
+ * puede estar manipulada o simplemente ir atrasada. El Hub no da por buena una
+ * lista de órdenes porque venga «de dentro».
+ *
+ * ## LO QUE SE DESCARTA
+ *
+ * Lo mismo que `ticketsParaGlobal` decide por su cuenta, dicho una por una para
+ * poder contarlo en pantalla: cuentas que no existen en este registro, sin
+ * cobrar (abiertas, anuladas o canceladas), de otro mes, ya amparadas por un
+ * CFDI vigente o por otra global, consumo de socio —que desde la 1.5.6 no es
+ * venta— y las que no tienen un peso que facturar.
+ */
+export function ticketsElegidosParaGlobal(opciones: {
+  seleccion: readonly ID[];
+  /** Las cuentas que el Hub pudo reconstruir de su registro. */
+  comandas: readonly EstadoComanda[];
+  cfdis: readonly RegistroCfdi[];
+  /** Solo las del mismo modo que la que se va a emitir. */
+  globales: readonly FacturaGlobalRegistrada[];
+  periodo: string;
+}): SeleccionParaGlobal {
+  const { desde, hasta } = limitesDelPeriodo(opciones.periodo);
+
+  const amparadas = new Set<ID>();
+  for (const r of opciones.cfdis) if (AMPARAN.has(r.estado)) amparadas.add(r.orden_id);
+  const enGlobal = new Set<ID>();
+  for (const g of opciones.globales) for (const o of g.ordenes) enGlobal.add(o);
+
+  const porOrden = new Map<ID, EstadoComanda>();
+  for (const c of opciones.comandas) porOrden.set(c.orden_id, c);
+
+  const tickets: TicketGlobal[] = [];
+  const descartadas: CuentaDescartada[] = [];
+  // La misma cuenta marcada dos veces en la pantalla no es un error que haya que
+  // contarle a nadie: es la misma cuenta.
+  const vistas = new Set<ID>();
+
+  for (const orden of opciones.seleccion) {
+    if (vistas.has(orden)) continue;
+    vistas.add(orden);
+
+    const cuenta = porOrden.get(orden);
+    if (!cuenta) {
+      descartadas.push({ orden_id: orden, motivo: "desconocida" });
+      continue;
+    }
+    if (!cuenta.cerrada || cuenta.anulada || cuenta.cancelada || cuenta.cerrada_ts === undefined) {
+      descartadas.push({ orden_id: orden, motivo: "sin_cobrar" });
+      continue;
+    }
+    if (cuenta.cerrada_ts < desde || cuenta.cerrada_ts >= hasta) {
+      descartadas.push({ orden_id: orden, motivo: "otro_periodo" });
+      continue;
+    }
+    if (amparadas.has(orden)) {
+      descartadas.push({ orden_id: orden, motivo: "ya_facturada" });
+      continue;
+    }
+    if (enGlobal.has(orden)) {
+      descartadas.push({ orden_id: orden, motivo: "en_global" });
+      continue;
+    }
+    if (consumoDeSocio(cuenta) > 0) {
+      descartadas.push({ orden_id: orden, motivo: "consumo_socio" });
+      continue;
+    }
+
+    const conceptos = conceptosDeTicket(cuenta);
+    const total = sumar(...conceptos.map((x) => x.total));
+    if (conceptos.length === 0 || total <= 0) {
+      descartadas.push({ orden_id: orden, motivo: "sin_importe" });
+      continue;
+    }
+
+    tickets.push({
+      orden_id: orden,
+      folio: folioDeTicket(orden),
+      cerrada_ts: cuenta.cerrada_ts,
+      total,
+      conceptos,
+      pagos: cuenta.pagos.map((p) => ({ forma: p.forma, monto: p.monto })),
+    });
+  }
+
+  return { tickets: tickets.sort((a, b) => a.cerrada_ts - b.cerrada_ts), descartadas };
+}
+
+/**
+ * El motivo, en palabras que se puedan leer en la caja o en la bitácora.
+ *
+ * Son frases que van DETRÁS de un número («3 de otro mes»), así que ninguna
+ * lleva verbo conjugado: con «ya tiene factura» habría que escribir dos
+ * versiones y acertar con la concordancia, y esa es la clase de detalle que
+ * acaba enseñándole «1 cuentas» a un restaurantero.
+ */
+export function motivoDescarteEnPalabras(motivo: MotivoDescarte): string {
+  switch (motivo) {
+    case "desconocida":
+      return "sin rastro en el registro de este local";
+    case "sin_cobrar":
+      return "sin cobrar (abiertas, anuladas o canceladas)";
+    case "otro_periodo":
+      return "de otro mes";
+    case "ya_facturada":
+      return "con factura a nombre del cliente";
+    case "en_global":
+      return "ya en otra factura global";
+    case "consumo_socio":
+      return "de consumo de socio (no es una venta)";
+    case "sin_importe":
+      return "sin importe que facturar";
+  }
+}
+
+/**
+ * «2 con factura a nombre del cliente, 1 de otro mes».
+ *
+ * Se agrupa por motivo y no se enumeran las órdenes: quien lee esto en la caja
+ * necesita entender qué pasó, no una lista de identificadores.
+ */
+export function resumenDeDescartes(descartadas: readonly CuentaDescartada[]): string {
+  const cuenta = new Map<MotivoDescarte, number>();
+  for (const d of descartadas) cuenta.set(d.motivo, (cuenta.get(d.motivo) ?? 0) + 1);
+  return [...cuenta.entries()]
+    .sort((a, b) => b[1] - a[1])
+    .map(([motivo, n]) => `${n} ${motivoDescarteEnPalabras(motivo)}`)
+    .join(", ");
 }
 
 /**

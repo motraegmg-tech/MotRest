@@ -305,6 +305,60 @@ describe("el folio no se reusa", () => {
   });
 });
 
+// --- Un rechazo se puede corregir (1.5.6) -------------------------------------------------
+
+describe("un rechazo por los datos del cliente se puede corregir", () => {
+  /*
+   * El comensal se equivoca de código postal, el SAT lo rechaza, y lo corrige
+   * desde el portal (o el cajero, en la caja). Llega OTRO comprobante de la
+   * misma orden, con otro cfdi_id. Antes se ignoraba en silencio.
+   */
+  it("el comprobante corregido reemplaza al rechazado y se timbra", async () => {
+    let n = 0;
+    const pac = new PacFalso(() => (++n === 1 ? selloMalo() : exito()));
+    const c = cola(pac);
+    encolar(c, "ord-1", "1");
+    await c.procesar();
+    expect(c.resumen().rechazadas).toBe(1);
+
+    encolar(c, "ord-1", "2");
+    await c.procesar();
+
+    expect(c.listar()).toHaveLength(1);
+    expect(c.listar()[0]).toMatchObject({ folio: "2", estado: "timbrado" });
+    expect(pac.xmlRecibidos[1]).toContain('Folio="2"');
+  });
+
+  it("el mismo comprobante otra vez no reabre nada: reintentar es a mano", async () => {
+    const c = cola(new PacFalso(selloMalo));
+    encolar(c, "ord-1", "1");
+    await c.procesar();
+
+    encolar(c, "ord-1", "1");
+    expect(c.resumen().rechazadas).toBe(1);
+  });
+
+  it("si FacturAPI ya tiene su id, no se toca: esa factura existe allá", async () => {
+    const c = cola(new PacFalso(selloMalo));
+    encolar(c, "ord-1", "1");
+    await c.procesar();
+    db.prepare("UPDATE timbrado SET externo_id = 'inv_123'").run();
+
+    encolar(c, "ord-1", "2");
+    expect(c.listar()[0]).toMatchObject({ folio: "1", estado: "rechazado" });
+  });
+
+  it("si el PAC dijo que ya la timbró (recuperación), no se toca", async () => {
+    const c = cola(new PacFalso(selloMalo));
+    encolar(c, "ord-1", "1");
+    await c.procesar();
+    db.prepare("UPDATE timbrado SET modo = 'recuperar'").run();
+
+    encolar(c, "ord-1", "2");
+    expect(c.listar()[0]).toMatchObject({ folio: "1" });
+  });
+});
+
 // --- El reloj del SAT --------------------------------------------------------------------
 
 describe("el plazo del SAT", () => {

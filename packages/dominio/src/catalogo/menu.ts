@@ -478,6 +478,101 @@ export function moverCategoria(
   });
 }
 
+// --- Ordenar la carta entera (1.5.6) -----------------------------------------------------
+//
+// Pedido de Gonzalo: un botón de «Ordenar» en cada lista. En casi todas solo
+// cambia la vista de quien la mira; en la carta NO, por decisión suya: el orden
+// que se elige ahí es el que ven los meseros en la caja. Por eso esto vive en el
+// dominio y reescribe el `orden` guardado, igual que las flechas de
+// `moverCategoria`: sube la versión, y el cambio viaja al Hub y a las demás
+// terminales por el mismo camino que cualquier otro cambio de la carta.
+//
+// Con las flechas solas, poner doce categorías de la A a la Z eran decenas de
+// clics, y cada clic una versión nueva de la carta viajando por la red.
+
+/**
+ * La lista en el orden pedido: primero los ids que se dan, en ese orden; luego
+ * los que no venían, en el orden que ya tenían.
+ *
+ * Lo segundo no es un caso raro. Entre que se abre la confirmación y se pulsa
+ * «Sí», otra terminal puede haber dado de alta una categoría: esa no se pierde
+ * ni se va al principio, se queda al final como cualquier alta nueva. Un id
+ * repetido o que ya no existe se ignora.
+ */
+function enElOrdenPedido<T extends { id: ID; orden: number }>(
+  lista: readonly T[],
+  idsEnOrden: readonly ID[],
+): T[] {
+  const porId = new Map(lista.map((x) => [x.id, x]));
+  const puestos = new Set<ID>();
+  const resultado: T[] = [];
+
+  for (const id of idsEnOrden) {
+    const x = porId.get(id);
+    if (!x || puestos.has(id)) continue;
+    puestos.add(id);
+    resultado.push(x);
+  }
+  const resto = [...lista]
+    .filter((x) => !puestos.has(x.id))
+    .sort((a, b) => a.orden - b.orden);
+  return [...resultado, ...resto];
+}
+
+/** ¿Las dos listas enseñan lo mismo, en el mismo orden? */
+function mismoOrden<T extends { id: ID; orden: number }>(
+  actual: readonly T[],
+  nuevo: readonly T[],
+): boolean {
+  const antes = [...actual].sort((a, b) => a.orden - b.orden);
+  return antes.every((x, i) => x.id === nuevo[i]?.id);
+}
+
+/**
+ * Pone las categorías de la carta en el orden dado. Es el de las pestañas del
+ * POS en todas las terminales.
+ *
+ * Se reasignan TODOS los `orden` de corrido, como en `moverCategoria` y por lo
+ * mismo: una carta importada o venida de otra terminal puede traer huecos o
+ * repetidos. Si el orden pedido es el que ya había, el menú vuelve tal cual:
+ * una versión nueva que no cambia nada solo haría viajar la carta entera por
+ * la red a todas las terminales, para nada.
+ */
+export function reordenarCategorias(menu: MenuLocal, idsEnOrden: readonly ID[]): MenuLocal {
+  const ordenadas = enElOrdenPedido(menu.categorias, idsEnOrden);
+  if (mismoOrden(menu.categorias, ordenadas)) return menu;
+
+  return conVersion(menu, {
+    categorias: ordenadas.map((c, n) => ({ ...c, orden: n + 1 })),
+  });
+}
+
+/**
+ * Pone los platillos de UNA categoría en el orden dado: el orden en que el
+ * mesero los encuentra al abrir esa pestaña en la caja.
+ *
+ * El `orden` de un producto cuenta dentro de su categoría (ver
+ * `siguienteOrden`), así que solo se reescriben los de esa categoría; los de
+ * las demás no se tocan, ni siquiera se copian.
+ */
+export function reordenarProductos(
+  menu: MenuLocal,
+  categoriaId: ID,
+  idsEnOrden: readonly ID[],
+): MenuLocal {
+  const deLaCategoria = menu.productos.filter((p) => p.categoria_id === categoriaId);
+  const ordenados = enElOrdenPedido(deLaCategoria, idsEnOrden);
+  if (mismoOrden(deLaCategoria, ordenados)) return menu;
+
+  const lugar = new Map(ordenados.map((p, n) => [p.id, n + 1]));
+  return conVersion(menu, {
+    productos: menu.productos.map((p) => {
+      const orden = p.categoria_id === categoriaId ? lugar.get(p.id) : undefined;
+      return orden === undefined ? p : { ...p, orden };
+    }),
+  });
+}
+
 // --- Categorías de insumos -------------------------------------------------------------
 //
 // La categoría del insumo era TEXTO LIBRE en su ficha. Funcionaba para

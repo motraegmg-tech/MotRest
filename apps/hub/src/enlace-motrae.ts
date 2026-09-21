@@ -76,6 +76,12 @@ export interface OpcionesNube {
     aplicado: boolean;
     problema?: string;
   }>;
+  /**
+   * Llega una solicitud del portal de autofactura (1.5.6): los datos fiscales
+   * de un comensal, en un sobre que solo abre este Hub. Igual que los secretos,
+   * la nube solo la trae; quien decide si se timbra es el Hub.
+   */
+  alLlegarSolicitudDeFactura?: (fila: { id: string; orden_id: string; sobre: unknown }) => void;
   alConectar?: () => void;
   registrar: (nivel: "info" | "aviso" | "error", texto: string) => void;
 }

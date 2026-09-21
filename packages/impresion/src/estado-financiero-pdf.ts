@@ -442,6 +442,17 @@ function seccionIngresos(m: Maqueta, estado: EstadoFinanciero): void {
 
   if (v.descuentos > 0) m.renglon("Descuentos aplicados", v.descuentos, { sangria: 12 });
   if (v.cortesias > 0) m.renglon("Cortesías", v.cortesias, { sangria: 12 });
+  // El consumo de socios va junto a las propinas y por el mismo motivo: entró al
+  // local pero no es ingreso del negocio. Desde la 1.5.6 tampoco está dentro de
+  // la venta de arriba, así que sin este renglón el contador no encontraría por
+  // qué el corte trae más dinero del que dice la venta.
+  if ((v.consumo_socios ?? 0) > 0) {
+    m.renglon("Consumo de socios", v.consumo_socios, {
+      sangria: 12,
+      nota: "no es venta: lo cubrió su bolsa",
+    });
+  }
+
   m.renglon("Propinas del personal", v.propinas, {
     sangria: 12,
     nota: "no son ingreso del negocio",

@@ -6,10 +6,44 @@
    * alcances, y edición de los permisos de quien ya existe.
    */
   import { LISTA_ROLES, type Permiso, type RolId, type Usuario } from "@motrest/dominio";
+  import Ordenar from "../../listas/Ordenar.svelte";
+  import {
+    ordenRecordado,
+    ordenar,
+    ordenesComunes,
+    type OpcionOrden,
+  } from "../../listas/listas.svelte";
   import { arranque } from "../../persistencia/arranque.svelte";
   import EditorPermisos from "../../sesion/EditorPermisos.svelte";
   import { sesion } from "../../sesion/sesion.svelte";
   import { revelar, subirAlPrincipio } from "../../subir";
+
+  /*
+   * «ORDENAR» LOS USUARIOS (1.5.6, pedido de Gonzalo).
+   *
+   * Un usuario no guarda su fecha de alta, pero la lista del local sale en el
+   * orden en que se dieron de alta: eso es «más antiguos / más recientes», y
+   * sigue siendo el de entrada. Por puesto junta a los meseros con los
+   * meseros, que es como se revisan los permisos de un turno. Solo cambia la
+   * vista de esta terminal: ni un permiso se toca.
+   */
+  const lugarDeAlta = $derived(
+    new Map(sesion.usuariosAdministrables.map((u, i) => [u.id, i])),
+  );
+  const opcionesUsuarios: OpcionOrden<Usuario>[] = [
+    ...ordenesComunes<Usuario>({ nombre: (u) => u.nombre, fecha: (u) => lugarDeAlta.get(u.id) }),
+    {
+      id: "puesto",
+      etiqueta: "Por puesto",
+      comparar: (a, b) =>
+        a.puesto.localeCompare(b.puesto, "es-MX", { sensitivity: "base" }) ||
+        a.nombre.localeCompare(b.nombre, "es-MX", { sensitivity: "base" }),
+    },
+  ];
+  let ordenUsuarios = $state(ordenRecordado("admin.usuarios", "antiguos"));
+  const usuariosVistos = $derived(
+    ordenar(sesion.usuariosAdministrables, opcionesUsuarios.find((o) => o.id === ordenUsuarios)),
+  );
 
   let confirmandoReinicio = $state(false);
 
@@ -177,8 +211,14 @@
       </section>
     {/if}
 
+    {#if sesion.usuariosAdministrables.length > 1}
+      <div class="barra-lista">
+        <Ordenar opciones={opcionesUsuarios} bind:valor={ordenUsuarios} recordar="admin.usuarios" />
+      </div>
+    {/if}
+
     <div class="lista">
-      {#each sesion.usuariosAdministrables as usuario (usuario.id)}
+      {#each usuariosVistos as usuario (usuario.id)}
         {@const bloqueado = sesion.estaBloqueado(usuario.id)}
         {@const gestionable = sesion.puedeGestionar(usuario)}
         {@const propio = sesion.usuarioActual?.id === usuario.id}
@@ -406,6 +446,12 @@
     display: flex;
     flex-direction: column;
     gap: 0.5rem;
+  }
+  /* «Ordenar», a la derecha y justo encima de la lista que ordena. */
+  .barra-lista {
+    display: flex;
+    justify-content: flex-end;
+    margin-bottom: -0.4rem;
   }
   .usuario {
     display: flex;

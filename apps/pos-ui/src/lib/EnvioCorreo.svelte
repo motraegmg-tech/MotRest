@@ -13,14 +13,16 @@
    * cualquier otra.
    */
   import {
+    TOPES_CORREO,
     definicionCorreo,
+    pideMensaje,
     puedeMandarCorreo,
     type DatosCorreo,
     type ID,
     type TipoCorreo,
   } from "@motrest/dominio";
   import { correo } from "./correo.svelte";
-  import { MENSAJE_DE_EJEMPLO } from "./correos-del-comensal";
+  import { mensajeDeEjemplo } from "./correos-del-comensal";
   import { hora } from "./formato";
   import { sesion } from "./sesion/sesion.svelte";
   import VistaPreviaCorreo from "./VistaPreviaCorreo.svelte";
@@ -44,20 +46,29 @@
   let { tipo, para, nombre, datos, clienteId, aceptaMarketing, onvolver, oncerrar }: Props =
     $props();
 
-  const definicion = $derived(definicionCorreo(tipo));
+  // Con la configuración: así un correo que escribió el restaurante se lee
+  // con su nombre y no como «Correo del restaurante».
+  const definicion = $derived(definicionCorreo(tipo, correo.config));
   const publicidad = $derived(definicion?.clase === "marketing");
+  /*
+   * ¿Hay que escribir algo al mandarlo? Lo decide la plantilla, no la clase
+   * (1.5.6): un cupón que el restaurante dejó escrito sale con su texto, y una
+   * «Promoción del día» propia pide el de hoy. Pedir un mensaje que no va a
+   * salir en ningún lado es un cuadro que confunde.
+   */
+  const conMensaje = $derived(pideMensaje(tipo, correo.config));
 
-  /** El cuerpo de una promoción. Empieza vacío: lo escribe quien la manda. */
+  /** Lo que se escribe al mandarlo. Empieza vacío: lo escribe quien lo manda. */
   let mensaje = $state("");
   let error = $state("");
   let solicitudId = $state<ID | null>(null);
 
   const datosFinales = $derived<DatosCorreo>(
-    publicidad && mensaje.trim() ? { ...datos, mensaje: mensaje.trim() } : datos,
+    conMensaje && mensaje.trim() ? { ...datos, mensaje: mensaje.trim() } : datos,
   );
 
   const veredicto = $derived(puedeMandarCorreo(tipo, para, correo.config, aceptaMarketing));
-  const faltaMensaje = $derived(publicidad && !mensaje.trim());
+  const faltaMensaje = $derived(conMensaje && !mensaje.trim());
 
   const solicitud = $derived(
     solicitudId ? correo.solicitudes.find((s) => s.solicitud_id === solicitudId) : undefined,
@@ -109,21 +120,35 @@
 </script>
 
 <div class="envio">
-  {#if publicidad}
+  {#if conMensaje}
     <label class="mensaje">
       <span>El mensaje</span>
       <textarea
         bind:value={mensaje}
         rows="4"
-        maxlength="1200"
-        placeholder={MENSAJE_DE_EJEMPLO[tipo] ?? ""}
+        maxlength={Math.min(1200, TOPES_CORREO.mensaje)}
+        placeholder={mensajeDeEjemplo(tipo)}
         disabled={solicitudId !== null}
       ></textarea>
       <small>
-        Es lo que leerá debajo de su nombre. Al pie va solo, siempre, cómo dejar
-        de recibirlas: responder BAJA a este correo.
+        Va donde el correo dice «Lo que escribas al mandarlo».
+        {#if publicidad}
+          Al pie va solo, siempre, cómo dejar de recibirlas: responder BAJA a
+          este correo.
+        {/if}
       </small>
     </label>
+  {:else if publicidad}
+    <!--
+      Una promoción ya escrita por el restaurante: no se escribe nada, pero se
+      dice a quién le llega y que lleva su baja, que es lo que alguien en la caja
+      se pregunta antes de pulsar «Mandar».
+    -->
+    <p class="pista-izq">
+      Sale con el texto que escribió el restaurante en «Correos al comensal». Solo
+      llega a quien aceptó promociones, y al pie va siempre cómo dejar de
+      recibirlas.
+    </p>
   {/if}
 
   <VistaPreviaCorreo {tipo} {para} config={correo.config} datos={datosFinales} />
@@ -214,7 +239,8 @@
     border-color: var(--acento);
   }
   .mensaje small,
-  .pista {
+  .pista,
+  .pista-izq {
     font-size: var(--t-xs);
     color: var(--gris);
     line-height: 1.5;

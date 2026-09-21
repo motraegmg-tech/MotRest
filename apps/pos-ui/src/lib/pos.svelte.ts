@@ -2133,6 +2133,8 @@ class TiendaPOS {
     reimpresion?: number,
   ): Promise<boolean> {
     const enlaceOpinion = await portal.enlaceDeCuenta(comanda.orden_id);
+    // La factura por internet (1.5.6) va PRIMERO: es un trámite con prisa.
+    const qrFactura = await portal.qrDeFactura(comanda);
     const comunes = this.datosComunesDelPapel(comanda, t);
 
     return impresion.precuenta({
@@ -2143,6 +2145,7 @@ class TiendaPOS {
       local: local.fichaParaTicket(datosLocal.nombre),
       textos: local.textosTicket,
       qrs: [
+        ...(qrFactura ? [qrFactura] : []),
         ...(enlaceOpinion
           ? [{ leyenda: local.textosTicket.invitacion_opinion, url: enlaceOpinion }]
           : []),

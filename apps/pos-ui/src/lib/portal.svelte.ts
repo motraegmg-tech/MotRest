@@ -9,10 +9,28 @@
  *
  * El comensal recibe el resultado de firmar, nunca el secreto.
  */
-import { codigoDeCuenta } from "@motrest/dominio";
-import { derivarSecretoPortal } from "@motrest/protocolo-sync";
+import {
+  codigoDeAutofactura,
+  codigoDeCuenta,
+  consumoDeSocio,
+  direccionLegible,
+  folioDeTicket,
+  totalesComanda,
+  urlDeAutofactura,
+  type EstadoComanda,
+} from "@motrest/dominio";
+import { derivarSecretoAutofactura, derivarSecretoPortal } from "@motrest/protocolo-sync";
+import { autofactura } from "./autofactura.svelte";
 import { local } from "./local.svelte";
 import { sync } from "./sync.svelte";
+
+/** Lo que va en el papel para facturar: el QR y, debajo, cómo teclearlo. */
+export interface QrDeFactura {
+  leyenda: string;
+  url: string;
+  pie: string[];
+  esFactura: true;
+}
 
 class StorePortal {
   /** Se deriva una vez: HKDF no es gratis y esto se pide en cada cobro. */
@@ -61,9 +79,56 @@ class StorePortal {
     return `${this.base}/portal/#/c/${await codigoDeCuenta(ordenId, secreto)}`;
   }
 
-  /** Se olvida el secreto derivado: al reemparejar, la clave del local cambió. */
+  // --- La factura por internet (1.5.6) ---------------------------------------------
+
+  private secretoFactura: string | null = null;
+
+  private async obtenerSecretoFactura(): Promise<string | null> {
+    if (this.secretoFactura) return this.secretoFactura;
+    const clave = sync.claveLocal;
+    if (!clave) return null;
+    try {
+      this.secretoFactura = await derivarSecretoAutofactura(clave);
+      return this.secretoFactura;
+    } catch (causa) {
+      console.error("No se pudo derivar el secreto de la autofactura", causa);
+      return null;
+    }
+  }
+
+  /**
+   * El QR de factura de un ticket, o `null` si no se imprime.
+   *
+   * No se imprime si el portal está apagado (no hay clave en Central, o no hay
+   * FacturAPI), ni en una cuenta que el portal no aceptaría: en $0, o pagada en
+   * parte por la bolsa de un socio —no fue una venta al público—. Un QR que
+   * lleva a «no se encontró tu ticket» es peor que no tener QR.
+   *
+   * El código sale de la clave del local, como el de la encuesta: el ticket
+   * sale bien aunque el Hub esté apagado, y el portal lo acepta en cuanto el Hub
+   * publique la cuenta cobrada.
+   */
+  async qrDeFactura(comanda: EstadoComanda): Promise<QrDeFactura | null> {
+    const portal = autofactura.portal;
+    if (!portal) return null;
+    if (totalesComanda(comanda).total <= 0 || consumoDeSocio(comanda) > 0) return null;
+
+    const secreto = await this.obtenerSecretoFactura();
+    if (!secreto) return null;
+    const folio = folioDeTicket(comanda.orden_id);
+    const codigo = await codigoDeAutofactura(comanda.orden_id, secreto);
+    return {
+      leyenda: "Factura tu consumo aquí",
+      url: urlDeAutofactura(portal.portal_url, portal.clave, folio, codigo),
+      pie: [`Clave: ${portal.clave}   Folio: ${folio}`, direccionLegible(portal.portal_url)],
+      esFactura: true,
+    };
+  }
+
+  /** Se olvidan los secretos derivados: al reemparejar, la clave del local cambió. */
   olvidar(): void {
     this.secreto = null;
+    this.secretoFactura = null;
   }
 }
 

@@ -19,7 +19,16 @@
   import { sesion } from "../../sesion/sesion.svelte";
   import { sync } from "../../sync.svelte";
   import { mxn } from "../../formato";
+  import VerMas from "../../listas/VerMas.svelte";
+  import { Paginado } from "../../listas/listas.svelte";
   import { revelar } from "../../subir";
+
+  /*
+   * «VER MÁS» EN LAS FACTURAS (1.5.6, pedido de Gonzalo). La cola que manda el
+   * Hub trae también las ya timbradas, así que crece con cada factura del mes, y
+   * se pintaba entera. Se ven 10 y el resto a petición.
+   */
+  const pagFacturas = new Paginado();
 
   /** Reintentar una factura rechazada: el mismo permiso que ya lo pedía. */
   const puedeAdministrar = $derived(sesion.puedeOperar("fin.csd.administrar"));
@@ -319,7 +328,7 @@
           </tr>
         </thead>
         <tbody>
-          {#each sync.colaFiscal as factura (factura.orden_id)}
+          {#each pagFacturas.de(sync.colaFiscal) as factura (factura.orden_id)}
             <tr>
               <td class="mono">{factura.serie}-{factura.folio}</td>
               <!-- El total viaja como entero por el canal; ya son centavos. -->
@@ -369,6 +378,7 @@
           {/each}
         </tbody>
       </table>
+      <VerMas pag={pagFacturas} lista={sync.colaFiscal} />
     {/if}
   </section>
 {/if}

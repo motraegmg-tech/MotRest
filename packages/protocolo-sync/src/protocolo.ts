@@ -26,6 +26,7 @@ import type {
   EstadoSecretos,
   EventoBase,
   ID,
+  ModoFacturacionGlobal,
   ModoFacturapi,
 } from "@motrest/dominio";
 
@@ -108,7 +109,21 @@ export interface MensajeAdmin {
  */
 export interface MensajeFiscal {
   tipo: "fiscal";
-  accion: "estado" | "instalar_csd" | "desinstalar_csd" | "listar_cola" | "reintentar";
+  accion:
+    | "estado"
+    | "instalar_csd"
+    | "desinstalar_csd"
+    | "listar_cola"
+    | "reintentar"
+    /**
+     * Emite la factura global de un mes con las cuentas que eligió el
+     * restaurantero (1.5.6). Lleva `periodo` y `ordenes`.
+     *
+     * La emisión la sigue haciendo el Hub —con su llave, su idempotencia y sus
+     * reintentos—; la caja solo dice QUÉ emitir. El Hub revalida la lista
+     * entera antes de tocar FacturAPI: ver `ticketsElegidosParaGlobal`.
+     */
+    | "emitir_global";
   /**
    * Quién lo pide.
    *
@@ -129,6 +144,15 @@ export interface MensajeFiscal {
   rfc_emisor?: string;
   /** `reintentar`: qué orden reencolar. */
   orden_id?: ID;
+  /** `emitir_global`: el mes que se va a amparar, «AAAA-MM». */
+  periodo?: string;
+  /**
+   * `emitir_global`: las cuentas que el restaurantero marcó, por `orden_id`.
+   *
+   * Es una propuesta, no una orden: el Hub descarta lo que no pase su filtro y
+   * lo cuenta en `problema`. Mandar una lista vacía no emite nada.
+   */
+  ordenes?: ID[];
 }
 
 /** Lo que se puede contar del CSD sin exponerlo. Nunca la llave ni la contraseña. */
@@ -150,11 +174,84 @@ export interface EstadoFiscal {
   global?: EstadoFacturaGlobal;
 }
 
-/** Lo que la caja enseña de la factura global. Nada secreto. */
+/**
+ * El portal de autofactura de este local (1.5.6), tal como lo reparte el Hub a
+ * TODAS las terminales en el catálogo reservado `autofactura_estado`.
+ *
+ * Va como catálogo y no en el estado fiscal porque lo necesita cualquier caja
+ * que imprima un ticket, y el estado fiscal solo lo pide quien abre Finanzas.
+ * Lo sabe el Hub porque lee su fila de `claves_de_autofactura` en la nube, y
+ * solo lo enciende si además hay FacturAPI: un QR que lleva a un portal que no
+ * puede timbrar es peor que no tener QR.
+ */
+export const CLAVE_AUTOFACTURA_ESTADO = "autofactura_estado";
+
+export interface EstadoAutofactura {
+  activo: boolean;
+  clave?: string;
+  portal_url?: string;
+}
+
+/**
+ * Lo que la caja enseña de la factura global. Nada secreto.
+ *
+ * Desde la 1.5.6 esto es lo que pinta el módulo «Finanzas → Facturación →
+ * Factura global», y por eso trae de más: el modo vigente, el reloj del SAT y el
+ * historial. La pantalla no tiene que deducir nada ni volver a recorrer el
+ * registro para saber qué se emitió — el Hub, que es quien emite, ya lo sabe.
+ */
 export interface EstadoFacturaGlobal {
-  ultima?: { periodo: string; uuid: string; total: number; cuentas: number; emitida_ts: number };
-  /** Un mes cerrado cuya global todavía no sale (sin red, rechazada…). */
-  pendiente?: { periodo: string; desde_ts: number; problema?: string };
+  /**
+   * Quién decide: el barrido del Hub o una persona (1.5.6).
+   *
+   * Opcional porque un Hub de la 1.5.5 no lo manda. Cuando falta hay que leerlo
+   * como `automatica`: es lo único que esa versión sabía hacer.
+   */
+  modo?: ModoFacturacionGlobal;
+  /** La última global emitida de verdad, para el resumen de Finanzas. */
+  ultima?: {
+    periodo: string;
+    uuid: string;
+    total: number;
+    cuentas: number;
+    emitida_ts: number;
+    origen?: ModoFacturacionGlobal;
+  };
+  /**
+   * El mes cerrado que todavía no tiene global.
+   *
+   * En modo automático es «no salió»: sin red, rechazada por FacturAPI, y
+   * `problema` dice por qué. En modo manual es «te toca»: nadie la ha emitido
+   * porque nadie la ha autorizado, y eso NO es un fallo — pero el reloj del SAT
+   * corre igual, y por eso viaja aquí.
+   */
+  pendiente?: {
+    periodo: string;
+    /** Desde cuándo se puede emitir: las 06:00 del día 1 del mes siguiente. */
+    desde_ts: number;
+    /** Cuándo se acaban las 72 horas que da el SAT desde el cierre del mes. */
+    plazo_sat_ts?: number;
+    /** Ya pasaron esas 72 horas: la pantalla lo dice en rojo. */
+    fuera_de_plazo?: boolean;
+    problema?: string;
+  };
+  /**
+   * Las últimas globales emitidas, de la más nueva a la más vieja.
+   *
+   * Incluye las de PRUEBAS —con su `modo`— a propósito: quien ensayó el ciclo
+   * tiene que ver su ensayo y saber que no vale ante el SAT. La pantalla las
+   * distingue; esconderlas haría creer que el ensayo no ocurrió.
+   */
+  historial?: {
+    periodo: string;
+    parte: number;
+    uuid: string;
+    total: number;
+    cuentas: number;
+    modo: ModoFacturapi;
+    emitida_ts: number;
+    origen?: ModoFacturacionGlobal;
+  }[];
 }
 
 export interface FacturaEnCola {

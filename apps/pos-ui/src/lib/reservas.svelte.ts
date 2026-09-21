@@ -22,6 +22,7 @@ import {
   type Reserva,
 } from "@motrest/dominio";
 import type { Almacen } from "@motrest/protocolo-sync";
+import { mismoTelefono } from "./clientes.svelte";
 import { plano } from "./plano.svelte";
 import { pos } from "./pos.svelte";
 import { SUCURSAL_ID, obtenerDeviceId } from "./presentacion";
@@ -30,6 +31,14 @@ export interface EnEspera {
   id: ID;
   nombre: string;
   telefono?: string;
+  /**
+   * La ficha del comensal, si se la reconoció o se dio de alta al anotarlo.
+   *
+   * Viaja hasta la cuenta: cuando se le sienta, la mesa abre ya a nombre de su
+   * ficha y lo que consuma esa noche se suma a su historial. Sin esto, quien
+   * esperó de pie era un desconocido aunque tuviera ficha desde hace un año.
+   */
+  cliente_id?: ID;
   personas: number;
   /** Cuándo se anotó. Contra el reloj da cuánto lleva de pie. */
   desde_ts: number;
@@ -108,23 +117,35 @@ class StoreReservas {
     return reservasEnPuerta(this.reservas, ahora, toleranciaMin);
   }
 
+  /**
+   * Lo que impide apartar, en palabras. `undefined` = se puede guardar.
+   *
+   * Está separado de `apartar` —que lo vuelve a usar, así que no hay dos
+   * verdades— porque la pantalla tiene que preguntarlo ANTES de tocar la ficha
+   * del comensal. Desde la 1.5.6, apartar puede DAR DE ALTA a un cliente, y una
+   * ficha creada para una reserva que no se guardó porque «Personas» venía en
+   * cero es basura que alguien tendría que borrar a mano.
+   */
+  problemaAlApartar(datos: { nombre: string; personas: number }): string | undefined {
+    if (datos.nombre.trim().length < 2) return "Escribe a nombre de quién va la reserva";
+    if (!Number.isInteger(datos.personas) || datos.personas < 1) return "¿Cuántas personas vienen?";
+    return undefined;
+  }
+
   apartar(datos: {
     nombre: string;
     telefono?: string;
     correo?: string;
+    cliente_id?: ID;
     personas: number;
     para_ts: number;
     mesa_id?: ID;
     duracion_min?: number;
     notas?: string;
   }): { ok: boolean; error?: string } {
+    const problema = this.problemaAlApartar(datos);
+    if (problema) return { ok: false, error: problema };
     const nombre = datos.nombre.trim();
-    if (nombre.length < 2) {
-      return { ok: false, error: "Escribe a nombre de quién va la reserva" };
-    }
-    if (!Number.isInteger(datos.personas) || datos.personas < 1) {
-      return { ok: false, error: "¿Cuántas personas vienen?" };
-    }
 
     this.emitir(
       this.fabrica.crear("reserva_creada", streamReservas(SUCURSAL_ID), {
@@ -132,6 +153,16 @@ class StoreReservas {
         nombre,
         telefono: datos.telefono?.trim() || undefined,
         correo: datos.correo?.trim() || undefined,
+        /*
+         * LA FICHA VIAJA EN EL EVENTO, desde la 1.5.6.
+         *
+         * Antes una reserva apartada por teléfono no se ataba a nadie: el
+         * campo existía en el dominio y solo lo llenaba el portal. Por eso el
+         * cliente que reservaba cada quince días seguía siendo un desconocido
+         * en la ficha del comensal, y su historial se partía entre reservas
+         * «Ramírez», «Familia Ramírez» y un teléfono con lada.
+         */
+        cliente_id: datos.cliente_id,
         personas: datos.personas,
         para_ts: datos.para_ts,
         mesa_id: datos.mesa_id,
@@ -140,6 +171,25 @@ class StoreReservas {
       }),
     );
     return { ok: true };
+  }
+
+  /**
+   * Las reservas de una ficha, de la más próxima a la más vieja.
+   *
+   * Se cuentan las LIGADAS y, además, las que traen su teléfono sin estar
+   * ligadas a nadie: las de antes de la 1.5.6 nacieron sin ficha, y esconder el
+   * historial de un cliente porque se apuntó el mes pasado no lo haría más
+   * cierto. Una reserva ligada a OTRA ficha no se cuenta nunca, aunque el
+   * teléfono coincida: alguien ya decidió de quién es.
+   */
+  deCliente(clienteId: ID, telefono?: string): Reserva[] {
+    return this.reservas
+      .filter(
+        (r) =>
+          r.cliente_id === clienteId ||
+          (!r.cliente_id && mismoTelefono(r.telefono, telefono)),
+      )
+      .sort((a, b) => b.para_ts - a.para_ts);
   }
 
   /**
@@ -239,20 +289,44 @@ class StoreReservas {
     );
   }
 
-  /** Cuántas veces plantó este teléfono. Lo que se mira antes de volver a apartar. */
+  /**
+   * Cuántas veces plantó este teléfono. Lo que se mira antes de volver a apartar.
+   *
+   * Se comparan los teléfonos NORMALIZADOS y no las cadenas tal cual. Antes se
+   * comparaba carácter por carácter, así que quien plantó dos veces dejando
+   * «33 1122 3344» volvía a aparecer limpio con solo dictarlo como
+   * «3311223344»: el dato caro se perdía por un espacio.
+   */
   plantonesDe(telefono: string | undefined): number {
-    if (!telefono) return 0;
-    return this.reservas.filter((r) => r.telefono === telefono && r.estado === "no_llego").length;
+    return this.reservas.filter(
+      (r) => r.estado === "no_llego" && mismoTelefono(r.telefono, telefono),
+    ).length;
   }
 
   // --- Lista de espera -----------------------------------------------------------
 
-  anotarEnEspera(datos: { nombre: string; telefono?: string; personas: number }): {
+  /**
+   * Lo que impide anotar en la lista, en palabras. `undefined` = se puede.
+   *
+   * Igual que en `problemaAlApartar`: la pantalla lo pregunta antes de crear
+   * nada en la ficha del comensal.
+   */
+  problemaAlAnotar(datos: { nombre: string }): string | undefined {
+    return datos.nombre.trim().length < 2 ? "Escribe un nombre para llamarlos" : undefined;
+  }
+
+  anotarEnEspera(datos: {
+    nombre: string;
+    telefono?: string;
+    cliente_id?: ID;
+    personas: number;
+  }): {
     ok: boolean;
     error?: string;
   } {
+    const problema = this.problemaAlAnotar(datos);
+    if (problema) return { ok: false, error: problema };
     const nombre = datos.nombre.trim();
-    if (nombre.length < 2) return { ok: false, error: "Escribe un nombre para llamarlos" };
 
     this.espera = [
       ...this.espera,
@@ -260,6 +334,7 @@ class StoreReservas {
         id: uuidv7(),
         nombre,
         telefono: datos.telefono?.trim() || undefined,
+        cliente_id: datos.cliente_id,
         personas: datos.personas,
         desde_ts: Date.now(),
       },
@@ -287,7 +362,12 @@ class StoreReservas {
 
     pos.seleccionarMesa(principal);
     pos.abrirMesa(principal, resto);
-    await pos.identificar(quien.nombre, quien.telefono);
+    /*
+     * Su ficha viaja a la cuenta, igual que en `sentar`. Quien esperó de pie
+     * tiene el mismo derecho a que su consumo se sume a su historial que quien
+     * reservó por teléfono: la lista de espera no se guarda, pero la cuenta sí.
+     */
+    await pos.identificar(quien.nombre, quien.telefono, quien.cliente_id);
     this.quitarDeEspera(id);
   }
 

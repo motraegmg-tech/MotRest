@@ -186,6 +186,16 @@ export class SecretosDelHub {
   }
 
   /** Lo que se publica en el pulso. Vacío hasta que `cargar()` termina. */
+  /**
+   * Abre un sobre dirigido a este Hub que NO es un secreto: los datos fiscales
+   * que un comensal dejó en el portal de autofactura (1.5.6). Mismo par, misma
+   * regla: la privada no sale de aquí, y lo que no se puede abrir es `null`.
+   */
+  async abrir(sobre: unknown): Promise<string | null> {
+    if (!this.par) return null;
+    return abrirSobre(sobre, this.par);
+  }
+
   llavePublica(): string {
     return this.par?.publica ?? "";
   }

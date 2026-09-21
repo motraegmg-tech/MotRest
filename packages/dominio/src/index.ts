@@ -109,6 +109,7 @@ export * from "./fiscal/xml.js";
 export * from "./fiscal/validacion.js";
 export * from "./fiscal/eventos.js";
 export * from "./fiscal/global.js";
+export * from "./fiscal/autofactura.js";
 export * from "./fiscal/importe-letra.js";
 export * from "./fiscal/representacion.js";
 

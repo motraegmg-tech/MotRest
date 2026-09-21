@@ -36,13 +36,29 @@
     type Pago,
   } from "@motrest/dominio";
   import { hora, mxn, dia } from "../../formato";
+  import { Paginado } from "../../listas/listas.svelte";
+  import VerMas from "../../listas/VerMas.svelte";
   import { plano } from "../../plano.svelte";
   import { pos } from "../../pos.svelte";
   import { sesion } from "../../sesion/sesion.svelte";
   import VisorTicket from "./VisorTicket.svelte";
 
-  /** Cuántos tickets se listan. Un servicio completo cabe sin desplazar. */
-  const VENTANA = 40;
+  /*
+   * «VER MÁS» (1.5.6, pedido de Gonzalo). Antes se listaban de golpe los 40
+   * últimos: cuarenta renglones con tres botones cada uno, que empujaban todo lo
+   * que Finanzas tiene debajo a varias pantallas de distancia. Y la cuenta 41
+   * no se podía ver de ninguna forma, así que una venta de hace dos semanas no
+   * se podía cancelar desde aquí.
+   *
+   * Ahora se ven las 10 últimas y cada «Ver más» trae 15, sin techo: se llega
+   * hasta la primera cuenta que se cobró en el local si hace falta. Por eso la
+   * ficha de cada renglón se arma SOLO para los que se ven —`totalesComanda`
+   * por cada cuenta de meses de historia, en cada repintado, sería trabajo
+   * tirado—.
+   */
+  const pag = new Paginado();
+
+  const cobradas = $derived(pos.ticketsCobrados);
 
   const puedeCancelar = $derived(sesion.puedeVer("pos.cuenta.reabrir"));
 
@@ -65,7 +81,7 @@
   }
 
   const filas = $derived.by<Fila[]>(() =>
-    pos.ticketsCobrados.slice(0, VENTANA).map((c) => {
+    pag.de(cobradas).map((c) => {
       const t = totalesComanda(c);
       return {
         comanda: c,
@@ -94,7 +110,12 @@
     }),
   );
 
-  const pendientes = $derived(filas.filter((f) => f.aRevisar).length);
+  /*
+   * Las que se quedaron a medias se cuentan en TODA la lista, no solo en lo que
+   * se ve: el aviso de arriba es justo lo que dice que conviene pulsar «Ver
+   * más» para encontrarlas. Mismo criterio que `aRevisar`.
+   */
+  const pendientes = $derived(cobradas.filter((c) => !c.cerrada && c.pagos.length > 0).length);
 
   // --- Cancelación ------------------------------------------------------------------
 
@@ -285,6 +306,7 @@
       </tbody>
     </table>
   </div>
+  <VerMas {pag} lista={cobradas} />
 </section>
 
 <!--

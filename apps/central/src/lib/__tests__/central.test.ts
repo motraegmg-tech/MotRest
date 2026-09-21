@@ -1647,3 +1647,87 @@ describe("la primera licencia de un local", () => {
     expect(await verificarLicencia(r.licencia!, id, central.secretos.licencias!.publica)).toBe(true);
   });
 });
+
+describe("el portal de autofactura de cada restaurante (1.5.6)", () => {
+  async function conNube() {
+    await central.guardarConfiguracion({ repositorio: "r", nube_url: "https://nube.test", nube_servicio: "secreto123" });
+    return (await alta()).cliente!.id;
+  }
+
+  async function conPortal() {
+    const id = await conNube();
+    global.fetch = vi.fn().mockResolvedValue(respuestaNube(201));
+    expect((await central.guardarPortalAutofactura("https://motrest-factura.vercel.app/")).ok).toBe(true);
+    return id;
+  }
+
+  it("propone la clave a partir del nombre, sin repetir la de otro local", async () => {
+    const id = await conNube();
+    expect(central.proponerClave(id)).toBe("RODIZIO");
+    central.clavesDeAutofactura = { "suc-otro": { clave: "RODIZIO", portal_url: "https://p.test" } };
+    expect(central.proponerClave(id)).toBe("RODIZIO-2");
+  });
+
+  it("sin la dirección del portal no enciende nada", async () => {
+    const id = await conNube();
+    global.fetch = vi.fn();
+    expect((await central.fijarClaveDeAutofactura(id, "RODIZIO")).ok).toBe(false);
+    expect(global.fetch).not.toHaveBeenCalled();
+  });
+
+  it("enciende el portal: escribe la clave y la dirección en la fila del local", async () => {
+    const id = await conPortal();
+    const pedidas: { url: string; metodo?: string; cuerpo?: string }[] = [];
+    global.fetch = vi.fn(async (url: string | URL | Request, opciones?: RequestInit) => {
+      pedidas.push({ url: String(url), metodo: opciones?.method, cuerpo: opciones?.body as string });
+      return String(url).includes("select=")
+        ? respuestaNube(200, [{ clave: "RODIZIO", sucursal_id: id, portal_url: "https://motrest-factura.vercel.app" }])
+        : respuestaNube(201);
+    }) as typeof fetch;
+
+    expect((await central.fijarClaveDeAutofactura(id, " rodizio ")).ok).toBe(true);
+
+    const post = pedidas.find((p) => p.metodo === "POST")!;
+    expect(post.url).toContain("/rest/v1/claves_de_autofactura?on_conflict=sucursal_id");
+    expect(JSON.parse(post.cuerpo!)).toEqual({
+      clave: "RODIZIO",
+      sucursal_id: id,
+      portal_url: "https://motrest-factura.vercel.app",
+    });
+    expect(central.clavesDeAutofactura?.[id]?.clave).toBe("RODIZIO");
+  });
+
+  it("una clave que ya tiene otro restaurante se dice en claro", async () => {
+    const id = await conPortal();
+    global.fetch = vi.fn().mockResolvedValue(respuestaNube(409));
+    expect(await central.fijarClaveDeAutofactura(id, "RODIZIO")).toEqual({
+      ok: false,
+      error: "La clave RODIZIO ya la tiene otro restaurante.",
+    });
+  });
+
+  it("una clave mal formada no llega a la nube", async () => {
+    const id = await conPortal();
+    global.fetch = vi.fn();
+    expect((await central.fijarClaveDeAutofactura(id, "ro dizio")).ok).toBe(false);
+    expect(global.fetch).not.toHaveBeenCalled();
+  });
+
+  it("la dirección del portal tiene que ser https", async () => {
+    expect((await central.guardarPortalAutofactura("http://inseguro.test")).ok).toBe(false);
+  });
+
+  it("apagar borra la fila de ese local, y solo la suya", async () => {
+    const id = await conNube();
+    const pedidas: { url: string; metodo?: string }[] = [];
+    global.fetch = vi.fn(async (url: string | URL | Request, opciones?: RequestInit) => {
+      pedidas.push({ url: String(url), metodo: opciones?.method });
+      const lectura = String(url).includes("select=");
+      return respuestaNube(lectura ? 200 : 204, lectura ? [] : "");
+    }) as typeof fetch;
+
+    expect((await central.apagarAutofactura(id)).ok).toBe(true);
+    const borrado = pedidas.find((p) => p.metodo === "DELETE")!;
+    expect(borrado.url).toContain(`claves_de_autofactura?sucursal_id=eq.${id}`);
+  });
+});

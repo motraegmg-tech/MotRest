@@ -43,8 +43,9 @@
   import { pos } from "../../pos.svelte";
   import { revelar } from "../../subir";
   import { tesoreria } from "../../tesoreria.svelte";
-  import { mxn, hora } from "../../formato";
+  import { mxn } from "../../formato";
   import { sesion } from "../../sesion/sesion.svelte";
+  import { abrirFormularioDeGasto, formularioDeGasto } from "./formulario-de-gasto.svelte";
 
   const puedeRegistrar = $derived(sesion.puedeOperar("fin.egreso.registrar"));
   const puedeVerCostos = $derived(sesion.puedeVer("fin.costo.ver"));
@@ -72,7 +73,6 @@
   const operativosDesglosados = $derived(
     resultado.por_categoria.filter((c) => c.afectaResultado),
   );
-  const delDia = $derived(egresos.del(rango));
 
   /*
    * LA VENTA DEL DÍA, CON IVA Y POR DÓNDE ENTRÓ.
@@ -115,7 +115,6 @@
 
 
   // --- Captura ---
-  let abierto = $state(false);
   let categoria = $state<CategoriaEgreso>("servicios");
   let concepto = $state("");
   let montoTexto = $state("");
@@ -212,43 +211,10 @@
     );
     if (r.ok) {
       limpiar();
-      abierto = false;
+      formularioDeGasto.abierto = false;
     } else {
       error = r.error;
     }
-  }
-
-  function anular(id: string) {
-    const motivo = prompt("¿Por qué se anula este egreso?");
-    if (!motivo) return;
-    egresos.actuarComo(sesion.usuarioActual?.id ?? "sistema");
-    egresos.anular(id, motivo, sesion.usuarioActual?.id);
-  }
-
-  // --- Cuentas por pagar ---------------------------------------------------------------
-
-  const porPagar = $derived(egresos.porPagar);
-  const vencidas = $derived(egresos.vencidas());
-
-  let liquidando = $state<string | null>(null);
-  let formaLiquidacion = $state("transferencia");
-  let refLiquidacion = $state("");
-
-  function liquidar() {
-    if (!liquidando) return;
-    const r = egresos.pagar(liquidando, formaLiquidacion, {
-      referencia: refLiquidacion,
-      autorizadorId: sesion.usuarioActual?.id,
-    });
-    if (r.ok) {
-      liquidando = null;
-      refLiquidacion = "";
-    }
-  }
-
-  function fechaCorta(ts?: number): string {
-    if (ts === undefined) return "sin fecha";
-    return new Date(ts).toLocaleDateString("es-MX", { day: "2-digit", month: "short" });
   }
 
   // --- Presupuesto del mes -------------------------------------------------------------
@@ -282,8 +248,12 @@
       {reporteHoy.cuentas === 1 ? "cuenta cobrada" : "cuentas cobradas"}
     </span>
     {#if puedeRegistrar}
-      <button class="mini" onclick={() => (abierto = !abierto)}>
-        {abierto ? "Cerrar" : "Registrar gasto"}
+      <button
+        class="mini"
+        onclick={() =>
+          formularioDeGasto.abierto ? (formularioDeGasto.abierto = false) : abrirFormularioDeGasto()}
+      >
+        {formularioDeGasto.abierto ? "Cerrar" : "Registrar gasto"}
       </button>
     {/if}
   </div>
@@ -304,6 +274,18 @@
       <span>Base sin impuestos</span>
       <b>{mxn(reporteHoy.subtotal)}</b>
     </div>
+    <!--
+      EL CONSUMO DE SOCIO, FUERA DE LA VENTA (1.5.6, decisión de Gonzalo).
+      Se sirvió y se consumió, pero no entró un peso: lo cubrió la bolsa que ese
+      socio tiene pactada. Aparece aquí para que el recuadro de «Socios» de abajo
+      cuadre con algo, y para poder mirar de frente lo que cuesta el acuerdo.
+    -->
+    {#if reporteHoy.consumo_socios > 0}
+      <div>
+        <span>Consumo de socios (no es venta)</span>
+        <b>{mxn(reporteHoy.consumo_socios)}</b>
+      </div>
+    {/if}
   </div>
 
   <div class="formas">
@@ -330,9 +312,11 @@
   </div>
 
   <p class="nota">
-    Lo cobrado suma <b>{mxn(cobrado.total)}</b>, que es la venta más
-    <b>{mxn(reporteHoy.propinas)}</b> de propinas: entraron al cajón y a la
-    terminal, pero no son ingreso del negocio, son del personal.
+    Lo cobrado suma <b>{mxn(cobrado.total)}</b>: la venta, más
+    <b>{mxn(reporteHoy.propinas)}</b> de propinas —que entraron al cajón y a la
+    terminal, pero son del personal, no del negocio—{#if reporteHoy.consumo_socios > 0}, más
+      <b>{mxn(reporteHoy.consumo_socios)}</b> que cubrieron los socios de su
+      bolsa, que no es venta ni entró dinero{/if}.
   </p>
 
   <!--
@@ -421,6 +405,10 @@
     <p class="nota">
       {DIFERENCIA_ENTRE_UTILIDADES}
       Food cost {(resultado.food_cost * 100).toFixed(1)} %.
+      {#if reporteHoy.consumo_socios > 0}
+        El consumo de socios no suma a la venta, pero lo que costaron esos
+        insumos sí está arriba, en «costo de lo vendido»: se gastaron.
+      {/if}
     </p>
   {:else}
     <p class="nota">
@@ -430,10 +418,11 @@
   {/if}
 </section>
 
-{#if abierto && puedeRegistrar}
-  <!-- «Registrar gasto» se pulsa arriba y el formulario nace bajo el resultado,
-       fuera de cuadro en una tableta: se baja hasta él. -->
-  <section class="tarjeta" use:revelar>
+{#if formularioDeGasto.abierto && puedeRegistrar}
+  <!-- «Registrar gasto» se pulsa arriba —o en la tarjeta de Gastos, más abajo—
+       y el formulario nace bajo el resultado, fuera de cuadro: se lleva la vista
+       hasta él cada vez que se pide, aunque ya estuviera abierto. -->
+  <section class="tarjeta" use:revelar={formularioDeGasto.pedido}>
     <h2>Registrar un gasto</h2>
     <div class="campos">
       <label>
@@ -585,55 +574,11 @@
     {#if error}<p class="error" role="alert">{error}</p>{/if}
 
     <div class="botones">
-      <button class="secundario" onclick={() => { abierto = false; limpiar(); }}>Cancelar</button>
+      <button class="secundario" onclick={() => { formularioDeGasto.abierto = false; limpiar(); }}>Cancelar</button>
       <button class="principal" onclick={guardar}>
         {pagado ? "Guardar gasto" : "Guardar como pendiente"}
       </button>
     </div>
-  </section>
-{/if}
-
-<!--
-  CUENTAS POR PAGAR. Nace de las compras a crédito: sin esta lista, la deuda con
-  el proveedor solo vivía en la cabeza del dueño y en el cuaderno del almacén.
--->
-{#if puedeVerCostos && porPagar.length > 0}
-  <section class="tarjeta">
-    <div class="cabecera-tarjeta">
-      <h2>Cuentas por pagar</h2>
-      <span class="cuentas">
-        {mxn(egresos.totalPorPagar)} en {porPagar.length}
-        {porPagar.length === 1 ? "documento" : "documentos"}
-      </span>
-    </div>
-
-    {#if vencidas.length > 0}
-      <p class="alerta-sup" role="alert">
-        <b>{vencidas.length} {vencidas.length === 1 ? "cuenta venció" : "cuentas vencieron"}.</b>
-        La fecha comprometida ya pasó.
-      </p>
-    {/if}
-
-    <table>
-      <thead>
-        <tr><th>Vence</th><th>Concepto</th><th>Proveedor</th><th class="num">Monto</th><th></th></tr>
-      </thead>
-      <tbody>
-        {#each porPagar as d (d.egreso_id)}
-          <tr class:vencida={d.vence_ts !== undefined && d.vence_ts < Date.now()}>
-            <td>{fechaCorta(d.vence_ts)}</td>
-            <td>{d.concepto}</td>
-            <td>{d.proveedor ?? "—"}</td>
-            <td class="num">{mxn(d.monto)}</td>
-            <td>
-              {#if puedeRegistrar}
-                <button class="mini" onclick={() => (liquidando = d.egreso_id)}>Pagar</button>
-              {/if}
-            </td>
-          </tr>
-        {/each}
-      </tbody>
-    </table>
   </section>
 {/if}
 
@@ -662,65 +607,7 @@
   </section>
 {/if}
 
-{#if liquidando}
-  <div class="velo" role="presentation" onclick={() => (liquidando = null)}></div>
-  <div class="dialogo-pago" role="dialog" aria-modal="true" aria-label="Pagar una cuenta">
-    <h2>Pagar la cuenta</h2>
-    <p class="nota">
-      Aquí es donde sale el dinero. El gasto ya contaba desde que se recibió la
-      mercancía, así que esto no lo vuelve a restar del resultado: solo baja el
-      saldo.
-    </p>
-    <label>
-      <span>¿Con qué se paga?</span>
-      <select bind:value={formaLiquidacion}>
-        <option value="efectivo">Efectivo</option>
-        <option value="transferencia">Transferencia</option>
-        <option value="tarjeta_debito">Tarjeta</option>
-      </select>
-    </label>
-    <label>
-      <span>Referencia (opcional)</span>
-      <input bind:value={refLiquidacion} placeholder="Folio de la transferencia" />
-    </label>
-    <div class="botones">
-      <button class="secundario" onclick={() => (liquidando = null)}>Cancelar</button>
-      <button class="principal" onclick={liquidar}>Registrar el pago</button>
-    </div>
-  </div>
-{/if}
 
-{#if delDia.length > 0}
-  <section class="tarjeta">
-    <h2>Gastos de hoy</h2>
-    <table>
-      <thead>
-        <tr><th>Hora</th><th>Concepto</th><th>Categoría</th><th class="num">Monto</th><th></th></tr>
-      </thead>
-      <tbody>
-        {#each delDia as e (e.egreso_id)}
-          <tr>
-            <td>{hora(e.ts)}</td>
-            <td>
-              {e.concepto}
-              {#if e.proveedor}<small> · {e.proveedor}</small>{/if}
-            </td>
-            <td>{CATEGORIAS_EGRESO.find((c) => c.id === e.categoria)?.nombre}</td>
-            <td class="num">{mxn(e.monto)}</td>
-            <td>
-              {#if puedeRegistrar}
-                <button class="mini" onclick={() => anular(e.egreso_id)}>Anular</button>
-              {/if}
-            </td>
-          </tr>
-        {/each}
-      </tbody>
-    </table>
-  </section>
-{/if}
-
-
-<!-- El mismo visor que usa la lista de tickets cobrados. -->
 <style>
   /* Fondo, borde, radio y sombra los pone `.tarjeta` en base.css: aquí solo
      queda lo que es propio de esta pantalla. */
@@ -964,31 +851,6 @@
     color: var(--sobre-acento);
   }
 
-  table {
-    width: 100%;
-    border-collapse: collapse;
-    font-size: 0.87rem;
-  }
-  th {
-    text-align: left;
-    font-size: 0.74rem;
-    text-transform: uppercase;
-    letter-spacing: 0.04em;
-    color: var(--gris);
-    padding-bottom: 0.5rem;
-  }
-  td {
-    padding: 0.5rem 0.5rem 0.5rem 0;
-    border-top: 1px solid var(--borde);
-  }
-  .num {
-    text-align: right;
-    font-variant-numeric: tabular-nums;
-  }
-  td small {
-    color: var(--gris);
-  }
-
   /* --- Compra de insumos dentro del gasto --- */
   .pista {
     font-size: 0.76rem;
@@ -1125,21 +987,6 @@
     font-size: 1.05rem;
   }
 
-  /* --- Cuentas por pagar --- */
-  .alerta-sup {
-    font-size: 0.85rem;
-    line-height: 1.45;
-    color: #8a2018;
-    background: #fdf2f0;
-    border: 1px solid #e0392b;
-    border-radius: 8px;
-    padding: 0.55rem 0.7rem;
-    margin-bottom: 0.7rem;
-  }
-  tr.vencida td {
-    background: #fdf6f5;
-  }
-
   /* --- Presupuesto --- */
   .barra-presupuesto {
     margin-bottom: 0.7rem;
@@ -1173,48 +1020,4 @@
     background: #e0392b;
   }
 
-  /* --- Diálogo de pago --- */
-  .velo {
-    position: fixed;
-    inset: 0;
-    background: rgba(20, 24, 26, 0.55);
-    z-index: 60;
-  }
-  .dialogo-pago {
-    position: fixed;
-    z-index: 61;
-    top: 50%;
-    left: 50%;
-    transform: translate(-50%, -50%);
-    width: min(28rem, calc(100vw - 2rem));
-    background: #fff;
-    border-radius: 14px;
-    padding: 1.4rem;
-    display: flex;
-    flex-direction: column;
-    gap: 0.7rem;
-    box-shadow: var(--sombra-lg);
-  }
-  .dialogo-pago h2 {
-    font-size: 1.1rem;
-    font-weight: 700;
-  }
-  .dialogo-pago label {
-    display: flex;
-    flex-direction: column;
-    gap: 0.3rem;
-  }
-  .dialogo-pago label span {
-    font-size: 0.8rem;
-    font-weight: 600;
-    color: var(--pizarra);
-  }
-  .dialogo-pago input,
-  .dialogo-pago select {
-    padding: 0.6rem 0.7rem;
-    border: 1.5px solid var(--borde);
-    border-radius: 8px;
-    font: inherit;
-    background: #fff;
-  }
 </style>

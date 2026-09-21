@@ -5,6 +5,8 @@ import {
   claveValida,
   deBase64Url,
   derivarClaves,
+  derivarSecretoAutofactura,
+  derivarSecretoPortal,
   descifrar,
   esSobreCifrado,
   generarClaveLocal,
@@ -139,5 +141,21 @@ describe("cifrado del canal", () => {
 
   it("una clave con forma inválida no deriva nada", async () => {
     await expect(derivarClaves("no-es-una-clave", "cliente")).rejects.toThrow();
+  });
+});
+
+describe("secreto de la autofactura (1.5.6)", () => {
+  it("la caja y el Hub llegan al mismo, porque sale de la misma clave del local", async () => {
+    const clave = generarClaveLocal();
+    expect(await derivarSecretoAutofactura(clave)).toBe(await derivarSecretoAutofactura(clave));
+  });
+
+  it("no es el de la encuesta: un código no abre lo del otro", async () => {
+    const clave = generarClaveLocal();
+    expect(await derivarSecretoAutofactura(clave)).not.toBe(await derivarSecretoPortal(clave));
+  });
+
+  it("una clave con forma inválida no deriva nada", async () => {
+    await expect(derivarSecretoAutofactura("no-es-una-clave")).rejects.toThrow();
   });
 });

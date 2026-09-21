@@ -30,6 +30,13 @@ import type { ID } from "../comun/ids.js";
 const LETRAS = "BCDFGHJKLMNPQRSTVWXYZ";
 
 /**
+ * La serie base de un local. Hoy no se cambia desde ninguna pantalla, así que
+ * es la misma en todas las cajas y en el Hub; vive aquí para que las
+ * autofacturas del portal (1.5.6), que emite el Hub, no la escriban aparte.
+ */
+export const SERIE_BASE = "A";
+
+/**
  * Serie de una terminal: la base del local más dos letras estables suyas.
  *
  * `A` + `KP` → `AKP`. Se deriva del identificador del dispositivo con una mezcla

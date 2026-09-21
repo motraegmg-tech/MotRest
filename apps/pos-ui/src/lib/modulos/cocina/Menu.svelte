@@ -8,13 +8,20 @@
    */
   import { mxn, pct } from "../../formato";
   import { inventario } from "../../inventario.svelte";
+  import Ordenar from "../../listas/Ordenar.svelte";
   import { menu } from "../../menu.svelte";
   import { rutas } from "../../nav/rutas.svelte";
   import { convertirEnReventa, insumoEspejoDe } from "../../reventa.svelte";
-  import { subirAlPrincipio } from "../../subir";
+  import { revelar, subirAlPrincipio } from "../../subir";
   import EditorProducto from "./EditorProducto.svelte";
   import EditorPromociones from "./EditorPromociones.svelte";
   import EditorReceta from "./EditorReceta.svelte";
+  import {
+    ORDEN_DE_LA_CARTA,
+    ordenesDeCategorias,
+    ordenesDeProductos,
+    propuesta,
+  } from "./orden-de-la-carta";
 
   type Panel =
     | { modo: "ninguno" }
@@ -151,6 +158,111 @@
    */
   const ordenCat = $derived(menu.categorias.map((c) => c.id));
 
+  // --- Ordenar la carta (1.5.6) ------------------------------------------------------
+  //
+  // Pedido de Gonzalo: un botón de «Ordenar» en cada lista. En el resto de la
+  // caja solo cambia la vista de quien mira; aquí, por decisión suya, cambia la
+  // CARTA: el orden en que los meseros encuentran las categorías y los platillos
+  // en la caja, en todas las terminales. Un cambio así no puede ocurrir por un
+  // toque de más en un menú desplegable, así que:
+  //
+  //  - la opción de siempre es «Orden de la carta», la que ya está guardada;
+  //  - elegir otra NO ordena nada todavía: abre una confirmación que dice en
+  //    claro que cambia la carta de todo el restaurante, y cómo quedaría;
+  //  - al confirmar, se reescribe el orden guardado por el mismo camino que las
+  //    flechas (`menu.ordenarCategorias` / `menu.ordenarProductos`): sube la
+  //    versión de la carta y viaja al Hub y a las demás terminales.
+  //
+  // Después de confirmar, el botón vuelve a decir «Orden de la carta», que es
+  // la verdad: lo que se ve ES la carta, ya reordenada.
+
+  const opcionesCats = ordenesDeCategorias();
+  const opcionesProds = ordenesDeProductos();
+
+  /** Un cambio de orden esperando el «Sí». */
+  interface Reorden {
+    /** null = las categorías; un id = los platillos de esa categoría. */
+    categoriaId: string | null;
+    nombreCategoria: string;
+    opcionId: string;
+    etiqueta: string;
+    ids: string[];
+    /** Cómo quedaría, para enseñarlo antes de confirmar. */
+    nombres: string[];
+    /** false = la carta ya está así: no hay nada que confirmar. */
+    cambia: boolean;
+  }
+
+  let reorden = $state<Reorden | null>(null);
+
+  /** Lo que dice el botón de las categorías: lo pendiente, o la carta. */
+  const valorCats = $derived(
+    reorden && reorden.categoriaId === null ? reorden.opcionId : ORDEN_DE_LA_CARTA,
+  );
+
+  function valorProds(categoriaId: string): string {
+    return reorden && reorden.categoriaId === categoriaId ? reorden.opcionId : ORDEN_DE_LA_CARTA;
+  }
+
+  function pedirOrdenCategorias(id: string) {
+    aviso = "";
+    const opcion = opcionesCats.find((o) => o.id === id);
+    if (!opcion || id === ORDEN_DE_LA_CARTA) {
+      reorden = null;
+      return;
+    }
+    const p = propuesta(menu.categorias, opcion);
+    reorden = {
+      categoriaId: null,
+      nombreCategoria: "",
+      opcionId: id,
+      etiqueta: opcion.etiqueta,
+      ids: p.ids,
+      nombres: p.lista.map((c) => c.nombre),
+      cambia: p.cambia,
+    };
+  }
+
+  function pedirOrdenProductos(categoriaId: string, nombreCategoria: string, id: string) {
+    aviso = "";
+    const opcion = opcionesProds.find((o) => o.id === id);
+    if (!opcion || id === ORDEN_DE_LA_CARTA) {
+      reorden = null;
+      return;
+    }
+    // La categoría COMPLETA, no la de `grupos`: con la búsqueda puesta, esa
+    // trae solo los platillos que coinciden, y el resto se quedaría fuera.
+    const productos = menu.porCategoria.find((g) => g.categoria.id === categoriaId)?.productos ?? [];
+    const p = propuesta(productos, opcion);
+    reorden = {
+      categoriaId,
+      nombreCategoria,
+      opcionId: id,
+      etiqueta: opcion.etiqueta,
+      ids: p.ids,
+      nombres: p.lista.map((x) => x.nombre),
+      cambia: p.cambia,
+    };
+  }
+
+  function confirmarReorden() {
+    if (!reorden) return;
+    const r =
+      reorden.categoriaId === null
+        ? menu.ordenarCategorias(reorden.ids)
+        : menu.ordenarProductos(reorden.categoriaId, reorden.ids);
+    reorden = null;
+    if (!r.ok) {
+      // El aviso se escribe arriba; la confirmación de una categoría puede
+      // estar tres pantallas más abajo.
+      aviso = r.problemas[0]?.mensaje ?? "No se pudo cambiar el orden de la carta";
+      subirAlPrincipio(contenedor);
+    }
+  }
+
+  /** Cuántos nombres se enseñan en «Quedará así»: los primeros bastan para reconocerlo. */
+  const MUESTRA = 8;
+
   // --- Productos que son su propio insumo -------------------------------------------
   //
   // Las dos entradas que Gonzalo pidió para lo ya capturado. La casilla del alta
@@ -276,10 +388,81 @@
           Agregar
         </button>
       </div>
+      <!--
+        Ordenar las CATEGORÍAS. Solo para quien puede mover las flechas: aquí
+        ordenar reescribe la carta, no es una vista, y un botón que se ofrece
+        y luego no puede hacer nada es peor que no tenerlo.
+      -->
+      {#if menu.categorias.length > 1}
+        <Ordenar
+          rotulo="Ordenar categorías"
+          opciones={opcionesCats}
+          bind:valor={() => valorCats, () => {}}
+          onCambiar={pedirOrdenCategorias}
+        />
+      {/if}
     {/if}
   </div>
 
   {#if aviso}<p class="error" role="alert">{aviso}</p>{/if}
+
+  <!--
+    LA CONFIRMACIÓN DE ORDENAR LA CARTA. Un bloque en la página y no una
+    ventana: dice lo que va a pasar justo debajo de donde se pidió, y
+    `use:revelar` la trae a la vista si se abre fuera de cuadro (regla de
+    Gonzalo). La de las categorías va aquí; la de los platillos, bajo el
+    título de su categoría.
+  -->
+  {#snippet confirmacion(r: Reorden)}
+    <section class="reordenar" use:revelar aria-label="Confirmar el orden de la carta">
+      {#if r.cambia}
+        <div>
+          <b>Esto cambia la carta de todo el restaurante</b>
+          <p class="pista">
+            {#if r.categoriaId === null}
+              Las categorías quedarán en el orden <b>«{r.etiqueta}»</b>, y así las
+              verán los meseros en la caja, en todas las terminales, en cuanto
+              confirmes. No cambia solo esta pantalla.
+            {:else}
+              Los platillos de <b>{r.nombreCategoria}</b> quedarán en el orden
+              <b>«{r.etiqueta}»</b>, y así los verán los meseros al abrir esa
+              categoría en la caja, en todas las terminales, en cuanto confirmes.
+              No cambia solo esta pantalla.
+            {/if}
+          </p>
+          <p class="quedara">
+            <span>Quedará así:</span>
+            {r.nombres.slice(0, MUESTRA).join(" · ")}{#if r.nombres.length > MUESTRA}
+              · y {r.nombres.length - MUESTRA} más{/if}
+          </p>
+          {#if r.categoriaId === null}
+            <p class="pista">Para mover una sola después, siguen las flechas ↑ ↓.</p>
+          {/if}
+        </div>
+        <div class="botones-convertir">
+          <button class="cat-accion" onclick={() => (reorden = null)}>Cancelar</button>
+          <button class="cat-accion principal-cat" onclick={confirmarReorden}>
+            Sí, cambiar la carta
+          </button>
+        </div>
+      {:else}
+        <div>
+          <b>La carta ya está en ese orden</b>
+          <p class="pista">
+            {r.categoriaId === null ? "Las categorías" : `Los platillos de ${r.nombreCategoria}`}
+            ya van «{r.etiqueta}»: no hay nada que cambiar.
+          </p>
+        </div>
+        <div class="botones-convertir">
+          <button class="cat-accion" onclick={() => (reorden = null)}>Entendido</button>
+        </div>
+      {/if}
+    </section>
+  {/snippet}
+
+  {#if reorden && reorden.categoriaId === null}
+    {@render confirmacion(reorden)}
+  {/if}
 
   <!--
     CONVERTIR UN PRODUCTO YA CAPTURADO en uno que se vende tal cual.
@@ -399,10 +582,24 @@
                   Eliminar
                 </button>
               {/if}
+              <!-- Ordenar los PLATILLOS de esta categoría: su orden en la pestaña de la caja. -->
+              {#if menu.cuantosEnCategoria(grupo.categoria.id) > 1}
+                <Ordenar
+                  rotulo="Ordenar platillos"
+                  opciones={opcionesProds}
+                  bind:valor={() => valorProds(grupo.categoria.id), () => {}}
+                  onCambiar={(id) =>
+                    pedirOrdenProductos(grupo.categoria.id, grupo.categoria.nombre, id)}
+                />
+              {/if}
             </div>
           {/if}
         {/if}
       </div>
+
+      {#if reorden && reorden.categoriaId === grupo.categoria.id}
+        {@render confirmacion(reorden)}
+      {/if}
 
       <div class="productos">
         {#each grupo.productos as p (p.id)}
@@ -502,8 +699,11 @@
 </div>
 
 <style>
+  /* Con «Ordenar platillos» la fila ya no cabe siempre junto al nombre de la
+     categoría: que baje de renglón antes que desbordarse. */
   .cat-acciones {
     display: flex;
+    flex-wrap: wrap;
     gap: 0.3rem;
     align-items: center;
   }
@@ -605,6 +805,49 @@
     display: flex;
     gap: 0.4rem;
   }
+  /* La confirmación de ordenar la carta: misma familia que la de «se vende tal
+     cual», porque es la misma clase de pregunta —un cambio que llega al almacén
+     o a la caja— hecha en el mismo sitio. */
+  .reordenar {
+    display: flex;
+    align-items: flex-end;
+    flex-wrap: wrap;
+    gap: 1rem;
+    padding: 0.9rem 1rem;
+    background: var(--blanco);
+    border: 1.5px solid var(--acento);
+    border-radius: var(--r-md);
+    box-shadow: var(--sombra-sm);
+  }
+  .reordenar > div:first-child {
+    flex: 1;
+    min-width: 16rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.35rem;
+  }
+  .reordenar > div:first-child > b {
+    font-size: 0.95rem;
+    font-weight: 600;
+  }
+  .reordenar .pista {
+    font-size: 0.84rem;
+    line-height: 1.5;
+    color: var(--gris);
+  }
+  .reordenar .pista b {
+    color: var(--pizarra);
+  }
+  .quedara {
+    font-size: 0.82rem;
+    line-height: 1.5;
+    color: var(--pizarra);
+  }
+  .quedara span {
+    font-weight: 700;
+    color: var(--acento-texto);
+    margin-right: 0.25rem;
+  }
   .editar-cat {
     flex: 1;
     max-width: 18rem;
@@ -647,6 +890,7 @@
   }
   .barra {
     display: flex;
+    align-items: center;
     gap: 0.75rem;
     flex-wrap: wrap;
   }
@@ -690,6 +934,7 @@
   .titulo-grupo {
     display: flex;
     align-items: center;
+    flex-wrap: wrap;
     gap: 0.6rem;
   }
   h2 {

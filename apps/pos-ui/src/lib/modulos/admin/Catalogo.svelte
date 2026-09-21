@@ -283,6 +283,14 @@
 </script>
 
 <script lang="ts">
+  import type { EstacionKds, Insumo } from "@motrest/dominio";
+  import Ordenar from "../../listas/Ordenar.svelte";
+  import {
+    ordenRecordado,
+    ordenar,
+    ordenesComunes,
+    type OpcionOrden,
+  } from "../../listas/listas.svelte";
   import { subirAlPrincipio } from "../../subir";
 
   /*
@@ -458,8 +466,53 @@
     if (sinCategoria.length > 0) {
       grupos.push({ nombre: "Sin categoría", insumos: sinCategoria });
     }
-    return grupos;
+    const opcion = opcionesInsumos.find((o) => o.id === ordenInsumos);
+    return grupos.map((g) => ({ ...g, insumos: ordenar(g.insumos, opcion) }));
   });
+
+  // --- «Ordenar» en las tres listas del catálogo (1.5.6, pedido de Gonzalo) -----------
+  //
+  // Insumos, categorías de insumo y estaciones. Aquí ordenar cambia solo la
+  // VISTA de esta terminal —a diferencia de la carta, que es de todos—: el
+  // almacén no tiene un orden que alguien más vea. Se recuerda por terminal.
+  //
+  // Ni los insumos ni las estaciones guardan su fecha de alta, pero sí el orden
+  // en que se capturaron (el lugar en el catálogo, el `orden` de la estación):
+  // eso es «más recientes / más antiguos», y es el de siempre, así que la
+  // pantalla no se abre cambiada.
+
+  const lugarDelInsumo = $derived(new Map(menu.insumos.map((x, i) => [x.id, i])));
+  const opcionesInsumos = ordenesComunes<Insumo>({
+    nombre: (i) => i.nombre,
+    fecha: (i) => lugarDelInsumo.get(i.id),
+  });
+  let ordenInsumos = $state(ordenRecordado("catalogo.insumos", "antiguos"));
+
+  const opcionesCategorias: OpcionOrden<string>[] = [
+    ...ordenesComunes<string>({ nombre: (c) => c }),
+    {
+      id: "llenas",
+      etiqueta: "Más insumos primero",
+      comparar: (a, b) => menu.insumosDe(b).length - menu.insumosDe(a).length,
+    },
+  ];
+  let ordenCategorias = $state(ordenRecordado("catalogo.categorias", "az"));
+  const categoriasVistas = $derived(
+    ordenar(categorias, opcionesCategorias.find((o) => o.id === ordenCategorias)),
+  );
+
+  const opcionesEstaciones: OpcionOrden<EstacionKds>[] = [
+    ...ordenesComunes<EstacionKds>({ nombre: (e) => e.nombre, fecha: (e) => e.orden }),
+    {
+      id: "productos",
+      etiqueta: "Más productos primero",
+      comparar: (a, b) => menu.cuantosEnEstacion(b.id) - menu.cuantosEnEstacion(a.id),
+    },
+  ];
+  let ordenEstaciones = $state(ordenRecordado("catalogo.estaciones", "antiguos"));
+  const estacionesVistas = $derived(
+    ordenar(menu.estaciones, opcionesEstaciones.find((o) => o.id === ordenEstaciones)),
+  );
 
   // --- El atajo de «agregar una nueva categoría» desde la ficha del insumo -------------
   //
@@ -875,7 +928,12 @@
     {/if}
 
     <section class="tarjeta">
-      <h2>Insumos ({menu.insumos.length})</h2>
+      <div class="cab-lista">
+        <h2>Insumos ({menu.insumos.length})</h2>
+        {#if menu.insumos.length > 1}
+          <Ordenar opciones={opcionesInsumos} bind:valor={ordenInsumos} recordar="catalogo.insumos" />
+        {/if}
+      </div>
       <table>
         <thead>
           <tr>
@@ -1048,7 +1106,16 @@
     {/if}
 
     <section class="tarjeta">
-      <h2>Categorías ({categorias.length})</h2>
+      <div class="cab-lista">
+        <h2>Categorías ({categorias.length})</h2>
+        {#if categorias.length > 1}
+          <Ordenar
+            opciones={opcionesCategorias}
+            bind:valor={ordenCategorias}
+            recordar="catalogo.categorias"
+          />
+        {/if}
+      </div>
 
       {#if categorias.length === 0}
         <p class="pista">
@@ -1057,7 +1124,7 @@
         </p>
       {:else}
         <div class="lista-cat">
-          {#each categorias as cat (cat)}
+          {#each categoriasVistas as cat (cat)}
             {@const dentro = menu.insumosDe(cat)}
             <div class="cat">
               <div class="cab-cat">
@@ -1214,7 +1281,16 @@
     {/if}
 
     <section class="tarjeta">
-      <h2>Estaciones ({menu.estaciones.length})</h2>
+      <div class="cab-lista">
+        <h2>Estaciones ({menu.estaciones.length})</h2>
+        {#if menu.estaciones.length > 1}
+          <Ordenar
+            opciones={opcionesEstaciones}
+            bind:valor={ordenEstaciones}
+            recordar="catalogo.estaciones"
+          />
+        {/if}
+      </div>
       <table>
         <thead>
           <tr>
@@ -1226,7 +1302,7 @@
           </tr>
         </thead>
         <tbody>
-          {#each menu.estaciones as estacion (estacion.id)}
+          {#each estacionesVistas as estacion (estacion.id)}
             {@const cuantos = menu.cuantosEnEstacion(estacion.id)}
             <tr>
               <td><b>{estacion.nombre}</b></td>
@@ -1828,6 +1904,18 @@
     font-size: 1.05rem;
     font-weight: 600;
     margin-bottom: 0.85rem;
+  }
+  /* El título de la lista y su botón de «Ordenar», en la misma línea. */
+  .cab-lista {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 0.6rem;
+    margin-bottom: 0.85rem;
+  }
+  .cab-lista h2 {
+    margin-bottom: 0;
   }
   .campos {
     display: flex;

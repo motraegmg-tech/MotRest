@@ -206,6 +206,32 @@ describe("pre-cuenta", () => {
     expect(ticket.construir().length).toBeGreaterThan(ticket.aTexto().length);
   });
 
+  it("con el portal de autofactura (1.5.6): su QR primero, la clave y el folio debajo, y sin «pídala antes de irse»", () => {
+    const sinPortal = precuenta({ ...datos, textos: { aviso_factura: "¿Necesita factura? Pídala antes de irse." } });
+    expect(sinPortal.aTexto()).toContain("Pídala antes de irse");
+
+    const texto = precuenta({
+      ...datos,
+      textos: { aviso_factura: "¿Necesita factura? Pídala antes de irse." },
+      qrs: [
+        {
+          leyenda: "Factura tu consumo",
+          url: "https://motrest-factura.vercel.app/r/RODIZIO/A1B2C3D4?t=ABCDEFGHJKMNPQRS",
+          pie: ["Clave: RODIZIO   Folio: A1B2C3D4", "motrest-factura.vercel.app"],
+          esFactura: true,
+        },
+        { leyenda: "¿Cómo estuvo todo?", url: "https://motrest.test/opinion" },
+        { leyenda: "Síguenos", url: "https://instagram.example/rodizio" },
+      ],
+    }).aTexto();
+    expect(texto).toContain("Clave: RODIZIO   Folio: A1B2C3D4");
+    expect(texto).toContain("motrest-factura.vercel.app");
+    // Los tres caben: el del restaurante no se pierde por el de la factura.
+    expect(texto).toContain("Síguenos");
+    expect(texto.indexOf("Factura tu consumo")).toBeLessThan(texto.indexOf("¿Cómo estuvo todo?"));
+    expect(texto).not.toContain("Pídala antes de irse");
+  });
+
   it("puede dibujar el QR como imagen sin ensuciar la vista legible", () => {
     const matriz = {
       ancho: 3,

@@ -25,6 +25,7 @@
     proponerRecepcion,
     type FacturaProveedor,
     type OrdenCompra,
+    type Proveedor,
     type Unidad,
   } from "@motrest/dominio";
   import SelectorInsumo from "../SelectorInsumo.svelte";
@@ -32,8 +33,65 @@
   import { fiscal } from "../fiscal.svelte";
   import { hora, mxn } from "../formato";
   import { inventario } from "../inventario.svelte";
+  import Ordenar from "../listas/Ordenar.svelte";
+  import VerMas from "../listas/VerMas.svelte";
+  import {
+    Paginado,
+    ordenRecordado,
+    ordenar,
+    ordenesComunes,
+    type OpcionOrden,
+  } from "../listas/listas.svelte";
   import { sesion } from "../sesion/sesion.svelte";
   import { subirAlPrincipio } from "../subir";
+
+  /*
+   * «VER MÁS» Y «ORDENAR» (1.5.6, pedido de Gonzalo).
+   *
+   * Las órdenes de compra crecen sin techo —una o dos por semana, cada una con
+   * sus renglones—, y todas se pintaban de golpe: en un local con un año
+   * encima, la orden que llegó hoy quedaba arriba de una pared de cien tarjetas.
+   * Ahora se ven 10 y el resto a petición, y se pueden ordenar por fecha, por
+   * proveedor o por importe.
+   *
+   * Los proveedores se ordenan por nombre o por cuándo se dieron de alta. No
+   * guardan fecha, pero su lista sale en el orden en que se registraron, y ese
+   * es el de siempre: la pantalla no se abre cambiada. Todo esto es solo la
+   * VISTA de esta terminal; ni una orden ni un proveedor cambian.
+   */
+  const opcionesOrdenes: OpcionOrden<OrdenCompra>[] = [
+    ...ordenesComunes<OrdenCompra>({
+      nombre: (o) => compras.nombreProveedor(o.proveedor_id),
+      fecha: (o) => o.creada_ts,
+    }).map((o) =>
+      // Aquí el nombre es el del PROVEEDOR: que el botón lo diga.
+      o.id === "az"
+        ? { ...o, etiqueta: "Proveedor, de la A a la Z" }
+        : o.id === "za"
+          ? { ...o, etiqueta: "Proveedor, de la Z a la A" }
+          : o,
+    ),
+    {
+      id: "importe",
+      etiqueta: "Mayor importe primero",
+      comparar: (a, b) => totalOrden(b.lineas) - totalOrden(a.lineas),
+    },
+  ];
+  let ordenOrdenes = $state(ordenRecordado("compras.ordenes", "recientes"));
+  const ordenesVistas = $derived(
+    ordenar(compras.ordenes, opcionesOrdenes.find((o) => o.id === ordenOrdenes)),
+  );
+  const pagOrdenes = new Paginado();
+
+  const lugarDeAlta = $derived(new Map(compras.proveedores.map((p, i) => [p.proveedor_id, i])));
+  const opcionesProveedores = ordenesComunes<Proveedor>({
+    nombre: (p) => p.nombre,
+    fecha: (p) => lugarDeAlta.get(p.proveedor_id),
+  });
+  let ordenProveedores = $state(ordenRecordado("compras.proveedores", "antiguos"));
+  const proveedoresVistos = $derived(
+    ordenar(compras.proveedores, opcionesProveedores.find((o) => o.id === ordenProveedores)),
+  );
 
   type Vista = "reponer" | "ordenes" | "proveedores" | "factura";
   let vista = $state<Vista>("reponer");
@@ -480,12 +538,22 @@
     </section>
   {:else if vista === "ordenes"}
     <section class="tarjeta">
-      <h2>Órdenes de compra</h2>
+      <div class="cab-lista">
+        <h2>Órdenes de compra</h2>
+        {#if compras.ordenes.length > 1}
+          <Ordenar
+            opciones={opcionesOrdenes}
+            bind:valor={ordenOrdenes}
+            recordar="compras.ordenes"
+            onCambiar={() => pagOrdenes.reiniciar()}
+          />
+        {/if}
+      </div>
       {#if compras.ordenes.length === 0}
         <p class="vacio">Sin órdenes todavía.</p>
       {:else}
         <div class="ordenes">
-          {#each compras.ordenes as orden (orden.orden_id)}
+          {#each pagOrdenes.de(ordenesVistas) as orden (orden.orden_id)}
             {@const falta = pendienteDe(orden)}
             <article class="orden {orden.estado}">
               <header>
@@ -652,6 +720,7 @@
             </article>
           {/each}
         </div>
+        <VerMas pag={pagOrdenes} lista={ordenesVistas} />
       {/if}
     </section>
   {:else if vista === "factura"}
@@ -836,7 +905,16 @@
     {/if}
 
     <section class="tarjeta">
-      <h2>Proveedores</h2>
+      <div class="cab-lista">
+        <h2>Proveedores</h2>
+        {#if compras.proveedores.length > 1}
+          <Ordenar
+            opciones={opcionesProveedores}
+            bind:valor={ordenProveedores}
+            recordar="compras.proveedores"
+          />
+        {/if}
+      </div>
       {#if compras.proveedores.length === 0}
         <p class="vacio">Sin proveedores todavía.</p>
       {:else}
@@ -851,7 +929,7 @@
             </tr>
           </thead>
           <tbody>
-            {#each compras.proveedores as p (p.proveedor_id)}
+            {#each proveedoresVistos as p (p.proveedor_id)}
               <tr class:baja={!p.activo}>
                 <td>
                   <b>{p.nombre}</b>
@@ -1000,6 +1078,18 @@
     font-size: 1.05rem;
     font-weight: 600;
     margin-bottom: 0.85rem;
+  }
+  /* El título de la lista y su botón de «Ordenar», en la misma línea. */
+  .cab-lista {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 0.6rem;
+    margin-bottom: 0.85rem;
+  }
+  .cab-lista h2 {
+    margin-bottom: 0;
   }
   h3 {
     font-size: 0.95rem;

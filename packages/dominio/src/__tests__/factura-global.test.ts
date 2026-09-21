@@ -19,14 +19,18 @@ import type { Comprobante } from "../fiscal/comprobante.js";
 import type { EventoFiscal, RegistroCfdi } from "../fiscal/eventos.js";
 import {
   conceptosDeTicket,
+  configuracionFacturacionVacia,
   facturasGlobales,
   formaPagoDeLaGlobal,
+  leerConfiguracionFacturacion,
   limitesDelPeriodo,
   ordenEnFacturaGlobal,
   partirEnFacturas,
   periodoDe,
   periodosPorEmitir,
+  resumenDeDescartes,
   ticketPasaALaGlobal,
+  ticketsElegidosParaGlobal,
   ticketsParaGlobal,
   type TicketGlobal,
 } from "../fiscal/global.js";
@@ -189,6 +193,154 @@ describe("qué tickets entran", () => {
   });
 });
 
+describe("el consumo de socio no va en la global (1.5.6)", () => {
+  it("se queda fuera aunque nadie lo haya facturado", () => {
+    const SEP = (dia: number) => new Date(2026, 8, dia, 21);
+    const publico = cobrada(SEP(3), [renglon(249)]);
+    const delSocio = cobrada(SEP(4), [renglon(300)], { forma: "socio" });
+
+    const tickets = ticketsParaGlobal({
+      periodo: "2026-09",
+      comandas: [publico, delSocio],
+      cfdis: [],
+      globales: [],
+    });
+
+    // No fue una venta al público: lo cubrió la bolsa pactada con el socio, y
+    // declararlo ante el SAT sería declarar un ingreso que nunca entró.
+    expect(tickets.map((t) => t.orden_id)).toEqual([publico.orden_id]);
+  });
+});
+
+describe("el modo de facturación del local (1.5.6)", () => {
+  /*
+   * El valor por omisión importa más que el resto: un local que se actualiza y
+   * no toca nada deja de emitir globales solo. Equivocarse hacia «no emitas»
+   * cuesta un clic; equivocarse hacia «emite todo» cuesta una cancelación.
+   */
+  it("sin configuración, manual", () => {
+    expect(configuracionFacturacionVacia().modo_global).toBe("manual");
+    expect(leerConfiguracionFacturacion(undefined).modo_global).toBe("manual");
+    expect(leerConfiguracionFacturacion({}).modo_global).toBe("manual");
+  });
+
+  it("un modo que no se reconoce no se toma por bueno", () => {
+    expect(leerConfiguracionFacturacion({ modo_global: "auto" }).modo_global).toBe("manual");
+    expect(leerConfiguracionFacturacion("automatica").modo_global).toBe("manual");
+    expect(leerConfiguracionFacturacion({ modo_global: "automatica" }).modo_global).toBe("automatica");
+  });
+
+  it("la versión y la fecha viajan, y la basura no", () => {
+    expect(leerConfiguracionFacturacion({ modo_global: "automatica", version: 3, updated_at: 17 })).toEqual({
+      modo_global: "automatica",
+      version: 3,
+      updated_at: 17,
+    });
+    expect(leerConfiguracionFacturacion({ modo_global: "manual", version: -1, updated_at: 1.5 })).toEqual({
+      modo_global: "manual",
+      version: 0,
+      updated_at: 0,
+    });
+  });
+
+  it("los datos fiscales del restaurante viajan al Hub con la configuración (1.5.6)", () => {
+    const emisor = { rfc: "RPP200101AB1", nombre: "RODIZIO PIZZAS", regimen_fiscal: "601", codigo_postal: "44100" };
+    expect(leerConfiguracionFacturacion({ modo_global: "manual", emisor }).emisor).toEqual(emisor);
+  });
+
+  it("un emisor mal formado no llega a ningún comprobante", () => {
+    expect(leerConfiguracionFacturacion({ emisor: { rfc: 5, nombre: "X" } }).emisor).toBeUndefined();
+    expect(leerConfiguracionFacturacion({ emisor: "RODIZIO" }).emisor).toBeUndefined();
+    expect(
+      leerConfiguracionFacturacion({
+        emisor: { rfc: "RPP200101AB1", nombre: "N".repeat(301), regimen_fiscal: "601", codigo_postal: "44100" },
+      }).emisor,
+    ).toBeUndefined();
+  });
+});
+
+describe("las cuentas que elige el restaurantero (1.5.6)", () => {
+  const SEP = (dia: number) => new Date(2026, 8, dia, 21);
+
+  it("deja pasar lo que puede entrar y descarta lo demás con su motivo", () => {
+    const buena = cobrada(SEP(3), [renglon(249)]);
+    const facturada = cobrada(SEP(4), [renglon(100)]);
+    const enOtraGlobal = cobrada(SEP(5), [renglon(80)]);
+    const delSocio = cobrada(SEP(6), [renglon(300)], { forma: "socio" });
+    const regalada = cobrada(SEP(7), [renglon(150)], {
+      extra: (f, o) => [f.crear("cortesia_otorgada", o, { orden_id: o, motivo: "Casa" })],
+    });
+    const deOctubre = cobrada(new Date(2026, 9, 2, 21), [renglon(90)]);
+
+    const r = ticketsElegidosParaGlobal({
+      periodo: "2026-09",
+      seleccion: [
+        buena.orden_id,
+        facturada.orden_id,
+        enOtraGlobal.orden_id,
+        delSocio.orden_id,
+        regalada.orden_id,
+        deOctubre.orden_id,
+        "ord-que-no-existe",
+      ],
+      comandas: [buena, facturada, enOtraGlobal, delSocio, regalada, deOctubre],
+      cfdis: [registro(facturada.orden_id, "timbrado")],
+      globales: facturasGlobales([eventoGlobal([enOtraGlobal.orden_id], "produccion")]),
+    });
+
+    expect(r.tickets.map((t) => t.orden_id)).toEqual([buena.orden_id]);
+    expect(Object.fromEntries(r.descartadas.map((d) => [d.orden_id, d.motivo]))).toEqual({
+      [facturada.orden_id]: "ya_facturada",
+      [enOtraGlobal.orden_id]: "en_global",
+      [delSocio.orden_id]: "consumo_socio",
+      [regalada.orden_id]: "sin_importe",
+      [deOctubre.orden_id]: "otro_periodo",
+      "ord-que-no-existe": "desconocida",
+    });
+  });
+
+  /*
+   * Un CFDI RECHAZADO no ampara nada: el SAT nunca lo vio. Esa venta sigue
+   * necesitando comprobante, y es justo la que el restaurantero quiere meter en
+   * la global.
+   */
+  it("un comprobante rechazado no bloquea: esa venta sigue sin amparar", () => {
+    const cuenta = cobrada(SEP(3), [renglon(249)]);
+    const r = ticketsElegidosParaGlobal({
+      periodo: "2026-09",
+      seleccion: [cuenta.orden_id],
+      comandas: [cuenta],
+      cfdis: [registro(cuenta.orden_id, "rechazado")],
+      globales: [],
+    });
+    expect(r.tickets).toHaveLength(1);
+    expect(r.descartadas).toEqual([]);
+  });
+
+  it("la misma cuenta marcada dos veces es una sola, y no un descarte", () => {
+    const cuenta = cobrada(SEP(3), [renglon(249)]);
+    const r = ticketsElegidosParaGlobal({
+      periodo: "2026-09",
+      seleccion: [cuenta.orden_id, cuenta.orden_id],
+      comandas: [cuenta],
+      cfdis: [],
+      globales: [],
+    });
+    expect(r.tickets).toHaveLength(1);
+    expect(r.descartadas).toEqual([]);
+  });
+
+  it("los motivos se cuentan agrupados, para decirlos en una línea", () => {
+    expect(
+      resumenDeDescartes([
+        { orden_id: "a", motivo: "ya_facturada" },
+        { orden_id: "b", motivo: "ya_facturada" },
+        { orden_id: "c", motivo: "otro_periodo" },
+      ]),
+    ).toBe("2 con factura a nombre del cliente, 1 de otro mes");
+  });
+});
+
 describe("la caja no factura dos veces la misma venta", () => {
   it("una orden en la global de producción queda bloqueada, con la global que la tiene", () => {
     const eventos = [eventoGlobal(["ord-1", "ord-2"], "produccion")];
@@ -203,6 +355,29 @@ describe("la caja no factura dos veces la misma venta", () => {
   it("el mismo hecho repetido no cuenta como dos globales", () => {
     const e = eventoGlobal(["ord-1"], "produccion");
     expect(facturasGlobales([e, e])).toHaveLength(1);
+  });
+
+  /*
+   * Las globales de la 1.5.5 no traen `origen`, y TODAS salieron del barrido del
+   * Hub. Rellenarlo al leer evita que cada pantalla tenga que acordarse de ese
+   * detalle histórico para no pintar un hueco.
+   */
+  it("una global sin origen es automática: es lo único que hacía la 1.5.5", () => {
+    const vieja = eventoGlobal(["ord-1"], "produccion");
+    expect(facturasGlobales([vieja])[0]).toMatchObject({ origen: "automatica" });
+    expect(facturasGlobales([vieja])[0]!.autorizador_id).toBeUndefined();
+  });
+
+  it("una global emitida a mano dice quién la autorizó", () => {
+    const aMano = new FabricaEventos<EventoFiscal>(CTX).crear("factura_global_emitida", "fiscal:s1", {
+      periodo: "2026-09", parte: 2, uuid: uuidv7(), externo_id: "inv_2", ordenes: ["ord-9"],
+      total: pesos(100), modo: "produccion", origen: "manual", autorizador_id: "usr-gonzalo",
+    });
+    expect(facturasGlobales([aMano])[0]).toMatchObject({
+      origen: "manual",
+      autorizador_id: "usr-gonzalo",
+      parte: 2,
+    });
   });
 });
 

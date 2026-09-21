@@ -58,12 +58,15 @@ const CONFIG: ConfiguracionCorreo = {
  */
 class Proveedor {
   entregados: string[] = [];
+  /** Lo que de verdad le llegó a cada uno: para saber QUÉ texto salió. */
+  cuerpos: { asunto: string; html: string }[] = [];
   hayRed = true;
 
   llamar = (async (_url: string, init: RequestInit) => {
     if (!this.hayRed) throw new Error("getaddrinfo ENOTFOUND api.resend.com");
-    const cuerpo = JSON.parse(init.body as string) as { to: string[] };
+    const cuerpo = JSON.parse(init.body as string) as { to: string[]; subject: string; html: string };
     this.entregados.push(cuerpo.to[0]!);
+    this.cuerpos.push({ asunto: cuerpo.subject, html: cuerpo.html });
     return new Response(JSON.stringify({ id: `email-${this.entregados.length}` }), {
       status: 200,
     });
@@ -92,6 +95,8 @@ let correo: Correo | null;
 let solicitudes: SolicitudesDeCorreo;
 let bitacora: string[];
 let reloj: () => number;
+/** La configuración que lee el Hub en cada envío; una prueba la cambia como lo haría la caja. */
+let configActual: ConfiguracionCorreo;
 
 beforeEach(() => {
   log = new LogHub(":memory:");
@@ -99,9 +104,10 @@ beforeEach(() => {
   llave = "re_llave_de_prueba";
   bitacora = [];
   reloj = Date.now;
+  configActual = CONFIG;
   const registrar = (nivel: string, texto: string) => bitacora.push(`${nivel}: ${texto}`);
 
-  correo = new Correo(() => CONFIG, () => llave, registrar, Date.now, proveedor.llamar);
+  correo = new Correo(() => configActual, () => llave, registrar, Date.now, proveedor.llamar);
   // Las dependencias, igual que en `main.ts`: funciones que se leen al usarse.
   solicitudes = new SolicitudesDeCorreo({
     hubId: "hub-prueba",
@@ -514,6 +520,129 @@ describe("la confirmación de reserva también deja constancia", () => {
     // `estadosDeCorreo` solo sigue peticiones: esto no puede inventar una.
     const eventos = (await log.leerStream(streamCorreo(SUC))) as unknown as EventoCorreo[];
     expect(estadosDeCorreo(eventos).size).toBe(0);
+  });
+});
+
+// --- Los correos que escribe el restaurante (1.5.6) ---------------------------------------------
+
+/**
+ * LOS CORREOS NUEVOS, CONTRA EL HUB DE VERDAD.
+ *
+ * Decisión de Gonzalo: los que crea el restaurante son SIEMPRE publicidad. El
+ * Hub los acepta, los arma con `armarCorreo` y comprueba el permiso contra la
+ * FICHA, igual que un cupón. Y uno que ya se borró se contesta con un motivo que
+ * se entiende en la ficha, no se ignora ni se manda.
+ */
+describe("los correos que escribió el restaurante", () => {
+  const NOCHE = {
+    tipo: "propio:noche-italiana" as const,
+    nombre: "Noche italiana",
+    asunto: "Una noche italiana en {{local}}",
+    titulo: "Lo invitamos, {{nombre}}",
+    texto: "El viernes preparamos una noche italiana en {{local}}.",
+    boton: "Apartar mi lugar",
+    enlace: "https://rodizio.mx/noche",
+    activo: true,
+  };
+
+  function alta(cliente_id: string, acepta: boolean): EventoCliente {
+    return fabricaClientes.crear("cliente_registrado", streamClientes(SUC), {
+      cliente_id,
+      datos: {
+        nombre: "Ana Ramírez",
+        correo: COMENSAL,
+        acepta_promociones: acepta,
+        acepta_promociones_ts: Date.now(),
+      },
+    });
+  }
+
+  const pedirNoche = (cliente_id: string, acepta_marketing: boolean) =>
+    peticion({
+      clase_correo: NOCHE.tipo,
+      datos: { nombre: "Ana" },
+      acepta_marketing,
+      cliente_id,
+    });
+
+  it("sale armado con lo que escribió el restaurante, a quien aceptó promociones", async () => {
+    configActual = { ...CONFIG, propios: [NOCHE] };
+    const cx = caja();
+    empujar(cx, [alta("cli-ana", true), pedirNoche("cli-ana", true)]);
+    await solicitudes.enCalma();
+
+    expect(proveedor.entregados).toEqual([COMENSAL]);
+    const [llegado] = proveedor.cuerpos;
+    expect(llegado!.asunto).toBe("Una noche italiana en Rodizio");
+    expect(llegado!.html).toContain("Lo invitamos, Ana");
+    expect(llegado!.html).toContain('href="https://rodizio.mx/noche"');
+    // Publicidad: siempre con su baja.
+    expect(llegado!.html).toContain("responda <b>BAJA</b>");
+
+    const r = await respuestas();
+    expect(r[0]).toMatchObject({ tipo: "correo_enviado", clase_correo: NOCHE.tipo });
+  });
+
+  it("a quien NO aceptó promociones se rechaza, aunque la tableta diga que sí", async () => {
+    configActual = { ...CONFIG, propios: [NOCHE] };
+    const cx = caja();
+    empujar(cx, [alta("cli-ana", false), pedirNoche("cli-ana", true)]);
+    await solicitudes.enCalma();
+
+    expect(proveedor.entregados).toHaveLength(0);
+    const r = await respuestas();
+    expect(r[0]).toMatchObject({ tipo: "correo_rechazado", clase_correo: NOCHE.tipo });
+    expect((r[0] as { motivo: string }).motivo).toContain("no aceptó recibir promociones");
+  });
+
+  it("uno que el restaurante ya borró se rechaza diciendo que ya no existe", async () => {
+    // Una tableta que no se enteró del borrado todavía lo ofrece.
+    configActual = { ...CONFIG, propios: [] };
+    const cx = caja();
+    empujar(cx, [alta("cli-ana", true), pedirNoche("cli-ana", true)]);
+    await solicitudes.enCalma();
+
+    expect(proveedor.entregados).toHaveLength(0);
+    const r = await respuestas();
+    expect(r).toHaveLength(1);
+    expect(r[0]).toMatchObject({ tipo: "correo_rechazado", solicitud_id: "sol-1" });
+    expect((r[0] as { motivo: string }).motivo).toContain("ya no existe");
+  });
+
+  it("uno apagado tampoco sale", async () => {
+    configActual = { ...CONFIG, propios: [{ ...NOCHE, activo: false }] };
+    const cx = caja();
+    empujar(cx, [alta("cli-ana", true), pedirNoche("cli-ana", true)]);
+    await solicitudes.enCalma();
+
+    expect(proveedor.entregados).toHaveLength(0);
+    expect((await respuestas())[0]!.tipo).toBe("correo_rechazado");
+  });
+
+  it("un «propio» sin forma de correo sigue siendo un tipo desconocido", async () => {
+    configActual = { ...CONFIG, propios: [NOCHE] };
+    const cx = caja();
+    empujar(cx, [{ ...peticion(), clase_correo: "propio:<script>" } as EventoBase]);
+    await solicitudes.enCalma();
+
+    expect(proveedor.entregados).toHaveLength(0);
+    expect((await respuestas())[0]).toMatchObject({ tipo: "correo_rechazado" });
+  });
+
+  it("uno de los seis, editado en la caja, sale con su texto nuevo", async () => {
+    configActual = {
+      ...CONFIG,
+      asuntos: { gracias: "¡Gracias, {{nombre}}!" },
+      plantillas: { gracias: { texto: "Nos encantó tenerlo en {{local}}." } },
+    };
+    const cx = caja();
+    empujar(cx, [peticion()]);
+    await solicitudes.enCalma();
+
+    const [llegado] = proveedor.cuerpos;
+    expect(llegado!.asunto).toBe("¡Gracias, Ramírez!");
+    expect(llegado!.html).toContain("Nos encantó tenerlo en <b>Rodizio</b>.");
+    expect(llegado!.html).not.toContain("Lo esperamos pronto");
   });
 });
 

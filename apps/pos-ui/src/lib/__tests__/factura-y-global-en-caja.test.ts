@@ -72,17 +72,15 @@ describe("la regla de la factura global en la caja", () => {
     expect(r.registro?.correo_receptor).toBe("ana@correo.mx");
   });
 
-  it("un ticket de un mes ya cerrado no se factura a nombre de nadie", () => {
+  /*
+   * En la 1.5.5 un ticket de un mes cerrado se bloqueaba «porque va en la
+   * global». En la 1.5.6 ya no: el restaurantero elige qué entra en cada global,
+   * así que lo que se quedó fuera sigue disponible para el comensal que vuelve.
+   */
+  it("un ticket de un mes ya cerrado SÍ se puede facturar si no entró en ninguna global", () => {
     const hace40dias = Date.now() - 40 * 86_400_000;
     const r = fiscal.facturar(cuentaCerrada(hace40dias), RECEPTOR, { conGlobal: true });
-    expect(r.ok).toBe(false);
-    expect(r.error).toMatch(/factura global/);
-  });
-
-  it("sin factura global (sin FacturAPI) no se bloquea por el mes", () => {
-    const hace40dias = Date.now() - 40 * 86_400_000;
-    const r = fiscal.facturar(cuentaCerrada(hace40dias), RECEPTOR, { conGlobal: false });
-    expect(r.error ?? "").not.toMatch(/factura global/);
+    expect(r.ok).toBe(true);
   });
 
   it("un ticket que ya entró en una global de producción se bloquea y dice cuál", () => {

@@ -22,9 +22,17 @@
     type SueldoSemanal,
     type TipoChecada,
   } from "@motrest/dominio";
-  import VentanaAmplia from "../VentanaAmplia.svelte";
   import { asistencia } from "../asistencia.svelte";
   import { hora, mxn } from "../formato";
+  import Ordenar from "../listas/Ordenar.svelte";
+  import VerMas from "../listas/VerMas.svelte";
+  import {
+    Paginado,
+    ordenRecordado,
+    ordenar,
+    ordenesComunes,
+    type OpcionOrden,
+  } from "../listas/listas.svelte";
   import { prenomina } from "../prenomina.svelte";
   import { rutas } from "../nav/rutas.svelte";
   import { sesion } from "../sesion/sesion.svelte";
@@ -33,14 +41,15 @@
 
   let seleccionado = $state<string>("");
 
-  /**
-   * Cuántas checadas se listan antes de pedir «Ver más».
+  /*
+   * «VER MÁS» EN LOS REGISTROS DE ASISTENCIA (1.5.6, pedido de Gonzalo).
    *
-   * Veinte cubren un turno con su equipo completo entrando y saliendo. El resto
-   * se busca cuando se está revisando una nómina, y para eso está la ventana.
+   * Antes se listaban 20 y el resto se abría en una ventana aparte con TODO de
+   * golpe: cuatro checadas por persona y por día, miles al cabo de unos meses.
+   * Ahora sigue la regla de toda la caja: 10 al entrar y 15 más por cada «Ver
+   * más», en la misma tarjeta.
    */
-  const TOPE_CHECADAS = 20;
-  let verChecadas = $state(false);
+  const pagChecadas = new Paginado();
   let pin = $state("");
   let mensaje = $state("");
   let error = $state("");
@@ -56,6 +65,31 @@
 
   const equipo = $derived(sesion.usuariosDelLocal);
   const puedeAjustar = $derived(sesion.puedeOperar("rrhh.checada.ajustar"));
+
+  /*
+   * «ORDENAR» AL EQUIPO (1.5.6, pedido de Gonzalo), en «Jornadas de hoy».
+   *
+   * Un usuario no guarda su fecha de alta, pero la lista del local sale en el
+   * orden en que se dieron de alta: eso es «más antiguos / más recientes», y el
+   * de siempre. Solo cambia la vista de esta terminal. El checador de la
+   * entrada NO se ordena: es la tableta que usa todo el equipo, y que cada
+   * quien encuentre su nombre donde lo encontró ayer vale más que cualquier
+   * orden.
+   */
+  type Persona = (typeof equipo)[number];
+  const lugarEnElEquipo = $derived(new Map(equipo.map((u, i) => [u.id, i])));
+  const opcionesJornadas: OpcionOrden<Persona>[] = [
+    ...ordenesComunes<Persona>({ nombre: (u) => u.nombre, fecha: (u) => lugarEnElEquipo.get(u.id) }),
+    {
+      id: "horas",
+      etiqueta: "Más horas hoy primero",
+      comparar: (a, b) => asistencia.resumen(b.id, ahora).minutos - asistencia.resumen(a.id, ahora).minutos,
+    },
+  ];
+  let ordenJornadas = $state(ordenRecordado("personal.jornadas", "antiguos"));
+  const jornadas = $derived(
+    ordenar(equipo, opcionesJornadas.find((o) => o.id === ordenJornadas)),
+  );
 
   /**
    * ¿Ve la asistencia DE TODOS, o solo su propio checador?
@@ -202,6 +236,25 @@
   const raya = $derived(prenomina.calcular(equipo, rango, ahora));
   const porDia = $derived(prenomina.modoSueldo === "por_dia");
 
+  /*
+   * «ORDENAR» LA RAYA (1.5.6). De siempre sale del que más cobra al que menos,
+   * y así sigue entrando; por nombre es como se busca el sobre de cada quien
+   * el sábado. Solo la vista: los totales de abajo no cambian.
+   */
+  type RenglonRaya = (typeof raya.renglones)[number];
+  const opcionesRaya: OpcionOrden<RenglonRaya>[] = [
+    {
+      id: "total",
+      etiqueta: "Más a pagar primero",
+      comparar: (a, b) => b.total - a.total,
+    },
+    ...ordenesComunes<RenglonRaya>({ nombre: (r) => r.nombre }),
+  ];
+  let ordenRaya = $state(ordenRecordado("personal.prenomina", "total"));
+  const renglonesRaya = $derived(
+    ordenar(raya.renglones, opcionesRaya.find((o) => o.id === ordenRaya)),
+  );
+
   let editandoTarifa = $state<string>("");
   let tarifaTexto = $state("");
   let errorTarifa = $state("");
@@ -328,6 +381,9 @@
           <button class="mini" disabled={semanasAtras === 0} onclick={() => (semanasAtras -= 1)}>
             Siguiente →
           </button>
+          {#if raya.renglones.length > 1}
+            <Ordenar opciones={opcionesRaya} bind:valor={ordenRaya} recordar="personal.prenomina" />
+          {/if}
         </div>
       </div>
 
@@ -427,7 +483,7 @@
               </tr>
             </thead>
             <tbody>
-              {#each raya.renglones as r (r.trabajador_id)}
+              {#each renglonesRaya as r (r.trabajador_id)}
                 <tr class:con-falta={r.faltas.length > 0}>
                   <td>
                     <button class="tarifa" onclick={() => abrirSueldo(r.trabajador_id)}>
@@ -489,7 +545,7 @@
               </tr>
             </thead>
             <tbody>
-              {#each raya.renglones as r (r.trabajador_id)}
+              {#each renglonesRaya as r (r.trabajador_id)}
                 <tr>
                   <td>
                     <b>{r.nombre}</b>
@@ -651,7 +707,12 @@
     <!-- Jornadas -->
     {#if puedeVerEquipo}
     <section class="tarjeta">
-      <h2>Jornadas de hoy</h2>
+      <div class="cab-lista">
+        <h2>Jornadas de hoy</h2>
+        {#if equipo.length > 1}
+          <Ordenar opciones={opcionesJornadas} bind:valor={ordenJornadas} recordar="personal.jornadas" />
+        {/if}
+      </div>
       <table>
         <thead>
           <tr>
@@ -663,7 +724,7 @@
           </tr>
         </thead>
         <tbody>
-          {#each equipo as u (u.id)}
+          {#each jornadas as u (u.id)}
             {@const r = asistencia.resumen(u.id, ahora)}
             <tr>
               <td>
@@ -725,24 +786,10 @@
     {#if !asistencia.hayRegistro}
       <p class="vacio">Todavía nadie ha marcado asistencia en este dispositivo.</p>
     {:else}
-      {@render listaChecadas(asistencia.recientes.slice(0, TOPE_CHECADAS))}
-      {#if asistencia.recientes.length > TOPE_CHECADAS}
-        <button class="ver-todo" onclick={() => (verChecadas = true)}>
-          Ver más ({asistencia.recientes.length - TOPE_CHECADAS} registros más)
-        </button>
-      {/if}
+      {@render listaChecadas(pagChecadas.de(asistencia.recientes))}
+      <VerMas pag={pagChecadas} lista={asistencia.recientes} />
     {/if}
   </section>
-
-  {#if verChecadas}
-    <VentanaAmplia
-      titulo="Registros de asistencia"
-      subtitulo="{asistencia.recientes.length} registros en este dispositivo, del más reciente al más antiguo"
-      onCerrar={() => (verChecadas = false)}
-    >
-      {@render listaChecadas(asistencia.recientes)}
-    </VentanaAmplia>
-  {/if}
   {/if}
   {/if}
 </div>
@@ -793,6 +840,18 @@
     font-size: 1.05rem;
     font-weight: 600;
     margin-bottom: 0.85rem;
+  }
+  /* El título de la lista y su botón de «Ordenar», en la misma línea. */
+  .cab-lista {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 0.6rem;
+    margin-bottom: 0.85rem;
+  }
+  .cab-lista h2 {
+    margin-bottom: 0;
   }
   .pista {
     font-size: 0.82rem;
@@ -1034,6 +1093,8 @@
   }
   .controles-raya {
     display: flex;
+    align-items: center;
+    flex-wrap: wrap;
     gap: 0.4rem;
   }
   .mini {

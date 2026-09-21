@@ -20,22 +20,39 @@
  */
 import {
   CATALOGO_CORREOS,
+  EJEMPLOS_DE_CORREO,
   FabricaEventos,
+  TOPES_CORREO,
+  botonEditable,
+  catalogoDeCorreos,
   compararEventos,
   configuracionVacia,
   correoPlausible,
-  definicionCorreo,
+  correoPropio,
   esCuentaGmail,
+  esTipoDeLaCasa,
+  esTipoPropio,
   estadosDeCorreo,
+  limpiarBorrador,
+  pideMensaje,
   problemasDeRemitente,
+  problemasDelBorrador,
+  propiosDe,
   puedeMandarCorreo,
   streamCorreo,
   uuidv7,
+  type BorradorDeCorreo,
   type ConfiguracionCorreo,
+  type CorreoPropio,
   type DatosCorreo,
+  type DefinicionCorreo,
   type EventoCorreo,
   type ID,
+  type PlantillaCorreo,
+  type ProblemaDeCorreo,
   type TipoCorreo,
+  type TipoCorreoDeLaCasa,
+  type TipoCorreoPropio,
 } from "@motrest/dominio";
 import { catalogoMasNuevo, type Almacen } from "@motrest/protocolo-sync";
 import { SUCURSAL_ID, obtenerDeviceId } from "./presentacion";
@@ -59,7 +76,14 @@ function versionDe(config: ConfiguracionCorreo): { version: number; updated_at: 
 export interface ResultadoCorreo {
   ok: boolean;
   error?: string;
+  /** Lo que impide guardar un correo, campo por campo, para señalarlo en el editor. */
+  problemas?: ProblemaDeCorreo[];
 }
+
+/** Al crear un correo propio hace falta saber cuál se creó: la pantalla lo enseña. */
+export type ResultadoPropio =
+  | { ok: true; tipo: TipoCorreoPropio }
+  | { ok: false; error: string; problemas?: ProblemaDeCorreo[] };
 
 export type ResultadoSolicitud =
   | { ok: true; solicitud_id: ID }
@@ -165,8 +189,27 @@ function datosLimpios(datos: DatosCorreo): DatosCorreo {
     const valor = datos[clave]?.trim();
     if (valor) limpio[clave] = valor;
   }
+  // Con tope: el mensaje queda escrito en el registro para siempre.
+  if (limpio.mensaje) limpio.mensaje = limpio.mensaje.slice(0, TOPES_CORREO.mensaje);
   if (typeof datos.personas === "number" && datos.personas > 0) limpio.personas = datos.personas;
   return limpio;
+}
+
+/**
+ * Los campos de un correo propio a partir de lo escrito, sin vacíos: un botón
+ * sin texto o un enlace en blanco no se guardan como `""`.
+ */
+function camposDePropio(
+  limpio: BorradorDeCorreo,
+): Pick<CorreoPropio, "nombre" | "asunto" | "titulo" | "texto" | "boton" | "enlace"> {
+  return {
+    nombre: limpio.nombre ?? "",
+    asunto: limpio.asunto,
+    titulo: limpio.titulo,
+    texto: limpio.texto,
+    ...(limpio.boton ? { boton: limpio.boton } : {}),
+    ...(limpio.enlace ? { enlace: limpio.enlace } : {}),
+  };
 }
 
 export class StoreCorreo {
@@ -187,9 +230,37 @@ export class StoreCorreo {
     return this.datos;
   }
 
-  /** Qué correos hay para configurar, con su explicación. */
-  get catalogo() {
+  /**
+   * Qué correos hay, con su explicación: los seis de fábrica y, detrás, los que
+   * escribió el restaurante (1.5.6).
+   */
+  get catalogo(): DefinicionCorreo[] {
+    return catalogoDeCorreos(this.datos);
+  }
+
+  /** Los seis de fábrica, que se editan pero no se borran. */
+  get deLaCasa(): DefinicionCorreo[] {
     return CATALOGO_CORREOS;
+  }
+
+  /** Los correos que escribió el restaurante, ya saneados. */
+  get propios(): CorreoPropio[] {
+    return propiosDe(this.datos);
+  }
+
+  /** ¿Cabe otro correo propio? Ver `TOPES_CORREO.propios`. */
+  get cabeOtro(): boolean {
+    return this.propios.length < TOPES_CORREO.propios;
+  }
+
+  /**
+   * ¿Está encendido? Los seis lo dicen en `activos`; los propios, en sí mismos.
+   * Una sola pregunta para las dos cosas, para que ninguna pantalla tenga que
+   * saber dónde vive cada interruptor.
+   */
+  encendido(tipo: TipoCorreo): boolean {
+    if (esTipoPropio(tipo)) return correoPropio(tipo, this.datos)?.activo === true;
+    return !!this.datos.activos[tipo];
   }
 
   /**
@@ -203,7 +274,7 @@ export class StoreCorreo {
   }
 
   get encendidos(): TipoCorreo[] {
-    return CATALOGO_CORREOS.filter((d) => this.datos.activos[d.tipo]).map((d) => d.tipo);
+    return this.catalogo.filter((d) => this.encendido(d.tipo)).map((d) => d.tipo);
   }
 
   /** Lo que impide que la configuración guardada funcione, dicho en claro. */
@@ -389,7 +460,13 @@ export class StoreCorreo {
     if (!veredicto.puede) return { ok: false, error: veredicto.razon };
 
     const limpios = datosLimpios(datos);
-    if (definicionCorreo(tipo)?.clase === "marketing" && !limpios.mensaje) {
+    /*
+     * El mensaje lo pide la PLANTILLA, no la clase (1.5.6). Antes toda la
+     * publicidad lo exigía porque su cuerpo era el mensaje; ahora un cupón que
+     * el restaurante dejó escrito sale con su texto, y exigir un mensaje que no
+     * va a aparecer en ningún lado solo frenaría el envío.
+     */
+    if (pideMensaje(tipo, this.datos) && !limpios.mensaje) {
       return { ok: false, error: "Escribe el mensaje antes de mandarlo" };
     }
     if ((tipo === "reserva_confirmada" || tipo === "reserva_recordatorio") && !limpios.cuando) {
@@ -443,12 +520,120 @@ export class StoreCorreo {
     return { ok: true };
   }
 
-  /** Enciende o apaga un tipo de correo. */
+  /** Enciende o apaga un tipo de correo, de los seis o de los propios. */
   alternar(tipo: TipoCorreo): void {
+    if (esTipoPropio(tipo)) {
+      if (!correoPropio(tipo, this.datos)) return;
+      this.cambiar({
+        ...this.datos,
+        propios: this.propios.map((p) => (p.tipo === tipo ? { ...p, activo: !p.activo } : p)),
+      });
+      return;
+    }
     this.cambiar({
       ...this.datos,
       activos: { ...this.datos.activos, [tipo]: !this.datos.activos[tipo] },
     });
+  }
+
+  // --- Lo que escribe el restaurante (1.5.6) ------------------------------------------
+
+  /**
+   * Guarda lo que el restaurante reescribió de uno de los seis.
+   *
+   * SE GUARDA SOLO LO QUE CAMBIÓ. Un campo igual al ejemplo no se escribe, así
+   * que «Volver al ejemplo» y guardar deja el correo exactamente como venía de
+   * fábrica —sin una copia congelada del texto de hoy—, y el asunto sigue
+   * viviendo en `asuntos`, donde un Hub de la 1.5.5 también lo lee.
+   *
+   * Pasa por la misma validación que las pruebas: un marcador que no se puede
+   * llenar o un hueco del ejemplo sin llenar no llegan a la configuración, y
+   * por lo tanto tampoco al Hub.
+   */
+  guardarPlantilla(tipo: TipoCorreoDeLaCasa, borrador: BorradorDeCorreo): ResultadoCorreo {
+    if (!esTipoDeLaCasa(tipo)) return { ok: false, error: "Ese correo no es de los de fábrica" };
+    const limpio = limpiarBorrador({ ...borrador, nombre: undefined, enlace: undefined });
+    const problemas = problemasDelBorrador(tipo, limpio);
+    if (problemas.length > 0) return { ok: false, error: problemas[0]!.mensaje, problemas };
+
+    const ejemplo = EJEMPLOS_DE_CORREO[tipo];
+    const asuntoDeFabrica = CATALOGO_CORREOS.find((d) => d.tipo === tipo)!.asuntoPorDefecto;
+
+    const suya: PlantillaCorreo = {};
+    if (limpio.titulo && limpio.titulo !== ejemplo.titulo) suya.titulo = limpio.titulo;
+    if (limpio.texto !== ejemplo.texto) suya.texto = limpio.texto;
+    if (botonEditable(tipo) && limpio.boton && limpio.boton !== ejemplo.boton) {
+      suya.boton = limpio.boton;
+    }
+
+    const asuntos = { ...(this.datos.asuntos ?? {}) };
+    if (limpio.asunto !== asuntoDeFabrica) asuntos[tipo] = limpio.asunto;
+    else delete asuntos[tipo];
+
+    const plantillas = { ...(this.datos.plantillas ?? {}) };
+    if (Object.keys(suya).length > 0) plantillas[tipo] = suya;
+    else delete plantillas[tipo];
+
+    this.cambiar({ ...this.datos, asuntos, plantillas });
+    return { ok: true };
+  }
+
+  /**
+   * Crea un correo propio, ya encendido.
+   *
+   * Encendido porque para llegar aquí alguien lo leyó entero en el editor, con
+   * su vista previa al lado; pedirle además que lo encienda sería un paso que
+   * se olvida. Si el restaurante lo quiere guardado sin usar, lo apaga.
+   */
+  crearPropio(borrador: BorradorDeCorreo, arranque?: string): ResultadoPropio {
+    if (!this.cabeOtro) {
+      return {
+        ok: false,
+        error: `Ya hay ${TOPES_CORREO.propios} correos del restaurante: borra uno que ya no uses para hacer otro`,
+      };
+    }
+    const tipo: TipoCorreoPropio = `propio:${uuidv7()}`;
+    const limpio = limpiarBorrador({ ...borrador, nombre: borrador.nombre ?? "" });
+    const problemas = problemasDelBorrador(tipo, limpio);
+    if (problemas.length > 0) return { ok: false, error: problemas[0]!.mensaje, problemas };
+
+    const nuevo: CorreoPropio = {
+      tipo,
+      ...camposDePropio(limpio),
+      activo: true,
+      ...(arranque ? { arranque } : {}),
+      creado_ts: Date.now(),
+    };
+    this.cambiar({ ...this.datos, propios: [...this.propios, nuevo] });
+    return { ok: true, tipo };
+  }
+
+  /** Guarda los cambios a un correo propio. Conserva si estaba encendido. */
+  guardarPropio(tipo: TipoCorreoPropio, borrador: BorradorDeCorreo): ResultadoCorreo {
+    const previo = correoPropio(tipo, this.datos);
+    if (!previo) return { ok: false, error: "Ese correo ya no existe: alguien lo borró" };
+
+    const limpio = limpiarBorrador({ ...borrador, nombre: borrador.nombre ?? "" });
+    const problemas = problemasDelBorrador(tipo, limpio);
+    if (problemas.length > 0) return { ok: false, error: problemas[0]!.mensaje, problemas };
+
+    const { boton: _boton, enlace: _enlace, ...base } = previo;
+    const actualizado: CorreoPropio = { ...base, ...camposDePropio(limpio) };
+    this.cambiar({
+      ...this.datos,
+      propios: this.propios.map((p) => (p.tipo === tipo ? actualizado : p)),
+    });
+    return { ok: true };
+  }
+
+  /**
+   * Lo borra de la configuración. Lo ya mandado se queda en el registro, con su
+   * tipo: la ficha lo sigue enseñando, como «Correo que ya se borró». Y si una
+   * tableta que todavía no se entera lo pide, el Hub contesta que ya no existe.
+   */
+  borrarPropio(tipo: TipoCorreoPropio): void {
+    if (!correoPropio(tipo, this.datos)) return;
+    this.cambiar({ ...this.datos, propios: this.propios.filter((p) => p.tipo !== tipo) });
   }
 
   cambiarAsunto(tipo: TipoCorreo, asunto: string): void {

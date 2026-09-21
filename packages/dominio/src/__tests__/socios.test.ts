@@ -205,21 +205,80 @@ describe("qué se le puede cargar a un socio", () => {
 });
 
 /*
- * LA REGLA QUE SOSTIENE EL DISEÑO. Si esta prueba se cae, los reportes del
- * restaurante dejaron de decir la verdad.
+ * LA REGLA QUE SOSTIENE EL DISEÑO, y que CAMBIÓ en la 1.5.6.
+ *
+ * Hasta la 1.5.5, el consumo de un socio contaba como venta: el platillo salió
+ * y el consumo fue real. Gonzalo lo cambió con un argumento que pesa más: a la
+ * caja no entró un peso, así que la venta del día salía inflada y el sistema
+ * esperaba facturar algo que nadie compró.
+ *
+ * Ahora la venta NO lo incluye y el COSTO sí: esos insumos se gastaron, y es lo
+ * que de verdad le cuesta el acuerdo al negocio. Si estas pruebas se caen, los
+ * reportes volvieron a mezclar lo que entró con lo que se regaló.
  */
-describe("el consumo de un socio SÍ es una venta", () => {
-  it("cuenta completo en el reporte de ventas, igual que un cobro en efectivo", () => {
+describe("el consumo de un socio NO es una venta (1.5.6)", () => {
+  it("no suma a la venta, y se informa aparte", () => {
     const rango = mesDe(AHORA);
     const delSocio = resumenVentas(
       cuentasCerradasEn([cuentaCobrada({ precio: 1_000, forma: "socio", socioId: SOCIO })], rango),
     );
+
+    expect(delSocio.total).toBe(CERO);
+    expect(delSocio.subtotal).toBe(CERO);
+    expect(delSocio.consumo_socios).toBeGreaterThan(0);
+    expect(delSocio.cuentas_con_socio).toBe(1);
+    // La mesa se atendió: sigue siendo una cuenta cobrada del día.
+    expect(delSocio.cuentas).toBe(1);
+  });
+
+  it("el mismo consumo cobrado en efectivo sí es venta", () => {
+    const rango = mesDe(AHORA);
     const enEfectivo = resumenVentas(
       cuentasCerradasEn([cuentaCobrada({ precio: 1_000, forma: "efectivo" })], rango),
     );
+    expect(enEfectivo.total).toBeGreaterThan(0);
+    expect(enEfectivo.consumo_socios).toBe(CERO);
+  });
 
-    expect(delSocio.total).toBe(enEfectivo.total);
-    expect(delSocio.cuentas).toBe(1);
+  /*
+   * LA CUENTA MIXTA: el socio pone una parte y el resto se cobra. Es el caso de
+   * la mesa donde el socio invita a dos y los demás pagan lo suyo. Solo sale de
+   * la venta la parte que cubrió su bolsa.
+   */
+  it("en una cuenta mixta solo sale de la venta la parte del socio", () => {
+    const fab = new FabricaEventos<EventoComanda>(CTX);
+    const orden_id = uuidv7();
+    const r = renglon(1_000);
+    const eventos: EventoComanda[] = [
+      fab.crear("orden_creada", orden_id, { orden_id, mesa_id: "mesa-1", abierta_ts: AHORA }),
+      fab.crear("item_agregado", orden_id, { orden_id, renglon: r }),
+    ];
+    const total = totalesComanda(proyectarComanda(eventos)).total;
+    const mitad = Math.round(total / 2) as typeof total;
+    eventos.push(
+      fab.crear("pago_registrado", orden_id, { orden_id, monto: mitad, forma: "socio", socio_id: SOCIO }),
+      fab.crear("pago_registrado", orden_id, { orden_id, monto: (total - mitad) as typeof total, forma: "efectivo" }),
+      fab.crear("cuenta_cerrada", orden_id, { orden_id }),
+    );
+    const cuenta = { ...proyectarComanda(eventos), cerrada_ts: AHORA };
+
+    const r2 = resumenVentas(cuentasCerradasEn([cuenta], mesDe(AHORA)));
+    expect(r2.consumo_socios).toBe(mitad);
+    // Lo que queda es la otra mitad, al centavo.
+    expect(r2.total).toBe((total - mitad) as typeof total);
+    // Y el impuesto baja con ella: no queda un IVA sin venta que lo sostenga.
+    expect(r2.iva).toBeGreaterThan(0);
+    expect(r2.subtotal + r2.iva + r2.ieps).toBe(r2.total);
+  });
+
+  it("el costo de lo que consumió el socio SIGUE contando: se gastó", () => {
+    const rango = mesDe(AHORA);
+    const cuenta = cuentaCobrada({ precio: 1_000, forma: "socio", socioId: SOCIO });
+    const delSocio = resumenVentas(cuentasCerradasEn([cuenta], rango));
+    const enEfectivo = resumenVentas(
+      cuentasCerradasEn([cuentaCobrada({ precio: 1_000, forma: "efectivo" })], rango),
+    );
+    expect(delSocio.costo).toBe(enEfectivo.costo);
   });
 
   it("en cambio, una mesa liberada sin consumo NO cuenta como cuenta", () => {

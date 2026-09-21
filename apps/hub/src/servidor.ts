@@ -145,6 +145,19 @@ export interface OpcionesHub {
     /** La factura global del mes. */
     global?: () => EstadoFacturaGlobal;
     /**
+     * Emite la global de un mes con las cuentas que eligió el restaurantero.
+     *
+     * Opcional: un Hub sin esto sigue contestando el estado, y la caja se
+     * enterará de que no puede emitir en vez de quedarse esperando. Quién puede
+     * pedirlo lo decide AQUÍ, contra la tabla de usuarios del local; el Hub
+     * revalida además cada cuenta de la lista.
+     */
+    emitirGlobal?: (peticion: {
+      periodo: string;
+      ordenes: readonly ID[];
+      autorizador_id: ID;
+    }) => Promise<{ ok: boolean; problema?: string }>;
+    /**
      * ¿Esta orden ya entró en una factura global? Devuelve el periodo.
      *
      * Reintentar la factura individual de un ticket que ya está en la global
@@ -233,6 +246,8 @@ const CATALOGOS_RESERVADOS = new Set([
   "licencia_estado",
   "actualizacion_estado",
   "modo_abierto",
+  // El portal de autofactura (1.5.6): lo decide la nube y lo anuncia el Hub.
+  "autofactura_estado",
 ]);
 
 function catalogoValido(catalogo: Catalogo): boolean {
@@ -375,7 +390,7 @@ export class Hub {
         if (this.exigirSaludo(sesion)) void this.atenderCredenciales(sesion, mensaje);
         break;
       case "fiscal":
-        if (this.exigirSaludo(sesion)) this.atenderFiscal(sesion, mensaje);
+        if (this.exigirSaludo(sesion)) void this.atenderFiscal(sesion, mensaje);
         break;
       case "secreto":
         if (this.exigirSaludo(sesion)) void this.atenderSecreto(sesion, mensaje);
@@ -1125,11 +1140,16 @@ export class Hub {
    * pueda, porque es entregar la firma fiscal del negocio. Consultar el estado
    * de la cola, en cambio, es información de operación y le basta con lo
    * primero: quien cobra tiene que poder ver si una factura salió.
+   *
+   * Es `async` por una sola acción —`emitir_global`, que habla con FacturAPI—.
+   * Las demás siguen contestando en la misma vuelta del bucle de eventos: el
+   * cuerpo de una función `async` corre síncrono hasta su primer `await`, y ese
+   * `await` solo existe dentro de esa rama.
    */
-  private atenderFiscal(
+  private async atenderFiscal(
     sesion: Sesion,
     mensaje: Extract<MensajeCliente, { tipo: "fiscal" }>,
-  ): void {
+  ): Promise<void> {
     const fiscal = this.opciones.fiscal;
     if (!fiscal) {
       sesion.conexion.enviar({
@@ -1158,6 +1178,24 @@ export class Hub {
       const negativa = this.puedeAdministrarCsd(mensaje.empleado_id);
       if (negativa) {
         this.anotar("aviso", `Intento de administrar el CSD sin permiso: ${negativa}`);
+        sesion.conexion.enviar({ tipo: "error", codigo: "permiso_denegado", mensaje: negativa });
+        return;
+      }
+    }
+
+    /*
+     * Emitir la global es OTRO permiso, no el del CSD.
+     *
+     * Administrar el CSD es entregar la firma fiscal; emitir una factura es
+     * usarla. El encargado que cierra el mes tiene que poder facturar sin que
+     * nadie le entregue el certificado del negocio, y por eso esto pide
+     * `fin.factura.emitir` —que los roles de gerencia ya traen— en vez de
+     * `fin.csd.administrar`.
+     */
+    if (mensaje.accion === "emitir_global") {
+      const negativa = this.puedeEmitirFactura(mensaje.empleado_id);
+      if (negativa) {
+        this.anotar("aviso", `Intento de emitir la factura global sin permiso: ${negativa}`);
         sesion.conexion.enviar({ tipo: "error", codigo: "permiso_denegado", mensaje: negativa });
         return;
       }
@@ -1235,6 +1273,35 @@ export class Hub {
           .catch((error: unknown) => {
             this.anotar("error", `Fallo al reintentar el timbrado: ${String(error)}`);
           });
+        break;
+      }
+
+      case "emitir_global": {
+        if (!fiscal.emitirGlobal) {
+          problema = "Esta caja no puede emitir la factura global todavía.";
+          break;
+        }
+        if (!mensaje.periodo) {
+          problema = "Falta el mes de la factura global.";
+          break;
+        }
+        const ordenes = mensaje.ordenes ?? [];
+        if (ordenes.length === 0) {
+          problema = "No se eligió ninguna cuenta para la factura global.";
+          break;
+        }
+        /*
+         * El autorizador es la PERSONA que mandó la petición, ya verificada
+         * arriba contra la tabla de usuarios del Hub. No se toma de un campo del
+         * mensaje: si la caja pudiera decir «lo autorizó el dueño», la firma de
+         * quien decide el corte del mes no valdría nada.
+         */
+        const r = await fiscal.emitirGlobal({
+          periodo: mensaje.periodo,
+          ordenes,
+          autorizador_id: mensaje.empleado_id,
+        });
+        if (r.problema) problema = r.problema;
         break;
       }
 
@@ -1371,6 +1438,28 @@ export class Hub {
     if (veredicto.resultado === "permitido") return null;
 
     return `${usuario.nombre} no puede administrar el Certificado de Sello Digital`;
+  }
+
+  /**
+   * `null` si esta persona puede emitir facturas; si no, por qué no.
+   *
+   * Mismo criterio que con el CSD —sin proyección se DENIEGA— porque una factura
+   * global declara ante el SAT lo que el local vendió y deja el resto fuera. No
+   * saber quién pregunta no puede equivaler a dejarle firmar eso.
+   */
+  private puedeEmitirFactura(empleadoId: ID): string | null {
+    if (!this.identidad && !this.opciones.usuarioDe) {
+      return "Esta caja todavía no puede verificar quién eres. Emite la factura global desde la caja principal.";
+    }
+
+    const usuario = this.usuarioDe(empleadoId);
+    if (!usuario) return "Usuario desconocido";
+    if (!usuario.activo) return `El usuario ${usuario.nombre} está desactivado`;
+
+    const veredicto = evaluar(usuario, "fin.factura.emitir");
+    if (veredicto.resultado === "permitido") return null;
+
+    return `${usuario.nombre} no puede emitir facturas`;
   }
 
   /** Reparte lo recién aceptado a las demás terminales de la misma sucursal. */

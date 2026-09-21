@@ -57,6 +57,8 @@
   import Icono from "../../Icono.svelte";
   import { caja } from "../../caja.svelte";
   import { egresos } from "../../egresos.svelte";
+  import { Paginado } from "../../listas/listas.svelte";
+  import VerMas from "../../listas/VerMas.svelte";
   import { fiscal } from "../../fiscal.svelte";
   import { licencia } from "../../licencia.svelte";
   import { pos } from "../../pos.svelte";
@@ -102,6 +104,25 @@
 
   /** El histórico se lee del más reciente hacia atrás, que es como se consulta. */
   const historico = $derived([...tesoreria.historico(rango)].reverse());
+
+  /*
+   * «VER MÁS» (1.5.6, pedido de Gonzalo). Con «Todo» o con un mes movido, esta
+   * tabla tenía cientos de renglones y empujaba el cuadre de los cajeros y el
+   * presupuesto a varias pantallas de distancia: había que bajar un buen rato
+   * para llegar a lo que venía debajo. Ahora se ven los 10 más recientes y el
+   * resto a petición.
+   *
+   * No lleva «Ordenar» a propósito: la columna «Saldo» es el saldo corrido, y
+   * solo se lee bien en el orden del tiempo. Revuelta por importe o por
+   * concepto, cada renglón enseñaría un saldo que no sale de los de al lado.
+   */
+  const pagHistorico = new Paginado();
+
+  /** Otro período es otra lista: se vuelve a los 10 primeros. */
+  function elegirVentana(v: Ventana) {
+    ventana = v;
+    pagHistorico.reiniciar();
+  }
 
   const ETIQUETA_ORIGEN: Record<string, string> = {
     venta: "Venta",
@@ -594,7 +615,7 @@
             <button
               class="pestana"
               class:on={ventana === clave}
-              onclick={() => (ventana = clave as Ventana)}
+              onclick={() => elegirVentana(clave as Ventana)}
             >{texto}</button>
           {/each}
         </div>
@@ -624,7 +645,7 @@
               </tr>
             </thead>
             <tbody>
-              {#each historico as m (m.id)}
+              {#each pagHistorico.de(historico) as m (m.id)}
                 <tr class:ajuste={m.origen === "ajuste"}>
                   <td class="tenue">{fecha(m.ts)} · {hora(m.ts)}</td>
                   <td>
@@ -648,6 +669,7 @@
             </tbody>
           </table>
         </div>
+        <VerMas pag={pagHistorico} lista={historico} />
       {/if}
     </section>
     <!--

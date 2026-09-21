@@ -1,0 +1,20 @@
+@import "tailwindcss";
+
+@theme inline {
+  --color-background: #f9fafb;
+  --color-foreground: #111827;
+  --color-motrae: #F2853A;
+  --color-motrae-dark: #e07229;
+  --font-sans: var(--font-inter), ui-sans-serif, system-ui, sans-serif;
+  --font-display: var(--font-space-grotesk), ui-sans-serif, system-ui, sans-serif;
+}
+
+body {
+  background: var(--color-background);
+  color: var(--color-foreground);
+  font-family: var(--font-sans);
+}
+
+.title {
+  font-family: var(--font-display);
+}

@@ -67,6 +67,31 @@ export function cortesiaDeRenglon(estado: EstadoComanda, renglon: RenglonComanda
   return Math.round((importe * cortesia.cantidad) / renglon.cantidad) as Centavos;
 }
 
+/**
+ * Cuánto de esta cuenta lo cubrió la bolsa de un socio, con impuestos dentro.
+ *
+ * NO ES UNA VENTA (decisión de Gonzalo, sep-2026). El socio consumió de verdad
+ * —el platillo salió de la cocina y sus insumos se gastaron—, pero al
+ * restaurante no le entró un peso: lo cubrió el saldo mensual que tiene pactado.
+ * Contarlo como venta inflaba la venta del día, las dos utilidades y lo que el
+ * sistema esperaba facturar.
+ *
+ * Hasta la 1.5.5 esto era solo una forma de pago y la venta lo incluía. Desde la
+ * 1.5.6, la venta se mide SIN esta parte, y el costo de lo consumido sí sigue
+ * contando: es lo que de verdad le cuesta el acuerdo al negocio.
+ *
+ * Se topa al total de la cuenta: un ajuste raro no puede dejar la venta en
+ * negativo.
+ */
+export function consumoDeSocio(estado: EstadoComanda): Centavos {
+  const pagado = sumar(
+    ...estado.pagos.filter((p) => p.forma === "socio").map((p) => p.monto),
+  );
+  if (pagado <= 0) return CERO;
+  const { total } = totalesComanda(estado);
+  return Math.min(pagado, total) as Centavos;
+}
+
 /** Aplica un descuento a un importe. */
 function rebajaDe(descuento: Descuento, base: Centavos): Centavos {
   return descuento.modo === "porcentaje"

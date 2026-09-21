@@ -30,6 +30,7 @@ import {
   puedeMandarCorreo,
   SMTP_GMAIL,
   type ConfiguracionCorreo,
+  type CorreoArmado,
   type DatosCorreo,
   type TipoCorreo,
 } from "@motrest/dominio";
@@ -122,6 +123,54 @@ export class Correo {
    */
   async mandar(peticion: PeticionCorreo): Promise<ResultadoCorreo> {
     return this.intentar(peticion, this.ahora());
+  }
+
+  /**
+   * Manda un aviso del sistema ya armado (1.5.6: «tu factura no salió»).
+   *
+   * No pasa por el catálogo de tipos ni por la cola, a propósito. No es un
+   * correo del restaurante —no lo escribe ni lo apaga— sino la respuesta a algo
+   * que el comensal pidió, así que no se le pide permiso de promociones. Y si
+   * no sale, no se reintenta: el portal le enseña lo mismo al comensal cuando
+   * vuelve a abrir su QR, y un aviso de ayer ya no le sirve.
+   */
+  async mandarAviso(armado: CorreoArmado): Promise<ResultadoCorreo> {
+    const config = this.config();
+    if (!config.remitente) return { enviado: false, razon: "El restaurante todavía no configuró su remitente" };
+    if (!this.apiKey()) return { enviado: false, razon: "Falta la llave del correo del restaurante" };
+
+    try {
+      if (config.modo === "gmail") {
+        const id = await this.entregar(
+          {
+            host: SMTP_GMAIL.host,
+            puerto: SMTP_GMAIL.puerto,
+            usuario: soloDireccion(config.cuenta_gmail?.trim() || armado.de),
+            contrasena: this.apiKey().replace(/\s/g, ""),
+          },
+          armado,
+        );
+        return { enviado: true, externo_id: id };
+      }
+
+      const respuesta = await this.llamar(API, {
+        method: "POST",
+        headers: { authorization: `Bearer ${this.apiKey()}`, "content-type": "application/json" },
+        body: JSON.stringify({
+          from: armado.de,
+          to: [armado.para],
+          subject: armado.asunto,
+          html: armado.html,
+          text: armado.texto,
+          ...(armado.responder_a ? { reply_to: armado.responder_a } : {}),
+        }),
+      });
+      if (!respuesta.ok) return { enviado: false, razon: `El proveedor de correo respondió ${respuesta.status}` };
+      const cuerpo = (await respuesta.json()) as { id?: string };
+      return { enviado: true, externo_id: cuerpo.id };
+    } catch (causa) {
+      return { enviado: false, razon: causa instanceof Error ? causa.message : String(causa) };
+    }
   }
 
   /**

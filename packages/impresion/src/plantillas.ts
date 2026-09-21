@@ -437,8 +437,15 @@ export interface DatosPrecuenta {
   textos?: TextosTicket;
   /** El logo del local en puntos, para el ancho de este papel. Ver `logo.ts`. */
   logo?: ImagenMonocroma;
-  /** Hasta dos acciones que el comensal puede escanear desde su papel. */
-  qrs?: { leyenda: string; url: string; matriz?: ImagenMonocroma }[];
+  /**
+   * Hasta tres acciones que el comensal puede escanear desde su papel: la
+   * factura (1.5.6), la encuesta y el QR que ponga el restaurante.
+   *
+   * `pie` son renglones bajo el QR —en la factura, la clave, el folio y la
+   * dirección para teclearlos a mano—. `esFactura` quita el aviso de «pídala
+   * antes de irse»: con portal, el comensal la pide desde su casa.
+   */
+  qrs?: { leyenda: string; url: string; matriz?: ImagenMonocroma; pie?: string[]; esFactura?: boolean }[];
 }
 
 /**
@@ -522,17 +529,21 @@ export function precuenta(
     }
   }
 
-  for (const qr of (datos.qrs ?? []).slice(0, 2)) {
-    if (!qr.url.trim()) continue;
+  const qrs = (datos.qrs ?? []).filter((qr) => qr.url.trim()).slice(0, 3);
+  for (const qr of qrs) {
     t.salto();
     if (qr.leyenda.trim()) t.linea(qr.leyenda.trim(), { ...centrado, negrita: true });
     if (modoQr === "imagen" && qr.matriz) t.imagenMonocroma(qr.matriz);
     else t.qr(qr.url.trim());
+    for (const renglon of qr.pie ?? []) {
+      for (const l of envolverPalabras(renglon, columnas)) t.linea(l, centrado);
+    }
   }
 
   t.salto();
   // Antes del adiós: es lo último que se lee, y todavía está a tiempo de pedirla.
-  if (txt.aviso_factura) {
+  // Con portal de autofactura sobra: la pide desde su teléfono, cuando quiera.
+  if (txt.aviso_factura && !qrs.some((qr) => qr.esFactura)) {
     for (const l of envolverPalabras(txt.aviso_factura, columnas)) t.linea(l, centrado);
   }
   if (txt.agradecimiento) t.linea(txt.agradecimiento, centrado);

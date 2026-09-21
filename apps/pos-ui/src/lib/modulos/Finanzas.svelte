@@ -23,6 +23,8 @@
   import Caja from "./finanzas/Caja.svelte";
   import CortePorFechas from "./finanzas/CortePorFechas.svelte";
   import FacturacionElectronica from "./finanzas/FacturacionElectronica.svelte";
+  import FacturaGlobal from "./finanzas/FacturaGlobal.svelte";
+  import Gastos from "./finanzas/Gastos.svelte";
   import Resultado from "./finanzas/Resultado.svelte";
   import TicketsCobrados from "./finanzas/TicketsCobrados.svelte";
   import VentasPorDia from "./finanzas/VentasPorDia.svelte";
@@ -41,6 +43,20 @@
 
   let editando = $state(false);
   let borrador = $state<DatosEmisor>({ ...fiscal.emisor });
+
+  /*
+   * EL RFC Y LA RAZÓN SOCIAL, EN MAYÚSCULAS MIENTRAS SE TECLEAN (1.5.6, pedido
+   * de Gonzalo). Es la misma regla que ya tienen los datos del comensal al
+   * facturar: el SAT compara contra la Constancia de Situación Fiscal, que está
+   * en mayúsculas, y un emisor mal escrito hace que se rechacen TODAS las
+   * facturas del local, no una. Se convierte al escribir, no al guardar, para
+   * que quien captura vea desde el primer momento cómo va a quedar.
+   */
+  function enMayusculas(e: Event & { currentTarget: HTMLInputElement }): string {
+    const valor = e.currentTarget.value.toLocaleUpperCase("es-MX");
+    e.currentTarget.value = valor;
+    return valor;
+  }
   let error = $state("");
   let verXml = $state<RegistroCfdi | null>(null);
 
@@ -164,6 +180,13 @@
   <TicketsCobrados />
 
   <!--
+    Y la otra mitad: lo que salió. Pegada a las cuentas cobradas porque se miran
+    juntas —lo que entró y lo que se fue en el mismo período— y con las mismas
+    ventanas que el movimiento del dinero (1.5.6, pedido de Gonzalo).
+  -->
+  <Gastos />
+
+  <!--
     El corte de caja va junto al resultado: ambos se hacen al cerrar el día. El
     resultado dice si se ganó; el corte, si el efectivo del cajón cuadra.
   -->
@@ -191,11 +214,24 @@
       <div class="campos">
         <label>
           <span>RFC</span>
-          <input bind:value={borrador.rfc} placeholder="XAXX010101000" maxlength="13" />
+          <input
+            value={borrador.rfc}
+            oninput={(e) => (borrador.rfc = enMayusculas(e))}
+            placeholder="XAXX010101000"
+            maxlength="13"
+            autocapitalize="characters"
+            spellcheck="false"
+          />
         </label>
         <label class="ancho">
           <span>Razón social (exacta, como en la constancia)</span>
-          <input bind:value={borrador.nombre} placeholder="MI RESTAURANTE SA DE CV" />
+          <input
+            value={borrador.nombre}
+            oninput={(e) => (borrador.nombre = enMayusculas(e))}
+            placeholder="MI RESTAURANTE SA DE CV"
+            autocapitalize="characters"
+            spellcheck="false"
+          />
         </label>
         <label>
           <span>Código postal fiscal</span>
@@ -241,6 +277,13 @@
     restaurantero capture su constancia.
   -->
   <FacturacionElectronica />
+
+  <!--
+    Y debajo, la global del mes: es la otra mitad de la facturación de un
+    restaurante —lo que nadie pidió a su nombre— y desde la 1.5.6 la decide el
+    restaurantero, no el sistema.
+  -->
+  <FacturaGlobal />
 
   <!-- Comprobantes -->
   <section class="tarjeta">

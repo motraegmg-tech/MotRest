@@ -49,6 +49,14 @@
   let remitente = $state("");
   let contrasena = $state("");
 
+  /* El portal de autofactura (1.5.6). */
+  let portalUrl = $state(central.secretos.portal_autofactura ?? "");
+  let claveEditada = $state("");
+  let guardandoPortal = $state(false);
+  let avisoPortal = $state("");
+  let errorPortal = $state("");
+  const claveActual = $derived(central.clavesDeAutofactura?.[cliente.id]);
+
   let llaves = $state<LlaveLive[] | null>(null);
   let cargandoLlaves = $state(false);
   let errorLlaves = $state("");
@@ -95,7 +103,47 @@
   onMount(() => {
     void haySobres().then((si) => (sobres = si));
     void central.traerSecretosPendientes();
+    void central.traerClavesDeAutofactura();
   });
+
+  /* Al cambiar de restaurante, o al llegar las claves: la suya, o una propuesta. */
+  $effect(() => {
+    const actual = claveActual?.clave;
+    void clienteId;
+    void central.clavesDeAutofactura;
+    untrack(() => {
+      avisoPortal = errorPortal = "";
+      claveEditada = actual ?? central.proponerClave(cliente.id);
+    });
+  });
+
+  async function guardarDireccion() {
+    guardandoPortal = true;
+    avisoPortal = errorPortal = "";
+    const r = await central.guardarPortalAutofactura(portalUrl);
+    guardandoPortal = false;
+    if (r.ok) avisoPortal = "Dirección guardada. Los tickets la imprimen desde el siguiente cobro.";
+    else errorPortal = r.error;
+  }
+
+  async function guardarClave() {
+    guardandoPortal = true;
+    avisoPortal = errorPortal = "";
+    const r = await central.fijarClaveDeAutofactura(cliente.id, claveEditada);
+    guardandoPortal = false;
+    if (r.ok) {
+      avisoPortal = `Portal encendido con la clave ${claveEditada.trim().toUpperCase()}. En un minuto su caja empieza a imprimir el QR.`;
+    } else errorPortal = r.error;
+  }
+
+  async function apagarPortal() {
+    guardandoPortal = true;
+    avisoPortal = errorPortal = "";
+    const r = await central.apagarAutofactura(cliente.id);
+    guardandoPortal = false;
+    if (r.ok) avisoPortal = "Portal apagado. Su caja deja de imprimir el QR en un minuto.";
+    else errorPortal = r.error;
+  }
 
   /* La lista de organizaciones se pide una vez por sesión, y al guardar la llave. */
   $effect(() => {
@@ -476,6 +524,81 @@
         {/if}
       </details>
     {/if}
+  </section>
+
+  <!-- ======================= FACTURA POR INTERNET (1.5.6) ======================= -->
+  <section class="bloque">
+    <header class="cabeza-bloque">
+      <div>
+        <h3>Factura por internet</h3>
+        <p class="sub">
+          Con el portal encendido, cada ticket lleva un QR y el comensal pide su factura desde su
+          teléfono, con sus datos móviles, dentro de las 72 horas. La timbra su propio Hub con su
+          llave de FacturAPI.
+        </p>
+      </div>
+    </header>
+
+    <label>
+      Dirección del portal (la misma para todos los restaurantes)
+      <div class="fila-control">
+        <input
+          bind:value={portalUrl}
+          placeholder="https://motrest-factura.vercel.app"
+          autocomplete="off"
+          spellcheck="false"
+        />
+        <button class="secundario" onclick={guardarDireccion} disabled={guardandoPortal || !portalUrl.trim()}>
+          Guardar dirección
+        </button>
+      </div>
+    </label>
+
+    <label>
+      Clave de {cliente.nombre}
+      <div class="fila-control">
+        <input
+          value={claveEditada}
+          oninput={(e) => (claveEditada = e.currentTarget.value.toUpperCase())}
+          placeholder="RODIZIO"
+          maxlength="20"
+          autocapitalize="characters"
+          spellcheck="false"
+        />
+        <button
+          class="primario"
+          onclick={guardarClave}
+          disabled={guardandoPortal || !claveEditada.trim() || claveEditada.trim() === claveActual?.clave}
+        >
+          {claveActual ? "Cambiar clave" : "Encender el portal"}
+        </button>
+        {#if claveActual}
+          <button class="secundario" onclick={apagarPortal} disabled={guardandoPortal}>Apagar</button>
+        {/if}
+      </div>
+    </label>
+    <small class="ayuda">
+      Va impresa en el ticket para quien no puede escanear: corta y fácil de dictar. Se propone
+      sola a partir del nombre; si otro restaurante ya la tiene, lleva un número.
+    </small>
+
+    {#if claveActual}
+      <div class="chips">
+        <span class="chip fuerte">Encendido · {claveActual.clave}</span>
+        <span class="chip">{claveActual.portal_url}</span>
+      </div>
+    {:else if central.clavesDeAutofactura}
+      <p class="nota">Apagado: sus tickets no llevan QR de factura.</p>
+    {/if}
+    {#if claveActual && estado && !estado.facturapi.configurada}
+      <p class="bloqueo">
+        <b>Todavía no tiene FacturAPI:</b> el portal queda apagado en su caja hasta que llegue su
+        llave. Envíala arriba.
+      </p>
+    {/if}
+    {#if avisoPortal}<p class="ok">{avisoPortal}</p>{/if}
+    {#if errorPortal}<p class="error">{errorPortal}</p>{/if}
+    {#if central.errorClaves}<p class="nota">{central.errorClaves}</p>{/if}
   </section>
 
   <!-- ============================== GMAIL ============================== -->

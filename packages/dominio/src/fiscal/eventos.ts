@@ -143,6 +143,28 @@ export type EventoFiscal =
        * No bloquea nada ni cuenta como facturado; existe para ensayar el ciclo.
        */
       modo: "pruebas" | "produccion";
+      /**
+       * Quién la disparó: el barrido del Hub o una persona desde la caja.
+       *
+       * Desde la 1.5.6 el local elige su tipo de facturación, así que una misma
+       * base puede tener globales de las dos procedencias. Sin este campo, el
+       * historial de la pantalla y el reporte del contador no podrían distinguir
+       * «la emitió el sistema a las 06:00» de «la emitió el dueño eligiendo qué
+       * entraba», que ante una aclaración del SAT es justo lo que se pregunta.
+       *
+       * Opcional por compatibilidad: las globales emitidas por la 1.5.5 no lo
+       * traen, y todas ellas fueron automáticas.
+       */
+      origen?: "automatica" | "manual";
+      /**
+       * La persona que autorizó la emisión manual.
+       *
+       * Una factura global ampara ventas reales ante el SAT y deja fuera a las
+       * demás. Que quede escrito quién decidió ese corte no es burocracia: es lo
+       * único que permite responder «¿quién dejó fuera estas 40 cuentas?» meses
+       * después. En las automáticas no hay nadie detrás y va vacío.
+       */
+      autorizador_id?: ID;
     });
 
 export type TipoEventoFiscal = EventoFiscal["tipo"];

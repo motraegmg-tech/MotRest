@@ -57,6 +57,9 @@ const USUARIOS: Record<string, Usuario> = {
   "emp-gonzalo": usuario("emp-gonzalo", "propietario"),
   "emp-mesero": usuario("emp-mesero", "mesero"),
   "emp-baja": usuario("emp-baja", "propietario", false),
+  // Cierra el mes y timbra, pero no administra el CSD: es el caso que separa
+  // los dos permisos de la 1.5.6.
+  "emp-conta": usuario("emp-conta", "administracion"),
 };
 
 let csd: CsdDePrueba;
@@ -67,6 +70,8 @@ let carpeta: string;
 let sellador: Sellador;
 let cola: ColaDeTimbrado;
 let cx: ConexionPrueba;
+/** Lo que el canal le pidió al emisor de globales, en orden. */
+let globalesPedidas: { periodo: string; ordenes: readonly string[]; autorizador_id: string }[];
 
 beforeAll(async () => {
   csd = await generarCsdDePrueba({ rfc: RFC });
@@ -79,12 +84,21 @@ beforeEach(() => {
   sellador = new Sellador(carpeta);
   cola = new ColaDeTimbrado(db, null);
 
+  globalesPedidas = [];
   hub = new Hub({
     hub_id: "hub-prueba",
     log,
     exigirAprobacion: false,
     usuarioDe: (id) => USUARIOS[id],
-    fiscal: { sellador, cola, nombrePac: "PAC de prueba" },
+    fiscal: {
+      sellador,
+      cola,
+      nombrePac: "PAC de prueba",
+      emitirGlobal: (peticion) => {
+        globalesPedidas.push({ ...peticion });
+        return Promise.resolve({ ok: true });
+      },
+    },
   });
 
   cx = new ConexionPrueba("cx-1");
@@ -191,6 +205,65 @@ describe("quién puede administrar el CSD", () => {
 
     pedir("desinstalar_csd", "emp-gonzalo");
     expect(sellador.listo).toBe(false);
+  });
+});
+
+// --- Quién puede emitir la factura global (1.5.6) -----------------------------------------
+
+/** La respuesta de `emitir_global` llega tras un `await`: hay que dejarla pasar. */
+async function emitirGlobal(empleado_id: string, extra: Record<string, unknown> = {}): Promise<void> {
+  pedir("emitir_global", empleado_id, { periodo: "2026-09", ordenes: ["ord-1"], ...extra });
+  await new Promise((listo) => setTimeout(listo, 0));
+}
+
+describe("quién puede emitir la factura global", () => {
+  /*
+   * Es OTRO permiso que el del CSD. Administrar el certificado es entregar la
+   * firma fiscal del negocio; emitir una factura es usarla. Quien cierra el mes
+   * tiene que poder timbrar sin que nadie le entregue el certificado.
+   */
+  it("quien administra la contabilidad puede, sin tocar el CSD", async () => {
+    await emitirGlobal("emp-conta");
+
+    expect(cx.ultimo("error")).toBeUndefined();
+    expect(globalesPedidas).toEqual([
+      { periodo: "2026-09", ordenes: ["ord-1"], autorizador_id: "emp-conta" },
+    ]);
+  });
+
+  it("un mesero NO puede, aunque su terminal esté autorizada", async () => {
+    await emitirGlobal("emp-mesero");
+
+    expect(cx.ultimo("error")?.codigo).toBe("permiso_denegado");
+    expect(globalesPedidas).toEqual([]);
+  });
+
+  it("un usuario dado de baja tampoco", async () => {
+    await emitirGlobal("emp-baja");
+
+    expect(cx.ultimo("error")?.mensaje).toMatch(/desactivado/);
+    expect(globalesPedidas).toEqual([]);
+  });
+
+  /*
+   * El autorizador sale de quien mandó la petición —ya verificado contra la
+   * tabla de usuarios del Hub—, nunca de un campo del mensaje. Si la caja
+   * pudiera decir «lo autorizó el dueño», la firma no valdría nada.
+   */
+  it("el autorizador es quien pide, no lo que diga la tableta", async () => {
+    await emitirGlobal("emp-conta", { autorizador_id: "emp-gonzalo" });
+
+    expect(globalesPedidas[0]?.autorizador_id).toBe("emp-conta");
+  });
+
+  it("sin mes o sin cuentas lo dice en vez de emitir a medias", async () => {
+    await emitirGlobal("emp-conta", { periodo: undefined });
+    expect(cx.ultimo("fiscal")?.problema).toMatch(/Falta el mes/);
+
+    await emitirGlobal("emp-conta", { ordenes: [] });
+    expect(cx.ultimo("fiscal")?.problema).toMatch(/ninguna cuenta/);
+
+    expect(globalesPedidas).toEqual([]);
   });
 });
 

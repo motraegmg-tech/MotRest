@@ -230,6 +230,56 @@ export class ColaDeTimbrado {
     xml: string;
     formato?: FormatoTimbrado;
   }): void {
+    /*
+     * UN RECHAZO SE PUEDE CORREGIR (1.5.6).
+     *
+     * Con `INSERT OR IGNORE` a secas, una factura rechazada por los datos del
+     * cliente —un código postal que no coincide con su constancia— no tenía
+     * arreglo: el comprobante corregido, que llega como otro `cfdi_generado` de
+     * la misma orden, se ignoraba en silencio y la cuenta se quedaba sin
+     * factura. Es justo lo que hace el comensal desde el portal: corrige y
+     * vuelve a pedirla.
+     *
+     * Se reemplaza SOLO si lo anterior nunca pudo quedar timbrado: rechazado,
+     * sin estar en recuperación (un 307 dice que el PAC sí lo timbró) y sin id
+     * en FacturAPI (si lo tiene, la factura existe allá). En cualquier otro caso
+     * se ignora como siempre: pisar algo que quizá se timbró duplicaría la venta.
+     */
+    const previa = this.db
+      .prepare("SELECT cfdi_id, estado, modo, externo_id FROM timbrado WHERE orden_id = ?")
+      .get(entrada.orden_id) as
+      | { cfdi_id: string; estado: string; modo: string; externo_id: string | null }
+      | undefined;
+    if (
+      previa &&
+      previa.cfdi_id !== entrada.cfdi_id &&
+      previa.estado === "rechazado" &&
+      previa.modo === "timbrar" &&
+      !previa.externo_id
+    ) {
+      this.db
+        .prepare(
+          `UPDATE timbrado
+              SET cfdi_id = ?, sucursal_id = ?, serie = ?, folio = ?, total = ?, xml = ?,
+                  formato = ?, estado = 'pendiente', intentos = 0, recuperaciones = 0,
+                  proximo_ts = 0, creado_ts = ?, problema = NULL, publicado = 0,
+                  uuid = NULL, xml_timbrado = NULL
+            WHERE orden_id = ? AND estado = 'rechazado'`,
+        )
+        .run(
+          entrada.cfdi_id,
+          entrada.sucursal_id,
+          entrada.serie,
+          entrada.folio,
+          entrada.total,
+          entrada.xml,
+          entrada.formato ?? "xml_sellado",
+          Date.now(),
+          entrada.orden_id,
+        );
+      return;
+    }
+
     this.db
       .prepare(
         `INSERT OR IGNORE INTO timbrado

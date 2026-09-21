@@ -344,6 +344,15 @@ export class SolicitudesDeCorreo {
 
   /** Lo que se contesta sin llegar a intentar el envío, o `null` si hay que intentarlo. */
   private motivoParaNoIntentar(s: SolicitudDeCorreo): string | null {
+    /*
+     * LOS CORREOS QUE ESCRIBIÓ EL RESTAURANTE (`propio:…`, 1.5.6) pasan esta
+     * primera criba sin mirar la configuración: aquí solo se descarta lo que no
+     * tiene forma de correo. Si el correo todavía existe, si está encendido y si
+     * el comensal aceptó promociones lo decide `puedeMandarCorreo` al mandarlo,
+     * con la configuración de ESE momento —y otra vez en cada reintento de la
+     * cola—: uno que se borra mientras espera internet ya no sale, y la ficha
+     * recibe «ese correo ya no existe» en vez de un «tipo desconocido».
+     */
     if (!definicionCorreo(s.clase_correo)) {
       return `Tipo de correo desconocido: «${String(s.clase_correo)}»`;
     }
