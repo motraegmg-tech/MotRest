@@ -208,6 +208,41 @@ describe("recibir de Central", () => {
     expect(r.aplicado).toBe(false);
     expect(r.problema).toMatch(/no reconoce/);
   });
+
+  /*
+   * El 21-sep-2026, al activar la producción de Tortas Fc: el sobre se abrió
+   * bien y la llave quedó puesta —se vio en lo que el Hub reportó—, pero un
+   * efecto secundario sin proteger (`encolarParaFacturapi` reenganchando la
+   * cola) tronó DESPUÉS de guardarla, y esa excepción se coló hasta el buzón
+   * de la nube: Central se enteró de «El Hub falló al abrir el sobre», que no
+   * describía nada de lo que en realidad pasó.
+   *
+   * `alCambiar` es un aviso, no una condición: avisar mal no puede deshacer
+   * una llave que ya quedó guardada y aplicada.
+   */
+  it("si avisar del cambio truena, la llave se queda aplicada de todos modos", async () => {
+    const s = new SecretosDelHub({
+      almacen,
+      rutaPar: join(carpeta, "sobre-hub.json"),
+      sucursal: () => SUC,
+      probarFacturapi: (llave) => probarLlaveFacturapi(llave, { fetch: api.fetch }),
+      alCambiar: () => {
+        throw new Error("reenganchar la cola de timbrado truena");
+      },
+      registrar: (_n, m) => bitacora.push(m),
+    });
+    await s.cargar();
+
+    const r = await s.recibirDeLaNube({
+      clase: "facturapi",
+      sobre: await cerrarSobre(s.llavePublica(), JSON.stringify(secretoFacturapi())),
+    });
+
+    expect(r).toEqual({ ok: true, aplicado: true });
+    expect(s.facturapiVigente()?.llave).toBe(LLAVE_VIVA);
+    expect(almacen.facturapi?.llave).toBe(LLAVE_VIVA);
+    expect(bitacora.some((l) => /avisar del cambio falló.*reenganchar la cola/.test(l))).toBe(true);
+  });
 });
 
 describe("guardar desde la caja", () => {

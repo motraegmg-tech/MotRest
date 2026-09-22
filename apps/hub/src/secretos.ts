@@ -138,6 +138,34 @@ export class SecretosDelHub {
     this.opciones.registrar?.(nivel, mensaje);
   }
 
+  /**
+   * Avisa del cambio SIN que el aviso pueda deshacer lo que ya se guardó.
+   *
+   * `alCambiar` (en `main.ts`) reengancha FacturAPI en la cola y sella lo que
+   * esperaba una llave: efectos secundarios reales, con su propio SQL y sus
+   * propias llamadas. Si algo ahí truena DESPUÉS de que la llave ya quedó
+   * guardada y aplicada, no puede convertir un envío que sí funcionó en uno
+   * que Central reporta como fallido.
+   *
+   * Es justo lo que pasó al crear la llave de producción de Tortas Fc
+   * (21-sep-2026): el sobre se abrió bien, la llave quedó puesta —se vio en el
+   * estado que reportó el Hub—, y un efecto secundario sin proteger
+   * (`encolarParaFacturapi`, ver `facturador.ts`) tronó después y lo disfrazó
+   * de «El Hub falló al abrir el sobre», un mensaje que ni siquiera describía
+   * lo que había pasado.
+   */
+  private avisarCambio(clase: ClaseSecreto): void {
+    try {
+      this.opciones.alCambiar?.(clase);
+    } catch (causa) {
+      this.anotar(
+        "error",
+        `La llave de ${clase} quedó puesta, pero avisar del cambio falló: ` +
+          (causa instanceof Error ? causa.message : String(causa)),
+      );
+    }
+  }
+
   private enTurno<T>(trabajo: () => Promise<T>): Promise<T> {
     const siguiente = this.turno.then(trabajo, trabajo);
     this.turno = siguiente.catch(() => undefined);
@@ -305,7 +333,7 @@ export class SecretosDelHub {
       await this.opciones.almacen.guardarGmail(nueva);
       this.gmail = nueva;
       this.anotar("info", `Contraseña de Gmail actualizada desde ${desde(secreto.origen)}.`);
-      this.opciones.alCambiar?.("gmail");
+      this.avisarCambio("gmail");
       return { ok: true, aplicado: true };
     }
 
@@ -361,7 +389,7 @@ export class SecretosDelHub {
       `Llave de FacturAPI (${secreto.modo === "produccion" ? "producción" : "pruebas"}) actualizada desde ${desde(secreto.origen)}` +
         (nueva.por_verificar ? ", pendiente de comprobar por falta de internet." : "."),
     );
-    this.opciones.alCambiar?.("facturapi");
+    this.avisarCambio("facturapi");
     return { ok: true, aplicado: true };
   }
 
@@ -452,7 +480,7 @@ export class SecretosDelHub {
         this.gmail = lapida;
         this.anotar("aviso", "Se quitó la contraseña de Gmail desde la caja: no saldrán correos hasta poner otra.");
       }
-      this.opciones.alCambiar?.(clase);
+      this.avisarCambio(clase);
       return { ok: true, aplicado: true };
     });
   }
@@ -532,7 +560,7 @@ export class SecretosDelHub {
       if (prueba.estado === "invalida") {
         this.anotar("error", `FacturAPI ya no reconoce la llave del restaurante: ${prueba.mensaje}`);
       }
-      this.opciones.alCambiar?.("facturapi");
+      this.avisarCambio("facturapi");
     });
   }
 }

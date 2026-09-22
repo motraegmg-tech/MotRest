@@ -24,7 +24,7 @@ import {
   type EventoFiscal,
 } from "@motrest/dominio";
 import { ColaDeTimbrado } from "../fiscal/cola-timbrado.js";
-import { Facturador } from "../fiscal/facturador.js";
+import { Facturador, type FacturapiEnFacturador } from "../fiscal/facturador.js";
 import { Sellador } from "../fiscal/sellador.js";
 import { clasificar, type Pac, type ResultadoTimbrado } from "../fiscal/pac.js";
 import { generarCsdDePrueba, type CsdDePrueba } from "./csd-de-prueba.js";
@@ -451,5 +451,90 @@ describe("publicar el desenlace en el registro del local", () => {
     const [evento] = fiscalesDelLog();
     expect(evento!.sucursal_id).toBe(SUC);
     expect(evento!.stream_id).toBe(`fiscal:${SUC}`);
+  });
+});
+
+/*
+ * EL 411 DE TORTAS FC NO ERA UN 411 (21-sep-2026).
+ *
+ * Al activar su llave de producción, el sobre de Central se abrió bien y la
+ * llave quedó guardada y aplicada —se vio en lo que el Hub reportó—, pero
+ * `alCambiarSecreto` (en `main.ts`) llama aquí mismo, a `procesar()`, para
+ * encolar de una vez lo que esperaba esa llave. Este camino —a diferencia del
+ * de sellar con CSD, un poco más arriba— no tenía ningún try/catch: un solo
+ * comprobante con un dato raro tronaba la activación ENTERA, y esa excepción
+ * se colaba hasta el buzón de la nube disfrazada de «El Hub falló al abrir el
+ * sobre», que no tenía nada que ver.
+ */
+describe("cuando FacturAPI está activa", () => {
+  const activa: FacturapiEnFacturador = { activa: () => true, nombre: () => "FacturAPI (prueba)" };
+
+  function xmlDeFacturapi(orden: string): string | undefined {
+    const fila = db.prepare("SELECT xml FROM timbrado WHERE orden_id = ?").get(orden) as
+      | { xml: string }
+      | undefined;
+    return fila?.xml;
+  }
+
+  it("no sella con CSD: encola el JSON de FacturAPI tal cual", () => {
+    const facturapi = new Facturador(log, sellador, cola, db, (n, m) => avisos.push(`${n}: ${m}`), {
+      facturapi: activa,
+    });
+    cobrarYFacturar("ord-1", "1001");
+
+    const r = facturapi.procesar();
+
+    expect(r).toEqual({ encolados: 1, sinCsd: 0 });
+    expect(() => JSON.parse(xmlDeFacturapi("ord-1")!)).not.toThrow();
+  });
+
+  it("si UNO no se puede encolar, no tumba la activación entera: se corta ahí y se anota", () => {
+    const facturapi = new Facturador(log, sellador, cola, db, (n, m) => avisos.push(`${n}: ${m}`), {
+      facturapi: activa,
+    });
+    cobrarYFacturar("ord-1", "1001");
+    cobrarYFacturar("ord-2", "1002");
+    cobrarYFacturar("ord-3", "1003");
+
+    const real = cola.encolar.bind(cola);
+    cola.encolar = (entrada) => {
+      if (entrada.orden_id === "ord-2") throw new Error("disco lleno (simulado)");
+      real(entrada);
+    };
+
+    // Lo que antes pasaba: esto tronaba y salía de `procesar` sin devolver nada.
+    const r = facturapi.procesar();
+
+    expect(r.encolados).toBe(1); // ord-1, antes de llegar al que truena
+    expect(xmlDeFacturapi("ord-1")).toBeDefined();
+    expect(xmlDeFacturapi("ord-2")).toBeUndefined();
+    expect(xmlDeFacturapi("ord-3")).toBeUndefined(); // no se salta por encima del que falló
+    expect(avisos.some((a) => a.startsWith("error:") && a.includes("1002") && a.includes("disco lleno"))).toBe(
+      true,
+    );
+  });
+
+  it("arreglado lo que fallaba, el siguiente barrido retoma justo donde se cortó: nada se pierde", () => {
+    const facturapi = new Facturador(log, sellador, cola, db, (n, m) => avisos.push(`${n}: ${m}`), {
+      facturapi: activa,
+    });
+    cobrarYFacturar("ord-1", "1001");
+    cobrarYFacturar("ord-2", "1002");
+    cobrarYFacturar("ord-3", "1003");
+
+    const real = cola.encolar.bind(cola);
+    let rota = true;
+    cola.encolar = (entrada) => {
+      if (rota && entrada.orden_id === "ord-2") throw new Error("disco lleno (simulado)");
+      real(entrada);
+    };
+    facturapi.procesar(); // se corta después de ord-1
+
+    rota = false; // el disco ya tiene espacio: el siguiente barrido normal
+    const r = facturapi.procesar();
+
+    expect(r.encolados).toBe(2); // ord-2 y ord-3, ninguno se perdió
+    expect(xmlDeFacturapi("ord-2")).toBeDefined();
+    expect(xmlDeFacturapi("ord-3")).toBeDefined();
   });
 });

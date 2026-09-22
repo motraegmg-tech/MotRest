@@ -544,8 +544,22 @@ export class EnlaceSupabase implements EnlaceConMotrae, NubeDeAutofactura {
         aplicado: false,
         problema: "Este Hub no sabe recibir secretos por la nube: hay que actualizarlo.",
       };
-    } catch {
-      resultado = { aplicado: false, problema: "El Hub falló al abrir el sobre." };
+    } catch (causa) {
+      /*
+       * CON LA CAUSA, no un texto fijo. Antes decía siempre «El Hub falló al
+       * abrir el sobre» aunque el sobre se hubiera abierto bien y el fallo
+       * fuera de otra cosa —fue lo que pasó al activar la producción de
+       * Tortas Fc (21-sep-2026): el sobre se abrió, la llave quedó puesta, y
+       * un efecto secundario sin proteger tronó después; el mensaje genérico
+       * no dejaba ver nada de eso, ni en Central ni en la bitácora del Hub.
+       * `secretos.ts` ya no debería llegar a lanzar por esto (ver
+       * `avisarCambio`), pero esto queda como red para lo que no se haya
+       * previsto.
+       */
+      resultado = {
+        aplicado: false,
+        problema: `El Hub no pudo aplicarlo: ${causa instanceof Error ? causa.message : String(causa)}`,
+      };
     }
 
     this.opciones.registrar(

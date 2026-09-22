@@ -218,49 +218,72 @@ export class Facturador {
     pendientes: ReturnType<LogHub["porTipo"]>,
   ): { encolados: number; sinCsd: number } {
     let encolados = 0;
-    let ultimo = this.marca;
+    let ultimoBueno = this.marca;
 
     for (const evento of pendientes) {
       const cfdi = evento as unknown as EventoCfdiGenerado;
-      ultimo = evento.seq;
       if (!cfdi.comprobante || !cfdi.orden_id || !cfdi.cfdi_id) {
         this.anotar("aviso", `Comprobante ${evento.id} ilegible: se omite.`);
+        ultimoBueno = evento.seq;
         continue;
       }
 
-      this.cola.encolar({
-        orden_id: cfdi.orden_id,
-        cfdi_id: cfdi.cfdi_id,
-        sucursal_id: cfdi.sucursal_id,
-        serie: cfdi.serie,
-        folio: cfdi.folio,
-        total: cfdi.comprobante.total,
-        xml: JSON.stringify(
-          comprobanteAFacturapi(cfdi.comprobante, cfdi.cfdi_id, { correo: cfdi.correo_receptor }),
-        ),
-        formato: "facturapi",
-      });
+      try {
+        this.cola.encolar({
+          orden_id: cfdi.orden_id,
+          cfdi_id: cfdi.cfdi_id,
+          sucursal_id: cfdi.sucursal_id,
+          serie: cfdi.serie,
+          folio: cfdi.folio,
+          total: cfdi.comprobante.total,
+          xml: JSON.stringify(
+            comprobanteAFacturapi(cfdi.comprobante, cfdi.cfdi_id, { correo: cfdi.correo_receptor }),
+          ),
+          formato: "facturapi",
+        });
 
-      /*
-       * El ticket ya entró en la global: el SAT no deja ampararlo dos veces.
-       * Se rechaza aquí, con el motivo, y la caja se entera por el mismo camino
-       * que cualquier rechazo. Si la caja lo hubiera comprobado antes —que es
-       * lo que debe hacer— esto no llega a pasar; está por si una terminal sin
-       * red facturó con la información vieja.
-       */
-      const periodo = this.facturapi?.enGlobal?.(cfdi.orden_id);
-      if (periodo) {
-        this.cola.rechazarAhora(
-          cfdi.orden_id,
-          "GLOBAL",
-          `Este ticket ya entró en la factura global de ${periodo}. Para facturarlo a nombre del ` +
-            "cliente hay que cancelar antes esa global (motivo 04).",
+        /*
+         * El ticket ya entró en la global: el SAT no deja ampararlo dos veces.
+         * Se rechaza aquí, con el motivo, y la caja se entera por el mismo camino
+         * que cualquier rechazo. Si la caja lo hubiera comprobado antes —que es
+         * lo que debe hacer— esto no llega a pasar; está por si una terminal sin
+         * red facturó con la información vieja.
+         */
+        const periodo = this.facturapi?.enGlobal?.(cfdi.orden_id);
+        if (periodo) {
+          this.cola.rechazarAhora(
+            cfdi.orden_id,
+            "GLOBAL",
+            `Este ticket ya entró en la factura global de ${periodo}. Para facturarlo a nombre del ` +
+              "cliente hay que cancelar antes esa global (motivo 04).",
+          );
+        }
+        encolados += 1;
+        ultimoBueno = evento.seq;
+      } catch (error) {
+        /*
+         * MISMA REGLA QUE EL CAMINO DE ARRIBA (sellado): si UNO falla, la marca
+         * se queda antes de él para no saltárselo, y se corta el barrido.
+         *
+         * Sin este try/catch, un solo comprobante con un dato raro tronaba
+         * TODA la aplicación de la llave que acababa de llegar: la llave
+         * quedaba puesta de verdad —`aplicarYa` ya la había guardado antes de
+         * llamar aquí—, pero la excepción se colaba hasta el buzón de la nube
+         * y Central se enteraba de un «El Hub falló al abrir el sobre» que no
+         * tenía nada que ver. Fue lo que pasó al activar la llave de
+         * producción de Tortas Fc (21-sep-2026).
+         */
+        this.anotar(
+          "error",
+          `No se pudo encolar el comprobante ${cfdi.serie}-${cfdi.folio} para FacturAPI: ${
+            error instanceof Error ? error.message : String(error)
+          }`,
         );
+        break;
       }
-      encolados += 1;
     }
 
-    this.marca = ultimo;
+    this.marca = ultimoBueno;
     if (encolados > 0) this.anotar("info", `${encolados} comprobante(s) en cola para FacturAPI.`);
     return { encolados, sinCsd: 0 };
   }
