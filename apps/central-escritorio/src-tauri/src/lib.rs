@@ -449,12 +449,35 @@ async fn facturapi_peticion(
 
     let verbo = reqwest::Method::from_bytes(metodo.as_bytes())
         .map_err(|_| format!("Método HTTP inválido: {metodo}"))?;
+    // Un PUT o un DELETE sin cuerpo Y sin esta marca es lo que FacturAPI
+    // rechazaba con 411 al crear la Live: ver la nota bajo `peticion`.
+    let necesita_largo_declarado = cuerpo.is_none() && verbo != reqwest::Method::GET;
 
     let mut peticion = cliente
         .request(verbo, format!("{BASE_FACTURAPI}{ruta}"))
         .bearer_auth(&llave);
     if let Some(c) = cuerpo {
         peticion = peticion.header("content-type", "application/json").body(c);
+    } else if necesita_largo_declarado {
+        /*
+         * SIN CUERPO NO ES LO MISMO QUE SIN `Content-Length`, Y UN CUERPO
+         * VACÍO TAMPOCO BASTA.
+         *
+         * Al crear la llave Live (`PUT …/apikeys/live`) no hace falta mandar
+         * nada, y por eso `cuerpo` llegaba `None`. Sin llamar a `.body(..)`,
+         * reqwest no manda `Content-Length` en absoluto, y el servidor de
+         * FacturAPI contestaba `411 Length Required` — el error real al crear
+         * la llave de producción de Tortas Fc (21-sep-2026).
+         *
+         * La primera corrección probada fue `.body("")`, y NO alcanza:
+         * comprobado capturando los bytes de verdad (ver
+         * `pruebas_facturapi::bytes_enviados`), reqwest trata una cadena vacía
+         * igual que ningún cuerpo, y la cabecera sigue sin salir. Hace falta un
+         * cuerpo con contenido — aquí, el objeto JSON vacío — para que reqwest
+         * calcule y mande su largo. FacturAPI no necesita leerlo: le basta con
+         * que la petición declare cuánto va a leer, aunque sea «2».
+         */
+        peticion = peticion.header("content-type", "application/json").body("{}");
     }
 
     let respuesta = peticion
@@ -611,5 +634,116 @@ mod pruebas_facturapi {
         assert!(comprobar("GET", "/v2/organizations?q=a#b").is_err());
         assert!(comprobar("GET", "/v2/organizations?").is_err());
         assert!(comprobar("GET", &format!("/v2/organizations?q={}", "a".repeat(201))).is_err());
+    }
+
+    /// Los bytes que reqwest manda DE VERDAD por la red al enviar una
+    /// petición, capturados con un oyente en `localhost` que no contesta
+    /// nada. Hace falta esto y no `RequestBuilder::build()` porque
+    /// `Content-Length` no vive en el mapa de cabeceras de la petición: reqwest
+    /// la calcula al armar los bytes sobre el cable, ya en el envío — que es
+    /// justo lo que la primera versión de esta prueba pasaba por alto (ver el
+    /// historial: comprobaba `.headers()` y fallaba incluso con `.body("")`).
+    fn bytes_enviados<F>(armar: F) -> Vec<u8>
+    where
+        F: FnOnce(&reqwest::Client, u16) -> reqwest::RequestBuilder,
+    {
+        use std::io::Read;
+
+        let oyente = std::net::TcpListener::bind("127.0.0.1:0").expect("puerto libre en localhost");
+        let puerto = oyente.local_addr().expect("dirección local").port();
+
+        let hilo = std::thread::spawn(move || -> Vec<u8> {
+            let (mut socket, _) = oyente.accept().expect("reqwest se conecta");
+            let mut leido = vec![0u8; 8192];
+            let n = socket.read(&mut leido).unwrap_or(0);
+            leido.truncate(n);
+            leido
+        });
+
+        let runtime = tokio::runtime::Builder::new_multi_thread()
+            .enable_all()
+            .build()
+            .expect("runtime de la prueba");
+        let cliente = reqwest::Client::new();
+        // No hay servidor de verdad al otro lado: el envío truena después de
+        // que salen los bytes, justo lo que hace falta y nada más.
+        let _ = runtime.block_on(armar(&cliente, puerto).send());
+
+        hilo.join().expect("el oyente no truena")
+    }
+
+    /// El arreglo real: con la misma forma que arma `facturapi_peticion` para
+    /// un PUT sin `cuerpo` —bearer y `.body("{}")`—, la petición sale
+    /// declarando `Content-Length: 2`. FacturAPI no necesita leer ese objeto
+    /// vacío; le basta con que la petición diga cuánto va a leer.
+    #[test]
+    fn un_put_sin_cuerpo_manda_un_json_vacio_y_declara_su_largo() {
+        let crudo = bytes_enviados(|cliente, puerto| {
+            cliente
+                .request(
+                    reqwest::Method::PUT,
+                    format!("http://127.0.0.1:{puerto}/v2/organizations/x/apikeys/live"),
+                )
+                .bearer_auth("sk_user_de_prueba")
+                .body("{}")
+        });
+        let texto = String::from_utf8_lossy(&crudo).to_lowercase();
+        assert!(texto.starts_with("put "), "se esperaba un PUT: {texto}");
+        assert!(texto.contains("content-length: 2"), "faltó Content-Length: {texto}");
+        assert!(texto.trim_end().ends_with("{}"), "el cuerpo debería ser el objeto vacío: {texto}");
+    }
+
+    /// Así estaba antes del arreglo: un PUT armado SIN `.body(..)` no declara
+    /// ningún largo. Es el paquete exacto que FacturAPI rechazaba con 411 al
+    /// crear la llave de producción de Tortas Fc (21-sep-2026), y por eso
+    /// `facturapi_peticion` ya no arma la petición así.
+    #[test]
+    fn sin_body_explicito_un_put_no_declara_ningun_largo() {
+        let crudo = bytes_enviados(|cliente, puerto| {
+            cliente
+                .request(
+                    reqwest::Method::PUT,
+                    format!("http://127.0.0.1:{puerto}/v2/organizations/x/apikeys/live"),
+                )
+                .bearer_auth("sk_user_de_prueba")
+            // A propósito sin `.body(..)`: así se armaba antes del arreglo.
+        });
+        let texto = String::from_utf8_lossy(&crudo).to_lowercase();
+        assert!(!texto.contains("content-length"), "esto es justo el bug del 411: {texto}");
+    }
+
+    /// LA TRAMPA QUE HIZO FALTA UNA PRIMERA CORRECCIÓN PARA VER: un cuerpo
+    /// VACÍO tampoco declara largo. reqwest lo trata igual que no mandar nada,
+    /// así que `.body("")` NO habría arreglado el 411 — hace falta contenido de
+    /// verdad, aunque sea un objeto vacío (ver la prueba de arriba). Si esto
+    /// deja de fallar, el comportamiento de reqwest cambió y el comentario de
+    /// `facturapi_peticion` sobre por qué usa `"{}"` hay que revisarlo.
+    #[test]
+    fn un_body_vacio_tampoco_declara_largo() {
+        let crudo = bytes_enviados(|cliente, puerto| {
+            cliente
+                .request(
+                    reqwest::Method::PUT,
+                    format!("http://127.0.0.1:{puerto}/v2/organizations/x/apikeys/live"),
+                )
+                .bearer_auth("sk_user_de_prueba")
+                .body("")
+        });
+        let texto = String::from_utf8_lossy(&crudo).to_lowercase();
+        assert!(!texto.contains("content-length"), "si esto falla, «.body(\"\")» ya sí alcanza: {texto}");
+    }
+
+    /// Un GET, en cambio, nunca tuvo este problema: nunca llevó cuerpo y
+    /// FacturAPI nunca contestó 411 al listar organizaciones.
+    #[test]
+    fn un_get_no_manda_content_length() {
+        let crudo = bytes_enviados(|cliente, puerto| {
+            cliente
+                .request(reqwest::Method::GET, format!("http://127.0.0.1:{puerto}/v2/organizations"))
+                .bearer_auth("sk_user_de_prueba")
+        });
+        let texto = String::from_utf8_lossy(&crudo).to_lowercase();
+        assert!(texto.starts_with("get "), "se esperaba un GET: {texto}");
+        assert!(!texto.contains("content-length"), "un GET no debería declarar largo: {texto}");
     }
 }
