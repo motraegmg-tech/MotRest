@@ -1,0 +1,321 @@
+<!doctype html>
+<html lang="es" data-resolution="portrait">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=1080, height=1920" />
+    <title>MotRest — Lo que se te va</title>
+    <script src="https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js"></script>
+    <style>
+      @font-face {
+        font-family: "Space Grotesk";
+        src: url("fonts/space-grotesk-latin-500-normal.woff2") format("woff2");
+        font-weight: 500;
+        font-display: block;
+      }
+      @font-face {
+        font-family: "Space Grotesk";
+        src: url("fonts/space-grotesk-latin-700-normal.woff2") format("woff2");
+        font-weight: 700;
+        font-display: block;
+      }
+      @font-face {
+        font-family: "Inter";
+        src: url("fonts/inter-latin-400-normal.woff2") format("woff2");
+        font-weight: 400;
+        font-display: block;
+      }
+      @font-face {
+        font-family: "Inter";
+        src: url("fonts/inter-latin-600-normal.woff2") format("woff2");
+        font-weight: 600;
+        font-display: block;
+      }
+
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+      }
+      html, body {
+        width: 1080px;
+        height: 1920px;
+        overflow: hidden;
+        background: #14181a;
+      }
+      body {
+        font-family: "Inter", "Segoe UI", sans-serif;
+        color: #ffffff;
+      }
+      .escena {
+        position: absolute;
+        inset: 0;
+        width: 1080px;
+        height: 1920px;
+        overflow: hidden;
+        background: transparent;
+      }
+      .capa {
+        position: absolute;
+        inset: 0;
+        width: 1080px;
+        height: 1920px;
+        overflow: hidden;
+        background: #14181a;
+      }
+      .toma-video {
+        position: absolute;
+        width: 1920px;
+        height: 1080px;
+        left: 50%;
+        top: 50%;
+        margin-left: -960px;
+        margin-top: -540px;
+        transform: scale(2.0);
+      }
+      .titular {
+        font-family: "Space Grotesk", sans-serif;
+        font-weight: 700;
+        letter-spacing: -0.03em;
+        line-height: 0.99;
+      }
+
+      /* Gancho */
+      #s0-t1, #s0-t2 {
+        position: absolute;
+        left: 100px;
+        font-size: 112px;
+        color: #ffffff;
+        max-width: 880px;
+      }
+      #s0-t1 { top: 600px; }
+      #s0-t2 { top: 860px; color: #a8b3b9; font-family: "Space Grotesk", sans-serif; font-weight: 500; font-size: 80px; letter-spacing: -0.02em; }
+      #s0-t2 em { font-style: normal; color: #f2853a; }
+      
+      /* Cierre */
+      #s4-t1 {
+        position: absolute;
+        left: 100px;
+        top: 600px;
+        font-size: 80px;
+        color: #ffffff;
+        max-width: 880px;
+      }
+      #s4-marca {
+        position: absolute;
+        left: 0;
+        right: 0;
+        top: 960px;
+        text-align: center;
+        font-size: 140px;
+        color: #ffffff;
+        font-family: "Space Grotesk", sans-serif;
+        font-weight: 700;
+      }
+      #s4-marca em {
+        font-style: normal;
+        color: #f2853a;
+      }
+      #s4-contacto {
+        position: absolute;
+        left: 0;
+        right: 0;
+        top: 1140px;
+        text-align: center;
+        font-size: 40px;
+        color: #a8b3b9;
+      }
+
+      /* Overlay rojo para centinela */
+      .etiqueta-roja {
+        position: absolute;
+        left: 100px;
+        top: 250px;
+        background: #E0392B;
+        color: white;
+        padding: 20px 40px;
+        font-size: 40px;
+        font-family: "Space Grotesk", sans-serif;
+        font-weight: 700;
+        border-radius: 12px;
+        text-transform: uppercase;
+        letter-spacing: 0.1em;
+        opacity: 0;
+      }
+
+      /* Subtitles */
+      #subtitulos {
+        position: absolute;
+        left: 0;
+        right: 0;
+        bottom: 300px;
+        z-index: 20;
+        text-align: center;
+        pointer-events: none;
+      }
+      .subtitulo {
+        display: inline-block;
+        max-width: 920px;
+        padding: 18px 30px;
+        border-radius: 14px;
+        background: #1d262b;
+        border-bottom: 5px solid #f2853a;
+        font-family: "Inter", sans-serif;
+        font-weight: 600;
+        font-size: 52px;
+        line-height: 1.24;
+        color: #ffffff;
+        letter-spacing: -0.005em;
+      }
+    </style>
+  </head>
+  <body>
+    <div
+      id="root"
+      data-composition-id="main"
+      data-start="0"
+      data-duration="34.0"
+      data-width="1080"
+      data-height="1920"
+    >
+      <!-- Gancho (0 - 3.5s) -->
+      <div id="s0" class="clip escena" data-start="0" data-duration="3.5" data-track-index="1" style="z-index:1;">
+        <div class="capa" id="s0-in">
+          <div id="s0-t1" class="titular">¿Cuánto dinero se te fue ayer…</div>
+          <div id="s0-t2">…sin que nadie lo notara?</div>
+        </div>
+      </div>
+      
+      <!-- Escena 1: Centinela (3.5 - 13.5s) -->
+      <video id="v1" class="clip toma-video" data-media-start="0" data-start="3.5" data-duration="10.0" src="tomas/t17-centinela.mp4" style="z-index:1;" muted></video>
+      <div id="s1" class="clip escena" data-start="3.5" data-duration="10.0" data-track-index="1" style="z-index:2;">
+        <div class="capa" id="s1-in" style="opacity:0">
+          <div class="etiqueta-roja" id="s1-etiqueta">Anomalía detectada</div>
+        </div>
+      </div>
+
+      <!-- Escena 2: Ingeniería (13.5 - 22.2s) -->
+      <video id="v2" class="clip toma-video" data-media-start="0" data-start="13.5" data-duration="8.7" src="tomas/t18-ingenieria-menu.mp4" style="z-index:1;" muted></video>
+      <div id="s2" class="clip escena" data-start="13.5" data-duration="8.7" data-track-index="1" style="z-index:3;">
+        <div class="capa" id="s2-in" style="opacity:0">
+        </div>
+      </div>
+
+      <!-- Escena 3: Pronóstico (22.2 - 26.8s) -->
+      <video id="v3" class="clip toma-video" data-media-start="0" data-start="22.2" data-duration="4.6" src="tomas/t19-pronostico.mp4" style="z-index:1;" muted></video>
+      <div id="s3" class="clip escena" data-start="22.2" data-duration="4.6" data-track-index="1" style="z-index:4;">
+        <div class="capa" id="s3-in" style="opacity:0">
+        </div>
+      </div>
+
+      <!-- Escena 4: Cierre (26.8 - 34.0s) -->
+      <div id="s4" class="clip escena" data-start="26.8" data-duration="7.2" data-track-index="1" style="z-index:5;">
+        <div class="capa" id="s4-in" style="opacity:0">
+          <div id="s4-t1" class="titular">Ningún software restaurantero del mercado hace esto hoy. <br/><br/>MotRest sí.</div>
+          <div id="s4-marca">Mot<em>Rest</em></div>
+          <div id="s4-contacto">www.motrae.com</div>
+        </div>
+      </div>
+
+      <!-- ============ AUDIO ============ -->
+      <audio
+        id="voz"
+        class="clip"
+        data-start="0"
+        data-duration="33.35"
+        data-track-index="2"
+        src="audio/narracion.wav"
+        data-volume="0.92"
+      ></audio>
+      <audio
+        id="mus1"
+        class="clip"
+        data-start="0"
+        data-duration="13.5"
+        data-media-start="0"
+        data-track-index="3"
+        src="audio/musica-a.mp3"
+        data-volume="0.30"
+      ></audio>
+      <audio
+        id="mus2"
+        class="clip"
+        data-start="13.5"
+        data-duration="13.3"
+        data-media-start="13.5"
+        data-track-index="3"
+        src="audio/musica-a.mp3"
+        data-volume="0.16"
+      ></audio>
+      <audio
+        id="mus3"
+        class="clip"
+        data-start="26.8"
+        data-duration="7.2"
+        data-media-start="26.8"
+        data-track-index="3"
+        src="audio/musica-a.mp3"
+        data-volume="0.34"
+      ></audio>
+
+      <!-- Subtítulos · generados con herramientas/subtitulos.mjs -->
+      <div id="subtitulos">
+        <div id="st1" class="clip subtitulo" data-start="0.00" data-duration="2.77" data-track-index="4">¿Cuánto dinero se te fue ayer, sin que nadie lo</div>
+        <div id="st2" class="clip subtitulo" data-start="2.77" data-duration="0.41" data-track-index="4">notara?</div>
+        <div id="st3" class="clip subtitulo" data-start="3.55" data-duration="2.75" data-track-index="4">La merma no debería descubrirse a fin de mes.</div>
+        <div id="st4" class="clip subtitulo" data-start="6.30" data-duration="2.75" data-track-index="4">El centinela de MotRest vigila cancelaciones,</div>
+        <div id="st5" class="clip subtitulo" data-start="9.05" data-duration="2.81" data-track-index="4">cortesías y consumos mientras ocurren, y avisa</div>
+        <div id="st6" class="clip subtitulo" data-start="11.86" data-duration="1.35" data-track-index="4">cuando algo no cuadra.</div>
+        <div id="st7" class="clip subtitulo" data-start="13.57" data-duration="2.13" data-track-index="4">Tu carta no es una lista de precios.</div>
+        <div id="st8" class="clip subtitulo" data-start="15.70" data-duration="2.83" data-track-index="4">MotRest clasifica cada platillo por margen y por</div>
+        <div id="st9" class="clip subtitulo" data-start="18.53" data-duration="2.89" data-track-index="4">popularidad: cuál impulsar, cuál rediseñar y cuál</div>
+        <div id="st10" class="clip subtitulo" data-start="21.42" data-duration="0.47" data-track-index="4">retirar.</div>
+        <div id="st11" class="clip subtitulo" data-start="22.27" data-duration="3.09" data-track-index="4">Y te dice cuánta masa vas a necesitar el viernes.</div>
+        <div id="st12" class="clip subtitulo" data-start="25.36" data-duration="1.13" data-track-index="4">Antes del viernes.</div>
+        <div id="st13" class="clip subtitulo" data-start="26.86" data-duration="3.71" data-track-index="4">Ningún software restaurantero del mercado hace esto</div>
+        <div id="st14" class="clip subtitulo" data-start="30.57" data-duration="0.29" data-track-index="4">hoy.</div>
+        <div id="st15" class="clip subtitulo" data-start="30.86" data-duration="0.80" data-track-index="4">MotRest sí.</div>
+        <div id="st16" class="clip subtitulo" data-start="32.03" data-duration="1.31" data-track-index="4">Motrae punto com.</div>
+      </div>
+    </div>
+
+    <script>
+      window.__timelines = window.__timelines || {};
+      const tl = gsap.timeline({ paused: true });
+      window.__timelines["main"] = tl;
+
+      // Gancho
+      tl.from("#s0-t1", { y: 50, opacity: 0, duration: 0.6, ease: "expo.out" }, 0.2);
+      tl.from("#s0-t2", { y: 30, opacity: 0, duration: 0.5, ease: "power2.out" }, 2.77);
+      
+      // Transición 1 (3.5s)
+      tl.to("#s0-in", { scale: 1.1, opacity: 0, duration: 0.3, ease: "power2.inOut" }, 3.4);
+      tl.from("#v1", { opacity: 0, duration: 0.3, ease: "power2.inOut" }, 3.5);
+      tl.to("#s1-in", { opacity: 1, duration: 0.3, ease: "power2.inOut" }, 3.5);
+      tl.to("#s1-etiqueta", { opacity: 1, scale: 1.1, duration: 0.5, yoyo: true, repeat: 3, ease: "power2.inOut" }, 5.0);
+
+      // Transición 2 (13.5s)
+      tl.to("#v1", { opacity: 0, duration: 0.3, ease: "power2.inOut" }, 13.4);
+      tl.to("#s1-in", { opacity: 0, duration: 0.3, ease: "power2.inOut" }, 13.4);
+      tl.from("#v2", { opacity: 0, duration: 0.3, ease: "power2.inOut" }, 13.5);
+      tl.to("#s2-in", { opacity: 1, duration: 0.3, ease: "power2.inOut" }, 13.5);
+
+      // Transición 3 (22.2s)
+      tl.to("#v2", { opacity: 0, duration: 0.3, ease: "power2.inOut" }, 22.1);
+      tl.to("#s2-in", { opacity: 0, duration: 0.3, ease: "power2.inOut" }, 22.1);
+      tl.from("#v3", { opacity: 0, duration: 0.3, ease: "power2.inOut" }, 22.2);
+      tl.to("#s3-in", { opacity: 1, duration: 0.3, ease: "power2.inOut" }, 22.2);
+      
+      // Pronóstico zoom
+      tl.to("#v3", { scale: 2.3, duration: 3.5, ease: "sine.inOut" }, 22.5);
+
+      // Transición 4 (26.8s)
+      tl.to("#v3", { opacity: 0, duration: 0.3, ease: "power2.inOut" }, 26.7);
+      tl.to("#s3-in", { opacity: 0, duration: 0.3, ease: "power2.inOut" }, 26.7);
+      tl.to("#s4-in", { opacity: 1, duration: 0.3, ease: "power2.inOut" }, 26.8);
+
+      tl.from("#s4-t1", { y: 40, opacity: 0, duration: 0.6, ease: "power2.out" }, 26.9);
+      tl.from("#s4-marca", { scale: 0.8, opacity: 0, duration: 0.8, ease: "back.out(1.2)" }, 30.86);
+      tl.from("#s4-contacto", { y: 20, opacity: 0, duration: 0.5, ease: "power2.out" }, 32.03);
+    </script>
+  </body>
+</html>

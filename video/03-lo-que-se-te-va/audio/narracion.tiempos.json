@@ -1,0 +1,44 @@
+{
+  "audio": "narracion.wav",
+  "muestreo": 24000,
+  "velocidad": 1.5,
+  "duracion": 33.344,
+  "bloques": [
+    {
+      "id": "b1",
+      "texto": "¿Cuánto dinero se te fue ayer, sin que nadie lo notara?",
+      "inicio": 0,
+      "fin": 3.181
+    },
+    {
+      "id": "b2",
+      "texto": "La merma no debería descubrirse a fin de mes. El centinela de MotRest vigila cancelaciones, cortesías y consumos mientras ocurren, y avisa cuando algo no cuadra.",
+      "inicio": 3.547,
+      "fin": 13.208
+    },
+    {
+      "id": "b3",
+      "texto": "Tu carta no es una lista de precios. MotRest clasifica cada platillo por margen y por popularidad: cuál impulsar, cuál rediseñar y cuál retirar.",
+      "inicio": 13.575,
+      "fin": 21.902
+    },
+    {
+      "id": "b4",
+      "texto": "Y te dice cuánta masa vas a necesitar el viernes. Antes del viernes.",
+      "inicio": 22.269,
+      "fin": 26.489
+    },
+    {
+      "id": "b5",
+      "texto": "Ningún software restaurantero del mercado hace esto hoy. MotRest sí.",
+      "inicio": 26.856,
+      "fin": 31.663
+    },
+    {
+      "id": "b6",
+      "texto": "Motrae punto com.",
+      "inicio": 32.03,
+      "fin": 33.344
+    }
+  ]
+}
