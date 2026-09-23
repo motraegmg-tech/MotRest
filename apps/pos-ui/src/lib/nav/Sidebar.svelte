@@ -11,9 +11,27 @@
   import { actualizaciones } from "../actualizaciones.svelte";
   import Icono from "../Icono.svelte";
   import { sesion } from "../sesion/sesion.svelte";
+  import { revelar } from "../subir";
   import { VERSION_MOTREST } from "../version";
 
   const visibles = $derived(MODULOS.filter((m) => sesion.puedeVer(m.permiso)));
+
+  /* Pedido de Gonzalo: solo quien decide sobre el sistema del local. */
+  const puedeBuscarActualizacion = $derived(
+    ["propietario", "gerente", "soporte"].includes(sesion.usuarioActual?.rol_id ?? ""),
+  );
+  let buscando = $state(false);
+  let resultadoBusqueda = $state<{ hay: boolean; texto: string } | null>(null);
+  let limpiarResultado: ReturnType<typeof setTimeout> | undefined;
+
+  async function buscarActualizacion() {
+    buscando = true;
+    resultadoBusqueda = null;
+    clearTimeout(limpiarResultado);
+    resultadoBusqueda = await actualizaciones.buscar();
+    buscando = false;
+    limpiarResultado = setTimeout(() => (resultadoBusqueda = null), 8000);
+  }
 
   function abrir(clave: string) {
     const modulo = MODULOS.find((m) => m.clave === clave);
@@ -92,6 +110,19 @@
   -->
   <div class="foot">
     MOTRAE{#if VERSION_MOTREST}&nbsp;{VERSION_MOTREST}{/if} · Innovation already in motion
+    {#if puedeBuscarActualizacion}
+      <button
+        class="buscar"
+        onclick={buscarActualizacion}
+        disabled={buscando}
+        title="Pregunta ahora mismo a la nube de MOTRAE si hay una versión nueva de MotRest, sin esperar a que el sistema lo revise solo."
+      >
+        {buscando ? "Buscando…" : "Buscar actualizaciones"}
+      </button>
+      {#if resultadoBusqueda}
+        <p class="resultado" class:hay={resultadoBusqueda.hay} role="status" use:revelar={resultadoBusqueda.texto}>{resultadoBusqueda.texto}</p>
+      {/if}
+    {/if}
   </div>
 </aside>
 
@@ -236,5 +267,36 @@
     padding: 1.5rem 0.85rem 0;
     font-size: var(--t-xs);
     color: var(--gris-claro);
+  }
+  .buscar {
+    display: block;
+    width: 100%;
+    margin-top: 0.75rem;
+    padding: 0.45rem 0.6rem;
+    border: 1px solid rgba(255, 255, 255, 0.18);
+    border-radius: var(--r-sm);
+    background: transparent;
+    color: #e6ece8;
+    font: inherit;
+    font-size: 0.75rem;
+    cursor: pointer;
+  }
+  .buscar:hover:not(:disabled) {
+    border-color: var(--acento);
+    color: #fff;
+  }
+  .buscar:disabled {
+    opacity: 0.6;
+    cursor: progress;
+  }
+  .resultado {
+    margin: 0.5rem 0 0;
+    font-size: 0.72rem;
+    line-height: 1.35;
+    color: #e6ece8;
+  }
+  .resultado.hay {
+    color: var(--acento);
+    font-weight: 600;
   }
 </style>

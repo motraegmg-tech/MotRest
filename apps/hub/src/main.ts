@@ -1908,6 +1908,26 @@ function atenderInterno(peticion: IncomingMessage, respuesta: ServerResponse): v
    * reiniciar el sistema del restaurante no es algo que deba poder pedir
    * cualquiera que esté en la wifi del local.
    */
+  /*
+   * Buscar ya, sin esperar al reloj. Se admite desde cualquier terminal y no
+   * solo desde la caja: preguntar no cambia nada, y la decisión de instalar
+   * sigue pasando por `/actualizacion`, que sí es solo de la caja.
+   */
+  if (url.pathname === "/actualizacion/buscar") {
+    if (!esOrigenDelHub(peticion.headers.origin, seguro, autoridad)) {
+      json(403, { error: "Origen no autorizado" });
+      return;
+    }
+    if (peticion.method !== "POST") {
+      json(405, { error: "Usa POST" });
+      return;
+    }
+    void buscarActualizacionAhora()
+      .then((r) => json(200, r))
+      .catch((causa: unknown) => json(500, { error: `No se pudo buscar: ${String(causa)}` }));
+    return;
+  }
+
   if (url.pathname === "/actualizacion") {
     if (!esLocal) {
       json(403, { error: "Solo desde la caja" });
@@ -2967,23 +2987,60 @@ function reportarPulso(): void {
  * Rodizio en la 1.5.3 y Tortas Fc en la 1.5.5 (22-sep-2026) sin ver aviso
  * alguno, con la nube ofreciéndoles la 1.5.6.
  */
-let revisandoCanal = false;
-async function revisarCanalDeActualizaciones(): Promise<void> {
-  if (!actualizador || revisandoCanal || instalandoActualizacion) return;
-  revisandoCanal = true;
-  try {
-    const encontrada = await actualizador.buscar();
-    if (!encontrada || encontrada.version === versionDisponible?.version) return;
+let revisionEnCurso: Promise<void> | null = null;
+function revisarCanalDeActualizaciones(): Promise<void> {
+  if (!actualizador || instalandoActualizacion) return Promise.resolve();
+  // Dos revisiones a la vez (el reloj y el botón) comparten la misma consulta.
+  revisionEnCurso ??= (async () => {
+    try {
+      const encontrada = await actualizador!.buscar();
+      if (!encontrada || encontrada.version === versionDisponible?.version) return;
 
-    versionDisponible = encontrada;
-    estadoActualizacion = registrarDisponible(estadoActualizacion, encontrada, Date.now());
-    await guardarEstadoActualizacion();
-    reportarPulso();
-  } catch (causa) {
-    registrar("aviso", `No se pudo revisar si hay versión nueva: ${String(causa)}`);
-  } finally {
-    revisandoCanal = false;
+      versionDisponible = encontrada;
+      estadoActualizacion = registrarDisponible(estadoActualizacion, encontrada, Date.now());
+      await guardarEstadoActualizacion();
+      reportarPulso();
+    } catch (causa) {
+      registrar("aviso", `No se pudo revisar si hay versión nueva: ${String(causa)}`);
+    } finally {
+      revisionEnCurso = null;
+    }
+  })();
+  return revisionEnCurso;
+}
+
+/** Lo que contesta «Buscar actualizaciones» del POS. */
+type ResultadoDeBusqueda =
+  | { estado: "hay"; version: string; actualizacion: EstadoActualizacion }
+  | { estado: "al_dia"; version: string }
+  | { estado: "sin_conexion" | "sin_canal" | "instalando"; version: string };
+
+/**
+ * «Buscar actualizaciones», a petición del restaurante (pedido de Gonzalo,
+ * sep-2026): para no esperar a que el Hub se entere solo.
+ *
+ * Distingue «no hay nada» de «no pude preguntar»: decirle «estás al día» a una
+ * caja sin internet sería mentirle justo cuando se está preguntando.
+ */
+let ultimaBusquedaManual = 0;
+async function buscarActualizacionAhora(): Promise<ResultadoDeBusqueda> {
+  if (instalandoActualizacion) return { estado: "instalando", version: VERSION };
+  if (!actualizador) return { estado: "sin_canal", version: VERSION };
+  const porLaNube = enlaceNube instanceof EnlaceSupabase;
+  if (porLaNube && !enlaceNube!.conectado()) return { estado: "sin_conexion", version: VERSION };
+
+  // Varios toques seguidos no son varias consultas a la nube.
+  if (Date.now() - ultimaBusquedaManual > 10_000) {
+    ultimaBusquedaManual = Date.now();
+    await revisarCanalDeActualizaciones();
+  } else if (revisionEnCurso) {
+    await revisionEnCurso;
   }
+
+  if (estadoActualizacion.disponible && hayNovedad(VERSION, estadoActualizacion.disponible.version)) {
+    return { estado: "hay", version: VERSION, actualizacion: estadoActualizacion };
+  }
+  return { estado: "al_dia", version: VERSION };
 }
 
 /** Guarda el estado y se lo cuenta a todas las terminales a la vez. */

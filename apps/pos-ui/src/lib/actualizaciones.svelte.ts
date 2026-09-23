@@ -143,6 +143,55 @@ class StoreActualizaciones {
     this.guardar();
   }
 
+  /**
+   * «Buscar actualizaciones»: le pide al Hub que pregunte YA a la nube.
+   *
+   * Si hay versión nueva se abre el mismo diálogo de siempre, aunque la hubieran
+   * pospuesto: quien pulsa el botón está pidiendo verla. El texto de vuelta es
+   * para enseñárselo tal cual a quien lo pulsó.
+   */
+  async buscar(): Promise<{ hay: boolean; texto: string }> {
+    try {
+      const respuesta = await fetch("/actualizacion/buscar", {
+        method: "POST",
+        signal: AbortSignal.timeout(20_000),
+      });
+      if (!respuesta.ok) {
+        return { hay: false, texto: `El Hub no pudo buscar (${respuesta.status}). Inténtalo de nuevo.` };
+      }
+      const r = (await respuesta.json()) as {
+        estado: "hay" | "al_dia" | "sin_conexion" | "sin_canal" | "instalando";
+        version: string;
+        actualizacion?: EstadoActualizacion;
+      };
+      switch (r.estado) {
+        case "hay": {
+          if (r.actualizacion) this.fusionar(r.actualizacion);
+          this.reabrir();
+          const nueva = this.datos.disponible?.version ?? "";
+          // Ya programada a una hora: el diálogo no se repite, se dice cuándo.
+          const texto = this.avisar
+            ? `Hay una versión nueva: MotRest ${nueva}.`
+            : `Hay una versión nueva: ${this.resumen}`;
+          return { hay: true, texto };
+        }
+        case "al_dia":
+          return { hay: false, texto: `MotRest está al día (versión ${r.version}).` };
+        case "sin_conexion":
+          return {
+            hay: false,
+            texto: "Sin conexión con la nube de MOTRAE: no se pudo revisar. Revisa el internet de la caja.",
+          };
+        case "instalando":
+          return { hay: false, texto: "Ya se está instalando una actualización." };
+        default:
+          return { hay: false, texto: "Este local no tiene canal de actualizaciones configurado." };
+      }
+    } catch {
+      return { hay: false, texto: "No se pudo hablar con el Hub. Inténtalo de nuevo." };
+    }
+  }
+
   detener(): void {
     if (this.reloj) clearInterval(this.reloj);
     this.reloj = null;
