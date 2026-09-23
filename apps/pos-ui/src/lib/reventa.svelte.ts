@@ -36,6 +36,13 @@ import { inventario } from "./inventario.svelte";
 import { menu } from "./menu.svelte";
 import { sesion } from "./sesion/sesion.svelte";
 
+/** Lo que explica el botón al pasar el mouse. Un solo texto para el Menú y el Catálogo. */
+export const AYUDA_CARGA_RAPIDA =
+  "Da de alta de una sola vez lo que compras hecho y vendes igual, sin prepararlo: " +
+  "refrescos, cervezas, agua, pan, postres o botanas empacadas. Por cada renglón crea " +
+  "el producto en la carta, su insumo en el almacén con la existencia que tengas, y los " +
+  "une para que cada venta descuente una pieza del inventario.";
+
 export interface ResultadoReventa {
   /** Todo salió bien, siembra de existencia incluida. */
   ok: boolean;

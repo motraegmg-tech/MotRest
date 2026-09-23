@@ -11,7 +11,7 @@
   import Ordenar from "../../listas/Ordenar.svelte";
   import { menu } from "../../menu.svelte";
   import { rutas } from "../../nav/rutas.svelte";
-  import { convertirEnReventa, insumoEspejoDe } from "../../reventa.svelte";
+  import { AYUDA_CARGA_RAPIDA, convertirEnReventa, insumoEspejoDe } from "../../reventa.svelte";
   import { revelar, subirAlPrincipio } from "../../subir";
   import EditorProducto from "./EditorProducto.svelte";
   import EditorPromociones from "./EditorPromociones.svelte";
@@ -329,16 +329,18 @@
           Estaciones ({menu.estaciones.length})
         </button>
         <!--
-          El camino a la carga rápida de bebidas. Vive en el catálogo, junto al
-          importador de la carta, porque es la misma tarea —dar de alta en
-          bloque—; pero quien va a cargar el refrigerador entra por el Menú, así
-          que el camino se pone aquí en vez de esperar a que lo encuentre.
+          El camino a la carga rápida de alimentos y bebidas. Vive en el
+          catálogo, junto al importador de la carta, porque es la misma tarea
+          —dar de alta en bloque—; pero quien va a cargar el refrigerador entra
+          por el Menú, así que el camino se pone aquí en vez de esperar a que lo
+          encuentre.
         -->
         <button
           class="secundario"
+          title={AYUDA_CARGA_RAPIDA}
           onclick={() => rutas.ir("administracion", "catalogo", { ver: "reventa" })}
         >
-          Carga rápida de bebidas
+          Carga rápida de alimentos y bebidas
         </button>
       {/if}
       <button class="secundario" onclick={() => abrir({ modo: "promociones" })}>

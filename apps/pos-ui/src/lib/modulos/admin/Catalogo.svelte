@@ -36,6 +36,7 @@
   import { menu } from "../../menu.svelte";
   import { rutas } from "../../nav/rutas.svelte";
   import {
+    AYUDA_CARGA_RAPIDA,
     CATEGORIA_INSUMO_POR_DEFECTO,
     altaDeReventa,
     estaEnLaCarta,
@@ -142,7 +143,7 @@
          */
         categoriaInsumo: linea.categoria.trim(),
         // La carta pegada no dice cuántas hay en el refrigerador. Se cargan en
-        // «Reventa rápida» o en Inventario; inventar un número sería peor.
+        // «Carga rápida de alimentos y bebidas» o en Inventario; inventar un número sería peor.
       });
 
       if (r.creado) reventa += 1;
@@ -751,7 +752,7 @@
     "Limonada | 45 | 8",
   ].join("\n");
 
-  // --- Reventa rápida: el refrigerador entero de corrido (propuesta E) ------------------
+  // --- Carga rápida de alimentos y bebidas: el refrigerador entero de corrido (propuesta E) ------------------
 
   let renglones = $state<RenglonRapido[]>([renglonRapido(), renglonRapido(), renglonRapido()]);
   /** La categoría de la CARTA donde cae toda la tanda. Se elige una sola vez. */
@@ -848,8 +849,8 @@
       <button class:on={vista === "carta"} onclick={() => irA("carta")}>
         Local y carta
       </button>
-      <button class:on={vista === "reventa"} onclick={() => irA("reventa")}>
-        Reventa rápida
+      <button class:on={vista === "reventa"} title={AYUDA_CARGA_RAPIDA} onclick={() => irA("reventa")}>
+        Carga rápida de alimentos y bebidas
       </button>
     </div>
   </div>
@@ -1342,10 +1343,11 @@
       siempre el mismo: las bebidas se quedaban fuera del inventario.
     -->
     <section class="tarjeta">
-      <h2>Reventa rápida</h2>
+      <h2>Carga rápida de alimentos y bebidas</h2>
       <p class="pista">
         Para lo que se compra hecho y se vende igual: refrescos, cervezas, agua,
-        botellas. Escribe la tanda completa y dale de alta de una vez.
+        pan, postres o botanas empacadas. Escribe la tanda completa y dale de alta
+        de una vez.
       </p>
 
       {#if !puedeEditar}
@@ -1580,7 +1582,7 @@
             {#if importado.categorias > 0}y {importado.categorias} categorías creadas{/if}.
             {#if importado.reventa > 0}
               De ellos, {importado.reventa} quedaron vinculados a su propio insumo;
-              carga cuántos tienes en Inventario o en «Reventa rápida».
+              carga cuántos tienes en Inventario o en «Carga rápida de alimentos y bebidas».
             {/if}
           </p>
         {/if}
@@ -1658,7 +1660,7 @@
                 <p class="pista">
                   {productosDeReventa} producto(s) se crearán con su insumo detrás.
                   La carta no dice cuántos hay en el refrigerador: esa existencia
-                  se carga después, en <b>Reventa rápida</b> o en Inventario.
+                  se carga después, en <b>Carga rápida de alimentos y bebidas</b> o en Inventario.
                 </p>
                 {#if sinCostoEnReventa > 0}
                   <p class="advertencia">
