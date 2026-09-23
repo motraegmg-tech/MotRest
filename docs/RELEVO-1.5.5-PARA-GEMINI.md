@@ -315,6 +315,23 @@ Piezas:
     1.5.7 del borrador de GitHub quedó VIEJO: hay que recompilar y reemplazar
     el asset (lo hace Gemini). Central 1.4.6 no cambió. La PC de Gonzalo ya
     corre un 1.5.7 anterior: ahí se reinstala a mano.
+  - **23-sep, tercera tanda, MISMA 1.5.7** (`684d75e`, `61c698b`):
+    - **Global diaria.** Periodo «AAAA-MM-DD» (`esPeriodoDiario`,
+      `periodoGlobalValido` en `packages/dominio/src/fiscal/global.ts`);
+      FacturAPI `global.periodicity: "day"`. Se puede emitir el mismo día y
+      también días de hace más de 72 h; en automático sale a las 06:00 del día
+      siguiente, desde el mes en que se cambió (`periodicidad_desde`). La
+      periodicidad viaja en `facturacion_config.periodicidad_global`.
+    - **Correo de la global.** Tras «Sí, emitir la global» sale «¿A dónde se va
+      a enviar la factura?»; los correos se congelan con la tanda (columna
+      `factura_global_parte.correos`) y se mandan con
+      `POST /invoices/{id}/email` ya timbrada. Guardados en
+      `facturacion_config.correos_factura` (máx. 10).
+    - **Ticket con portal:** aviso nuevo editable (`aviso_factura_portal`) sobre
+      el QR, debajo la dirección y la clave/folio; la vista previa de
+      Impresoras ya lo enseña.
+    - Sin verificar a ojo en pantalla: la vista de la global y la ventana de
+      correo se probaron con pruebas y tipos, no en la app instalada.
   - **Pedidos para llevar / apps (Rappi, DiDi…):** plan propuesto, esperando
     sus respuestas antes de construir. El dominio ya tiene `ventas/canales.ts`
     (canal y comisión en `orden_creada`, `ventasPorCanal`,
