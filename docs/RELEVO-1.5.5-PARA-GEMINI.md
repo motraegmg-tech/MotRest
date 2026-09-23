@@ -1,5 +1,26 @@
 # Relevo de la 1.5.5 — para Gemini
 
+> ## 🔴 PENDIENTE AHORA MISMO (22-sep): Tortas FC no ve la 1.5.6
+> Le fijé `version_fijada = '1.5.6'` en `asignaciones` (sesión del 21-sep) y
+> subí el arreglo del Hub (`46229f4`, guardado para la 1.5.7, NO publicar
+> todavía). Gonzalo le pidió a Tortas FC revisar su pantalla y **NO les salió
+> ningún aviso de actualización** — descarta que sea «solo falta aprobarla»:
+> el Hub nunca se enteró. Repasé `version_ofrecida()` y las políticas RLS de
+> `versiones`/`asignaciones` (`supabase/migrations/20260828000300_canal_de_actualizaciones.sql`)
+> y por el código deberían funcionar. **Falta correr esto en la nube (el
+> conector de Supabase se desconectó a media sesión y no se refresca sola;
+> necesita una conversación nueva para verlo)**:
+> ```sql
+> select public.version_ofrecida('suc-tortas-fc-av-orizaba');
+> select sucursal_id, canal, version_fijada from public.asignaciones where sucursal_id = 'suc-tortas-fc-av-orizaba';
+> select sucursal_id, version, ts from public.pulsos where sucursal_id = 'suc-tortas-fc-av-orizaba';
+> select version, retirada_ts, canal from public.versiones where version = '1.5.6';
+> ```
+> Si `version_ofrecida` no devuelve `1.5.6`, ahí está el problema (revisar por
+> qué). Si SÍ la devuelve pero el pulso sigue en 1.5.5, el Hub de Tortas FC no
+> se ha vuelto a conectar/revisar — ahí el problema es de su lado (¿Hub
+> apagado?, ¿sin internet?), no de la nube.
+
 > ## ⚡ LO MÁS NUEVO: la 1.5.6 (20-sep-2026), en curso
 > Plan y decisiones de Gonzalo en `docs/PLAN-1.5.6.md`. Estado:
 > - ✅ **Consumo de socio fuera de la venta** (dominio: `consumoDeSocio` en
@@ -82,6 +103,22 @@
 >   así la caja lo imprime y el Hub lo publica sin hablarse. Hallazgo: los datos
 >   fiscales del emisor viven SOLO en cada tableta (`CLAVE_EMISOR` en su
 >   almacén) y nunca llegan al Hub; hay que replicarlos en `facturacion_config`.
+>
+> **⏸️ DECISIÓN DE GONZALO (21-sep, noche): esto va en la 1.5.7, no en la 1.5.6.**
+> La 1.5.6 ya se publicó (commits `0b6e7f5`, `3eec6ab`) sin el portal ni sin lo
+> de abajo. **«Nos esperamos a más mejoras, y lo mandamos en la 1.5.7.»** No
+> compilar ni publicar ninguna de las dos cosas siguientes hasta que él lo pida
+> otra vez; se van juntas cuando decida cerrar la 1.5.7:
+> - El **portal de autofactura** completo (arriba: falta Vercel, Central, y
+>   commitear `apps/portal-factura/` + la migración + `pnpm-lock.yaml`).
+> - El **arreglo del Hub del 21-sep** (commit `46229f4`, YA subido a la rama):
+>   un `alCambiar` sin proteger en `secretos.ts` podía disfrazar una llave de
+>   FacturAPI que SÍ se guardó bien como «El Hub falló al abrir el sobre» —le
+>   pasó a Tortas Fc al activar su producción. La llave de Tortas Fc quedó
+>   funcionando de todos modos (se guardó ANTES de que tronara el aviso); lo
+>   que falta es que este arreglo llegue a un Hub real, y eso solo pasa
+>   publicando una versión nueva. Ver [[el-sobre-si-se-abrio-el-aviso-tronaba]]
+>   en memoria.
 
 > **Si estás leyendo esto, la sesión anterior se cortó y tú continúas.**
 > Este documento se mantiene al día en cada hito, así que lo que dice es el
@@ -244,6 +281,36 @@ Piezas:
 - Lo que ya estaba modificado ANTES de esta tanda y **no es parte de ella** (no lo
   commitees con la 1.5.5): `video/guiones/*.md`, `apps/central-escritorio/src-tauri/Cargo.toml`
   (solo fin de línea), `docs/PLAN-APPLE-MACOS-IOS.md`.
+- **22-sep · 1.5.7 (MotRest) y 1.4.6 (Central)**, rama
+  `feature/pulso-actualizacion-pendiente`, commits `ee5a03b`, `b7a8ade`, `cf273a7`
+  (más `46229f4`, el arreglo del sobre, que ya estaba).
+  - **POR QUÉ RODIZIO Y TORTAS NO VEÍAN LA 1.5.6 (resuelto el bloque 🔴 de
+    arriba).** La nube se la ofrecía bien (comprobado con el token de cada
+    local). El fallo era del Hub: la revisión del arranque corre ANTES que el
+    enlace con la nube y sale vacía, y la siguiente es a las 12 h — que una caja
+    que se apaga cada noche nunca alcanza. `ee5a03b` revisa también en
+    `alConectar`. **Las cajas que ya tienen el defecto (≤1.5.6) tampoco verán la
+    1.5.7** salvo que pasen 12 h seguidas prendidas: hay que instalarla a mano
+    una vez (Rodizio por SSH, ver `desplegar-motrest-en-la-caja-por-ssh`).
+  - El pulso manda `actualizacion` (`{}` = al día; `{pendiente, vista_ts,
+    eleccion, hora, aplazada_hasta, error}`); Central lo pinta en «Su Hub» y lo
+    sube a «atención» a los 3 días o si falló. **La migración
+    `20260922000000_pulso_actualizacion.sql` YA ESTÁ APLICADA en la nube.**
+  - «Carga rápida de bebidas» / «Reventa rápida» → **«Carga rápida de alimentos
+    y bebidas»**, con `title` explicativo (`AYUDA_CARGA_RAPIDA` en
+    `reventa.svelte.ts`).
+  - Llaves públicas para empaquetar (verificadas contra la firma real de la
+    1.5.6): licencias `…C83o5lSMLQ7c…`, actualizaciones `…ayVws8Rn6eC1…`.
+  - **Portal de autofactura:** el código, la migración y el lock YA estaban
+    commiteados en `0b6e7f5`; la migración ya está en la nube. Solo falta
+    Vercel (lo hace Gonzalo: su cuenta y la llave de servicio).
+  - **Pendiente de Gonzalo:** firmar y publicar la 1.5.7 en Central →
+    Versiones, y el proyecto de Vercel.
+  - **Pedidos para llevar / apps (Rappi, DiDi…):** plan propuesto, esperando
+    sus respuestas antes de construir. El dominio ya tiene `ventas/canales.ts`
+    (canal y comisión en `orden_creada`, `ventasPorCanal`,
+    `porCobrarDeAgregadores`) y Finanzas → «Canales y apps», pero **la caja
+    nunca le pone canal a una cuenta**: todo cuenta como salón.
 
 ---
 
