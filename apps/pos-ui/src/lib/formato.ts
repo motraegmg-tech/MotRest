@@ -1,5 +1,23 @@
 /** Formateo de moneda, porcentajes y hora para la UI (locale es-MX). */
-import { aPesos, type Centavos } from "@motrest/dominio";
+import { aPesos, esPeriodoDiario, limitesDelPeriodo, periodoValido, type Centavos } from "@motrest/dominio";
+
+/**
+ * El periodo de una factura global, en palabras: «septiembre de 2026» o
+ * «martes 23 de septiembre de 2026». Lo que no tenga forma de periodo se deja
+ * como llegó, en vez de pintar «Invalid Date».
+ */
+export function periodoLegible(periodo: string): string {
+  if (esPeriodoDiario(periodo)) {
+    return new Date(limitesDelPeriodo(periodo).desde).toLocaleDateString("es-MX", {
+      weekday: "long",
+      day: "numeric",
+      month: "long",
+      year: "numeric",
+    });
+  }
+  if (!periodoValido(periodo)) return periodo;
+  return new Date(limitesDelPeriodo(periodo).desde).toLocaleDateString("es-MX", { month: "long", year: "numeric" });
+}
 
 const dinero = new Intl.NumberFormat("es-MX", {
   style: "currency",

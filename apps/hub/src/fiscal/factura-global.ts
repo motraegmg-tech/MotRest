@@ -45,10 +45,14 @@ import {
   FabricaEventos,
   facturasGlobales,
   formaPagoDeLaGlobal,
+  esPeriodoDiario,
   limitesDelPeriodo,
   partirEnFacturas,
+  periodoDe,
+  periodoEnPalabras,
+  periodoGlobalValido,
   periodosPorEmitir,
-  periodoValido,
+  leerCorreosDeFactura,
   proyectarCfdis,
   proyectarSentadas,
   resumenDeDescartes,
@@ -69,6 +73,7 @@ import {
   type ID,
   type ModoFacturacionGlobal,
   type ModoFacturapi,
+  type PeriodicidadGlobal,
   type TicketGlobal,
 } from "@motrest/dominio";
 import type { LogHub } from "@motrest/protocolo-sync/sqlite";
@@ -121,10 +126,14 @@ const COLUMNAS_NUEVAS: readonly string[] = [
   // tarde, el hecho tiene que seguir diciendo quién decidió el corte.
   "ALTER TABLE factura_global_parte ADD COLUMN origen TEXT",
   "ALTER TABLE factura_global_parte ADD COLUMN autorizador_id TEXT",
+  // 1.5.7: a dónde mandar la factura. Va con la tanda por lo mismo que el
+  // autorizador: si el timbrado se reanuda horas después, el envío también.
+  "ALTER TABLE factura_global_parte ADD COLUMN correos TEXT",
 ];
 
 export interface FacturapiParaGlobal {
-  cliente: Pick<ClienteFacturapi, "crearFactura" | "factura" | "buscarPorExterno" | "organizacion">;
+  cliente: Pick<ClienteFacturapi, "crearFactura" | "factura" | "buscarPorExterno" | "organizacion"> &
+    Partial<Pick<ClienteFacturapi, "enviarPorCorreoA">>;
   modo: ModoFacturapi;
   /** Desde cuándo hay llave de este modo: los meses anteriores no se tocan. */
   desde_ts: number;
@@ -146,6 +155,12 @@ export interface OpcionesFacturaGlobal {
    * nadie timbra sin haberlo pedido.
    */
   modo?: () => ModoFacturacionGlobal;
+  /**
+   * Cada cuánto emite el barrido automático, y desde cuándo (1.5.7). Sin esto,
+   * mensual. La emisión manual no lo necesita: el periodo que llega dice si es
+   * un mes o un día.
+   */
+  periodicidad?: () => { periodicidad: PeriodicidadGlobal; desde: number };
   /** Cómo entra el hecho al registro. En el Hub real, repartido a las terminales. */
   inyectar?: (eventos: readonly EventoBase[]) => void;
   anotar?: (nivel: "info" | "aviso" | "error", mensaje: string) => void;
@@ -170,12 +185,15 @@ interface FilaParte {
   emitida: number;
   origen: string | null;
   autorizador_id: string | null;
+  correos: string | null;
 }
 
 /** Quién pidió una tanda. Sin esto, es el barrido del Hub. */
 interface PeticionManual {
   ordenes: readonly ID[];
   autorizador_id: ID;
+  /** A dónde se manda la factura timbrada. Vacío = no se manda. */
+  correos?: readonly string[];
 }
 
 /** Lo que el Hub contesta a la caja cuando se le pide emitir una global. */
@@ -205,6 +223,8 @@ export function cuerpoDeGlobal(opciones: {
   cp: string;
 }): Record<string, unknown> {
   const [anio, mes] = opciones.periodo.split("-") as [string, string];
+  // «day» es el 01 Diario del SAT; el mes y el año son los del día amparado.
+  const periodicity = esPeriodoDiario(opciones.periodo) ? "day" : "month";
   const clave = claveDeGlobal(opciones.sucursal, opciones.periodo, opciones.parte);
   return {
     type: "I",
@@ -220,7 +240,7 @@ export function cuerpoDeGlobal(opciones: {
     payment_form: formaPagoDeLaGlobal(opciones.tickets),
     payment_method: "PUE",
     currency: "MXN",
-    global: { periodicity: "month", months: mes, year: Number(anio) },
+    global: { periodicity, months: mes, year: Number(anio) },
     external_id: clave,
     idempotency_key: clave,
   };
@@ -359,7 +379,7 @@ export class FacturaGlobalMensual {
   private partesDe(periodo: string, modo: ModoFacturapi): FilaParte[] {
     return this.opciones.db
       .prepare(
-        "SELECT parte, ordenes, externo_id, emitida, origen, autorizador_id " +
+        "SELECT parte, ordenes, externo_id, emitida, origen, autorizador_id, correos " +
           "FROM factura_global_parte WHERE periodo = ? AND modo = ? ORDER BY parte",
       )
       .all(periodo, modo) as unknown as FilaParte[];
@@ -402,9 +422,19 @@ export class FacturaGlobalMensual {
     );
     for (const g of globales) if (!conFila.has(g.periodo)) completos.add(g.periodo);
 
+    /*
+     * EN DIARIA, DESDE EL MES DEL CAMBIO. Los días de meses anteriores ya los
+     * amparó —o los tiene que amparar— la global mensual; ponerse a emitir una
+     * diaria por cada uno sería un alud de comprobantes vacíos o, peor, amparar
+     * a destiempo lo que el restaurantero dejó fuera a propósito.
+     */
+    const { periodicidad, desde } = this.opciones.periodicidad?.() ?? { periodicidad: "mensual", desde: 0 };
+    const desde_ts =
+      periodicidad === "diaria" ? Math.max(fa.desde_ts, limitesDelPeriodo(periodoDe(desde)).desde) : fa.desde_ts;
+
     return {
       globales,
-      pendientes: periodosPorEmitir({ ahora, desde_ts: fa.desde_ts, emitidos: completos }),
+      pendientes: periodosPorEmitir({ ahora, desde_ts, emitidos: completos, periodicidad }),
     };
   }
 
@@ -446,12 +476,14 @@ export class FacturaGlobalMensual {
     const manual = this.modo() === "manual";
 
     if (!fila.avisado_cierre) {
+      const cual = periodoEnPalabras(periodo);
+      const Cual = cual.charAt(0).toUpperCase() + cual.slice(1);
       this.anotar(
         "aviso",
         manual
-          ? `El mes ${periodo} ya cerró y su factura global está sin emitir. Tienes 72 horas desde el cierre ` +
+          ? `${Cual} ya cerró y su factura global está sin emitir. Tienes 72 horas desde el cierre ` +
               "para timbrarla: entra a Finanzas → Facturación → Factura global y elige qué cuentas entran."
-          : `El mes ${periodo} ya cerró: su factura global entra en cola. Corren las 72 horas del SAT.`,
+          : `${Cual} ya cerró: su factura global entra en cola. Corren las 72 horas del SAT.`,
       );
       this.opciones.db
         .prepare("UPDATE factura_global SET avisado_cierre = 1 WHERE periodo = ? AND modo = ?")
@@ -541,9 +573,17 @@ export class FacturaGlobalMensual {
     problema: string | null;
     descartadas: CuentaDescartada[];
     reanudada: boolean;
+    /** Lo que se timbró pero no se pudo mandar por correo. */
+    avisosCorreo: string[];
   }> {
     const { db } = this.opciones;
-    const nada = { emitidas: 0, cuentas: 0, descartadas: [] as CuentaDescartada[], reanudada: false };
+    const nada = {
+      emitidas: 0,
+      cuentas: 0,
+      descartadas: [] as CuentaDescartada[],
+      reanudada: false,
+      avisosCorreo: [] as string[],
+    };
     const fila = this.filaOCrear(periodo, fa.modo, ahora);
 
     /*
@@ -627,6 +667,7 @@ export class FacturaGlobalMensual {
     let emitidas = 0;
     let cuentas = 0;
     let problema: string | null = null;
+    const avisosCorreo: string[] = [];
     for (const parte of aEmitir) {
       if (parte.emitida) continue;
       if (!cp) {
@@ -664,6 +705,8 @@ export class FacturaGlobalMensual {
         );
         emitidas += 1;
         cuentas += tickets.length;
+        const aviso = await this.enviarPorCorreo(fa, resultado.factura, parte, periodo);
+        if (aviso) avisosCorreo.push(aviso);
       } else {
         problema = resultado.problema ?? "No se pudo timbrar.";
         break;
@@ -682,7 +725,7 @@ export class FacturaGlobalMensual {
         periodo,
         fa.modo,
       );
-      return { emitidas, cuentas, problema: null, descartadas, reanudada };
+      return { emitidas, cuentas, problema: null, descartadas, reanudada, avisosCorreo };
     }
 
     const intentos = fila.intentos + 1;
@@ -697,7 +740,41 @@ export class FacturaGlobalMensual {
      * retraso de la red: alguien tiene que mirarlo —y el contador saberlo—.
      */
     this.avisarDelPlazo(periodo, fa.modo, ahora);
-    return { emitidas, cuentas, problema, descartadas, reanudada };
+    return { emitidas, cuentas, problema, descartadas, reanudada, avisosCorreo };
+  }
+
+  /**
+   * Manda la factura timbrada a los correos que se eligieron al emitirla.
+   *
+   * Un correo que no sale NO deshace nada: la factura ya existe ante el SAT. Se
+   * cuenta para que quien la emitió sepa que tiene que descargarla o reenviarla,
+   * y se deja en la bitácora. Devuelve el aviso, o `null` si salió o no había a
+   * quién mandarla.
+   */
+  private async enviarPorCorreo(
+    fa: FacturapiParaGlobal,
+    factura: FacturaFacturapi,
+    parte: FilaParte,
+    periodo: string,
+  ): Promise<string | null> {
+    let correos: string[] = [];
+    try {
+      correos = parte.correos ? (JSON.parse(parte.correos) as string[]) : [];
+    } catch {
+      correos = [];
+    }
+    if (correos.length === 0) return null;
+    const cual = `La factura global de ${periodo}${parte.parte > 1 ? ` (parte ${parte.parte})` : ""}`;
+    if (!fa.cliente.enviarPorCorreoA) {
+      return `${cual} se timbró, pero esta caja no puede enviarla por correo: descárgala del panel de FacturAPI.`;
+    }
+    const r = await fa.cliente.enviarPorCorreoA(factura.id, correos);
+    if (r.ok) {
+      this.anotar("info", `${cual} se envió a ${correos.join(", ")}.`);
+      return null;
+    }
+    this.anotar("aviso", `${cual} se timbró, pero no se pudo enviar a ${correos.join(", ")}: ${r.mensaje}`);
+    return `${cual} se timbró, pero no se pudo enviar a ${correos.join(", ")}: ${r.mensaje}`;
   }
 
   /**
@@ -719,9 +796,10 @@ export class FacturaGlobalMensual {
   ): FilaParte[] {
     const desde = previas.reduce((n, p) => Math.max(n, p.parte), 0);
     const insertar = this.opciones.db.prepare(
-      "INSERT INTO factura_global_parte (periodo, modo, parte, ordenes, origen, autorizador_id) " +
-        "VALUES (?, ?, ?, ?, ?, ?)",
+      "INSERT INTO factura_global_parte (periodo, modo, parte, ordenes, origen, autorizador_id, correos) " +
+        "VALUES (?, ?, ?, ?, ?, ?, ?)",
     );
+    const correos = manual?.correos && manual.correos.length > 0 ? JSON.stringify([...manual.correos]) : null;
     partirEnFacturas(tickets).forEach((grupo, i) =>
       insertar.run(
         periodo,
@@ -730,6 +808,7 @@ export class FacturaGlobalMensual {
         JSON.stringify(grupo.map((t) => t.orden_id)),
         manual ? "manual" : "automatica",
         manual?.autorizador_id ?? null,
+        correos,
       ),
     );
     return this.partesDe(periodo, modo).filter((p) => p.parte > desde);
@@ -752,10 +831,13 @@ export class FacturaGlobalMensual {
     periodo: string;
     ordenes: readonly ID[];
     autorizador_id: ID;
+    /** A dónde mandar la factura timbrada (1.5.7). Se limpia aquí: la caja propone. */
+    correos?: readonly string[];
     ahora?: number;
   }): Promise<ResultadoEmisionManual> {
     const ahora = peticion.ahora ?? Date.now();
     const { periodo, ordenes, autorizador_id } = peticion;
+    const correos = leerCorreosDeFactura(peticion.correos ?? []);
     const negar = (problema: string): ResultadoEmisionManual => ({
       ok: false,
       emitidas: 0,
@@ -764,20 +846,33 @@ export class FacturaGlobalMensual {
       problema,
     });
 
-    if (!periodoValido(periodo)) return negar("El mes no tiene la forma AAAA-MM.");
+    if (!periodoGlobalValido(periodo)) return negar("El periodo no tiene la forma AAAA-MM ni AAAA-MM-DD.");
     if (!autorizador_id) return negar("Una factura global tiene que quedar autorizada por alguien.");
 
-    /*
-     * UN MES ABIERTO NO SE FACTURA. Mientras el mes corre siguen entrando
-     * cuentas, y una global emitida a mitad de mes dejaría fuera todo lo que
-     * falta sin que nadie lo haya decidido. El corte es el del SAT visto por el
-     * dominio: las 06:00 del día 1, con seis horas de margen para el servicio
-     * que cierra de madrugada el último día.
-     */
-    if (ahora < limitesDelPeriodo(periodo).vence) {
+    if (esPeriodoDiario(periodo)) {
+      /*
+       * UN DÍA SÍ SE PUEDE FACTURAR EL MISMO DÍA (1.5.7). Quien elige la global
+       * diaria quiere cerrar su jornada al cerrar la caja, no a las 6 de la
+       * mañana siguiente. Lo que se cobre después no se pierde: puede ir en otra
+       * global del mismo día. Tampoco se le cierra la puerta a un día de hace
+       * más de 72 horas: sale igual, y la pantalla ya le dice que va fuera del
+       * plazo del SAT. Lo único que no tiene sentido es un día que no ha llegado.
+       */
+      if (limitesDelPeriodo(periodo).desde > ahora) {
+        return negar(`El día ${periodo} todavía no llega: no hay ventas que amparar.`);
+      }
+    } else if (ahora < limitesDelPeriodo(periodo).vence) {
+      /*
+       * UN MES ABIERTO NO SE FACTURA. Mientras el mes corre siguen entrando
+       * cuentas, y una global emitida a mitad de mes dejaría fuera todo lo que
+       * falta sin que nadie lo haya decidido. El corte es el del SAT visto por el
+       * dominio: las 06:00 del día 1, con seis horas de margen para el servicio
+       * que cierra de madrugada el último día. Quien necesita cortar antes,
+       * elige la global diaria.
+       */
       return negar(
         `El mes ${periodo} todavía no cierra. Su factura global se puede emitir a partir de las ` +
-          "06:00 del día 1 del mes siguiente.",
+          "06:00 del día 1 del mes siguiente, o puedes emitir globales diarias.",
       );
     }
 
@@ -795,7 +890,7 @@ export class FacturaGlobalMensual {
     this.revisando = true;
     try {
       const globales = this.globalesDelRegistro().filter((g) => g.modo === fa.modo);
-      const r = await this.emitirPeriodo(periodo, fa, globales, ahora, { ordenes, autorizador_id });
+      const r = await this.emitirPeriodo(periodo, fa, globales, ahora, { ordenes, autorizador_id, correos });
       this.refrescarGlobales();
       this.anunciarPendiente(this.periodosPendientes(fa, ahora).pendientes[0], fa.modo, ahora);
 
@@ -810,6 +905,7 @@ export class FacturaGlobalMensual {
         avisos.push(`${r.descartadas.length} cuenta(s) quedaron fuera: ${resumenDeDescartes(r.descartadas)}.`);
       }
       if (r.problema) avisos.push(r.problema);
+      avisos.push(...r.avisosCorreo);
 
       if (r.emitidas > 0) {
         this.anotar(

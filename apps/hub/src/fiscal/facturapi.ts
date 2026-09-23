@@ -206,6 +206,16 @@ export class ClienteFacturapi {
     return this.pedir("POST", `/invoices/${encodeURIComponent(id)}/email`);
   }
 
+  /**
+   * La manda a los correos que se digan, no al del cliente. Es el caso de la
+   * global: su cliente es «público en general» y no tiene buzón.
+   */
+  enviarPorCorreoA(id: string, correos: readonly string[]): Promise<RespuestaFacturapi<{ ok?: boolean }>> {
+    return this.pedir("POST", `/invoices/${encodeURIComponent(id)}/email`, {
+      email: correos.length === 1 ? correos[0] : [...correos],
+    });
+  }
+
   cancelar(id: string, motivo: string, sustitucion?: string): Promise<RespuestaFacturapi<FacturaFacturapi>> {
     const q = new URLSearchParams({ motive: motivo });
     if (sustitucion) q.set("substitution", sustitucion);

@@ -15,7 +15,6 @@ import {
   comprobanteAXml,
   construirComprobante,
   facturasGlobales,
-  limitesDelPeriodo,
   ordenEnFacturaGlobal,
   problemaCancelacion,
   proyectarCfdis,
@@ -38,6 +37,7 @@ import {
 } from "@motrest/dominio";
 import type { Almacen } from "@motrest/protocolo-sync";
 import { catalogo } from "./catalogo";
+import { periodoLegible } from "./formato";
 import { facturacion } from "./facturacion.svelte";
 import { SUCURSAL_ID, obtenerDeviceId } from "./presentacion";
 
@@ -378,8 +378,5 @@ class StoreFiscal {
 
 export const fiscal = new StoreFiscal();
 
-/** «2026-08» → «agosto de 2026», para los mensajes de la global. */
-function mesLegible(periodo: string): string {
-  const { desde } = limitesDelPeriodo(periodo);
-  return new Date(desde).toLocaleDateString("es-MX", { month: "long", year: "numeric" });
-}
+/** «2026-08» → «agosto de 2026» (o el día, si es diaria), para los mensajes de la global. */
+const mesLegible = periodoLegible;

@@ -156,6 +156,7 @@ export interface OpcionesHub {
       periodo: string;
       ordenes: readonly ID[];
       autorizador_id: ID;
+      correos?: readonly string[];
     }) => Promise<{ ok: boolean; problema?: string }>;
     /**
      * ¿Esta orden ya entró en una factura global? Devuelve el periodo.
@@ -1282,7 +1283,7 @@ export class Hub {
           break;
         }
         if (!mensaje.periodo) {
-          problema = "Falta el mes de la factura global.";
+          problema = "Falta el periodo de la factura global.";
           break;
         }
         const ordenes = mensaje.ordenes ?? [];
@@ -1300,6 +1301,8 @@ export class Hub {
           periodo: mensaje.periodo,
           ordenes,
           autorizador_id: mensaje.empleado_id,
+          // Se limpian en `emitirManual`: aquí solo se descarta lo que ni es lista.
+          ...(Array.isArray(mensaje.correos) ? { correos: mensaje.correos } : {}),
         });
         if (r.problema) problema = r.problema;
         break;

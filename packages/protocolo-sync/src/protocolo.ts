@@ -144,8 +144,13 @@ export interface MensajeFiscal {
   rfc_emisor?: string;
   /** `reintentar`: qué orden reencolar. */
   orden_id?: ID;
-  /** `emitir_global`: el mes que se va a amparar, «AAAA-MM». */
+  /** `emitir_global`: el periodo que se va a amparar: un mes «AAAA-MM» o un día «AAAA-MM-DD» (1.5.7). */
   periodo?: string;
+  /**
+   * `emitir_global`: a dónde mandar la factura timbrada (1.5.7). El Hub la limpia
+   * (`leerCorreosDeFactura`) antes de usarla. Vacío = no se manda.
+   */
+  correos?: string[];
   /**
    * `emitir_global`: las cuentas que el restaurantero marcó, por `orden_id`.
    *

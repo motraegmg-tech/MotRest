@@ -256,9 +256,9 @@ describe("quién puede emitir la factura global", () => {
     expect(globalesPedidas[0]?.autorizador_id).toBe("emp-conta");
   });
 
-  it("sin mes o sin cuentas lo dice en vez de emitir a medias", async () => {
+  it("sin periodo o sin cuentas lo dice en vez de emitir a medias", async () => {
     await emitirGlobal("emp-conta", { periodo: undefined });
-    expect(cx.ultimo("fiscal")?.problema).toMatch(/Falta el mes/);
+    expect(cx.ultimo("fiscal")?.problema).toMatch(/Falta el periodo/);
 
     await emitirGlobal("emp-conta", { ordenes: [] });
     expect(cx.ultimo("fiscal")?.problema).toMatch(/ninguna cuenta/);

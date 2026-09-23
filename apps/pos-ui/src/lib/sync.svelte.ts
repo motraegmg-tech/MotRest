@@ -716,6 +716,7 @@ class StoreSync {
     empleadoId: string,
     periodo: string,
     ordenes: readonly string[],
+    correos: readonly string[] = [],
   ): Promise<{ ok: boolean; problema: string }> {
     if (!this.cliente || this.estado !== "sincronizado") {
       return Promise.resolve({
@@ -744,6 +745,7 @@ class StoreSync {
         empleado_id: empleadoId,
         periodo,
         ordenes: [...ordenes],
+        ...(correos.length > 0 ? { correos: [...correos] } : {}),
       });
     });
   }

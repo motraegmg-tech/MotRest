@@ -936,6 +936,10 @@ const facturaGlobal = new FacturaGlobalMensual({
   hub_id: HUB_ID,
   // En caliente: el modo se cambia desde la caja y el Hub no se reinicia.
   modo: () => configFacturacion.modo_global,
+  periodicidad: () => ({
+    periodicidad: configFacturacion.periodicidad_global ?? "mensual",
+    desde: configFacturacion.periodicidad_desde ?? 0,
+  }),
   // Por el Hub y no directo al registro: la caja tiene que enterarse ya, para
   // bloquear la factura individual de lo que entró aquí.
   inyectar: (eventos) => hub.inyectar(eventos),

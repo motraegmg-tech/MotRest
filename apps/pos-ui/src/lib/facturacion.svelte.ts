@@ -23,9 +23,12 @@
  * no tiene que volver a capturarlos.
  */
 import {
+  MAXIMO_CORREOS_FACTURA,
+  correoDeFacturaValido,
   leerConfiguracionFacturacion,
   type ConfiguracionFacturacion,
   type DatosEmisor,
+  type PeriodicidadGlobal,
 } from "@motrest/dominio";
 import { catalogoMasNuevo, type Almacen } from "@motrest/protocolo-sync";
 
@@ -80,6 +83,14 @@ class StoreFacturacion {
 
   get esAutomatica(): boolean {
     return this.datos.modo_global === "automatica";
+  }
+
+  get periodicidad(): PeriodicidadGlobal {
+    return this.datos.periodicidad_global ?? "mensual";
+  }
+
+  get correosGuardados(): string[] {
+    return this.datos.correos_factura ?? [];
   }
 
   async hidratar(almacen: Almacen): Promise<void> {
@@ -143,6 +154,53 @@ class StoreFacturacion {
    * Hub. Si no cambió nada no sube la versión: publicar la misma carta otra vez
    * solo la haría viajar por la red.
    */
+  /** Mensual o diaria (1.5.7). Se anota desde cuándo: el barrido automático lo necesita. */
+  fijarPeriodicidad(periodicidad: PeriodicidadGlobal): void {
+    if (periodicidad === this.periodicidad) return;
+    const { periodicidad_global: _antes, ...resto } = this.paraPublicar;
+    this.datos = {
+      ...resto,
+      ...(periodicidad === "diaria" ? { periodicidad_global: "diaria" as const } : {}),
+      periodicidad_desde: Date.now(),
+      version: (this.datos.version ?? 0) + 1,
+      updated_at: Date.now(),
+    };
+    this.guardar();
+    this.alCambiar?.(this.paraPublicar);
+  }
+
+  /**
+   * Guarda un correo para ofrecerlo la próxima vez. Devuelve el motivo si no se
+   * pudo: sin forma de correo, o la lista llena.
+   */
+  guardarCorreo(correo: string): { ok: true } | { ok: false; error: string } {
+    const limpio = correo.trim().toLowerCase();
+    if (!correoDeFacturaValido(limpio)) return { ok: false, error: "Ese correo no tiene forma de correo." };
+    const actuales = this.correosGuardados;
+    if (actuales.includes(limpio)) return { ok: true };
+    if (actuales.length >= MAXIMO_CORREOS_FACTURA) {
+      return { ok: false, error: `Ya hay ${MAXIMO_CORREOS_FACTURA} correos guardados. Quita uno para guardar otro.` };
+    }
+    this.fijarCorreos([...actuales, limpio]);
+    return { ok: true };
+  }
+
+  quitarCorreo(correo: string): void {
+    this.fijarCorreos(this.correosGuardados.filter((c) => c !== correo));
+  }
+
+  private fijarCorreos(correos: string[]): void {
+    const { correos_factura: _antes, ...resto } = this.paraPublicar;
+    this.datos = {
+      ...resto,
+      ...(correos.length > 0 ? { correos_factura: correos } : {}),
+      version: (this.datos.version ?? 0) + 1,
+      updated_at: Date.now(),
+    };
+    this.guardar();
+    this.alCambiar?.(this.paraPublicar);
+  }
+
   fijarEmisor(emisor: DatosEmisor): void {
     if (mismoEmisor(this.datos.emisor, emisor)) return;
     this.datos = {

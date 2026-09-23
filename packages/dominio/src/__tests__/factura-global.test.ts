@@ -337,7 +337,7 @@ describe("las cuentas que elige el restaurantero (1.5.6)", () => {
         { orden_id: "b", motivo: "ya_facturada" },
         { orden_id: "c", motivo: "otro_periodo" },
       ]),
-    ).toBe("2 con factura a nombre del cliente, 1 de otro mes");
+    ).toBe("2 con factura a nombre del cliente, 1 de otro periodo");
   });
 });
 

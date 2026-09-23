@@ -22,10 +22,13 @@
    */
   import {
     consumoDeSocio,
+    correoDeFacturaValido,
     cuentasCerradasEn,
+    esPeriodoDiario,
     limitesDelPeriodo,
     ordenEnFacturaGlobal,
     periodoDe,
+    periodoDiarioDe,
     ticketsParaGlobal,
     totalesComanda,
     sumar,
@@ -40,7 +43,7 @@
   import { pos } from "../../pos.svelte";
   import { sesion } from "../../sesion/sesion.svelte";
   import { sync } from "../../sync.svelte";
-  import { dia, hora, mxn } from "../../formato";
+  import { dia, hora, mxn, periodoLegible } from "../../formato";
   import { revelar } from "../../subir";
   import Ordenar from "../../listas/Ordenar.svelte";
   import VerMas from "../../listas/VerMas.svelte";
@@ -54,6 +57,14 @@
   );
 
   /*
+   * MENSUAL O DIARIA (1.5.7, pedido de Gonzalo). Hay restaurantes que prefieren
+   * amparar cada día al cerrar la caja en vez de esperar al fin de mes. Es un
+   * ajuste del local —viaja en `facturacion_config`— porque también decide qué
+   * hace el Hub cuando la global está en automático.
+   */
+  const diaria = $derived(facturacion.periodicidad === "diaria");
+
+  /*
    * El mes que se mira. Por defecto el ANTERIOR, que es el que toca facturar:
    * el mes en curso todavía no ha cerrado y sus cuentas siguen pudiendo
    * facturarse a nombre de quien las pida.
@@ -62,16 +73,23 @@
     const d = new Date();
     return periodoDe(new Date(d.getFullYear(), d.getMonth() - 1, 15).getTime());
   })();
-  let periodo = $state(mesPasado);
+  let mesElegido = $state(mesPasado);
+
+  /*
+   * El día que se mira, en diaria. Por defecto HOY: quien elige la diaria quiere
+   * cerrar su jornada al cerrar la caja. El `input type="date"` escribe
+   * justamente «AAAA-MM-DD», que es la forma del periodo diario.
+   */
+  const hoy = periodoDiarioDe(Date.now());
+  let diaElegido = $state(hoy);
+
+  const periodo = $derived(diaria ? (esPeriodoDiario(diaElegido) ? diaElegido : hoy) : mesElegido);
 
   const rango = $derived(limitesDelPeriodo(periodo));
   const cerrado = $derived(Date.now() >= rango.hasta);
 
-  /** «2026-09» → «septiembre de 2026». */
-  function mesLegible(p: string): string {
-    const { desde } = limitesDelPeriodo(p);
-    return new Date(desde).toLocaleDateString("es-MX", { month: "long", year: "numeric" });
-  }
+  /** «2026-09» → «septiembre de 2026»; «2026-09-23» → «martes, 23 de septiembre de 2026». */
+  const mesLegible = periodoLegible;
 
   /** Los últimos doce meses, para el selector. */
   const meses = $derived.by(() => {
@@ -200,10 +218,11 @@
    */
   let desmarcadas = $state<Set<ID>>(new Set());
 
-  // Al cambiar de mes se empieza de cero: lo desmarcado era de otro mes.
+  // Al cambiar de periodo se empieza de cero: lo desmarcado era de otro.
   $effect(() => {
     void periodo;
     desmarcadas = new Set();
+    paso = "lista";
     pagCuentas.reiniciar();
     pagHistorial.reiniciar();
   });
@@ -236,17 +255,57 @@
 
   // --- Emitir ----------------------------------------------------------------------
 
-  let confirmando = $state(false);
+  /*
+   * Tres pasos: el botón, la confirmación (qué se ampara y qué queda fuera) y
+   * «¿A dónde se va a enviar la factura?» (1.5.7). La global va a público en
+   * general, que no tiene buzón: sin preguntar, nadie la recibía.
+   */
+  let paso = $state<"lista" | "confirmando" | "correo">("lista");
   let emitiendo = $state(false);
   let resultado = $state<{ ok: boolean; texto: string } | null>(null);
 
-  async function emitir() {
+  // --- A dónde se manda (1.5.7) ------------------------------------------------------
+
+  let correoEscrito = $state("");
+  let viendoGuardados = $state(false);
+  let guardadosElegidos = $state<Set<string>>(new Set());
+  let avisoCorreo = $state<{ ok: boolean; texto: string } | null>(null);
+
+  const correoLimpio = $derived(correoEscrito.trim().toLowerCase());
+  const correoEscritoValido = $derived(correoDeFacturaValido(correoLimpio));
+  const destinatarios = $derived([
+    ...new Set([...(correoEscritoValido ? [correoLimpio] : []), ...guardadosElegidos]),
+  ]);
+
+  function abrirCorreo() {
+    correoEscrito = "";
+    viendoGuardados = false;
+    guardadosElegidos = new Set();
+    avisoCorreo = null;
+    paso = "correo";
+  }
+
+  function guardarCorreo() {
+    const r = facturacion.guardarCorreo(correoLimpio);
+    avisoCorreo = r.ok
+      ? { ok: true, texto: `Guardado: ${correoLimpio} aparecerá en «Usar correos guardados».` }
+      : { ok: false, texto: r.error };
+  }
+
+  function alternarGuardado(correo: string) {
+    const nuevos = new Set(guardadosElegidos);
+    if (nuevos.has(correo)) nuevos.delete(correo);
+    else nuevos.add(correo);
+    guardadosElegidos = nuevos;
+  }
+
+  async function emitir(correos: readonly string[]) {
     if (elegidas.size === 0 || emitiendo) return;
     emitiendo = true;
     resultado = null;
-    const r = await sync.emitirFacturaGlobal(empleadoId, periodo, [...elegidas]);
+    const r = await sync.emitirFacturaGlobal(empleadoId, periodo, [...elegidas], correos);
     emitiendo = false;
-    confirmando = false;
+    paso = "lista";
     /*
      * El Hub no contesta sí o no: puede haberla emitido Y avisar que algunas
      * cuentas quedaron fuera porque, entre que se marcaron y se mandaron, ya las
@@ -254,7 +313,12 @@
      * como error: casi siempre es información, no un fallo.
      */
     resultado = r.ok
-      ? { ok: true, texto: "La factura global se mandó a timbrar. Aparecerá abajo en cuanto el SAT la selle." }
+      ? {
+          ok: true,
+          texto:
+            "La factura global se mandó a timbrar. Aparecerá abajo en cuanto el SAT la selle." +
+            (correos.length > 0 ? ` Se enviará a ${correos.join(", ")}.` : ""),
+        }
       : { ok: false, texto: r.problema || "No se pudo emitir. Revisa la conexión con el Hub." };
   }
 
@@ -272,15 +336,22 @@
 
 <section class="tarjeta">
   <div class="cabecera-tarjeta">
-    <h2>Factura global del mes</h2>
-    <label class="mes">
-      <span>Mes</span>
-      <select bind:value={periodo}>
-        {#each meses as m (m)}
-          <option value={m}>{mesLegible(m)}</option>
-        {/each}
-      </select>
-    </label>
+    <h2>{diaria ? "Factura global del día" : "Factura global del mes"}</h2>
+    {#if diaria}
+      <label class="mes">
+        <span>Día</span>
+        <input type="date" bind:value={diaElegido} max={hoy} />
+      </label>
+    {:else}
+      <label class="mes">
+        <span>Mes</span>
+        <select bind:value={mesElegido}>
+          {#each meses as m (m)}
+            <option value={m}>{mesLegible(m)}</option>
+          {/each}
+        </select>
+      </label>
+    {/if}
   </div>
 
   {#if !conFacturapi}
@@ -291,10 +362,40 @@
   {:else}
     <p class="explicacion">
       El SAT pide que lo que se vendió y nadie pidió a su nombre se ampare en un
-      solo comprobante del mes, a <b>público en general</b>. Aquí decides qué
+      comprobante a <b>público en general</b>, por mes o por día. Aquí decides qué
       entra: lo que puede entrar viene marcado, y lo que desmarques se queda sin
       amparar.
     </p>
+
+    <!-- Cada cuánto: una global por mes o una por día (1.5.7). -->
+    <div class="modo" role="group" aria-label="Cada cuánto se emite la global">
+      <button
+        class="mini"
+        class:on={!diaria}
+        aria-pressed={!diaria}
+        disabled={!puedeEmitir}
+        onclick={() => facturacion.fijarPeriodicidad("mensual")}
+      >
+        Mensual
+      </button>
+      <button
+        class="mini"
+        class:on={diaria}
+        aria-pressed={diaria}
+        disabled={!puedeEmitir}
+        onclick={() => facturacion.fijarPeriodicidad("diaria")}
+      >
+        Diaria
+      </button>
+    </div>
+    {#if diaria}
+      <p class="pista">
+        Una global por día. Puedes emitir la de hoy al cerrar la caja, sin esperar a
+        que termine el mes; lo que se cobre después puede ir en otra global del mismo
+        día. Las cuentas que entren ya no se podrán facturar desde el portal ni en la
+        caja a nombre del cliente.
+      </p>
+    {/if}
 
     <!-- El modo: quién decide cada mes. -->
     <div class="modo" role="group" aria-label="Cómo se emite la global">
@@ -318,7 +419,10 @@
       </button>
     </div>
     <p class="pista">
-      {#if facturacion.esAutomatica}
+      {#if facturacion.esAutomatica && diaria}
+        La caja emite sola la de cada día, a partir de las 6:00 del día siguiente,
+        con todo lo que nadie pidió a su nombre. Aquí puedes ver qué incluyó.
+      {:else if facturacion.esAutomatica}
         La caja la emite sola el día 1, a partir de las 6:00, con todo lo que
         nadie pidió a su nombre. Aquí puedes ver qué incluyó.
       {:else}
@@ -422,7 +526,72 @@
       {/if}
 
       {#if puedeEmitir}
-        {#if confirmando}
+        {#if paso === "correo"}
+          <div class="confirma" use:revelar>
+            <h3>¿A dónde se va a enviar la factura?</h3>
+            <label class="campo-correo">
+              <span>Su correo:</span>
+              <input
+                type="email"
+                bind:value={correoEscrito}
+                placeholder="contador@ejemplo.com"
+                autocomplete="email"
+              />
+            </label>
+            <div class="acciones-correo">
+              <button
+                class="mini"
+                disabled={!correoEscritoValido || facturacion.correosGuardados.includes(correoLimpio)}
+                onclick={guardarCorreo}
+              >
+                Guardar correo para futuros envíos de facturación
+              </button>
+              {#if facturacion.correosGuardados.length > 0}
+                <button
+                  class="mini"
+                  class:on={viendoGuardados}
+                  aria-expanded={viendoGuardados}
+                  onclick={() => (viendoGuardados = !viendoGuardados)}
+                >
+                  Usar correos guardados
+                </button>
+              {/if}
+            </div>
+            {#if correoEscrito.trim() && !correoEscritoValido}
+              <p class="ojo">Ese correo no tiene forma de correo: revísalo.</p>
+            {/if}
+            {#if avisoCorreo}
+              <p class:ojo={!avisoCorreo.ok} class:bien={avisoCorreo.ok} role="status">{avisoCorreo.texto}</p>
+            {/if}
+            {#if viendoGuardados}
+              <ul class="guardados" use:revelar>
+                {#each facturacion.correosGuardados as c (c)}
+                  <li>
+                    <label>
+                      <input type="checkbox" checked={guardadosElegidos.has(c)} onchange={() => alternarGuardado(c)} />
+                      <span>{c}</span>
+                    </label>
+                    <button class="quitar" aria-label="Quitar {c} de los guardados" onclick={() => facturacion.quitarCorreo(c)}>
+                      Quitar
+                    </button>
+                  </li>
+                {/each}
+              </ul>
+            {/if}
+            {#if destinatarios.length > 0}
+              <p>Se enviará a <b>{destinatarios.join(", ")}</b>.</p>
+            {/if}
+            <div class="botones">
+              <button class="secundario" disabled={emitiendo} onclick={() => (paso = "confirmando")}>Atrás</button>
+              <button class="secundario" disabled={emitiendo} onclick={() => emitir([])}>
+                Emitir sin enviar
+              </button>
+              <button class="principal" disabled={emitiendo || destinatarios.length === 0} onclick={() => emitir(destinatarios)}>
+                {emitiendo ? "Emitiendo…" : "Emitir y enviar"}
+              </button>
+            </div>
+          </div>
+        {:else if paso === "confirmando"}
           <div class="confirma" use:revelar>
             <h3>¿Emitir la global de {mesLegible(periodo)}?</h3>
             <p>
@@ -442,9 +611,9 @@
               Una vez timbrada no se puede deshacer sin cancelarla ante el SAT.
             </p>
             <div class="botones">
-              <button class="secundario" onclick={() => (confirmando = false)}>Cancelar</button>
-              <button class="principal" disabled={emitiendo} onclick={emitir}>
-                {emitiendo ? "Emitiendo…" : "Sí, emitir la global"}
+              <button class="secundario" onclick={() => (paso = "lista")}>Cancelar</button>
+              <button class="principal" disabled={emitiendo} onclick={abrirCorreo}>
+                Sí, emitir la global
               </button>
             </div>
           </div>
@@ -453,7 +622,7 @@
             <button
               class="principal"
               disabled={elegidas.size === 0 || !conectada}
-              onclick={() => (confirmando = true)}
+              onclick={() => (paso = "confirmando")}
             >
               Emitir la factura global
             </button>
@@ -731,6 +900,67 @@
   }
   .confirma .ojo {
     color: #8a4b12;
+  }
+  .confirma .bien {
+    color: #3d6b2e;
+  }
+  .campo-correo {
+    display: flex;
+    flex-direction: column;
+    gap: 0.3rem;
+    margin: 0.5rem 0;
+    font-size: 0.85rem;
+    font-weight: 600;
+  }
+  .campo-correo input,
+  .mes input {
+    font: inherit;
+    font-size: 0.9rem;
+    font-weight: 400;
+    padding: 0.5rem 0.6rem;
+    border: 1.5px solid var(--borde);
+    border-radius: var(--r-sm, 8px);
+    background: #fff;
+  }
+  .acciones-correo {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.4rem;
+    margin-bottom: 0.5rem;
+  }
+  .guardados {
+    list-style: none;
+    margin: 0 0 0.6rem;
+    padding: 0.4rem 0.6rem;
+    border: 1px solid var(--borde);
+    border-radius: var(--r-sm, 8px);
+    background: #fff;
+  }
+  .guardados li {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem;
+    padding: 0.25rem 0;
+    font-size: 0.85rem;
+  }
+  .guardados label {
+    display: flex;
+    align-items: center;
+    gap: 0.45rem;
+    cursor: pointer;
+  }
+  .guardados input {
+    accent-color: var(--acento);
+  }
+  .quitar {
+    font: inherit;
+    font-size: 0.75rem;
+    color: var(--gris);
+    background: none;
+    border: none;
+    text-decoration: underline;
+    cursor: pointer;
   }
   .resultado {
     margin-top: 0.8rem;

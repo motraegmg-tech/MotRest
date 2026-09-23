@@ -18,7 +18,7 @@
   import { puedeGuardarSecretos, type Centavos, type ModoFacturapi } from "@motrest/dominio";
   import { sesion } from "../../sesion/sesion.svelte";
   import { sync } from "../../sync.svelte";
-  import { mxn } from "../../formato";
+  import { mxn, periodoLegible } from "../../formato";
   import VerMas from "../../listas/VerMas.svelte";
   import { Paginado } from "../../listas/listas.svelte";
   import { revelar } from "../../subir";
@@ -112,12 +112,8 @@
     return Math.floor((new Date(facturapi.csd_vence).getTime() - Date.now()) / 86_400_000);
   });
 
-  /** «2026-08» → «agosto de 2026». */
-  function mesLegible(periodo: string): string {
-    const [anio, mes] = periodo.split("-").map(Number);
-    if (!anio || !mes) return periodo;
-    return new Date(anio, mes - 1, 1).toLocaleDateString("es-MX", { month: "long", year: "numeric" });
-  }
+  /** «2026-08» → «agosto de 2026»; «2026-08-14» → el día. */
+  const mesLegible = periodoLegible;
 </script>
 
 <section class="tarjeta">

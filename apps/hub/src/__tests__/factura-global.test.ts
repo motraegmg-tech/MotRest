@@ -504,3 +504,125 @@ describe("la emisión manual", () => {
     expect(global.estado().pendiente).toBeUndefined();
   });
 });
+
+// --- La global diaria y el envío por correo (1.5.7) ------------------------------------------
+
+describe("la global diaria", () => {
+  const DOCE = "2026-09-12";
+  const esaNoche = new Date(2026, 8, 12, 23).getTime();
+
+  beforeEach(() => {
+    modoGlobal = "manual";
+  });
+
+  it("se emite EL MISMO DÍA, con periodicidad diaria ante el SAT", async () => {
+    const r = await global.emitirManual({ periodo: DOCE, ordenes: ["ord-1"], autorizador_id: "emp-gonzalo", ahora: esaNoche });
+
+    expect(r.ok).toBe(true);
+    const [peticion] = crearFacturas();
+    expect(peticion!.cuerpo).toMatchObject({
+      global: { periodicity: "day", months: "09", year: 2026 },
+      external_id: `global-${SUC}-${DOCE}`,
+      idempotency_key: `global-${SUC}-${DOCE}`,
+    });
+    expect(emitidas()[0]).toMatchObject({ periodo: DOCE, ordenes: ["ord-1"] });
+    expect(global.enGlobal("ord-1")).toBe(DOCE);
+  });
+
+  it("una cuenta de otro día no se cuela", async () => {
+    const r = await global.emitirManual({
+      periodo: DOCE,
+      ordenes: ["ord-1", "ord-4"],
+      autorizador_id: "emp-gonzalo",
+      ahora: esaNoche,
+    });
+    expect(r.cuentas).toBe(1);
+    expect(r.descartadas).toEqual([{ orden_id: "ord-4", motivo: "otro_periodo" }]);
+  });
+
+  it("un día que no ha llegado no se factura", async () => {
+    const r = await global.emitirManual({ periodo: "2026-09-13", ordenes: ["ord-1"], autorizador_id: "emp-gonzalo", ahora: esaNoche });
+    expect(r.ok).toBe(false);
+    expect(r.problema).toMatch(/todavía no llega/);
+    expect(api.peticiones).toHaveLength(0);
+  });
+
+  it("un día de hace más de 72 horas también se puede emitir", async () => {
+    const r = await global.emitirManual({
+      periodo: DOCE,
+      ordenes: ["ord-1"],
+      autorizador_id: "emp-gonzalo",
+      ahora: new Date(2026, 8, 25).getTime(),
+    });
+    expect(r.ok).toBe(true);
+  });
+
+  it("un día que no existe se rechaza antes de tocar FacturAPI", async () => {
+    const r = await global.emitirManual({ periodo: "2026-02-30", ordenes: ["ord-1"], autorizador_id: "emp-gonzalo", ahora: esaNoche });
+    expect(r.ok).toBe(false);
+    expect(api.peticiones).toHaveLength(0);
+  });
+
+  it("en automático diario, sale sola la de cada día a partir de las 6:00 del siguiente", async () => {
+    const diaria = new FacturaGlobalMensual({
+      db,
+      log,
+      sucursal: () => SUC,
+      facturapi: () => ({
+        cliente: new ClienteFacturapi({ llave: LLAVE_PRUEBA, fetch: api.fetch }),
+        modo,
+        desde_ts: DESDE,
+        cp: "44100",
+      }),
+      modo: () => "automatica",
+      periodicidad: () => ({ periodicidad: "diaria", desde: DESDE }),
+      anotar: (_n, m) => bitacora.push(m),
+    });
+
+    await diaria.revisar(new Date(2026, 8, 13, 5).getTime());
+    expect(crearFacturas()).toHaveLength(0);
+
+    const r = await diaria.revisar(new Date(2026, 8, 13, 7).getTime());
+    expect(r.emitidas).toBe(1);
+    expect(emitidas().map((e) => e.periodo)).toEqual([DOCE]);
+    expect(crearFacturas()[0]!.cuerpo).toMatchObject({ global: { periodicity: "day" } });
+  });
+});
+
+describe("a dónde se manda la global", () => {
+  beforeEach(() => {
+    modoGlobal = "manual";
+  });
+
+  const correos = () => api.peticiones.filter((p) => p.metodo === "POST" && /\/email$/.test(p.ruta));
+
+  it("se manda a los correos que se eligieron, ya timbrada", async () => {
+    const r = await global.emitirManual({
+      periodo: "2026-09",
+      ordenes: ["ord-1"],
+      autorizador_id: "emp-gonzalo",
+      correos: ["Contador@Ejemplo.com", "dueno@ejemplo.com"],
+      ahora: CIERRE + 3_600_000,
+    });
+    expect(r.ok).toBe(true);
+    expect(r.problema).toBeUndefined();
+    expect(correos()).toHaveLength(1);
+    expect(correos()[0]!.cuerpo).toEqual({ email: ["contador@ejemplo.com", "dueno@ejemplo.com"] });
+  });
+
+  it("un solo correo viaja como texto, y lo que no es correo se tira", async () => {
+    await global.emitirManual({
+      periodo: "2026-09",
+      ordenes: ["ord-1"],
+      autorizador_id: "emp-gonzalo",
+      correos: ["esto no es un correo", "caja@ejemplo.com"],
+      ahora: CIERRE + 3_600_000,
+    });
+    expect(correos()[0]!.cuerpo).toEqual({ email: "caja@ejemplo.com" });
+  });
+
+  it("sin correos no se manda nada", async () => {
+    await aMano(["ord-1"]);
+    expect(correos()).toHaveLength(0);
+  });
+});

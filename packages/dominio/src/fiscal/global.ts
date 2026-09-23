@@ -61,6 +61,21 @@ export const DESCRIPCION_GLOBAL = "Venta";
 export type ModoFacturacionGlobal = "manual" | "automatica";
 
 /**
+ * Cada cuánto se ampara lo vendido (1.5.7, pedido de Gonzalo).
+ *
+ * `mensual` es lo de siempre. `diaria` es para el local que prefiere cerrar cada
+ * día con su propia global: el SAT la admite (periodicidad «01 Diario») y le da
+ * al restaurantero un control día por día. Un periodo diario se escribe
+ * «AAAA-MM-DD»; uno mensual, «AAAA-MM». El formato del periodo es lo que dice de
+ * qué tipo es, así que el registro, las llaves de idempotencia y el historial no
+ * necesitan otro campo.
+ */
+export type PeriodicidadGlobal = "mensual" | "diaria";
+
+/** Cuántos correos guardados se admiten. Más no caben en un selector. */
+export const MAXIMO_CORREOS_FACTURA = 10;
+
+/**
  * Clave del catálogo donde viaja esta decisión, al estilo de `correo_config`.
  *
  * Es un catálogo y no un evento porque no es un hecho del negocio: es un ajuste
@@ -84,6 +99,19 @@ export interface ConfiguracionFacturacion {
    * comprobante los lleva. No son secretos: van impresos en cada factura.
    */
   emisor?: DatosEmisor;
+  /** Mensual por omisión. Ver `PeriodicidadGlobal`. */
+  periodicidad_global?: PeriodicidadGlobal;
+  /**
+   * Desde cuándo rige la periodicidad actual. En automático, el barrido diario
+   * empieza en el mes de este cambio: no se pone a emitir globales diarias de
+   * meses que ya se ampararon con la mensual.
+   */
+  periodicidad_desde?: number;
+  /**
+   * Los correos guardados para mandar las facturas globales (1.5.7). Viajan en
+   * el catálogo para que cualquier caja del local los ofrezca.
+   */
+  correos_factura?: string[];
 }
 
 /** El punto de partida de un local que nunca tocó el ajuste: nadie emite solo. */
@@ -105,12 +133,43 @@ export function leerConfiguracionFacturacion(datos: unknown): ConfiguracionFactu
   if (!datos || typeof datos !== "object") return vacia;
   const crudo = datos as Partial<ConfiguracionFacturacion>;
   const emisor = leerEmisor(crudo.emisor);
+  const correos = leerCorreosDeFactura(crudo.correos_factura);
   return {
     modo_global: crudo.modo_global === "automatica" ? "automatica" : "manual",
     version: Number.isSafeInteger(crudo.version) && crudo.version! >= 0 ? crudo.version! : 0,
     updated_at: Number.isSafeInteger(crudo.updated_at) && crudo.updated_at! >= 0 ? crudo.updated_at! : 0,
     ...(emisor ? { emisor } : {}),
+    // Lo que no se reconozca es mensual: es el comportamiento de siempre.
+    ...(crudo.periodicidad_global === "diaria" ? { periodicidad_global: "diaria" as const } : {}),
+    ...(Number.isSafeInteger(crudo.periodicidad_desde) && crudo.periodicidad_desde! > 0
+      ? { periodicidad_desde: crudo.periodicidad_desde! }
+      : {}),
+    ...(correos.length > 0 ? { correos_factura: correos } : {}),
   };
+}
+
+/** ¿Tiene forma de correo? No se promete que exista: eso lo dice el buzón. */
+export function correoDeFacturaValido(correo: string): boolean {
+  return correo.length <= 200 && /^[^\s@,;]+@[^\s@,;]+\.[^\s@,;]{2,}$/.test(correo);
+}
+
+/**
+ * Los correos, limpios: en minúsculas, sin repetidos, con forma de correo y a lo
+ * más `MAXIMO_CORREOS_FACTURA`. Es lo mismo para lo que llega por el catálogo y
+ * para lo que pide la caja al emitir: el Hub no manda la factura a un texto que
+ * no es un correo.
+ */
+export function leerCorreosDeFactura(dato: unknown): string[] {
+  if (!Array.isArray(dato)) return [];
+  const limpios: string[] = [];
+  for (const c of dato) {
+    if (typeof c !== "string") continue;
+    const correo = c.trim().toLowerCase();
+    if (!correoDeFacturaValido(correo) || limpios.includes(correo)) continue;
+    limpios.push(correo);
+    if (limpios.length === MAXIMO_CORREOS_FACTURA) break;
+  }
+  return limpios;
 }
 
 /**
@@ -150,6 +209,34 @@ export function periodoValido(periodo: string): boolean {
   return /^\d{4}-(0[1-9]|1[0-2])$/.test(periodo);
 }
 
+/** El día de un instante, en la hora del local: «AAAA-MM-DD». */
+export function periodoDiarioDe(ts: number): string {
+  const d = new Date(ts);
+  return `${periodoDe(ts)}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
+/** ¿Es un periodo de un día, y ese día existe? («2026-02-30» no.) */
+export function esPeriodoDiario(periodo: string): boolean {
+  if (!/^\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$/.test(periodo)) return false;
+  const [anio, mes, dia] = periodo.split("-").map(Number) as [number, number, number];
+  return new Date(anio, mes - 1, dia).getDate() === dia;
+}
+
+/** Un periodo de global válido, mensual o diario. */
+export function periodoGlobalValido(periodo: string): boolean {
+  return periodoValido(periodo) || esPeriodoDiario(periodo);
+}
+
+/** El periodo de un instante según la periodicidad del local. */
+export function periodoSegun(periodicidad: PeriodicidadGlobal, ts: number): string {
+  return periodicidad === "diaria" ? periodoDiarioDe(ts) : periodoDe(ts);
+}
+
+/** «el mes 2026-09» o «el día 2026-09-23», para frases de bitácora y avisos. */
+export function periodoEnPalabras(periodo: string): string {
+  return esPeriodoDiario(periodo) ? `el día ${periodo}` : `el mes ${periodo}`;
+}
+
 /**
  * Dónde empieza y acaba un mes, y cuándo se da por cerrado.
  *
@@ -159,6 +246,16 @@ export function periodoValido(periodo: string): boolean {
  * rato en el que el mismo ticket podría acabar en los dos documentos.
  */
 export function limitesDelPeriodo(periodo: string): { desde: number; hasta: number; vence: number } {
+  if (esPeriodoDiario(periodo)) {
+    // Un día cierra a las 06:00 del siguiente, por la misma razón que el mes:
+    // el servicio que cierra de madrugada todavía es de ese día.
+    const [anio, mes, dia] = periodo.split("-").map(Number) as [number, number, number];
+    return {
+      desde: new Date(anio, mes - 1, dia).getTime(),
+      hasta: new Date(anio, mes - 1, dia + 1).getTime(),
+      vence: new Date(anio, mes - 1, dia + 1, HORA_DE_CIERRE_GLOBAL).getTime(),
+    };
+  }
   const [anio, mes] = periodo.split("-").map(Number) as [number, number];
   return {
     desde: new Date(anio, mes - 1, 1).getTime(),
@@ -167,8 +264,12 @@ export function limitesDelPeriodo(periodo: string): { desde: number; hasta: numb
   };
 }
 
-/** El mes siguiente (o anterior, con `delta` negativo) de un periodo. */
+/** El periodo siguiente (o anterior, con `delta` negativo): mes o día, según el que llegue. */
 export function periodoMas(periodo: string, delta: number): string {
+  if (esPeriodoDiario(periodo)) {
+    const [anio, mes, dia] = periodo.split("-").map(Number) as [number, number, number];
+    return periodoDiarioDe(new Date(anio, mes - 1, dia + delta).getTime());
+  }
   const [anio, mes] = periodo.split("-").map(Number) as [number, number];
   return periodoDe(new Date(anio, mes - 1 + delta, 1).getTime());
 }
@@ -186,14 +287,17 @@ export function periodosPorEmitir(opciones: {
   ahora: number;
   desde_ts: number;
   emitidos: ReadonlySet<string>;
+  /** Mensual si no se dice: es lo de antes de la 1.5.7. */
+  periodicidad?: PeriodicidadGlobal;
 }): string[] {
   const { ahora, desde_ts, emitidos } = opciones;
   const pendientes: string[] = [];
 
-  // Se arranca un mes antes del de la configuración: si se configuró el día 1
+  // Se arranca un periodo antes del de la configuración: si se configuró el día 1
   // a las 3 de la mañana, el mes anterior todavía no había cerrado y le toca.
-  let periodo = periodoMas(periodoDe(desde_ts), -1);
-  for (let vueltas = 0; vueltas < 600; vueltas++) {
+  let periodo = periodoMas(periodoSegun(opciones.periodicidad ?? "mensual", desde_ts), -1);
+  // El tope alcanza para años de días; solo existe para que un reloj absurdo no cuelgue el Hub.
+  for (let vueltas = 0; vueltas < 5_000; vueltas++) {
     const { vence } = limitesDelPeriodo(periodo);
     if (vence > ahora) break;
     if (vence > desde_ts && !emitidos.has(periodo)) pendientes.push(periodo);
@@ -568,7 +672,7 @@ export function motivoDescarteEnPalabras(motivo: MotivoDescarte): string {
     case "sin_cobrar":
       return "sin cobrar (abiertas, anuladas o canceladas)";
     case "otro_periodo":
-      return "de otro mes";
+      return "de otro periodo";
     case "ya_facturada":
       return "con factura a nombre del cliente";
     case "en_global":
