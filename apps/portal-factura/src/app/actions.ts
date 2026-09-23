@@ -318,6 +318,69 @@ export async function consultarTicket(
     : { estado: "disponible" };
 }
 
+/**
+ * Encuentra el ticket con la clave y el folio y devuelve su total, para que el
+ * comensal no tenga que teclearlo (pedido de Gonzalo, sep-2026).
+ *
+ * El total ya no sirve de comprobación en la entrada manual; lo que frena a
+ * quien adivina folios es que un folio son 8 caracteres hexadecimales al azar
+ * (más de 4 mil millones) y que cada búsqueda que no encuentra nada cuenta como
+ * intento fallido de su red, con el mismo tope de 20 por hora que la solicitud.
+ */
+export type TicketEncontrado =
+  | { ok: true; total: number }
+  | { ok: false; error: string };
+
+export async function buscarTicket(claveTecleada: string, folioTecleado: string): Promise<TicketEncontrado> {
+  const claveLocal = String(claveTecleada ?? "").trim().toUpperCase();
+  const folio = String(folioTecleado ?? "").trim().toUpperCase();
+  if (!FORMA_CLAVE.test(claveLocal) || !FORMA_FOLIO.test(folio)) {
+    return { ok: false, error: "Revisa la clave del restaurante y el folio: están impresos en tu ticket." };
+  }
+  const ip = direccionDe(await headers());
+
+  const { data: intentoIp } = await supabaseAdmin
+    .from("intentos_factura")
+    .select("fallos, ultimo_ts")
+    .eq("llave", `ip:${ip}`)
+    .single();
+  if (intentoIp && intentoIp.fallos >= 20 && new Date(intentoIp.ultimo_ts) > new Date(Date.now() - 60 * 60 * 1000)) {
+    return { ok: false, error: "Demasiados intentos fallidos. Por seguridad, el acceso desde tu red está bloqueado por 1 hora." };
+  }
+
+  const { data: mapping } = await supabaseAdmin
+    .from("claves_de_autofactura")
+    .select("sucursal_id")
+    .eq("clave", claveLocal)
+    .single();
+  if (!mapping) {
+    await registrarFallo(claveLocal, folio, ip);
+    return { ok: false, error: "La clave del restaurante no es válida." };
+  }
+
+  const { data: ticket } = await supabaseAdmin
+    .from("tickets_facturables")
+    .select("total, estado, vence_ts")
+    .eq("sucursal_id", mapping.sucursal_id)
+    .eq("folio", folio)
+    .single();
+  if (!ticket) {
+    await registrarFallo(claveLocal, folio, ip);
+    return {
+      ok: false,
+      error: "No encontramos ese ticket. Revisa el folio; si acabas de pagar, espera unos minutos y vuelve a intentarlo.",
+    };
+  }
+  if (ticket.estado === "facturado") return { ok: false, error: "Este ticket ya tiene su factura." };
+  if (ticket.estado === "solicitado") {
+    return { ok: false, error: "La factura de este ticket ya se pidió y está en camino a tu correo." };
+  }
+  if (new Date() > new Date(ticket.vence_ts)) {
+    return { ok: false, error: "Ya pasaron las 72 horas desde su cobro. Pide tu factura directamente en el restaurante." };
+  }
+  return { ok: true, total: Number(ticket.total) };
+}
+
 async function registrarFallo(clave: string, folio: string, ip: string) {
   await supabaseAdmin.rpc("registrar_fallo_autofactura", {
     p_clave: clave,

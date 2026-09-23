@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { consultarTicket, solicitarFactura } from "./actions";
+import { buscarTicket, consultarTicket, solicitarFactura } from "./actions";
 import { supabaseAdmin } from "@/lib/supabase";
 import { generarParDeSobre, abrirSobre } from "@motrest/dominio";
 import * as dominio from "@motrest/dominio";
@@ -414,5 +414,60 @@ describe("consultarTicket - quien vuelve a abrir su QR", () => {
     nube({ claves_de_autofactura: { sucursal_id: "LOC-1" } });
     expect(await consultarTicket("RODIZIO", "ABCD1234", CODIGO)).toEqual({ estado: "desconocido" });
     expect(supabaseAdmin.rpc).not.toHaveBeenCalled();
+  });
+});
+
+describe("buscarTicket - el total se llena solo", () => {
+  function nube(tablas: Record<string, unknown>) {
+    vi.clearAllMocks();
+    (supabaseAdmin.from as any).mockImplementation((tabla: string) => {
+      const b: any = {
+        select: () => b, eq: () => b,
+        single: async () => ({ data: tablas[tabla] ?? null }),
+      };
+      return b;
+    });
+    (supabaseAdmin.rpc as any).mockResolvedValue(null);
+  }
+  const ticket = (estado: string, vence = "2030-01-01") => ({ total: 106400, estado, vence_ts: vence });
+
+  it("con clave y folio correctos devuelve el total del ticket", async () => {
+    nube({ claves_de_autofactura: { sucursal_id: "LOC-1" }, tickets_facturables: ticket("disponible") });
+    expect(await buscarTicket("prueba", "ab12cd34")).toEqual({ ok: true, total: 106400 });
+    expect(supabaseAdmin.rpc).not.toHaveBeenCalled();
+  });
+
+  it("un folio que no existe cuenta como intento fallido: así no se adivinan", async () => {
+    nube({ claves_de_autofactura: { sucursal_id: "LOC-1" } });
+    const r = await buscarTicket("PRUEBA", "AB12CD34");
+    expect(r.ok).toBe(false);
+    expect(supabaseAdmin.rpc).toHaveBeenCalledWith("registrar_fallo_autofactura", expect.anything());
+  });
+
+  it("una clave que no existe también cuenta como intento fallido", async () => {
+    nube({});
+    expect((await buscarTicket("NOEXISTE", "AB12CD34")).ok).toBe(false);
+    expect(supabaseAdmin.rpc).toHaveBeenCalled();
+  });
+
+  it("una red bloqueada no puede seguir buscando", async () => {
+    nube({ intentos_factura: { fallos: 20, ultimo_ts: new Date().toISOString() } });
+    const r = await buscarTicket("PRUEBA", "AB12CD34");
+    expect(r).toMatchObject({ ok: false, error: expect.stringMatching(/bloqueado/) });
+  });
+
+  it("ya pedido, facturado o vencido: no devuelve total, dice por qué", async () => {
+    nube({ claves_de_autofactura: { sucursal_id: "LOC-1" }, tickets_facturables: ticket("solicitado") });
+    expect((await buscarTicket("PRUEBA", "AB12CD34")).ok).toBe(false);
+    nube({ claves_de_autofactura: { sucursal_id: "LOC-1" }, tickets_facturables: ticket("facturado") });
+    expect((await buscarTicket("PRUEBA", "AB12CD34")).ok).toBe(false);
+    nube({ claves_de_autofactura: { sucursal_id: "LOC-1" }, tickets_facturables: ticket("disponible", "2020-01-01") });
+    expect((await buscarTicket("PRUEBA", "AB12CD34")).ok).toBe(false);
+  });
+
+  it("lo que ni siquiera tiene forma de folio no llega a la base", async () => {
+    nube({});
+    expect((await buscarTicket("PRUEBA", "ABC")).ok).toBe(false);
+    expect(supabaseAdmin.from).not.toHaveBeenCalled();
   });
 });
