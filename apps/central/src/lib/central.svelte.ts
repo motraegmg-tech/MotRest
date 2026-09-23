@@ -16,6 +16,7 @@ import {
   cerrarCofre,
   cerrarSobre,
   haySobres,
+  leerActualizacionReportada,
   normalizarContrasenaGmail,
   terminacion,
   cobradoEnPeriodo,
@@ -2128,6 +2129,7 @@ export class StoreCentral {
         const sucursal_id = fila.sucursal_id;
         const version = fila.version;
         if (typeof sucursal_id !== "string" || typeof version !== "string") continue;
+        const actualizacion = leerActualizacionReportada(fila.actualizacion);
 
         /*
          * Se traduce campo a campo, no con `...fila`. La tabla tiene columnas
@@ -2158,6 +2160,8 @@ export class StoreCentral {
           ...(typeof fila.arranque_automatico === "boolean"
             ? { arranque_automatico: fila.arranque_automatico }
             : {}),
+          // «No la ve» y «la ve y la pospone» solo se distinguen con esto.
+          ...(actualizacion ? { actualizacion } : {}),
         } as PulsoCliente);
         /*
          * La llave pública y el estado de sus secretos van APARTE del pulso, y no

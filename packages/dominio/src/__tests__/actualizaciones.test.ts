@@ -14,7 +14,9 @@ import {
   MAS_TARDE_MS,
   FRESCURA_MAX_MS,
   aceptarManifiesto,
+  actualizacionParaReportar,
   aplazar,
+  leerActualizacionReportada,
   compararVersiones,
   cuandoRecordar,
   debeAvisar,
@@ -416,5 +418,84 @@ describe("frescura y anti-reversión del canal", () => {
       VIERNES_21H,
     );
     expect(r.aceptar).toBe(false);
+  });
+});
+
+// --- Lo que ve MOTRAE ---------------------------------------------------------------------------
+
+describe("la actualización que viaja en el pulso", () => {
+  it("al día es un objeto vacío, no la ausencia del campo", () => {
+    expect(actualizacionParaReportar(estadoInicial())).toEqual({});
+  });
+
+  it("cuenta qué versión espera, desde cuándo y qué contestó el restaurante", () => {
+    const vista = registrarDisponible(estadoInicial(), version("1.5.6"), VIERNES_21H);
+    const estado = aplazar(vista, { cuando: "a_las", hora: 23 }, VIERNES_21H);
+    expect(actualizacionParaReportar(estado)).toEqual({
+      pendiente: "1.5.6",
+      vista_ts: VIERNES_21H,
+      eleccion: "a_las",
+      hora: 23,
+      aplazada_hasta: estado.aplazada_hasta,
+    });
+  });
+
+  it("sin contestar, no inventa una elección", () => {
+    const r = actualizacionParaReportar(registrarDisponible(estadoInicial(), version("1.5.6"), VIERNES_21H));
+    expect(r.eleccion).toBeUndefined();
+  });
+
+  /*
+   * Un intento fallido vuelve a registrar la misma versión, y eso movía la única
+   * fecha que había. «Desde cuándo espera» tiene que sobrevivir a los reintentos.
+   */
+  it("un reintento fallido no reinicia el «desde cuándo»", () => {
+    const primera = registrarDisponible(estadoInicial(), version("1.5.6"), VIERNES_21H);
+    const reintento = registrarDisponible(primera, version("1.5.6"), VIERNES_21H + 3 * 86_400_000);
+    expect(reintento.vista_ts).toBe(VIERNES_21H);
+    const otra = registrarDisponible(reintento, version("1.5.7"), VIERNES_21H + 4 * 86_400_000);
+    expect(otra.vista_ts).toBe(VIERNES_21H + 4 * 86_400_000);
+  });
+
+  it("un estado guardado por un Hub anterior usa la fecha que tenga", () => {
+    const viejo = { disponible: version("1.5.6"), revisada_ts: VIERNES_21H };
+    expect(actualizacionParaReportar(viejo).vista_ts).toBe(VIERNES_21H);
+  });
+
+  it("el fallo solo viaja si es de la versión que espera", () => {
+    const estado = registrarDisponible(estadoInicial(), version("1.5.6"), VIERNES_21H);
+    const deEsta = { version: "1.5.6", texto: "sin red", ts: VIERNES_21H + 60_000 };
+    expect(actualizacionParaReportar(estado, deEsta)).toMatchObject({ error: "sin red", error_ts: VIERNES_21H + 60_000 });
+    expect(actualizacionParaReportar(estado, { ...deEsta, version: "1.5.5" }).error).toBeUndefined();
+  });
+
+  it("un motivo larguísimo se recorta antes de salir", () => {
+    const estado = registrarDisponible(estadoInicial(), version("1.5.6"), VIERNES_21H);
+    const r = actualizacionParaReportar(estado, { version: "1.5.6", texto: "x".repeat(5_000), ts: 1 });
+    expect(r.error).toHaveLength(300);
+  });
+});
+
+describe("leer la actualización que llegó de la nube", () => {
+  it("columna vacía = Hub que no lo reporta; {} = al día", () => {
+    expect(leerActualizacionReportada(null)).toBeUndefined();
+    expect(leerActualizacionReportada([1])).toBeUndefined();
+    expect(leerActualizacionReportada({})).toEqual({});
+  });
+
+  it("una versión mal formada no se pinta: cuenta como al día", () => {
+    expect(leerActualizacionReportada({ pendiente: "<script>", eleccion: "ahora" })).toEqual({});
+  });
+
+  it("solo pasan los campos del contrato", () => {
+    expect(
+      leerActualizacionReportada({
+        pendiente: "1.5.6",
+        vista_ts: 5,
+        eleccion: "inventada",
+        hora: "23",
+        otra_cosa: "no",
+      }),
+    ).toEqual({ pendiente: "1.5.6", vista_ts: 5 });
   });
 });

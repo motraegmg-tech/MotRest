@@ -142,6 +142,51 @@ describe("cómo está cada instalación", () => {
     const s = saludDeCliente(cliente("a", "Rodizio", 20), pulso("a", 2, { problemas: ["Impresora de cocina sin responder"] }), AHORA);
     expect(s.motivos).toContain("Impresora de cocina sin responder");
   });
+
+  /* El caso de Rodizio el 22-sep-2026: la nube le servía la 1.5.6 y la caja seguía en la 1.5.3. */
+  it("una versión que lleva días esperando al restaurante pide atención", () => {
+    const s = saludDeCliente(
+      cliente("a", "Rodizio", 20),
+      pulso("a", 2, { actualizacion: { pendiente: "1.5.6", vista_ts: AHORA - 4 * DIA, eleccion: "mas_tarde" } }),
+      AHORA,
+    );
+    expect(s.estado).toBe("atencion");
+    expect(s.motivos).toContain("La 1.5.6 lleva 4 días esperando a que el restaurante la instale");
+  });
+
+  it("una recién vista no es alarma todavía", () => {
+    const s = saludDeCliente(
+      cliente("a", "Rodizio", 20),
+      pulso("a", 2, { actualizacion: { pendiente: "1.5.6", vista_ts: AHORA - DIA } }),
+      AHORA,
+    );
+    expect(s.estado).toBe("bien");
+  });
+
+  it("un intento de instalar que falló se dice con su motivo, sin esperar días", () => {
+    const s = saludDeCliente(
+      cliente("a", "Rodizio", 20),
+      pulso("a", 2, {
+        actualizacion: { pendiente: "1.5.6", vista_ts: AHORA - HORA, eleccion: "ahora", error: "No se pudo descargar el instalador (500)" },
+      }),
+      AHORA,
+    );
+    expect(s.motivos).toEqual(["No se pudo instalar la 1.5.6: No se pudo descargar el instalador (500)"]);
+  });
+
+  it("un reloj de caja desfasado no inventa una espera de años", () => {
+    const s = saludDeCliente(
+      cliente("a", "Rodizio", 20),
+      pulso("a", 2, { actualizacion: { pendiente: "1.5.6", vista_ts: AHORA - 3_000 * DIA } }),
+      AHORA,
+    );
+    expect(s.estado).toBe("bien");
+  });
+
+  it("al día, o un Hub que no lo reporta, no dice nada", () => {
+    expect(saludDeCliente(cliente("a", "Rodizio", 20), pulso("a", 2, { actualizacion: {} }), AHORA).estado).toBe("bien");
+    expect(saludDeCliente(cliente("a", "Rodizio", 20), pulso("a"), AHORA).estado).toBe("bien");
+  });
 });
 
 // --- Lo que hay que atender hoy --------------------------------------------------------------

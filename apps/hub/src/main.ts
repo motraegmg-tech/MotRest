@@ -48,6 +48,7 @@ import type {
 } from "@motrest/dominio";
 import {
   CERO,
+  actualizacionParaReportar,
   aplazar,
   armarAvisoDeFacturaRechazada,
   indexar,
@@ -74,6 +75,7 @@ import type {
   ClaseSecreto,
   ConfiguracionCorreo,
   ConfiguracionFacturacion,
+  FalloDeInstalacion,
   MenuLocal,
   EstadoSecretos,
   OrigenSecreto,
@@ -324,6 +326,8 @@ const CLAVE_ESTADO_ACTUALIZACION = "actualizacion_estado";
 let estadoActualizacion: EstadoActualizacion = estadoInicial();
 /** Evita que dos vueltas del reloj lancen dos veces el mismo instalador. */
 let instalandoActualizacion = false;
+/** El último intento de instalar que falló. Viaja en el pulso para que MOTRAE lo vea. */
+let falloDeInstalacion: FalloDeInstalacion | null = null;
 
 /**
  * Cuántos pedidos lleva el kiosco. Alimenta el número que se grita para recoger.
@@ -2793,20 +2797,7 @@ async function prepararActualizaciones(): Promise<void> {
     sucursalDelLocal(),
   );
 
-  const revisar = async () => {
-    try {
-      const encontrada = await actualizador!.buscar();
-      if (!encontrada || encontrada.version === versionDisponible?.version) return;
-
-      versionDisponible = encontrada;
-      estadoActualizacion = registrarDisponible(estadoActualizacion, encontrada, Date.now());
-      await guardarEstadoActualizacion();
-    } catch (causa) {
-      registrar("aviso", `No se pudo revisar si hay versión nueva: ${String(causa)}`);
-    }
-  };
-
-  await revisar();
+  await revisarCanalDeActualizaciones();
   /*
    * Los relojes, una sola vez por proceso.
    *
@@ -2817,7 +2808,7 @@ async function prepararActualizaciones(): Promise<void> {
    * veces el mismo instalador.
    */
   if (!relojesDeActualizacionPuestos) {
-    setInterval(() => void revisar(), ACTUALIZAR_CADA_MS).unref?.();
+    setInterval(() => void revisarCanalDeActualizaciones(), ACTUALIZAR_CADA_MS).unref?.();
     setInterval(() => void evaluarActualizacion(), 60_000).unref?.();
     relojesDeActualizacionPuestos = true;
   }
@@ -2915,6 +2906,9 @@ function pulsoDelLocal(): PulsoDelHub {
     ...(secretos.llavePublica() ? { llave_publica: secretos.llavePublica() } : {}),
     // Solo el estado: configurada, de dónde, cuatro últimos caracteres. Nunca el valor.
     secretos: secretos.estado(),
+    // Siempre, aunque sea `{}`: el upsert solo pisa las columnas que llegan, y
+    // sin esto una versión ya instalada seguiría saliendo como pendiente.
+    actualizacion: actualizacionParaReportar(estadoActualizacion, falloDeInstalacion),
   };
 }
 
@@ -2960,6 +2954,35 @@ function reportarPulso(): void {
     // Que no se pueda reportar no puede tumbar nada: es información para
     // MOTRAE, no para el restaurante, y el local sigue vendiendo igual.
     registrar("aviso", `No se pudo reportar el estado del local: ${String(causa)}`);
+  }
+}
+
+/**
+ * Pregunta al canal si hay versión nueva.
+ *
+ * SE LLAMA TAMBIÉN AL CONECTAR CON LA NUBE, y es lo que faltaba. Al arrancar,
+ * la primera revisión corre ANTES que el enlace, y un local enlazado solo lee
+ * la nube: esa revisión salía siempre vacía. La siguiente era a las 12 horas,
+ * y una caja que se apaga cada noche nunca llega a ellas. Así se quedaron
+ * Rodizio en la 1.5.3 y Tortas Fc en la 1.5.5 (22-sep-2026) sin ver aviso
+ * alguno, con la nube ofreciéndoles la 1.5.6.
+ */
+let revisandoCanal = false;
+async function revisarCanalDeActualizaciones(): Promise<void> {
+  if (!actualizador || revisandoCanal || instalandoActualizacion) return;
+  revisandoCanal = true;
+  try {
+    const encontrada = await actualizador.buscar();
+    if (!encontrada || encontrada.version === versionDisponible?.version) return;
+
+    versionDisponible = encontrada;
+    estadoActualizacion = registrarDisponible(estadoActualizacion, encontrada, Date.now());
+    await guardarEstadoActualizacion();
+    reportarPulso();
+  } catch (causa) {
+    registrar("aviso", `No se pudo revisar si hay versión nueva: ${String(causa)}`);
+  } finally {
+    revisandoCanal = false;
   }
 }
 
@@ -3009,6 +3032,7 @@ function eleccionValida(cuerpo: { cuando?: unknown; hora?: unknown }): EleccionA
 async function decidirActualizacion(eleccion: EleccionActualizacion): Promise<void> {
   estadoActualizacion = aplazar(estadoActualizacion, eleccion, Date.now());
   await guardarEstadoActualizacion();
+  reportarPulso();
   await evaluarActualizacion();
 }
 
@@ -3097,6 +3121,12 @@ async function evaluarActualizacion(ahora = Date.now()): Promise<void> {
     estadoActualizacion = registrarDisponible(estadoActualizacion, version, ahora);
     versionDisponible = version;
     await guardarEstadoActualizacion();
+
+    // Se reintenta cada minuto: solo se avisa a MOTRAE cuando el motivo cambia.
+    const texto = String(causa);
+    const esNuevo = falloDeInstalacion?.version !== version.version || falloDeInstalacion.texto !== texto;
+    falloDeInstalacion = { version: version.version, texto, ts: ahora };
+    if (esNuevo) reportarPulso();
   } finally {
     instalandoActualizacion = false;
   }
@@ -3596,6 +3626,8 @@ async function montarEnlaceDeNube(): Promise<void> {
       reportarPulso();
       // Lo que pidieron los comensales mientras no había red.
       void autofactura.sincronizar();
+      // La revisión del arranque corrió sin enlace y salió vacía: esta es la que cuenta.
+      void revisarCanalDeActualizaciones();
     },
     alLlegarSolicitudDeFactura: (fila: { id: string; orden_id: string; sobre: unknown }) =>
       void autofactura.recibir(fila),

@@ -13,6 +13,7 @@
     type EntregaLicencia,
   } from "../lib/central.svelte";
   import { desde, dinero, fecha, plazo } from "../lib/formato";
+  import type { ActualizacionReportada } from "@motrest/dominio";
   import Alta from "./Alta.svelte";
   import EditarLocal from "./EditarLocal.svelte";
   import Vencimiento from "./Vencimiento.svelte";
@@ -27,6 +28,21 @@
    * la facturación lista en varios seguidos.
    */
   let pestana = $state<"ficha" | "facturacion">("ficha");
+
+  function textoActualizacion(a: ActualizacionReportada): string {
+    const base = `Tiene la ${a.pendiente} esperando${a.vista_ts ? ` desde el ${fecha(a.vista_ts)}` : ""}`;
+    if (a.error) return `${base} · falló al instalar: ${a.error}`;
+    switch (a.eleccion) {
+      case "ahora":
+        return `${base} · pidió instalarla ya`;
+      case "a_las":
+        return `${base} · se instalará a las ${String(a.hora ?? 0).padStart(2, "0")}:00`;
+      case "mas_tarde":
+        return `${base} · la pospusieron`;
+      default:
+        return `${base} · nadie ha contestado el aviso en la caja`;
+    }
+  }
 
   /** ¿Algo de su facturación o su correo está en rojo? Se marca en la pestaña. */
   function facturacionConProblema(id: string): boolean {
@@ -494,7 +510,7 @@
         {/if}
       {/if}
 
-      {#if pulso?.hub_id || pulso?.plataforma || pulso?.arranque_automatico !== undefined}
+      {#if pulso?.hub_id || pulso?.plataforma || pulso?.arranque_automatico !== undefined || pulso?.actualizacion}
         <h3>Su Hub</h3>
         <div class="hub">
           {#if pulso.hub_id}
@@ -509,6 +525,14 @@
                 ? "Arranca solo al encender"
                 : "NO arranca solo: el local abre a mano"}
             </span>
+          {/if}
+          <!-- Sin el campo, el Hub es anterior a él: no se dice nada en vez de adivinar. -->
+          {#if pulso.actualizacion?.pendiente}
+            <span class:mal={Boolean(pulso.actualizacion.error)}>
+              {textoActualizacion(pulso.actualizacion)}
+            </span>
+          {:else if pulso.actualizacion}
+            <span>Sin actualización pendiente</span>
           {/if}
         </div>
       {/if}

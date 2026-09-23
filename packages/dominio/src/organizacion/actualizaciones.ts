@@ -107,6 +107,14 @@ export interface EstadoActualizacion {
   eleccion?: EleccionActualizacion;
   /** Última vez que se preguntó a GitHub, para no preguntar de más. */
   revisada_ts?: number;
+  /**
+   * Desde cuándo está esperando ESTA versión.
+   *
+   * No es `revisada_ts`: esa se mueve cada vez que un intento de instalar falla y
+   * la versión vuelve a quedar pendiente, así que nunca contestaría «¿desde
+   * cuándo?». Esta solo cambia cuando llega una versión distinta.
+   */
+  vista_ts?: number;
 }
 
 export function estadoInicial(): EstadoActualizacion {
@@ -180,6 +188,7 @@ export function registrarDisponible(
     ...estado,
     disponible: version,
     revisada_ts: ahora,
+    vista_ts: esOtra ? ahora : (estado.vista_ts ?? ahora),
     ...(esOtra ? { aplazada_hasta: undefined, eleccion: undefined } : {}),
   };
 }
@@ -342,6 +351,99 @@ export function leTocaElAnillo(sucursal_id: ID, anillo?: number): boolean {
   if (!Number.isFinite(anillo) || anillo <= 0) return false;
   if (anillo >= 100) return true;
   return posicionEnLaFlota(sucursal_id) < anillo;
+}
+
+// --- Lo que ve MOTRAE -------------------------------------------------------------------------
+
+/**
+ * La actualización del local, tal como viaja en su pulso.
+ *
+ * Sin esto, desde Central un local que no ve la versión nueva y uno que la ve y
+ * la lleva una semana posponiendo son idénticos: los dos reportan la versión
+ * vieja y nada más. Pasó con Rodizio el 22-sep-2026, con la nube sirviéndole la
+ * 1.5.6 y la caja todavía en la 1.5.3.
+ *
+ * El objeto vacío significa «nada pendiente». Una columna vacía en la nube, en
+ * cambio, es un Hub anterior a este campo: no sabe contarlo.
+ */
+export interface ActualizacionReportada {
+  /** La versión que el Hub vio y todavía no instaló. */
+  pendiente?: string;
+  /** Desde cuándo la tiene esperando. Reloj del local. */
+  vista_ts?: number;
+  /** Qué contestó el restaurante. Ausente = todavía no contestó. */
+  eleccion?: EleccionActualizacion["cuando"];
+  /** Para `a_las`: la hora que eligió. */
+  hora?: number;
+  /** Cuándo se le vuelve a preguntar, o cuándo toca instalar. */
+  aplazada_hasta?: number;
+  /** El último intento de instalarla falló, y por esto. */
+  error?: string;
+  error_ts?: number;
+}
+
+/** El último intento de instalación que falló, para contárselo a MOTRAE. */
+export interface FalloDeInstalacion {
+  version: string;
+  texto: string;
+  ts: number;
+}
+
+const VERSION_REPORTABLE = /^[0-9]+\.[0-9]+\.[0-9]+$/;
+
+export function actualizacionParaReportar(
+  estado: EstadoActualizacion,
+  fallo: FalloDeInstalacion | null = null,
+): ActualizacionReportada {
+  const disponible = estado.disponible;
+  if (!disponible) return {};
+
+  const eleccion = estado.eleccion;
+  const vista = estado.vista_ts ?? estado.revisada_ts;
+  // Un fallo de otra versión ya no dice nada de la que está esperando ahora.
+  const falloDeEsta = fallo && fallo.version === disponible.version ? fallo : null;
+
+  return {
+    pendiente: disponible.version,
+    ...(vista !== undefined ? { vista_ts: vista } : {}),
+    ...(eleccion ? { eleccion: eleccion.cuando } : {}),
+    ...(eleccion?.cuando === "a_las" ? { hora: eleccion.hora } : {}),
+    ...(estado.aplazada_hasta !== undefined ? { aplazada_hasta: estado.aplazada_hasta } : {}),
+    ...(falloDeEsta ? { error: falloDeEsta.texto.slice(0, 300), error_ts: falloDeEsta.ts } : {}),
+  };
+}
+
+/**
+ * Lee lo que llegó de la nube, campo a campo.
+ *
+ * `undefined` = el Hub no lo reporta (versión anterior a este campo). Se
+ * distingue de `{}`, que es un Hub que sí lo cuenta y está al día.
+ */
+export function leerActualizacionReportada(valor: unknown): ActualizacionReportada | undefined {
+  if (!valor || typeof valor !== "object" || Array.isArray(valor)) return undefined;
+  const v = valor as Record<string, unknown>;
+  const numero = (x: unknown) => (typeof x === "number" && Number.isFinite(x) ? x : undefined);
+
+  if (typeof v.pendiente !== "string" || !VERSION_REPORTABLE.test(v.pendiente)) return {};
+
+  const eleccion =
+    v.eleccion === "ahora" || v.eleccion === "mas_tarde" || v.eleccion === "a_las"
+      ? v.eleccion
+      : undefined;
+  const vista = numero(v.vista_ts);
+  const hora = numero(v.hora);
+  const aplazada = numero(v.aplazada_hasta);
+  const errorTs = numero(v.error_ts);
+
+  return {
+    pendiente: v.pendiente,
+    ...(vista !== undefined ? { vista_ts: vista } : {}),
+    ...(eleccion ? { eleccion } : {}),
+    ...(hora !== undefined ? { hora } : {}),
+    ...(aplazada !== undefined ? { aplazada_hasta: aplazada } : {}),
+    ...(typeof v.error === "string" && v.error ? { error: v.error.slice(0, 300) } : {}),
+    ...(errorTs !== undefined ? { error_ts: errorTs } : {}),
+  };
 }
 
 /** Cómo se le resume al restaurantero lo que va a pasar. */

@@ -24,6 +24,7 @@
  */
 import { CERO, sumar, type Centavos } from "../comun/dinero.js";
 import type { ID } from "../comun/ids.js";
+import type { ActualizacionReportada } from "./actualizaciones.js";
 import {
   situacionDe,
   type EstadoLicencia,
@@ -212,6 +213,8 @@ export interface PulsoCliente {
   eventos?: number;
   /** Lo que el propio Hub detectó mal. */
   problemas?: string[];
+  /** Si tiene una versión vista y sin instalar. `undefined` = Hub que no lo reporta. */
+  actualizacion?: ActualizacionReportada;
 }
 
 // --- El cobro -------------------------------------------------------------------------------
@@ -281,6 +284,8 @@ export const HORAS_SIN_SENAL = 30;
 export const EVENTOS_AVISO = 400_000;
 /** Un respaldo de hace más de tres días es un respaldo que no sirve. */
 export const HORAS_RESPALDO = 72;
+/** Una versión que lleva más que esto esperando ya no es un «ahorita la instalo». */
+export const DIAS_ACTUALIZACION_ESPERANDO = 3;
 
 export interface SaludCliente {
   sucursal_id: ID;
@@ -331,6 +336,19 @@ export function saludDeCliente(
     motivos.push(`El registro va por ${pulso.eventos!.toLocaleString("es-MX")} eventos`);
   }
   for (const problema of pulso.problemas ?? []) motivos.push(problema);
+
+  const act = pulso.actualizacion;
+  if (act?.pendiente) {
+    if (act.error) {
+      motivos.push(`No se pudo instalar la ${act.pendiente}: ${act.error}`);
+    } else if (act.vista_ts !== undefined) {
+      // El reloj es el del local; uno desfasado no puede inventar una alarma.
+      const dias = Math.floor((ahora - act.vista_ts) / 86_400_000);
+      if (dias >= DIAS_ACTUALIZACION_ESPERANDO && dias <= 365) {
+        motivos.push(`La ${act.pendiente} lleva ${dias} días esperando a que el restaurante la instale`);
+      }
+    }
+  }
 
   return {
     ...base,
