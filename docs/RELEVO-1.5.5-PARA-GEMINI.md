@@ -306,6 +306,15 @@ Piezas:
     Vercel (lo hace Gonzalo: su cuenta y la llave de servicio).
   - **Pendiente de Gonzalo:** firmar y publicar la 1.5.7 en Central →
     Versiones, y el proyecto de Vercel.
+  - **23-sep, segunda tanda dentro de la MISMA 1.5.7** (`f38f71e`, `874884a`,
+    `42f10a7`): portal «Emite tu Factura» + ayuda de la clave + el total se
+    llena solo (`buscarTicket` en `apps/portal-factura/src/app/actions.ts`);
+    botón «Buscar actualizaciones» en la barra lateral (propietario, gerente,
+    soporte) → `POST /actualizacion/buscar` en el Hub; plan pospuesto de
+    pedidos/apps en `docs/PLAN-PEDIDOS-PARA-LLEVAR-Y-APPS.md`. El instalador
+    1.5.7 del borrador de GitHub quedó VIEJO: hay que recompilar y reemplazar
+    el asset (lo hace Gemini). Central 1.4.6 no cambió. La PC de Gonzalo ya
+    corre un 1.5.7 anterior: ahí se reinstala a mano.
   - **Pedidos para llevar / apps (Rappi, DiDi…):** plan propuesto, esperando
     sus respuestas antes de construir. El dominio ya tiene `ventas/canales.ts`
     (canal y comisión en `orden_creada`, `ventasPorCanal`,
