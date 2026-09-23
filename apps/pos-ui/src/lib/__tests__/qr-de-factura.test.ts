@@ -68,7 +68,9 @@ describe("el QR de factura del ticket", () => {
 
     const qr = (await portal.qrDeFactura(c))!;
     expect(qr.url).toBe(`https://motrest-factura.vercel.app/r/RODIZIO/${folio}?t=${codigo}`);
-    expect(qr.pie).toEqual([`Clave: RODIZIO   Folio: ${folio}`, "motrest-factura.vercel.app"]);
+    // Debajo del QR: primero la dirección escrita, luego la clave y el folio.
+    expect(qr.pie).toEqual(["motrest-factura.vercel.app", `Clave: RODIZIO   Folio: ${folio}`]);
+    expect(qr.leyenda).toMatch(/Escanee este código QR/);
     expect(qr.esFactura).toBe(true);
   });
 

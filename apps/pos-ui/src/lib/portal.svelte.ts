@@ -32,6 +32,24 @@ export interface QrDeFactura {
   esFactura: true;
 }
 
+/**
+ * El bloque de factura del papel: el aviso arriba, el QR, y debajo la dirección
+ * y la clave con el folio para quien no puede escanear. Lo usan el cobro y la
+ * vista previa de Impresoras, para que la vista previa sea el papel de verdad.
+ */
+export function armarQrDeFactura(
+  portal: { clave: string; portal_url: string },
+  folio: string,
+  codigo: string,
+): QrDeFactura {
+  return {
+    leyenda: local.textosTicket.aviso_factura_portal,
+    url: urlDeAutofactura(portal.portal_url, portal.clave, folio, codigo),
+    pie: [direccionLegible(portal.portal_url), `Clave: ${portal.clave}   Folio: ${folio}`],
+    esFactura: true,
+  };
+}
+
 class StorePortal {
   /** Se deriva una vez: HKDF no es gratis y esto se pide en cada cobro. */
   private secreto: string | null = null;
@@ -117,12 +135,7 @@ class StorePortal {
     if (!secreto) return null;
     const folio = folioDeTicket(comanda.orden_id);
     const codigo = await codigoDeAutofactura(comanda.orden_id, secreto);
-    return {
-      leyenda: "Factura tu consumo aquí",
-      url: urlDeAutofactura(portal.portal_url, portal.clave, folio, codigo),
-      pie: [`Clave: ${portal.clave}   Folio: ${folio}`, direccionLegible(portal.portal_url)],
-      esFactura: true,
-    };
+    return armarQrDeFactura(portal, folio, codigo);
   }
 
   /** Se olvidan los secretos derivados: al reemparejar, la clave del local cambió. */

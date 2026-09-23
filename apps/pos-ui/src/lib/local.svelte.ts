@@ -55,6 +55,8 @@ export interface TextosDelTicket {
   invitacion_opinion: string;
   /** Cómo pedir factura, mientras no haya portal de autofactura. */
   aviso_factura: string;
+  /** Cómo pedir factura CON portal: va sobre el QR de factura. */
+  aviso_factura_portal: string;
   agradecimiento: string;
   pie: string;
 }
@@ -90,6 +92,8 @@ export const TEXTOS_TICKET_INICIALES: TextosDelTicket = {
   encabezado: "",
   invitacion_opinion: "¿Cómo estuvo todo? Cuéntanos",
   aviso_factura: "¿Necesita factura? Pídala con su mesero antes de irse.",
+  aviso_factura_portal:
+    "¿Necesita factura? Escanee este código QR y facture desde su celular en las próximas 72 horas, o pídala a su mesero antes de irse.",
   agradecimiento: "¡Gracias por su visita!",
   pie: "",
 };

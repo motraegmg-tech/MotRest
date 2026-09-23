@@ -532,7 +532,8 @@ export function precuenta(
   const qrs = (datos.qrs ?? []).filter((qr) => qr.url.trim()).slice(0, 3);
   for (const qr of qrs) {
     t.salto();
-    if (qr.leyenda.trim()) t.linea(qr.leyenda.trim(), { ...centrado, negrita: true });
+    // Partida en renglones: el aviso de factura es una frase entera, no un rótulo.
+    for (const l of envolverPalabras(qr.leyenda.trim(), columnas)) t.linea(l, { ...centrado, negrita: true });
     if (modoQr === "imagen" && qr.matriz) t.imagenMonocroma(qr.matriz);
     else t.qr(qr.url.trim());
     for (const renglon of qr.pie ?? []) {

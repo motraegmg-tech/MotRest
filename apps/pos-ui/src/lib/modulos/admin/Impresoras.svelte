@@ -18,6 +18,8 @@
   import { sesion } from "../../sesion/sesion.svelte";
   import { licencia } from "../../licencia.svelte";
   import { local } from "../../local.svelte";
+  import { autofactura } from "../../autofactura.svelte";
+  import { armarQrDeFactura } from "../../portal.svelte";
   import { prepararLogo, recalcularLogo } from "../../logo-ticket";
   import { respaldo } from "../../respaldo.svelte";
   import VistaPreviaTicket from "../../VistaPreviaTicket.svelte";
@@ -198,6 +200,8 @@
         pagos: [{ forma: "Efectivo", monto: pesos(600) }],
         cambio: pesos(64),
         qrs: [
+          // El de factura va primero, como en el cobro de verdad (`imprimirTicketCliente`).
+          ...(autofactura.portal ? [armarQrDeFactura(autofactura.portal, "A1B2C3D4", "VISTAPREVIA23456")] : []),
           ...(local.qrResena
             ? [{
                 leyenda: local.textosTicket.invitacion_opinion,
@@ -389,18 +393,38 @@
           placeholder="https://maps.app.goo.gl/..."
         />
       </label>
-      <label class="ancho">
-        Cómo pedir factura
-        <input
-          value={local.textosTicket.aviso_factura}
-          oninput={(e) => local.fijarTextosTicket({ aviso_factura: e.currentTarget.value })}
-          placeholder="¿Necesita factura? Pídala con su mesero antes de irse."
-        />
-        <small>
-          Sale en la pre-cuenta y en el ticket cobrado, antes de la despedida.
-          Déjalo vacío para no imprimirlo.
-        </small>
-      </label>
+      <!--
+        CON PORTAL SE EDITA OTRO TEXTO. El de sin portal pide ir con el mesero; el
+        de con portal va sobre el QR y lo invita a escanearlo. Enseñar el que no
+        se imprime sería editar a ciegas.
+      -->
+      {#if autofactura.portal}
+        <label class="ancho">
+          Cómo pedir factura <em>(va arriba del QR de factura)</em>
+          <textarea
+            rows="2"
+            value={local.textosTicket.aviso_factura_portal}
+            oninput={(e) => local.fijarTextosTicket({ aviso_factura_portal: e.currentTarget.value })}
+          ></textarea>
+          <small>
+            Tu portal de autofactura está encendido: debajo de esta frase sale el QR,
+            y debajo del QR la dirección del portal y la clave con el folio.
+          </small>
+        </label>
+      {:else}
+        <label class="ancho">
+          Cómo pedir factura
+          <input
+            value={local.textosTicket.aviso_factura}
+            oninput={(e) => local.fijarTextosTicket({ aviso_factura: e.currentTarget.value })}
+            placeholder="¿Necesita factura? Pídala con su mesero antes de irse."
+          />
+          <small>
+            Sale en la pre-cuenta y en el ticket cobrado, antes de la despedida.
+            Déjalo vacío para no imprimirlo.
+          </small>
+        </label>
+      {/if}
       <label>
         Despedida
         <input
@@ -1541,12 +1565,17 @@
     cursor: pointer;
   }
   .ficha .interruptor em { display: block; font-size: 0.72rem; }
-  .ficha input {
+  .ficha input,
+  .ficha textarea {
     font: inherit;
     font-size: 0.9rem;
     font-weight: 400;
     padding: 0.5rem 0.6rem;
     border: 1px solid var(--borde);
     border-radius: var(--r-sm);
+  }
+  .ficha textarea {
+    resize: vertical;
+    line-height: 1.4;
   }
 </style>
