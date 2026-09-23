@@ -44,3 +44,14 @@ verify_jwt = true
 
 [functions.publicar-credenciales]
 verify_jwt = true
+
+# MotRest en la web (1.6.0). La entrada va SIN JWT porque quien llama todavía no
+# ha entrado: ese es el punto. La protegen el freno de intentos por clave y por
+# red, y que la contraseña la verifica Auth, no la función.
+[functions.entrar-restaurante]
+verify_jwt = false
+
+# El cambio de contraseña desde el restaurante: con el pase de la web (más la
+# contraseña actual) o con el del Hub del local.
+[functions.cambiar-contrasena-web]
+verify_jwt = true
