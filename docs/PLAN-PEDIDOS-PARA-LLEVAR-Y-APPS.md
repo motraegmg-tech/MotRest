@@ -71,7 +71,26 @@ cortesías, cobro, impresión— sin reescribirlo.
 | 1 | Pestaña «Pedidos», alta con canal, tablero, cocina con canal/folio, cobro por canal (agregador fuera del cajón), reportes que ya existen empiezan a llenarse |
 | 2 | Conciliación de depósitos, cancelaciones como merma, etiqueta de bolsa |
 | 3 | Reparto propio completo (repartidores, corte), cliente frecuente por teléfono |
-| 4 | Integración directa con las APIs de las plataformas (requiere convenio con cada una) |
+| 4 | Integración directa con las APIs de las plataformas (Rappi, Uber Eats, DiDi) |
+
+### Detalle Fase 4: Integración con APIs (Rappi, Uber Eats, DiDi)
+
+> **Requisito Fundamental de Negocio:** Ninguna de estas APIs es de acceso público o de auto-servicio. MotRest (como creador del ERP) debe registrarse como **Partner Tecnológico (Integrador/POS)** en cada plataforma, firmar acuerdos comerciales (NDAs) y pasar por un proceso de certificación técnica antes de poder ofrecer la conexión a los restaurantes.
+
+**Particularidades por Plataforma:**
+*   **Rappi (Partners API):** Requiere contacto directo con un representante o KAM de Rappi para solicitar el alta como "Aliado Integrador" y obtener credenciales de *sandbox*. Tienen límites de frecuencia (rate limits) estrictos.
+*   **Uber Eats (Marketplace API):** Se gestiona en su portal de desarrolladores. La aprobación y certificación para integraciones POS es rigurosa y suele tomar entre 4 a 8 semanas.
+*   **DiDi Food (Open Platform):** Se aplica a través de su portal para socios desarrolladores. Otorgan acceso a un entorno de pruebas y validan test orders antes del paso a producción.
+
+**Arquitectura Técnica Sugerida:**
+1.  **Webhook Listener Centralizado:** Un *endpoint* público (`/webhooks/delivery/...`) para recibir las notificaciones de nuevas órdenes o cancelaciones desde las apps.
+2.  **Cola de Mensajes:** Para encolar pedidos entrantes y evitar caídas del servicio en horas pico.
+3.  **Normalizador de Pedidos:** Un adaptador que toma el JSON (diferente en cada app) y lo convierte al formato `orden_creada` estándar de MotRest, inyectando el `canal` y `comision_canal`.
+4.  **Actualización a Tiempo Real:** Uso de WebSockets para empujar la orden al POS y KDS inmediatamente, activando alarmas visuales/sonoras.
+5.  **Motor de Catálogos:** Servicio en segundo plano para sincronizar precios, disponibilidad (agotados) y menús hacia las plataformas.
+
+**Alternativa de Middleware:**
+Como alternativa a desarrollar 3 APIs distintas desde cero, se puede evaluar conectar MotRest con un agregador (ej. **Deliverect** u **Otter**). Esto permite usar una sola API unificada, acelerando el desarrollo significativamente, a cambio de un costo mensual de licencia por cada sucursal que use el servicio.
 
 ## Preguntas que hay que contestar antes de construir
 
@@ -90,6 +109,9 @@ cortesías, cobro, impresión— sin reescribirlo.
 8. **Pedidos programados** («para las 3:00»): ¿hacen falta?
 9. **Facturación de pedidos de app:** ¿quién factura hoy al cliente, el
    restaurante o la plataforma?
+10. **Integración APIs (Fase 4):** ¿Se prefiere desarrollar la integración directa con cada empresa (asumiendo meses de certificación), o conviene conectar con un agregador/middleware (ej. Deliverect) para lanzar más rápido?
+11. **Alianzas Comerciales:** ¿Existen contactos actuales con Rappi, Uber Eats o DiDi por parte de negocio para facilitar el acceso a sus entornos de desarrollo?
+12. **Arquitectura Webhooks:** ¿Qué infraestructura de backend o serverless se usará para exponer los endpoints de recepción de órdenes a internet 24/7?
 
 ## Riesgos conocidos
 
