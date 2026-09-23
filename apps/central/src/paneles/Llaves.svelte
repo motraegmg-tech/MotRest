@@ -9,6 +9,20 @@
   let repositorio = $state(central.secretos.repositorio);
   let nubeUrl = $state(central.secretos.nube_url ?? "");
   let nubeServicio = $state("");
+  let webUrl = $state(central.secretos.web_url ?? "");
+  let errorWeb = $state("");
+  let guardadoWeb = $state("");
+
+  async function guardarWeb() {
+    errorWeb = "";
+    const r = await central.guardarDireccionWeb(webUrl);
+    if (!r.ok) {
+      errorWeb = r.error;
+      return;
+    }
+    guardadoWeb = "Dirección guardada.";
+    setTimeout(() => (guardadoWeb = ""), 4000);
+  }
   let repositorioCargado = "";
   let guardado = $state("");
   let error = $state("");
@@ -409,6 +423,26 @@
     <button class="primario" disabled={!puedeEditarSecretos} onclick={guardar}>
       Guardar canal y nube
     </button>
+
+    <!--
+      MOTREST EN LA WEB (1.6.0). No es secreta: es la dirección que se le da al
+      restaurante junto con su clave y su contraseña. Hoy la de Vercel; mañana,
+      quizá un dominio propio, y por eso es un ajuste y no va en el código.
+    -->
+    <h2>MotRest en la web</h2>
+    <label>
+      Dirección de la web
+      <span class="fila-web">
+        <input bind:value={webUrl} spellcheck="false" placeholder="https://motrest.vercel.app" />
+        <button disabled={!puedeEditarSecretos} onclick={guardarWeb}>Guardar</button>
+      </span>
+      <small>
+        Donde entran los restaurantes en modalidad <b>nube</b> o <b>ambas</b>, con su clave y su
+        contraseña. La contraseña de cada uno se ve en su ficha, con «Ver».
+      </small>
+    </label>
+    {#if errorWeb}<p class="error">{errorWeb}</p>{/if}
+    {#if guardadoWeb}<p class="ok">{guardadoWeb}</p>{/if}
   {/if}
 
   {#if error}<p class="error">{error}</p>{/if}
@@ -583,6 +617,13 @@
 </section>
 
 <style>
+  .fila-web {
+    display: flex;
+    gap: 0.4rem;
+  }
+  .fila-web input {
+    flex: 1;
+  }
   section { padding: 1.5rem 1.75rem 3rem; max-width: 46rem; }
   h1 { font-family: var(--font-titulo); font-size: 1.6rem; margin: 0 0 1.1rem; color: var(--pizarra); }
   h2 { font-size: 0.75rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; color: var(--gris); margin: 2rem 0 0.8rem; }

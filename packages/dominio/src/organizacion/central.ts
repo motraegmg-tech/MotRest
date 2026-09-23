@@ -25,6 +25,7 @@
 import { CERO, sumar, type Centavos } from "../comun/dinero.js";
 import type { ID } from "../comun/ids.js";
 import type { ActualizacionReportada } from "./actualizaciones.js";
+import type { ModalidadLocal } from "./acceso-web.js";
 import {
   situacionDe,
   type EstadoLicencia,
@@ -144,6 +145,14 @@ export interface ClienteMotRest {
    * que alguien haya dicho que sí a propósito.
    */
   respaldo_hasta?: number;
+  /**
+   * Cómo vive el restaurante: app (Hub en la caja), ambas (Hub + web por el
+   * túnel) o nube (sin Hub, datos cifrados en Supabase). Ausente = app. Viaja
+   * firmada en la licencia; aquí es la decisión de Central. Ver `acceso-web.ts`.
+   */
+  modalidad?: ModalidadLocal;
+  /** La clave con que entra por la web («RODIZIO»). No es secreta. */
+  clave_web?: string;
   /** Notas de MOTRAE. Nunca las ve el restaurante. */
   notas?: string;
 }

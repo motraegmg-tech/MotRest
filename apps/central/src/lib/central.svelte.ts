@@ -41,6 +41,21 @@ import {
   totalPagadoPor,
   uuidv7,
   vencimientoElegible,
+  abrirSobre,
+  cambioDeModalidadPermitido,
+  claveRestauranteValida,
+  contrasenaWebAceptable,
+  correoWebDe,
+  envolverClaveRemota,
+  esPublicaDeSobre,
+  generarClaveRemota,
+  generarContrasenaWeb,
+  generarParDeSobre,
+  normalizarClaveRestaurante,
+  type ModalidadLocal,
+  type ModalidadWeb,
+  type ParDeSobre,
+  type SecretoAccesoWeb,
   PUESTO_RESPONSABLE,
   USUARIO_RESPONSABLE_ID,
   type Centavos,
@@ -160,6 +175,10 @@ export interface Secretos {
   nube_url?: string;
   /** La dirección del portal de autofactura (1.5.6). No es secreta. */
   portal_autofactura?: string;
+  /** La dirección de MotRest en la web (1.6.0). No es secreta. */
+  web_url?: string;
+  /** De cada acceso web, solo lo que se puede enseñar: ni clave remota ni contraseña. */
+  accesos_web?: Record<string, { version: number; cambiada_por_restaurante_ts?: number }>;
   /** Cuándo se sacó el último respaldo portátil de las llaves. */
   ultimo_respaldo_ts?: number;
   /**
@@ -234,6 +253,24 @@ interface SecretosProtegidos {
    * abrirse, y eso es justo lo contrario de para lo que existen.
    */
   claves_respaldo?: Record<string, string>;
+  /**
+   * La dirección de MotRest en la web (1.6.0). No es secreta: se enseña para
+   * dársela al restaurante junto con su clave y su contraseña.
+   */
+  web_url?: string;
+  /**
+   * El buzón de Central (X25519). Cuando el propietario cambia la contraseña
+   * web desde su restaurante, se la manda sellada con la pública de este par;
+   * la privada solo vive aquí, en DPAPI. La pública viaja firmada en la licencia.
+   */
+  buzon_central?: ParDeSobre;
+  /**
+   * El acceso web de cada restaurante: su clave remota y su contraseña.
+   *
+   * LA CONTRASEÑA SE GUARDA, y es a propósito: Gonzalo pidió poder verla siempre
+   * desde Central. Vive con las privadas, bajo DPAPI, y nunca en la cartera.
+   */
+  accesos_web?: Record<string, AccesoWebProtegido>;
   /** Impide que un reloj atrasado repita un `publicado_ts`. */
   ultimo_publicado_ts?: number;
   /** Cuándo se sacó por última vez un respaldo que abre fuera de esta máquina. */
@@ -244,6 +281,47 @@ interface ResponsableProtegido {
   provision_id: string;
   credencial: Credencial;
 }
+
+/** Lo secreto del acceso web de un restaurante. Solo en DPAPI. */
+interface AccesoWebProtegido {
+  /** 32 bytes base64url. Abre el túnel y cifra los datos en la nube. No cambia. */
+  clave_remota: string;
+  /** La contraseña vigente, para que Gonzalo la pueda ver. */
+  contrasena: string;
+  /** Sube con cada cambio de contraseña, igual que en `accesos_web`. */
+  version: number;
+  /** El usuario de Supabase Auth del restaurante. */
+  usuario_id: string;
+  /** Si la última la eligió el propietario, cuándo. */
+  cambiada_por_restaurante_ts?: number;
+}
+
+function esAccesosWebProtegidos(valor: unknown): valor is Record<string, AccesoWebProtegido> {
+  if (!valor || typeof valor !== "object" || Array.isArray(valor)) return false;
+  return Object.values(valor).every((a) => {
+    const d = a as Partial<AccesoWebProtegido> | null;
+    return (
+      !!d &&
+      typeof d.clave_remota === "string" &&
+      typeof d.contrasena === "string" &&
+      typeof d.version === "number" &&
+      typeof d.usuario_id === "string"
+    );
+  });
+}
+
+/** Lo que la interfaz puede saber del acceso web de un local, sin secretos. */
+export interface EstadoAccesoWeb {
+  modalidad: ModalidadLocal;
+  clave?: string;
+  configurado: boolean;
+  version?: number;
+  cambiada_por_restaurante_ts?: number;
+}
+
+export type ResultadoAccesoWeb =
+  | { ok: true; avisos: string[] }
+  | { ok: false; error: string };
 
 interface SecretosLegados {
   licencias?: string;
@@ -340,6 +418,20 @@ function vistaDe(secretos: SecretosProtegidos): Secretos {
     ...(secretos.soporte_fijado_ts ? { soporte_fijado_ts: secretos.soporte_fijado_ts } : {}),
     ...(secretos.nube_url ? { nube_url: secretos.nube_url } : {}),
     ...(secretos.portal_autofactura ? { portal_autofactura: secretos.portal_autofactura } : {}),
+    ...(secretos.web_url ? { web_url: secretos.web_url } : {}),
+    ...(secretos.accesos_web
+      ? {
+          accesos_web: Object.fromEntries(
+            Object.entries(secretos.accesos_web).map(([id, a]) => [
+              id,
+              {
+                version: a.version,
+                ...(a.cambiada_por_restaurante_ts ? { cambiada_por_restaurante_ts: a.cambiada_por_restaurante_ts } : {}),
+              },
+            ]),
+          ),
+        }
+      : {}),
     ...(secretos.ultimo_respaldo_ts ? { ultimo_respaldo_ts: secretos.ultimo_respaldo_ts } : {}),
     ...(secretos.facturapi_usuario
       ? { facturapi: { termina_en: terminacion(secretos.facturapi_usuario) } }
@@ -435,7 +527,11 @@ function decodificarSecretos(texto: string): SecretosProtegidos | null {
       (valor.nube_servicio !== undefined && typeof valor.nube_servicio !== "string") ||
       (valor.portal_autofactura !== undefined && typeof valor.portal_autofactura !== "string") ||
       (valor.facturapi_usuario !== undefined && typeof valor.facturapi_usuario !== "string") ||
-      (valor.responsables !== undefined && !esResponsablesProtegidos(valor.responsables))) {
+      (valor.responsables !== undefined && !esResponsablesProtegidos(valor.responsables)) ||
+      (valor.web_url !== undefined && typeof valor.web_url !== "string") ||
+      (valor.buzon_central !== undefined &&
+        (typeof valor.buzon_central?.publica !== "string" || typeof valor.buzon_central?.privada !== "string")) ||
+      (valor.accesos_web !== undefined && !esAccesosWebProtegidos(valor.accesos_web))) {
       return null;
     }
     return valor as SecretosProtegidos;
@@ -1320,6 +1416,21 @@ export class StoreCentral {
             }
           : {}),
         /*
+         * La modalidad (1.6.0), y con ella la pública del buzón de Central.
+         *
+         * Solo si el acceso web está configurado de verdad: una licencia que dice
+         * «ambas» sin clave remota en el Hub abriría un túnel que nadie puede
+         * usar, y una «nube» sin fila en `accesos_web` no deja entrar a nadie.
+         */
+        ...(this.modalidadWebDe(cliente) && this.protegidos.buzon_central
+          ? {
+              web: {
+                modalidad: this.modalidadWebDe(cliente)!,
+                buzon_central: this.protegidos.buzon_central.publica,
+              },
+            }
+          : {}),
+        /*
          * El permiso de mudanza, si está vigente al emitir.
          *
          * Se copia con su fecha: la licencia es el documento que lo autoriza y
@@ -2182,6 +2293,13 @@ export class StoreCentral {
       escribir(LLAVE_SECRETOS_DE_LOCALES, this.secretosDeLocales);
       this.ultimaConsultaPulsos = Date.now();
       this.errorPulsos = "";
+      /*
+       * De paso, las contraseñas web que los propietarios cambiaron desde su
+       * restaurante (1.6.0). Gonzalo pidió verlas siempre aquí; sin esto, la de
+       * «Ver» se quedaría en la última que generó Central. No se espera: un fallo
+       * aquí no tiene por qué ensuciar el estado de los pulsos.
+       */
+      void this.recogerContrasenasDelRestaurante();
       return { ok: true, total: leidos };
     } catch (causa) {
       return this.falloDePulsos(`No se pudo hablar con la nube: ${String(causa)}`);
@@ -2710,7 +2828,7 @@ export class StoreCentral {
    * todavía no se hubiera recogido, y limpia las tres marcas de la vez anterior
    * —una llave nueva no hereda el «aplicada» ni el error de la vieja—.
    */
-  private async depositarSecreto(publica: string, secreto: Secreto): Promise<Resultado> {
+  private async depositarSecreto(publica: string, secreto: Secreto | SecretoAccesoWeb): Promise<Resultado> {
     let sobre: Sobre;
     try {
       sobre = await cerrarSobre(publica, JSON.stringify(secreto));
@@ -3145,6 +3263,408 @@ export class StoreCentral {
     } catch (causa) {
       return { ok: false, error: `Se guardó aquí, pero no se pudo hablar con la nube: ${String(causa)}` };
     }
+  }
+
+  // --- MotRest en la web (1.6.0) --------------------------------------------------------
+  //
+  // Decisiones de Gonzalo (23-sep-2026): cada restaurante vive en modalidad app,
+  // ambas o nube; entra por la web con su CLAVE y una CONTRASEÑA; la contraseña
+  // la cambian Central y el propietario, y Gonzalo la puede ver aquí siempre.
+  //
+  // Lo que Central guarda (DPAPI): la clave remota —abre el túnel y cifra los
+  // datos en la nube— y la contraseña. Lo que deja en la nube: la clave remota
+  // ENVUELTA con la contraseña, que la nube no puede abrir.
+
+  /** La modalidad web de un local, solo si su acceso está configurado de verdad. */
+  private modalidadWebDe(cliente: ClienteMotRest): ModalidadWeb | null {
+    const m = cliente.modalidad;
+    return (m === "ambas" || m === "nube") && this.protegidos.accesos_web?.[cliente.id] ? m : null;
+  }
+
+  /** Lo que la pantalla puede saber del acceso web de un local. Sin secretos. */
+  estadoAccesoWeb(sucursalId: string): EstadoAccesoWeb {
+    const cliente = this.clientes.find((c) => c.id === sucursalId);
+    const vista = this.secretos.accesos_web?.[sucursalId];
+    return {
+      modalidad: cliente?.modalidad ?? "app",
+      ...(cliente?.clave_web ? { clave: cliente.clave_web } : {}),
+      configurado: Boolean(vista),
+      ...(vista ? { version: vista.version } : {}),
+      ...(vista?.cambiada_por_restaurante_ts ? { cambiada_por_restaurante_ts: vista.cambiada_por_restaurante_ts } : {}),
+    };
+  }
+
+  /**
+   * La contraseña web vigente, para enseñársela a Gonzalo con «Ver».
+   *
+   * Se pide cada vez y no vive en ningún `$state`: así no queda pintada en la
+   * pantalla ni en las herramientas de desarrollo cuando nadie la ha pedido.
+   */
+  verContrasenaWeb(sucursalId: string): string | null {
+    return this.protegidos.accesos_web?.[sucursalId]?.contrasena ?? null;
+  }
+
+  /** La dirección de la web que se le da al restaurante. */
+  async guardarDireccionWeb(direccion: string): Promise<Resultado> {
+    const limpia = direccion.trim().replace(/[/]+$/, "");
+    if (!/^https:[/][/][^\s/@]+([/][^\s]*)?$/i.test(limpia)) {
+      return { ok: false, error: "La dirección de la web tiene que empezar con https://" };
+    }
+    return this.reemplazarProtegidos({ ...this.protegidos, web_url: limpia });
+  }
+
+  /** El buzón de Central: se crea la primera vez que hace falta y no cambia. */
+  private async asegurarBuzonCentral(): Promise<{ ok: true } | { ok: false; error: string }> {
+    if (this.protegidos.buzon_central && esPublicaDeSobre(this.protegidos.buzon_central.publica)) {
+      return { ok: true };
+    }
+    if (!(await haySobres())) return { ok: false, error: SIN_SOBRES };
+    const par = await generarParDeSobre();
+    return this.reemplazarProtegidos({ ...this.protegidos, buzon_central: par });
+  }
+
+  /** Una llamada a la nube que devuelve error legible en vez de lanzar. */
+  private async enNube(
+    ruta: string,
+    opciones: Parameters<typeof peticionNube>[3] = {},
+  ): Promise<{ ok: true; cuerpo: string; estado: number } | { ok: false; error: string; estado?: number }> {
+    const nube = this.nube();
+    if (!nube) return { ok: false, error: "Falta configurar la nube en Llaves (URL y llave de servicio)" };
+    try {
+      const r = await peticionNube(nube.url, nube.servicio, ruta, opciones);
+      if (r.estado >= 300) return { ok: false, error: `La nube respondió ${r.estado}: ${r.cuerpo}`, estado: r.estado };
+      return { ok: true, cuerpo: r.cuerpo, estado: r.estado };
+    } catch (causa) {
+      return { ok: false, error: `No se pudo hablar con la nube: ${String(causa)}` };
+    }
+  }
+
+  /**
+   * Crea (o recupera) el usuario web del restaurante con esta contraseña.
+   *
+   * Idempotente como `altaEnLaNube`: si ya existía —un reintento, o un acceso
+   * que se apagó y se vuelve a encender— se le pone la contraseña, se le quita
+   * la suspensión y se le reafirma la sucursal.
+   */
+  private async usuarioWeb(
+    sucursalId: string,
+    contrasena: string,
+  ): Promise<{ ok: true; usuario_id: string } | { ok: false; error: string }> {
+    const correo = correoWebDe(sucursalId);
+    const alta = await this.enNube("/auth/v1/admin/users", {
+      metodo: "POST",
+      cuerpo: JSON.stringify({
+        email: correo,
+        password: contrasena,
+        email_confirm: true,
+        // `sucursal_web` y NO `sucursal_id`: con este último heredaría los
+        // permisos del Hub en todas las tablas.
+        app_metadata: { sucursal_web: sucursalId },
+      }),
+    });
+    if (alta.ok) {
+      try {
+        const id = (JSON.parse(alta.cuerpo) as { id?: string }).id;
+        if (id) return { ok: true, usuario_id: id };
+      } catch {
+        /* se busca abajo */
+      }
+    } else if (!/already.*registered|already.*exists|email_exists/i.test(alta.error)) {
+      return { ok: false, error: `No se pudo crear el acceso web: ${alta.error}` };
+    }
+
+    const busqueda = await this.enNube(`/auth/v1/admin/users?filter=${encodeURIComponent(correo)}`);
+    if (!busqueda.ok) return { ok: false, error: busqueda.error };
+    let id = "";
+    try {
+      const datos = JSON.parse(busqueda.cuerpo) as { users?: { id?: string; email?: string }[] };
+      id = datos.users?.find((u) => u.email?.toLowerCase() === correo.toLowerCase())?.id ?? "";
+    } catch {
+      return { ok: false, error: "La nube contestó algo que no se pudo leer al buscar el acceso web" };
+    }
+    if (!id) return { ok: false, error: "El acceso web ya existe en la nube pero no aparece al buscarlo" };
+
+    const cambio = await this.enNube(`/auth/v1/admin/users/${id}`, {
+      metodo: "PUT",
+      cuerpo: JSON.stringify({
+        password: contrasena,
+        app_metadata: { sucursal_web: sucursalId },
+        ban_duration: "none",
+      }),
+    });
+    if (!cambio.ok) return { ok: false, error: `No se pudo actualizar el acceso web: ${cambio.error}` };
+    return { ok: true, usuario_id: id };
+  }
+
+  /**
+   * Fija la modalidad de un restaurante y, si es web, su clave.
+   *
+   * La primera vez genera la clave remota y la contraseña; después las
+   * conserva (cambiar la clave corta o pasar de app a ambas no cambia la
+   * contraseña que el restaurante ya se sabe).
+   *
+   * LA MODALIDAD VIAJA EN LA LICENCIA. Se avisa de que hay que emitirla: sin
+   * eso el Hub no abre el túnel, aunque la nube ya esté lista.
+   */
+  async configurarAccesoWeb(
+    sucursalId: string,
+    cambios: { modalidad: ModalidadLocal; clave?: string },
+  ): Promise<ResultadoAccesoWeb> {
+    const cliente = this.clientes.find((c) => c.id === sucursalId);
+    if (!cliente) return { ok: false, error: "No existe ese local" };
+
+    const actual = cliente.modalidad ?? "app";
+    /*
+     * Un local al que nunca se le emitió licencia no tiene datos en ningún
+     * lado: se le puede poner cualquier modalidad. Después, entrar o salir de
+     * la nube es una mudanza de datos que todavía no existe.
+     */
+    if (cliente.licencia) {
+      const permitido = cambioDeModalidadPermitido(actual, cambios.modalidad);
+      if (!permitido.ok) return permitido;
+    }
+
+    if (cambios.modalidad === "app") {
+      if (actual !== "app" && this.protegidos.accesos_web?.[sucursalId]) {
+        const apagado = await this.apagarAccesoWeb(sucursalId);
+        if (!apagado.ok) return apagado;
+      }
+      this.actualizar(sucursalId, { modalidad: "app" });
+      return {
+        ok: true,
+        avisos: actual === "app" ? [] : ["El acceso por internet quedó apagado. Emite la licencia para que el Hub lo sepa."],
+      };
+    }
+
+    if (!this.nube()) return { ok: false, error: "Falta configurar la nube en Llaves (URL y llave de servicio)" };
+
+    const clave = normalizarClaveRestaurante(cambios.clave ?? cliente.clave_web ?? this.proponerClave(sucursalId));
+    if (!claveRestauranteValida(clave)) {
+      return { ok: false, error: "La clave va en mayúsculas, de 3 a 20 letras, números o guiones." };
+    }
+
+    const buzon = await this.asegurarBuzonCentral();
+    if (!buzon.ok) return buzon;
+
+    const previo = this.protegidos.accesos_web?.[sucursalId];
+    const claveRemota = previo?.clave_remota ?? generarClaveRemota();
+    const contrasena = previo?.contrasena ?? generarContrasenaWeb();
+    const version = previo?.version ?? 1;
+
+    const usuario = await this.usuarioWeb(sucursalId, contrasena);
+    if (!usuario.ok) return usuario;
+
+    // La ficha del padrón: normalmente ya la dejó el alta, pero un local en
+    // nube no tiene Hub que la necesite antes, y sin ella nada se puede enlazar.
+    const ficha = await this.enNube("/rest/v1/sucursales", {
+      metodo: "POST",
+      prefer: "resolution=merge-duplicates,return=minimal",
+      cuerpo: JSON.stringify({ sucursal_id: sucursalId, nombre: cliente.nombre.trim() }),
+    });
+    if (!ficha.ok) return { ok: false, error: `No se pudo registrar el local en la nube: ${ficha.error}` };
+
+    const envoltura = await envolverClaveRemota(claveRemota, contrasena);
+    const fila = await this.enNube("/rest/v1/accesos_web?on_conflict=sucursal_id", {
+      metodo: "POST",
+      prefer: "resolution=merge-duplicates,return=minimal",
+      cuerpo: JSON.stringify({
+        sucursal_id: sucursalId,
+        clave,
+        modalidad: cambios.modalidad,
+        usuario_id: usuario.usuario_id,
+        envoltura,
+        version,
+        activo: true,
+        actualizado_ts: new Date().toISOString(),
+      }),
+    });
+    if (!fila.ok) {
+      return {
+        ok: false,
+        error: fila.estado === 409 ? `La clave ${clave} ya la tiene otro restaurante.` : fila.error,
+      };
+    }
+
+    /*
+     * Lo secreto se guarda AL FINAL y solo si la nube quedó bien: guardarlo
+     * antes haría creer a Central que el acceso existe cuando nadie puede entrar.
+     */
+    const guardado = await this.reemplazarProtegidos({
+      ...this.protegidos,
+      accesos_web: {
+        ...(this.protegidos.accesos_web ?? {}),
+        [sucursalId]: {
+          clave_remota: claveRemota,
+          contrasena,
+          version,
+          usuario_id: usuario.usuario_id,
+          ...(previo?.cambiada_por_restaurante_ts ? { cambiada_por_restaurante_ts: previo.cambiada_por_restaurante_ts } : {}),
+        },
+      },
+    });
+    if (!guardado.ok) return guardado;
+    this.actualizar(sucursalId, { modalidad: cambios.modalidad, clave_web: clave });
+
+    const avisos: string[] = [];
+    if (cambios.modalidad !== actual) {
+      avisos.push("Emite la licencia de este restaurante: la modalidad viaja dentro de ella.");
+    }
+    if (cambios.modalidad === "ambas") {
+      const enviado = await this.enviarAccesoWebAlHub(sucursalId);
+      if (!enviado.ok) avisos.push(`La llave del túnel no llegó todavía al Hub: ${enviado.error}`);
+    }
+    return { ok: true, avisos };
+  }
+
+  /**
+   * Le manda al Hub la clave remota, en su sobre. Sin ella el Hub no puede
+   * descifrar lo que llega por el túnel. Se puede repetir sin daño.
+   */
+  async enviarAccesoWebAlHub(sucursalId: string): Promise<Resultado> {
+    const previo = this.protegidos.accesos_web?.[sucursalId];
+    if (!previo) return { ok: false, error: "Este restaurante no tiene acceso web" };
+    const preparado = await this.prepararEnvio(sucursalId);
+    if (!preparado.ok) return preparado;
+    const secreto: SecretoAccesoWeb = {
+      clase: "acceso_web",
+      sucursal_id: sucursalId,
+      emitido_ts: Date.now(),
+      origen: "central",
+      clave_remota: previo.clave_remota,
+      version: previo.version,
+    };
+    return this.depositarSecreto(preparado.publica, secreto);
+  }
+
+  /**
+   * Una contraseña nueva, generada aquí. Cierra las sesiones web abiertas.
+   *
+   * Es también el arreglo de un cambio a medias desde el restaurante: reescribe
+   * a la vez la contraseña de Auth y la envoltura, que tienen que coincidir.
+   */
+  async regenerarContrasenaWeb(sucursalId: string): Promise<ResultadoAccesoWeb> {
+    const previo = this.protegidos.accesos_web?.[sucursalId];
+    if (!previo) return { ok: false, error: "Este restaurante no tiene acceso web" };
+    return this.cambiarContrasenaWebDesdeCentral(sucursalId, generarContrasenaWeb());
+  }
+
+  /** Gonzalo escribe una contraseña a mano (la pide el restaurante por teléfono). */
+  async fijarContrasenaWeb(sucursalId: string, contrasena: string): Promise<ResultadoAccesoWeb> {
+    const aceptable = contrasenaWebAceptable(contrasena);
+    if (!aceptable.ok) return aceptable;
+    return this.cambiarContrasenaWebDesdeCentral(sucursalId, contrasena);
+  }
+
+  private async cambiarContrasenaWebDesdeCentral(sucursalId: string, contrasena: string): Promise<ResultadoAccesoWeb> {
+    const previo = this.protegidos.accesos_web?.[sucursalId];
+    if (!previo) return { ok: false, error: "Este restaurante no tiene acceso web" };
+
+    const cambio = await this.enNube(`/auth/v1/admin/users/${previo.usuario_id}`, {
+      metodo: "PUT",
+      cuerpo: JSON.stringify({ password: contrasena }),
+    });
+    if (!cambio.ok) return { ok: false, error: `No se pudo cambiar la contraseña: ${cambio.error}` };
+
+    const version = previo.version + 1;
+    const envoltura = await envolverClaveRemota(previo.clave_remota, contrasena);
+    const fila = await this.enNube(`/rest/v1/accesos_web?sucursal_id=eq.${encodeURIComponent(sucursalId)}`, {
+      metodo: "PATCH",
+      prefer: "return=minimal",
+      cuerpo: JSON.stringify({
+        envoltura,
+        version,
+        contrasena_para_central: null,
+        cambiada_por_restaurante_ts: null,
+        actualizado_ts: new Date().toISOString(),
+      }),
+    });
+    if (!fila.ok) {
+      return { ok: false, error: `La contraseña cambió pero no su envoltura; vuelve a generarla: ${fila.error}` };
+    }
+    await this.enNube("/rest/v1/rpc/cerrar_sesiones_web", {
+      metodo: "POST",
+      cuerpo: JSON.stringify({ p_usuario: previo.usuario_id }),
+    });
+
+    const { cambiada_por_restaurante_ts: _vieja, ...resto } = previo;
+    const guardado = await this.reemplazarProtegidos({
+      ...this.protegidos,
+      accesos_web: { ...(this.protegidos.accesos_web ?? {}), [sucursalId]: { ...resto, contrasena, version } },
+    });
+    if (!guardado.ok) return guardado;
+
+    const avisos: string[] = [];
+    if (this.clientes.find((c) => c.id === sucursalId)?.modalidad === "ambas") {
+      const enviado = await this.enviarAccesoWebAlHub(sucursalId);
+      if (!enviado.ok) avisos.push(`El Hub se enterará al recibir su próxima señal: ${enviado.error}`);
+    }
+    return { ok: true, avisos };
+  }
+
+  /** Nadie entra, el Hub cierra el túnel. Lo secreto se conserva para volver a encender. */
+  private async apagarAccesoWeb(sucursalId: string): Promise<Resultado> {
+    const previo = this.protegidos.accesos_web?.[sucursalId];
+    if (!previo) return { ok: true };
+    const fila = await this.enNube(`/rest/v1/accesos_web?sucursal_id=eq.${encodeURIComponent(sucursalId)}`, {
+      metodo: "PATCH",
+      prefer: "return=minimal",
+      cuerpo: JSON.stringify({ activo: false, actualizado_ts: new Date().toISOString() }),
+    });
+    if (!fila.ok) return fila;
+    // Suspender el usuario: sin esto, un pase ya emitido seguiría renovándose.
+    await this.enNube(`/auth/v1/admin/users/${previo.usuario_id}`, {
+      metodo: "PUT",
+      cuerpo: JSON.stringify({ ban_duration: "876000h" }),
+    });
+    await this.enNube("/rest/v1/rpc/cerrar_sesiones_web", {
+      metodo: "POST",
+      cuerpo: JSON.stringify({ p_usuario: previo.usuario_id }),
+    });
+    return { ok: true };
+  }
+
+  /**
+   * Recoge las contraseñas que los propietarios cambiaron desde su restaurante.
+   *
+   * Llegan selladas con la pública del buzón de Central; solo esta máquina las
+   * abre. Se aplican solo si la versión es más nueva que la que ya se tenía.
+   */
+  async recogerContrasenasDelRestaurante(): Promise<{ ok: true; recogidas: number } | { ok: false; error: string }> {
+    const buzon = this.protegidos.buzon_central;
+    if (!buzon || !this.protegidos.accesos_web) return { ok: true, recogidas: 0 };
+    const r = await this.enNube(
+      "/rest/v1/accesos_web?select=sucursal_id,version,contrasena_para_central,cambiada_por_restaurante_ts" +
+        "&contrasena_para_central=not.is.null",
+    );
+    if (!r.ok) return r;
+
+    let filas: { sucursal_id?: unknown; version?: unknown; contrasena_para_central?: unknown; cambiada_por_restaurante_ts?: unknown }[];
+    try {
+      filas = JSON.parse(r.cuerpo);
+    } catch {
+      return { ok: false, error: "La nube contestó algo que no se pudo leer" };
+    }
+
+    const accesos = { ...this.protegidos.accesos_web };
+    let recogidas = 0;
+    for (const f of Array.isArray(filas) ? filas : []) {
+      if (typeof f.sucursal_id !== "string" || typeof f.version !== "number") continue;
+      const previo = accesos[f.sucursal_id];
+      if (!previo || f.version <= previo.version) continue;
+      const contrasena = await abrirSobre(f.contrasena_para_central, buzon);
+      if (!contrasena) continue;
+      const cuando = typeof f.cambiada_por_restaurante_ts === "string" ? Date.parse(f.cambiada_por_restaurante_ts) : NaN;
+      accesos[f.sucursal_id] = {
+        ...previo,
+        contrasena,
+        version: f.version,
+        ...(Number.isFinite(cuando) ? { cambiada_por_restaurante_ts: cuando } : {}),
+      };
+      recogidas += 1;
+    }
+    if (recogidas === 0) return { ok: true, recogidas };
+    const guardado = await this.reemplazarProtegidos({ ...this.protegidos, accesos_web: accesos });
+    return guardado.ok ? { ok: true, recogidas } : guardado;
   }
 }
 

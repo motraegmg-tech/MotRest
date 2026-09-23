@@ -16,6 +16,7 @@
    */
   import { untrack } from "svelte";
   import { central } from "../lib/central.svelte";
+  import AccesoWeb from "./AccesoWeb.svelte";
   import { aPesos, pesos, type ClienteMotRest, type Plan } from "@motrest/dominio";
 
   const {
@@ -174,6 +175,14 @@
         {/if}
       </small>
     </label>
+
+    <!--
+      ACCESO POR INTERNET (1.6.0). Se aplica con su propio botón y no con
+      «Guardar»: toca la nube en el acto (usuario, contraseña, túnel), y
+      mezclarlo con corregir un teléfono haría que un error de red en lo uno
+      impidiera guardar lo otro.
+    -->
+    <AccesoWeb {cliente} />
 
     <!--
       MUDANZA A OTRA COMPUTADORA.

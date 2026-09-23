@@ -313,7 +313,14 @@
       >
         <span class="punto {h.estado} {s.cobro}"></span>
         <span class="txt">
-          <b>{c.nombre}</b>
+          <b>
+            {c.nombre}
+            {#if c.modalidad === "nube" || c.modalidad === "ambas"}
+              <span class="modalidad" title={c.modalidad === "nube" ? "Sin computadora: datos en la nube" : "Con computadora y acceso por la web"}>
+                {c.modalidad === "nube" ? "Nube" : "Web"}
+              </span>
+            {/if}
+          </b>
           <em>{ETIQUETA_COBRO[s.cobro]}</em>
         </span>
       </button>
@@ -656,7 +663,7 @@
 {#if dandoAlta}
   <Alta
     onCerrar={() => (dandoAlta = false)}
-    onCreado={(id, credenciales, avisoNube) => {
+    onCreado={(id, credenciales, avisoNube, avisoWeb) => {
       seleccionado = id;
       dandoAlta = false;
       mostrarAccesoResponsable(id, credenciales);
@@ -670,6 +677,9 @@
         ? `Restaurante creado, pero NO quedó enlazado con la nube: ${avisoNube} ` +
           "Sus licencias no le llegarán solas. Reintenta con «Enlazar con la nube»."
         : "";
+      if (avisoWeb) {
+        aviso = `${aviso} El acceso por internet no quedó configurado: ${avisoWeb} Reintenta desde «Editar datos».`.trim();
+      }
     }}
   />
 {/if}
@@ -720,6 +730,17 @@
 {/if}
 
 <style>
+  .modalidad {
+    display: inline-block;
+    margin-left: 0.3rem;
+    padding: 0.05rem 0.4rem;
+    border-radius: 999px;
+    font-size: 0.66rem;
+    font-weight: 600;
+    vertical-align: middle;
+    color: var(--acento);
+    border: 1px solid var(--acento);
+  }
   .contenido {
     display: grid;
     grid-template-columns: 17rem 1fr;

@@ -11,7 +11,7 @@
    * ya está en el restaurante con el archivo pegado y no pasa nada.
    */
   import { central, type CredencialesResponsableIniciales } from "../lib/central.svelte";
-  import { pesos, type Plan } from "@motrest/dominio";
+  import { pesos, type ModalidadLocal, type Plan } from "@motrest/dominio";
   import { idDeSucursal } from "@motrest/dominio";
 
   const {
@@ -23,6 +23,7 @@
       id: string,
       credenciales: CredencialesResponsableIniciales,
       avisoNube?: string,
+      avisoWeb?: string,
     ) => void;
   } = $props();
 
@@ -34,6 +35,13 @@
   let plan = $state<Plan>("mensual");
   let cuota = $state(1500);
   let idManual = $state("");
+  /*
+   * Cómo va a trabajar (1.6.0). Se decide aquí porque a un local sin licencia
+   * emitida se le puede poner cualquier modalidad; después, entrar o salir de
+   * la nube es una mudanza de datos.
+   */
+  let modalidad = $state<ModalidadLocal>("app");
+  let claveWeb = $state("");
   let error = $state("");
   let guardando = $state(false);
 
@@ -67,7 +75,15 @@
        * dice «listo» y deja al local sin poder recibir licencias es el fallo
        * silencioso que esto viene a cerrar.
        */
-      onCreado(r.cliente.id, r.credencialesResponsable, r.avisoNube);
+      let avisoWeb: string | undefined;
+      if (modalidad !== "app") {
+        const web = await central.configurarAccesoWeb(r.cliente.id, {
+          modalidad,
+          ...(claveWeb.trim() ? { clave: claveWeb } : {}),
+        });
+        avisoWeb = web.ok ? undefined : web.error;
+      }
+      onCreado(r.cliente.id, r.credencialesResponsable, r.avisoNube, avisoWeb);
     } finally {
       guardando = false;
     }
@@ -141,6 +157,25 @@
       </label>
     </div>
 
+    <fieldset class="modalidad">
+      <legend>Cómo va a trabajar</legend>
+      <label class="radio"><input type="radio" bind:group={modalidad} value="app" /> <b>App</b> — con su computadora en el local</label>
+      <label class="radio"><input type="radio" bind:group={modalidad} value="ambas" /> <b>Ambas</b> — computadora y también por la web</label>
+      <label class="radio"><input type="radio" bind:group={modalidad} value="nube" /> <b>Nube</b> — sin computadora, todo por la web</label>
+      {#if modalidad !== "app"}
+        <label>
+          Clave del restaurante <em>(opcional)</em>
+          <input
+            bind:value={claveWeb}
+            placeholder="Se propone sola con el nombre"
+            maxlength="20"
+            oninput={() => (claveWeb = claveWeb.toUpperCase())}
+          />
+          <small>La contraseña se genera sola; la ves en la ficha del local con «Ver».</small>
+        </label>
+      {/if}
+    </fieldset>
+
     {#if error}
       <p class="error">{error}</p>
     {/if}
@@ -160,6 +195,27 @@
 </div>
 
 <style>
+  .modalidad {
+    border: 1px dashed var(--borde);
+    border-radius: var(--r-sm);
+    padding: 0.5rem 0.7rem 0.6rem;
+    margin: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0.35rem;
+  }
+  .modalidad legend {
+    font-size: 0.78rem;
+    font-weight: 600;
+    color: var(--pizarra);
+    padding: 0 0.25rem;
+  }
+  .radio {
+    flex-direction: row !important;
+    align-items: center;
+    gap: 0.4rem !important;
+    font-weight: 400 !important;
+  }
   .fondo {
     position: fixed;
     inset: 0;
