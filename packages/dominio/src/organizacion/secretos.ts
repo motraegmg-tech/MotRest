@@ -139,6 +139,45 @@ export function normalizarContrasenaGmail(texto: string): string | null {
   return /^[a-zA-Z]{16}$/.test(limpia) ? limpia.toLowerCase() : null;
 }
 
+/**
+ * El acceso web del restaurante (1.6.0), en el mismo buzón pero APARTE.
+ *
+ * No entra en `Secreto` ni en `ClaseSecreto` a propósito: esos alimentan las
+ * pantallas de FacturAPI y Gmail, el semáforo de Central y lo que se captura
+ * desde la caja. La clave remota no se enseña, no se captura a mano y no tiene
+ * «terminación»: solo la manda Central, y el Hub la usa para abrir el túnel.
+ *
+ * `version` sube cada vez que cambia la contraseña web. Al verla subir, el Hub
+ * corta las sesiones web que tenía abiertas.
+ */
+export interface SecretoAccesoWeb {
+  clase: "acceso_web";
+  sucursal_id: string;
+  emitido_ts: number;
+  origen: "central";
+  clave_remota: string;
+  version: number;
+}
+
+/** Todo lo que puede llegar en un sobre del buzón. */
+export type ClaseBuzon = ClaseSecreto | "acceso_web";
+
+export function esSecretoAccesoWeb(valor: unknown): valor is SecretoAccesoWeb {
+  if (!valor || typeof valor !== "object") return false;
+  const s = valor as Record<string, unknown>;
+  return (
+    s.clase === "acceso_web" &&
+    typeof s.sucursal_id === "string" &&
+    typeof s.emitido_ts === "number" &&
+    s.origen === "central" &&
+    typeof s.clave_remota === "string" &&
+    /^[A-Za-z0-9_-]{43}$/.test(s.clave_remota) &&
+    typeof s.version === "number" &&
+    Number.isInteger(s.version) &&
+    s.version >= 1
+  );
+}
+
 /** Revisa un secreto recién abierto antes de darlo por bueno. */
 export function esSecreto(valor: unknown): valor is Secreto {
   if (!valor || typeof valor !== "object") return false;

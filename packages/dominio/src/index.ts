@@ -98,6 +98,7 @@ export * from "./organizacion/central.js";
 export * from "./organizacion/api-publica.js";
 export * from "./organizacion/socios.js";
 export * from "./organizacion/secretos.js";
+export * from "./organizacion/acceso-web.js";
 
 // Fiscal (CFDI 4.0)
 export * from "./fiscal/claves.js";

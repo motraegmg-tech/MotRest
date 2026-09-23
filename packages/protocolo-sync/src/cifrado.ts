@@ -259,6 +259,44 @@ export async function derivarSecretoFotos(claveLocal: string): Promise<string> {
   return aBase64Url(new Uint8Array(bits));
 }
 
+/**
+ * La llave con que se cifran los datos de un restaurante en modo «nube» (1.6.0).
+ *
+ * Sale de la CLAVE REMOTA —no de la clave del local de la LAN, que en la nube no
+ * existe— con su propia etiqueta HKDF, separada de las del túnel: lo que se
+ * guarda en Supabase y lo que viaja por el canal son dos usos distintos y no
+ * comparten llave.
+ *
+ * Supabase guarda solo lo que sale de aquí. Sin la contraseña del restaurante no
+ * hay clave remota, y sin clave remota no hay forma de leer ni una venta.
+ */
+export async function derivarLlaveDatosNube(claveRemota: string): Promise<CryptoKey> {
+  if (!claveValida(claveRemota)) {
+    throw new Error("La clave remota no tiene la forma esperada");
+  }
+
+  const material = await crypto.subtle.importKey(
+    "raw",
+    deBase64Url(claveRemota) as BufferSource,
+    "HKDF",
+    false,
+    ["deriveKey"],
+  );
+
+  return crypto.subtle.deriveKey(
+    {
+      name: "HKDF",
+      hash: "SHA-256",
+      salt: new Uint8Array(0),
+      info: new TextEncoder().encode("motrest:nube:datos:v1"),
+    },
+    material,
+    { name: "AES-GCM", length: 256 },
+    false,
+    ["encrypt", "decrypt"],
+  );
+}
+
 // --- Sobre cifrado -----------------------------------------------------------------------
 
 /**

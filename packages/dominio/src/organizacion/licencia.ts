@@ -29,6 +29,7 @@
 import { contenidoFirmableDe, firmar, verificar } from "../comun/firma.js";
 import type { ID } from "../comun/ids.js";
 import type { Credencial } from "../identidad/credenciales.js";
+import type { WebLicenciada } from "./acceso-web.js";
 
 export type Plan = "prueba" | "mensual" | "anual";
 
@@ -177,6 +178,14 @@ export interface Licencia {
    * existir.
    */
   nube?: NubeLicenciada;
+  /**
+   * Acceso por internet (1.6.0): la modalidad del local y el buzón de Central.
+   *
+   * Ausente = modalidad «app», la de siempre: el Hub no abre túnel y el
+   * restaurante no tiene entrada web. Ver `acceso-web.ts`. No lleva secretos,
+   * porque los Hubs anteriores a la 1.6.0 lo reparten a las tabletas sin filtrar.
+   */
+  web?: WebLicenciada;
   /**
    * Permiso para restaurar el respaldo de este local en un equipo nuevo.
    *

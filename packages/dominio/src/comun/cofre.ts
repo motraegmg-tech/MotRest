@@ -74,15 +74,25 @@ async function llaveDe(contrasena: string, sal: Uint8Array, iteraciones: number)
   );
 }
 
-/** Cierra un texto en un cofre. La contraseña no se guarda en ninguna parte. */
+/**
+ * Cierra un texto en un cofre. La contraseña no se guarda en ninguna parte.
+ *
+ * `minimo` existe para el acceso web (1.6.0), que envuelve la clave remota de un
+ * restaurante con SU contraseña de entrada: esa se dicta por teléfono y no abre
+ * la firma de nada, así que no se le exigen los 16 caracteres del respaldo de
+ * Central. Sin decirlo, el mínimo sigue siendo el de siempre.
+ */
 export async function cerrarCofre(
   contenido: string,
   contrasena: string,
   ahora = Date.now(),
+  minimo = MINIMO_CONTRASENA_COFRE,
 ): Promise<Cofre> {
-  if (contrasena.length < MINIMO_CONTRASENA_COFRE) {
+  if (contrasena.length < minimo) {
     throw new Error(
-      `La contraseña del respaldo necesita al menos ${MINIMO_CONTRASENA_COFRE} caracteres: abre la firma de todos los restaurantes`,
+      minimo === MINIMO_CONTRASENA_COFRE
+        ? `La contraseña del respaldo necesita al menos ${MINIMO_CONTRASENA_COFRE} caracteres: abre la firma de todos los restaurantes`
+        : `La contraseña necesita al menos ${minimo} caracteres`,
     );
   }
 
