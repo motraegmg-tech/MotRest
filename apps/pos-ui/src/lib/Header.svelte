@@ -95,8 +95,8 @@
 
   Con los rótulos completos solo cabían el módulo y el local, y el usuario y
   «Cerrar sesión» quedaban fuera de la pantalla. En teléfono van el icono del
-  módulo, el semáforo del enlace y el gafete del usuario. El nombre del local
-  se muda al menú de las tres rayas, y «Cerrar sesión» al menú del gafete.
+  módulo, el semáforo del enlace y la silueta del usuario. El nombre del local
+  se muda al menú de las tres rayas, y «Cerrar sesión» al menú de la silueta.
 -->
 <header class="hd" class:telefono={orientacion.telefono}>
   {#if orientacion.telefono && moduloActual}
@@ -151,7 +151,7 @@
       aria-label={orientacion.telefono ? `Usuario: ${usuario?.nombre ?? "sin sesión"}` : undefined}
     >
       {#if orientacion.telefono}
-        <Icono nombre="personal" tam={28} color />
+        <Icono nombre="clientes" tam={28} color />
       {:else}
         <span class="av">{usuario?.iniciales ?? "?"}</span>
         <span class="quien">
@@ -228,7 +228,7 @@
     guardados en el log del dispositivo en el momento en que ocurrieron. Las
     mesas abiertas siguen abiertas para el que entre después.
 
-    En teléfono no hay sitio en la barra y va al final del menú del gafete.
+    En teléfono no hay sitio en la barra y va al final del menú de la silueta.
   -->
   {#if !orientacion.telefono}
     <button class="salir" onclick={cerrarSesion}>Cerrar sesión</button>
@@ -534,8 +534,15 @@
       transition: none;
     }
   }
+  /*
+   * El usuario es la silueta de Clientes, pero en el naranja de MotRest y no en
+   * su azul (Gonzalo, 24-sep-2026). Se retiñe con la variable del tono, que es
+   * de lo que sale el relleno: solo aquí dentro, el icono del módulo Clientes
+   * sigue azul en el menú.
+   */
   .hd.telefono .avatar {
     padding: 0.35rem;
+    --i-cielo: var(--acento);
   }
   .yo {
     display: flex;
