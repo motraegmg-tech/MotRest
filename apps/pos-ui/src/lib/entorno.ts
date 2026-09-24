@@ -62,3 +62,17 @@ export function explicacionContextoInseguro(): string {
     ? `Esta terminal se abrió por una dirección sin cifrar, y el navegador no permite verificar contraseñas ni cifrar la conexión así. Ábrela como https://${host}${sufijo} — la primera vez habrá que aceptar el aviso del certificado.`
     : "Este navegador no expone el motor criptográfico, así que no se pueden verificar contraseñas ni cifrar la conexión con el Hub.";
 }
+
+/**
+ * ¿Es la compilación para la web? (MotRest en la web, 1.6.0)
+ *
+ * La misma aplicación se publica en Vercel para los restaurantes en modalidad
+ * «nube» o «ambas». Ahí no hay Hub que la sirva ni QR que la empareje: arranca
+ * en «Entra a tu restaurante» y habla con su local a través de la nube.
+ *
+ * Se decide AL COMPILAR, no al abrir: la caja y las tabletas del salón nunca
+ * cargan el código de la web, y una página de la web no puede fingir ser la caja.
+ */
+export function esWeb(): boolean {
+  return import.meta.env.VITE_MOTREST_WEB === "1";
+}

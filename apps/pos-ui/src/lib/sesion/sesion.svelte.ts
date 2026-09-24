@@ -801,20 +801,43 @@ class Sesion {
    * Un fallo aquí NUNCA puede impedir que la caja abra. Si el Hub no contesta,
    * el local opera igual y las cuentas se revisan de nuevo al siguiente arranque.
    */
+  /**
+   * De dónde sale la licencia COMPLETA cuando no hay caja que la sirva.
+   *
+   * Solo la usa la web en modalidad nube (1.6.0): no hay Hub, así que no hay
+   * `/licencia`; el navegador la lee de la nube y verifica la firma él mismo.
+   * Sin esto, un restaurante en nube no tendría ni a su responsable ni el acceso
+   * de soporte de MOTRAE.
+   */
+  private fuenteLicencia: (() => Promise<{ licencia: Licencia | null; verificada: boolean } | null>) | null = null;
+
+  usarFuenteDeLicencia(
+    fuente: () => Promise<{ licencia: Licencia | null; verificada: boolean } | null>,
+  ): void {
+    this.fuenteLicencia = fuente;
+  }
+
   private async montarCuentasDeLicencia(): Promise<void> {
     /*
-     * Solo en la CAJA. Es el único equipo cuya página sirve el propio Hub, y por
-     * eso el único que lleva `__MOTREST_HUB__` — el mismo marcador que usa la
-     * impresión para saber que puede hablar con el puerto local.
+     * Solo en la CAJA —o en un restaurante en nube, que no tiene caja y cuya
+     * licencia llega por `fuenteLicencia`—. La caja es el único equipo cuya
+     * página sirve el propio Hub, y por eso el único que lleva `__MOTREST_HUB__`
+     * — el mismo marcador que usa la impresión para saber que puede hablar con
+     * el puerto local.
      */
-    if (!esLaCaja()) return;
+    if (!esLaCaja() && !this.fuenteLicencia) return;
 
     try {
-      // Mismo origen: la página de la caja la sirve el Hub.
-      const respuesta = await fetch("/licencia", { signal: AbortSignal.timeout(2500) });
-      if (!respuesta.ok) return;
-
-      const cuerpo = (await respuesta.json()) as { licencia: Licencia | null; verificada: boolean };
+      let cuerpo: { licencia: Licencia | null; verificada: boolean } | null;
+      if (this.fuenteLicencia) {
+        cuerpo = await this.fuenteLicencia();
+        if (!cuerpo) return;
+      } else {
+        // Mismo origen: la página de la caja la sirve el Hub.
+        const respuesta = await fetch("/licencia", { signal: AbortSignal.timeout(2500) });
+        if (!respuesta.ok) return;
+        cuerpo = (await respuesta.json()) as { licencia: Licencia | null; verificada: boolean };
+      }
       const sucursal = cuerpo.licencia?.sucursal_id ?? SUCURSAL_ID;
       this.montarResponsable(cuerpo.licencia, cuerpo.verificada, sucursal);
 

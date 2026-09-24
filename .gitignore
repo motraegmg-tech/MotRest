@@ -3,6 +3,8 @@ node_modules/
 
 # Builds
 dist/
+# La web de MotRest (1.6.0): la compila Vercel, no se sube.
+apps/pos-ui/dist-web/
 build/
 .svelte-kit/
 *.tsbuildinfo

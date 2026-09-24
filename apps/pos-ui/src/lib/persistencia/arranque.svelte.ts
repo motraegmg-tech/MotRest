@@ -300,7 +300,7 @@ class Arranque {
        * alta de propietario en el salón le daría el negocio completo a quien
        * tomara la tablet.
        */
-      sesion.marcarTerminalPrincipal(esLaCaja() || !sync.configurado);
+      sesion.marcarTerminalPrincipal(esLaCaja() || !sync.configurado || sync.esNube);
 
       const guardados = await almacen.eventos.leerTodos();
       const ordenados = [...guardados].sort(compararEventos);

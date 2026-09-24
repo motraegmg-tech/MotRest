@@ -35,10 +35,12 @@
   import Usuarios from "./lib/modulos/admin/Usuarios.svelte";
   import Acceso from "./lib/sesion/Acceso.svelte";
   import AltaResponsable from "./lib/sesion/AltaResponsable.svelte";
+  import EntradaRestaurante from "./lib/sesion/EntradaRestaurante.svelte";
+  import { accesoWeb } from "./lib/web/acceso-web.svelte";
   import DialogoAutorizacion from "./lib/sesion/DialogoAutorizacion.svelte";
   import AvisoActualizacion from "./lib/licencia/AvisoActualizacion.svelte";
   import PantallaBloqueada from "./lib/licencia/PantallaBloqueada.svelte";
-  import { contextoSeguro, explicacionContextoInseguro } from "./lib/entorno";
+  import { contextoSeguro, esWeb, explicacionContextoInseguro } from "./lib/entorno";
   import { arranque } from "./lib/persistencia/arranque.svelte";
   import { autorizacion } from "./lib/sesion/autorizacion.svelte";
   import { inactividad } from "./lib/sesion/inactividad";
@@ -138,7 +140,21 @@
 
 <svelte:window on:keydown={alTeclear} />
 
-{#if arranque.cargando}
+{#if esWeb() && accesoWeb.estado !== "dentro"}
+  <!--
+    La web (1.6.0): antes que nada, a qué restaurante pertenece este navegador.
+    Mientras se revisa una sesión guardada no se enseña el formulario, para que
+    no parpadee en quien ya había entrado.
+  -->
+  {#if accesoWeb.estado === "revisando"}
+    <div class="cargando">
+      <div class="marca">MotRest<span>.</span></div>
+      <p>Abriendo tu restaurante…</p>
+    </div>
+  {:else}
+    <EntradaRestaurante />
+  {/if}
+{:else if arranque.cargando}
   <div class="cargando">
     <div class="marca">MotRest<span>.</span></div>
     <p>Cargando la operación del local…</p>

@@ -8,6 +8,8 @@
   import { local } from "./local.svelte";
   import { sesion } from "./sesion/sesion.svelte";
   import { sync } from "./sync.svelte";
+  import { accesoWeb } from "./web/acceso-web.svelte";
+  import { arranque } from "./persistencia/arranque.svelte";
 
   interface Props {
     onAbrirAcceso: () => void;
@@ -24,6 +26,22 @@
 
   let menuAbierto = $state(false);
   let cambiandoClave = $state(false);
+
+  /*
+   * SALIR DEL RESTAURANTE, solo en la web (1.6.0).
+   *
+   * No es «cerrar sesión»: borra de este dispositivo todo lo del restaurante,
+   * porque una tableta o una computadora prestada no puede quedarse con sus
+   * ventas. Por eso pide confirmación, y avisa si hay algo que todavía no llegó
+   * a la nube o al Hub: eso se perdería.
+   */
+  let confirmandoSalida = $state(false);
+  let sinEnviar = $state(0);
+
+  async function pedirSalida() {
+    sinEnviar = (await arranque.repositorio?.eventos.pendientes(1000))?.length ?? 0;
+    confirmandoSalida = true;
+  }
   const usuario = $derived(sesion.usuarioActual);
   const esPin = $derived(usuario ? sesion.tipoCredencialDe(usuario.id) === "pin" : false);
   const nombreDelLocal = $derived(
@@ -86,6 +104,24 @@
         {#if sesion.puedeVer("admin.bitacora.ver")}
           <button onclick={() => irA("administracion", "bitacora")}>Bitácora</button>
         {/if}
+        {#if accesoWeb.restaurante}
+          {#if !confirmandoSalida}
+            <button onclick={pedirSalida}>Salir de {accesoWeb.restaurante.nombre}</button>
+          {:else}
+            <div class="salida">
+              <p>
+                Se borrará de este dispositivo todo lo de {accesoWeb.restaurante.nombre}.
+                {#if sinEnviar > 0}
+                  <b>Hay {sinEnviar} {sinEnviar === 1 ? "movimiento" : "movimientos"} sin enviar que se perderían.</b>
+                {/if}
+              </p>
+              <span class="botones-salida">
+                <button onclick={() => (confirmandoSalida = false)}>Cancelar</button>
+                <button class="peligro" onclick={() => void accesoWeb.salir()}>Sí, salir</button>
+              </span>
+            </div>
+          {/if}
+        {/if}
       </div>
     {/if}
   </div>
@@ -116,6 +152,27 @@
 {/if}
 
 <style>
+  .salida {
+    padding: 0.6rem 0.8rem;
+    max-width: 16rem;
+    font-size: 0.82rem;
+    line-height: 1.45;
+    color: var(--pizarra);
+  }
+  .salida b {
+    display: block;
+    margin-top: 0.3rem;
+    color: var(--peligro);
+  }
+  .botones-salida {
+    display: flex;
+    gap: 0.4rem;
+    margin-top: 0.5rem;
+  }
+  .botones-salida .peligro {
+    color: var(--peligro);
+    font-weight: 600;
+  }
   .hd {
     height: 4rem;
     background: #fff;

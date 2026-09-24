@@ -18,6 +18,7 @@ import {
   type EstadoEnlace,
   type EstadoFiscal,
   type FacturaEnCola,
+  type SocketLike,
   type TerminalRegistrada,
 } from "@motrest/protocolo-sync";
 import type {
@@ -210,8 +211,39 @@ class StoreSync {
     return { url: dato.url, clave: dato.clave! };
   }
 
+  /**
+   * El destino de la web (1.6.0): no es un WebSocket de la red del salón sino
+   * el túnel al Hub o la nube del restaurante, con su propio socket. Lo pone la
+   * entrada web ANTES del arranque; en la caja y en las tabletas nunca existe.
+   */
+  private destinoWeb: { url: string; clave: string; crearSocket: () => SocketLike } | null = null;
+
+  usarDestinoWeb(destino: { url: string; clave: string; crearSocket: () => SocketLike }): void {
+    this.destinoWeb = destino;
+  }
+
+  /** ¿Esta terminal es la web? Entonces no se empareja por QR ni por enlace. */
+  get esWeb(): boolean {
+    return this.destinoWeb !== null;
+  }
+
+  /**
+   * ¿Restaurante sin computadora (modalidad nube)? Ahí no hay caja: cualquier
+   * dispositivo del restaurante puede hacer lo que en la red del salón solo
+   * hace la caja, como dar de alta al responsable.
+   */
+  get esNube(): boolean {
+    return this.destinoWeb?.url.startsWith("nube://") ?? false;
+  }
+
   async resolverDestino(almacen: Almacen): Promise<void> {
     this.almacen = almacen;
+
+    if (this.destinoWeb) {
+      this.url = this.destinoWeb.url;
+      this.clave = this.destinoWeb.clave;
+      return;
+    }
 
     // El Hub propio manda sobre lo guardado: si esta terminal se movió a otro
     // local, lo que valga es el Hub desde el que se está abriendo ahora.
@@ -365,6 +397,7 @@ class StoreSync {
     this.cliente = new ClienteSync({
       url: this.url,
       clave: this.clave,
+      ...(this.destinoWeb ? { crearSocket: this.destinoWeb.crearSocket } : {}),
       device_id: obtenerDeviceId(),
       sucursal_id: SUCURSAL_ID,
       almacen,
