@@ -45,6 +45,10 @@ Cada local tiene una **modalidad**, que se elige en Central y viaja firmada en l
 | 2 · Supabase | `4c33e1c` | Migraciones `20260923191018_acceso_web` y `…191035_documentos_nube_con_rls`, **ya aplicadas** en `ixttslqbbwqfcqjmttyg`. Edge Functions `entrar-restaurante` (sin JWT, frena por clave y por red, respuesta única) y `cambiar-contrasena-web`, **ya desplegadas**. Se renombraron 4 migraciones viejas a la versión que registró la base. |
 | 4+6 · POS web | `b8186c3` | `EntradaRestaurante.svelte`, `lib/web/acceso-web.svelte.ts` (entrar → desenvolver clave remota → `setSession` → **recargar**), `SocketTunel`, `lib/web/nube/` (`ServidorNube` = el protocolo del Hub en el navegador, `AlmacenSupabase`, `SocketNube`), «Salir de <restaurante>» en el menú del avatar, `sesion.usarFuenteDeLicencia`, `sync.usarDestinoWeb`. `vite build --mode web` → `dist-web/` (valores públicos por defecto en `vite.config.ts`). `apps/pos-ui/vercel.json`. Migraciones `…192600` y `…192611`: los eventos en nube SOLO entran por `empujar_eventos_nube` (SECURITY DEFINER) con `pg_advisory_xact_lock` por restaurante, para que `seq` no tenga huecos visibles |
 | 5 · Hub | `4e25f8e` | `tunel-remoto.ts`, `servidor.conectar(c, esLocal, remoto)` (web aprobada sola la 1.ª vez, nombre «Web», revocable), `secretos` desvía `acceso_web`, `GestorLicencia.abreTunelWeb`, `EnlaceSupabase.abrirCanalTunel`, `montarTunelWeb()` en main (al conectar, al instalar licencia, al llegar la llave) |
+| 8 · Contraseña desde el restaurante | `f443781` | Admin → «Acceso por internet» (`AccesoPorInternet.svelte`, solo con licencia web y para propietario/soporte). Web: `accesoWeb.cambiarContrasena`. Caja: ruta local del Hub `/acceso-web/contrasena` → `EnlaceSupabase.cambiarContrasenaWeb` |
+| 7 · Impresoras del dispositivo | `0f29c8f` | Conexión `dispositivo` (`equipo` = device_id), `TransporteDispositivo` (serie, USB, BLE, sistema), `impresion.paraEsteEquipo()`, «Impresoras de este dispositivo» en Admin → Impresoras. El transporte recibe el trabajo como tercer argumento |
+| Pulso nube | `43bbd94` | `ServidorNube` sube el pulso al entrar y al recibir `caja_cerrada`, solo con campos seguros |
+| Arreglo | `efe7780` | La entrada se salía por la derecha en teléfonos. Verificado con capturas a 390 y 768 px, y con una entrada fallida contra la nube real («Clave o contraseña incorrecta») |
 | 3 · Central | `16e5797` | `configurarAccesoWeb`, `regenerarContrasenaWeb`, `fijarContrasenaWeb`, `verContrasenaWeb`, `enviarAccesoWebAlHub`, `recogerContrasenasDelRestaurante`; panel `AccesoWeb.svelte` en la ficha, modalidad en el Alta, distintivo Nube/Web, dirección de la web en Llaves |
 
 ## Falta (en este orden) — actualizado tras `4e25f8e`
@@ -69,12 +73,17 @@ Cada local tiene una **modalidad**, que se elige en Central y viaja firmada en l
    - Licencia leída de `licencias_pendientes` y verificada en el navegador.
    - **PENDIENTE:** pulso al cerrar caja (política ya existe en la base).
    - **PENDIENTE:** fotos en el bucket `fotos_nube`.
-7. **Impresoras del dispositivo:** Web Serial, WebUSB, Web Bluetooth y `window.print`
-   (AirPrint en iOS).
-8. **Cambio de contraseña desde el restaurante** (Admin → «Acceso por internet»,
-   solo el propietario).
-9. **Vercel:** `apps/pos-ui/vercel.json`. Gonzalo enlaza el proyecto en su cuenta.
-10. **1.6.0:** instalador, verificación sobre la app **instalada**, y este relevo.
+7. ~~Impresoras del dispositivo~~ HECHO.
+8. ~~Cambio de contraseña desde el restaurante~~ HECHO.
+9. **Vercel:** lo enlaza Gonzalo en su cuenta. Los pasos están en `docs/ACCESO-WEB.md`.
+10. **1.6.0:**
+    - subir la versión en `apps/hub/package.json`, que manda sobre el POS;
+    - instalador;
+    - **recompilar Central** (su frontend va dentro del .exe);
+    - verificación sobre la app **instalada**: un restaurante de prueba en «ambas» y
+      otro en «nube», desde Central, con iPhone y PC.
+11. **Pendientes menores:** fotos de producto por el túnel (`foto{pedir}`) y en el
+    bucket `fotos_nube`.
 
 ## Trampas encontradas
 
