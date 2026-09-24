@@ -73,7 +73,23 @@ function valoresDeLaWeb(): Record<string, string> {
   };
 }
 
-export default defineConfig(({ mode }) => ({
+/*
+ * EN VERCEL SOLO SE COMPILA LA WEB. Vercel pone `VERCEL=1` al compilar. Si ahí
+ * se corre `vite build` a secas —rama equivocada, comando sobrescrito en el
+ * tablero—, sale el POS de la caja: sin «Entra a tu restaurante» y abriendo en el
+ * alta de un responsable de ningún restaurante. Pasó el 23-sep-2026. Mejor que
+ * el despliegue falle diciendo por qué.
+ */
+function exigirModoWebEnVercel(mode: string): void {
+  if (process.env.VERCEL === "1" && mode !== "web") {
+    throw new Error(
+      "En Vercel la web se compila con `pnpm run build:web` (vite build --mode web). " +
+        "Revisa que el Root Directory sea apps/pos-ui y que no haya un Build Command sobrescrito en el tablero.",
+    );
+  }
+}
+
+export default defineConfig(({ mode }) => (exigirModoWebEnVercel(mode), {
   plugins: [svelte(), basicSsl()],
   define: {
     __MOTREST_VERSION__: JSON.stringify(VERSION),

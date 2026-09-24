@@ -2,6 +2,7 @@
   "name": "pos-ui",
   "version": "0.0.0",
   "private": true,
+  "packageManager": "pnpm@9.15.0",
   "description": "MotRest POS — UI de caja (Svelte 5 + Vite). Pantalla P1: mesas, configurador mitad-y-mitad y cuenta, alimentada por @motrest/dominio.",
   "type": "module",
   "scripts": {
