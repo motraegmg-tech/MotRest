@@ -102,3 +102,44 @@ Cada local tiene una **modalidad**, que se elige en Central y viaja firmada en l
   `curl -X POST https://ixttslqbbwqfcqjmttyg.supabase.co/functions/v1/entrar-restaurante -H "apikey: <publicable>" -d '{"clave":"X","contrasena":"y"}'`
   debe responder `{"error":"Clave o contraseña incorrecta"}`.
   - Luego borra los contadores que deja: tabla `intentos_entrada`.
+
+## Compilación 1.6.0 (24-sep-2026, la hizo Claude; el intento de Gemini no llegó a compilar Rust)
+
+- **La versión vive en DOS archivos, y se mueven juntos:** `apps/hub/package.json`
+  (POS, Hub y `/salud`) y `apps/escritorio/src-tauri/tauri.conf.json` (el instalador).
+  Commit `5ee1616`.
+- Suites antes de compilar: dominio 1422, protocolo-sync 95, impresión 141, Hub 570
+  (+2 omitidas), POS 418, Central 149. Todo en verde.
+- **Central:** `C:\mc-build\release\motrae-central.exe`, instalada en
+  `%LOCALAPPDATA%\MotRest Central\`.
+  - Verificado que embebe la interfaz de hoy (`index-BKfZFfeT.js`).
+  - Las cadenas no se ven con `grep` porque Tauri la comprime. Se comprueba por el
+    nombre del asset.
+- **MotRest:** `C:\motrest-build\release\bundle\nsis\MotRest_1.6.0_x64-setup.exe`,
+  SHA-256 `d413eab26f89d3ab0800085a71c862f14852d618e34c6875e9d4a3b0f437c2d9`.
+  - Instalado con `/S` sobre la 1.5.7.
+  - `/salud` reporta 1.6.0, con un solo Hub, la licencia activa, la secuencia intacta
+    (918) y el enlace con la nube establecido.
+  - El Hub sirve el POS de hoy (`index-DRS2OvH7.js`).
+- **Respaldos en el Escritorio:** `datos-motrest-antes-de-1.6.0.zip` y
+  `motrae-central-anterior-respaldo.exe`.
+- **No se publicó nada:** ni manifiesto, ni release, ni canal.
+
+### Trampas de esta compilación
+
+- **No se pueden escribir archivos sueltos en `C:\`** («Permission denied»). Las
+  carpetas `C:\mc-build` y `C:\motrest-build` sí se crean; los registros de la
+  compilación van en otro lado.
+- **La advertencia «The signature seems corrupted!» al empaquetar el Hub es esperada.**
+  Esta máquina no tiene `signtool`, y postject avisa de que la firma de `node.exe`
+  deja de valer.
+- **Defecto grave encontrado y arreglado (`4b1e144`):** un bucle de EPIPE más una
+  rotación que abría un archivo por renglón dejaron 1,013,561 archivos de registro
+  (921 MB) en 49 minutos.
+  - Los fragmentos se juntaron en
+    `datos/registro/hub-2026-09-23-fragmentos-del-bucle-epipe.log.gz` (verificado
+    byte a byte antes de borrarlos).
+  - **Revisar la carpeta `datos/registro` de Rodizio**: con la 1.5.x pudo pasarle lo
+    mismo.
+- **Había dos Hubs corriendo a la vez** (uno del arranque de Windows y otro huérfano de
+  la ventana). Se cerraron los dos antes de instalar.
