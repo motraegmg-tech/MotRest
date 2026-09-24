@@ -66,7 +66,20 @@
         : "amarillo",
   );
   const textoEnlace = $derived(enLinea ? sync.etiqueta : "Sin conexión");
-  let detalleEnlace = $state(false);
+  /*
+   * Al tocar el punto, se vuelve la palabra durante 3 s y regresa (Gonzalo,
+   * 24-sep-2026). Tocarlo otra vez mientras se lee reinicia la cuenta.
+   */
+  const LECTURA_MS = 3000;
+  let rotuloVisible = $state(false);
+  let ocultarRotulo: ReturnType<typeof setTimeout> | undefined;
+
+  function mostrarRotulo() {
+    rotuloVisible = true;
+    clearTimeout(ocultarRotulo);
+    ocultarRotulo = setTimeout(() => (rotuloVisible = false), LECTURA_MS);
+  }
+  $effect(() => () => clearTimeout(ocultarRotulo));
 
   function cerrarSesion() {
     menuAbierto = false;
@@ -88,7 +101,7 @@
 <header class="hd" class:telefono={orientacion.telefono}>
   {#if orientacion.telefono && moduloActual}
     <h1 class="modulo-icono" title={moduloActual.titulo}>
-      <Icono nombre={moduloActual.icono} tam={28} />
+      <Icono nombre={moduloActual.icono} tam={28} color />
       <span class="solo-lector">{moduloActual.titulo}</span>
     </h1>
   {:else}
@@ -107,28 +120,21 @@
   -->
   {#if sync.configurado}
     {#if orientacion.telefono}
-      <!-- Sin rótulo, el texto queda a un toque: el color dice el qué; esto, el porqué. -->
-      <div class="enlace-tel">
-        <button
-          class="circulo {colorEnlace}"
-          aria-label="Conexión: {textoEnlace}"
-          aria-expanded={detalleEnlace}
-          onclick={() => (detalleEnlace = !detalleEnlace)}
-        >
-          <span class="punto"></span>
-        </button>
-        {#if detalleEnlace}
-          <div class="velo" role="presentation" onclick={() => (detalleEnlace = false)}></div>
-          <div class="globo" role="status">
-            <b>{textoEnlace}</b>
-            {#if !enLinea}
-              <span>Este teléfono no tiene red. Lo que hagas se guarda en él y se envía al volver la conexión.</span>
-            {:else if sync.detalle}
-              <span>{sync.detalle}</span>
-            {/if}
-          </div>
-        {/if}
-      </div>
+      <!--
+        El punto y la palabra viven en el mismo botón: al tocarlo, el punto se
+        encoge, la palabra se abre y el círculo se estira hasta ser un óvalo.
+        Nada se monta ni se desmonta, así que el cambio es una sola transición.
+      -->
+      <button
+        class="circulo {colorEnlace}"
+        class:abierto={rotuloVisible}
+        aria-label="Conexión: {textoEnlace}"
+        title={enLinea ? sync.detalle : "Este teléfono no tiene red"}
+        onclick={mostrarRotulo}
+      >
+        <span class="punto"></span>
+        <span class="rotulo" aria-hidden={!rotuloVisible}>{textoEnlace}</span>
+      </button>
     {:else}
       <span class="chip enlace {sync.estado}" title={sync.detalle}>
         <span class="punto"></span>{sync.etiqueta}
@@ -145,7 +151,7 @@
       aria-label={orientacion.telefono ? `Usuario: ${usuario?.nombre ?? "sin sesión"}` : undefined}
     >
       {#if orientacion.telefono}
-        <Icono nombre="personal" tam={28} />
+        <Icono nombre="personal" tam={28} color />
       {:else}
         <span class="av">{usuario?.iniciales ?? "?"}</span>
         <span class="quien">
@@ -442,58 +448,91 @@
     clip: rect(0 0 0 0);
     white-space: nowrap;
   }
-  .enlace-tel {
-    position: relative;
-  }
-  /* El mismo gris del óvalo de computadora, hecho círculo. */
+  /*
+   * El mismo gris del óvalo de computadora, hecho círculo.
+   *
+   * Cerrado mide 2.4rem por lado (el `min-width` y el alto) y con
+   * `border-radius` de píldora es un círculo. Abierto, la palabra crece de
+   * ancho 0 a su tamaño y el botón se estira con ella hasta ser el óvalo: la
+   * animación sale de transicionar el `max-width` del rótulo, porque `width:
+   * auto` no se puede animar.
+   */
   .circulo {
-    width: 2.4rem;
+    min-width: 2.4rem;
     height: 2.4rem;
-    border-radius: 50%;
+    padding: 0;
+    border-radius: var(--r-pill);
     background: #eef1ed;
-    display: grid;
-    place-items: center;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    transition: padding 0.28s ease;
   }
   .circulo .punto {
-    width: 0.9rem;
-    height: 0.9rem;
+    flex: none;
+    width: 0.6rem;
+    height: 0.6rem;
     border-radius: 50%;
+    transition:
+      width 0.2s ease,
+      height 0.2s ease,
+      opacity 0.2s ease;
   }
-  /* Colores intensos a propósito: se leen de reojo, a un brazo de distancia. */
+  .circulo .rotulo {
+    max-width: 0;
+    overflow: hidden;
+    white-space: nowrap;
+    opacity: 0;
+    font-size: 0.85rem;
+    font-weight: 700;
+    transition:
+      max-width 0.28s ease,
+      opacity 0.2s ease 0.08s;
+  }
+  .circulo.abierto {
+    padding: 0 0.9rem;
+  }
+  .circulo.abierto .punto {
+    width: 0;
+    height: 0;
+    opacity: 0;
+  }
+  .circulo.abierto .rotulo {
+    max-width: 12rem;
+    opacity: 1;
+  }
+  /*
+   * Colores intensos a propósito: se leen de reojo, a un brazo de distancia.
+   * La palabra va un tono más oscura que el punto: el amarillo puro no se lee
+   * como texto sobre el gris.
+   */
   .circulo.verde .punto {
     background: #1ec41e;
-    box-shadow: 0 0 0 3px rgba(30, 196, 30, 0.28);
+    box-shadow: 0 0 0 2px rgba(30, 196, 30, 0.28);
+  }
+  .circulo.verde .rotulo {
+    color: #0f9a0f;
   }
   .circulo.amarillo .punto {
     background: #ffc400;
-    box-shadow: 0 0 0 3px rgba(255, 196, 0, 0.32);
+    box-shadow: 0 0 0 2px rgba(255, 196, 0, 0.32);
+  }
+  .circulo.amarillo .rotulo {
+    color: #b88a00;
   }
   .circulo.rojo .punto {
     background: #ff1f1f;
-    box-shadow: 0 0 0 3px rgba(255, 31, 31, 0.28);
+    box-shadow: 0 0 0 2px rgba(255, 31, 31, 0.28);
   }
-  .globo {
-    position: absolute;
-    left: 0;
-    top: calc(100% + 0.4rem);
-    z-index: 20;
-    width: max-content;
-    max-width: min(16rem, calc(100vw - 5rem));
-    background: #fff;
-    border: 1px solid var(--borde);
-    border-radius: var(--r-md);
-    box-shadow: var(--sombra-lg);
-    padding: 0.6rem 0.75rem;
-    display: flex;
-    flex-direction: column;
-    gap: 0.2rem;
-    font-size: 0.8rem;
-    line-height: 1.4;
-    color: var(--gris);
+  .circulo.rojo .rotulo {
+    color: #e01010;
   }
-  .globo b {
-    font-size: 0.88rem;
-    color: var(--pizarra);
+  @media (prefers-reduced-motion: reduce) {
+    .circulo,
+    .circulo .punto,
+    .circulo .rotulo {
+      transition: none;
+    }
   }
   .hd.telefono .avatar {
     padding: 0.35rem;
