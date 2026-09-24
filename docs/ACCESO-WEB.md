@@ -146,66 +146,35 @@ sube el equipo a **Pro** (20 USD/mes).
    - La CSP, con `connect-src` apuntando solo a `ixttslqbbwqfcqjmttyg.supabase.co`.
    - `permissions-policy` con `serial=(self), usb=(self), bluetooth=(self)`: sin esto,
      las impresoras del dispositivo no funcionan.
-4. **Dominio propio:** `app.motrest.com` (ver 2.4).
+4. **Dominio propio:** ver 2.4. Ojo: `motrest.com` no es de MOTRAE.
 
-### 2.4 Dominio propio `app.motrest.com`
+### 2.4 Dominio propio
 
-Situación comprobada el 23-sep-2026:
+> **`motrest.com` NO es de MOTRAE** (confirmado por Gonzalo el 23-sep-2026). Lo
+> registró un tercero en IONOS el 6-abr-2026, con DNS y reenvío de correo en una cuenta
+> de Cloudflare ajena. `app.motrest.com` no se puede usar: Vercel se queda en
+> «Verification Required» para siempre, porque solo el dueño puede crear el TXT. Si lo
+> diste de alta, quítalo en Vercel → Settings → Domains → `app.motrest.com` → Remove.
+> Tampoco es de MOTRAE `motrae.com` (Hostinger, 21-ago-2026, aparcado), salvo que
+> Gonzalo lo haya comprado.
 
-- `motrest.com` está registrado en **IONOS**, pero sus DNS los atiende **Cloudflare**
-  (`beth.ns.cloudflare.com` y `keanu.ns.cloudflare.com`). **Los registros se crean en
-  Cloudflare, no en IONOS.**
-- `app.motrest.com` no tenía ningún registro y tampoco existía `_vercel.motrest.com`.
-  Por eso Vercel marcaba **Verification Required**.
+Mientras no haya dominio propio, la web vive en la dirección `.vercel.app` del
+proyecto, que funciona igual.
 
-**Qué significa «Verification Required».** Vercel pide demostrar que el dominio es
-tuyo cuando ese dominio, o `motrest.com`, ya está dado de alta en otra cuenta o equipo
-de Vercel, o cuando no puede confirmarlo por sí solo. Se resuelve con un registro TXT.
-Es distinto de **Invalid Configuration**, que significa que el DNS no apunta a Vercel.
+**Con un dominio que sí sea de MOTRAE** (por ejemplo `app.<dominio>`):
 
-Pasos:
-
-1. **Copia los valores exactos de Vercel.** En Vercel → proyecto → Settings → Domains →
-   `app.motrest.com`, despliega el aviso. Vercel enseña dos registros; cópialos tal
-   cual, porque el código y el destino son propios de tu proyecto:
-   - **TXT** · Name `_vercel` · Value `vc-domain-verify=app.motrest.com,…`
-   - **CNAME** · Name `app` · Value `cname.vercel-dns.com`, o el destino propio que
-     muestre, del tipo `…vercel-dns-0xx.com`.
-2. **Créalos en Cloudflare.** Entra en dash.cloudflare.com → `motrest.com` → **DNS →
-   Records → Add record**, y crea los dos:
-
-   | Type | Name | Content | Proxy status | TTL |
-   |---|---|---|---|---|
-   | TXT | `_vercel` | el `vc-domain-verify=…` de Vercel | — | Auto |
-   | CNAME | `app` | el destino que da Vercel | **DNS only (nube gris)** | Auto |
-
-   **La nube tiene que quedar GRIS.** Con el proxy naranja de Cloudflare, Vercel no
-   puede emitir el certificado HTTPS, y la verificación y la redirección fallan en
-   bucle.
-3. **Verifica en Vercel.** Espera 1 o 2 minutos y pulsa **Refresh** en Domains. Debe
-   quedar **Valid Configuration**; el certificado se emite solo en unos minutos.
-4. **Comprueba desde PowerShell:**
-
-   ```powershell
-   Resolve-DnsName -Type TXT _vercel.motrest.com -Server 1.1.1.1
-   Resolve-DnsName app.motrest.com -Server 1.1.1.1
-   curl.exe -sI https://app.motrest.com/ | Select-String "HTTP|x-robots-tag"
-   ```
-
-   Tiene que salir, en orden:
-   - el TXT con `vc-domain-verify=…`;
-   - un CNAME hacia Vercel;
-   - `HTTP/1.1 200` y `x-robots-tag: noindex, nofollow`.
-5. **Pon la dirección nueva en los otros dos sitios:**
-   - Supabase → `MOTREST_WEB_ORIGENES` = `https://app.motrest.com,https://motrest.vercel.app` (3.1);
-   - Central → Llaves → «MotRest en la web» = `https://app.motrest.com` (3.3).
-
-   Sin el primero, el navegador bloquea la entrada por CORS y la pantalla dice «No hay
-   conexión con la nube de MotRest».
-
-Si Vercel sigue en «Verification Required» con el TXT ya visible desde fuera, el dominio
-está reclamado en otra cuenta o equipo de Vercel. Quítalo de ese proyecto, o usa la
-opción de Vercel para reclamarlo con el mismo TXT.
+1. **Copia los registros de Vercel.** En Vercel → Settings → Domains → *Add*, escribe
+   `app.<dominio>` y anota los registros que pide:
+   - un **CNAME** `app` → `cname.vercel-dns.com`, o el destino propio que muestre;
+   - si además marca «Verification Required», un **TXT** `_vercel` →
+     `vc-domain-verify=…`.
+2. **Créalos donde estén los DNS del dominio**, sea el registrador o Cloudflare.
+   **En Cloudflare, el CNAME va con la nube GRIS (DNS only):** con el proxy naranja,
+   Vercel no puede emitir el certificado.
+3. **Espera y verifica.** Tras 1 o 2 minutos, pulsa *Refresh* en Vercel, hasta que
+   diga «Valid Configuration».
+4. **Añade la dirección nueva en los otros dos sitios:** `MOTREST_WEB_ORIGENES` de
+   Supabase (3.1) y Central → Llaves (3.3).
 
 ---
 
@@ -219,7 +188,7 @@ de la web:
 - **Tablero:** Supabase → **Edge Functions → Secrets** → *Add new secret*
   - Name: `MOTREST_WEB_ORIGENES`
   - Value: `https://motrest.vercel.app` (varios, separados por coma:
-    `https://app.motrest.com,https://motrest.vercel.app`)
+    `https://app.<dominio>,https://<proyecto>.vercel.app`)
 - **O por consola**, si tienes la CLI de Supabase con sesión iniciada:
 
   ```powershell
@@ -489,7 +458,7 @@ dispositivos cuentan con que solo crece.
 | El build falla con «Cannot find module» de `@motrest/...` o de `apps/hub/package.json` | No se incluyen los archivos de fuera de `apps/pos-ui` | Activa *Include files outside the root directory* (2.2) |
 | Sale «Bienvenido» y pide crear la cuenta del responsable, sin haber pedido clave del restaurante | Vercel publicó una rama sin la web (`main`) o compiló con `vite build` a secas | Production Branch → `feature/motrest-web` (2.2), sin Build Command sobrescrito, y **Redeploy** |
 | El despliegue falla con «En Vercel la web se compila con `pnpm run build:web`» | El Root Directory no es `apps/pos-ui`, o hay un Build Command sobrescrito en el tablero | Corrígelo en Settings → Build and Deployment y vuelve a desplegar |
-| Vercel marca «Verification Required» en `app.motrest.com` | Falta el TXT `_vercel` en Cloudflare, o el dominio está en otra cuenta o equipo de Vercel | Paso 2.4 |
+| Vercel marca «Verification Required» en un dominio propio | Falta el TXT `_vercel`, o el dominio es de otra persona (caso de `motrest.com`) | Paso 2.4 |
 | El dominio propio abre pero la entrada dice «No hay conexión con la nube» | `MOTREST_WEB_ORIGENES` no incluye el dominio nuevo (CORS) | Añádelo en Supabase (3.1) |
 | La web pide iniciar sesión en Vercel | Deployment Protection en una vista previa | Usa la dirección de producción o apaga la protección (2.2) |
 | «Clave o contraseña incorrecta» con los datos buenos | Acceso apagado (modalidad «app») o contraseña cambiada por el propietario | Mira `accesos_web.activo` y usa **Ver** en Central |
