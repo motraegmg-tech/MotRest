@@ -69,7 +69,8 @@
   <nav class="pasos">
     <button class:on={columna === "salon"} onclick={() => (columna = "salon")}>Salón</button>
     <button class:on={columna === "centro"} onclick={() => (columna = "centro")}>
-      {modo === "pedido" ? "Pedido" : "Mesa"}
+      <!-- Con el número: en teléfono la barra de arriba ya no dice qué mesa es. -->
+      {modo === "pedido" ? "Pedido" : `Mesa ${pos.nombreMesaActiva}`.trim()}
     </button>
     <button class:on={columna === "cuenta"} onclick={() => (columna = "cuenta")}>
       Cuenta

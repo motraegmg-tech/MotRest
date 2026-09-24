@@ -8,24 +8,48 @@
  */
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-/** Un `matchMedia` de mentira al que se le puede cambiar la respuesta. */
-function montarMatchMedia(inicial: boolean) {
-  const oyentes = new Set<(e: { matches: boolean }) => void>();
+type Oyente = (e: { matches: boolean }) => void;
+
+/** Una consulta de mentira, con sus oyentes. */
+function crearLista(inicial: boolean) {
+  const oyentes = new Set<Oyente>();
   const lista = {
     matches: inicial,
-    addEventListener: (_: string, f: (e: { matches: boolean }) => void) => { oyentes.add(f); },
-    removeEventListener: (_: string, f: (e: { matches: boolean }) => void) => { oyentes.delete(f); },
+    addEventListener: (_: string, f: Oyente) => { oyentes.add(f); },
+    removeEventListener: (_: string, f: Oyente) => { oyentes.delete(f); },
   };
+  return {
+    lista,
+    oyentes,
+    cambiar(valor: boolean) {
+      lista.matches = valor;
+      for (const f of oyentes) f({ matches: valor });
+    },
+  };
+}
+
+/**
+ * Un `matchMedia` de mentira al que se le puede cambiar la respuesta.
+ *
+ * Distingue las dos consultas del módulo: la de TELÉFONO (la que pregunta por
+ * 767 px) y la de postura, que es cualquier otra.
+ */
+function montarMatchMedia(inicial: boolean, telefonoInicial = false) {
+  const postura = crearLista(inicial);
+  const telefono = crearLista(telefonoInicial);
   vi.stubGlobal("window", {
-    matchMedia: () => lista,
+    matchMedia: (consulta: string) => (consulta.includes("767px") ? telefono.lista : postura.lista),
   });
   return {
     /** Simula el giro del aparato. */
     girar(aVertical: boolean) {
-      lista.matches = aVertical;
-      for (const f of oyentes) f({ matches: aVertical });
+      postura.cambiar(aVertical);
     },
-    get oyentes() { return oyentes.size; },
+    /** Simula pasar a un ancho de teléfono, o salir de él. */
+    ponerTelefono(esTelefono: boolean) {
+      telefono.cambiar(esTelefono);
+    },
+    get oyentes() { return postura.oyentes.size + telefono.oyentes.size; },
   };
 }
 
@@ -73,7 +97,8 @@ describe("detectar la postura", () => {
     const o = await cargarOrientacion();
     const baja = o.escuchar();
 
-    expect(medio.oyentes).toBe(1);
+    // Dos: la postura y el teléfono.
+    expect(medio.oyentes).toBe(2);
     baja();
     expect(medio.oyentes).toBe(0);
   });
@@ -84,6 +109,41 @@ describe("detectar la postura", () => {
     const baja = o.escuchar();
     expect(o.vertical).toBe(false);
     expect(() => baja()).not.toThrow();
+  });
+});
+
+/*
+ * El teléfono es aparte de la postura: una tableta de pie es «vertical» y en
+ * ella la barra superior cabe entera; solo en un teléfono se reduce a iconos.
+ */
+describe("detectar el teléfono", () => {
+  beforeEach(() => vi.unstubAllGlobals());
+
+  it("una tableta de pie es vertical pero no teléfono", async () => {
+    montarMatchMedia(true, false);
+    const o = await cargarOrientacion();
+    o.escuchar();
+    expect(o.vertical).toBe(true);
+    expect(o.telefono).toBe(false);
+  });
+
+  it("arranca como teléfono y sigue al cambio de ancho", async () => {
+    const medio = montarMatchMedia(true, true);
+    const o = await cargarOrientacion();
+    o.escuchar();
+    expect(o.telefono).toBe(true);
+
+    medio.ponerTelefono(false);
+    expect(o.telefono).toBe(false);
+    medio.ponerTelefono(true);
+    expect(o.telefono).toBe(true);
+  });
+
+  it("sin navegador no es teléfono", async () => {
+    vi.stubGlobal("window", undefined);
+    const o = await cargarOrientacion();
+    o.escuchar();
+    expect(o.telefono).toBe(false);
   });
 });
 

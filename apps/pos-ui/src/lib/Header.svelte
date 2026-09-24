@@ -1,11 +1,12 @@
 <script lang="ts">
   import CambioCredencial from "./sesion/CambioCredencial.svelte";
+  import Icono from "./Icono.svelte";
   import { MODULO_POR_CLAVE } from "./nav/modulos";
+  import { orientacion } from "./nav/orientacion.svelte";
   import { rutas } from "./nav/rutas.svelte";
+  import { nombreDelLocal as leerNombreDelLocal } from "./nombre-del-local";
   import { pos } from "./pos.svelte";
   import { cabecera } from "./presentacion";
-  import { licencia } from "./licencia.svelte";
-  import { local } from "./local.svelte";
   import { sesion } from "./sesion/sesion.svelte";
   import { sync } from "./sync.svelte";
   import { accesoWeb } from "./web/acceso-web.svelte";
@@ -44,22 +45,60 @@
   }
   const usuario = $derived(sesion.usuarioActual);
   const esPin = $derived(usuario ? sesion.tipoCredencialDe(usuario.id) === "pin" : false);
-  const nombreDelLocal = $derived(
-    local.ficha.nombre.trim() || licencia.licencia?.nombre || cabecera.sucursal,
+  /* Sin licencia todavía no hay restaurante, y el chip no se enseña. */
+  const nombreDelLocal = $derived(leerNombreDelLocal());
+
+  /*
+   * EL SEMÁFORO DEL TELÉFONO (pedido de Gonzalo, 24-sep-2026).
+   *
+   * Rojo es «este aparato no tiene red en absoluto», que el navegador sabe sin
+   * preguntarle a nadie. NO es «sin internet» a secas: una caja sin internet
+   * pero con el Hub en la red del local está sincronizada de verdad, y ahí el
+   * punto tiene que salir verde. Amarillo es trabajar sin el Hub a la vista
+   * (isla) o estar buscándolo; verde, enlazado.
+   */
+  let enLinea = $state(typeof navigator === "undefined" ? true : navigator.onLine);
+  const colorEnlace = $derived(
+    !enLinea
+      ? "rojo"
+      : sync.estado === "sincronizado" || sync.estado === "sincronizando"
+        ? "verde"
+        : "amarillo",
   );
+  const textoEnlace = $derived(enLinea ? sync.etiqueta : "Sin conexión");
+  let detalleEnlace = $state(false);
+
+  function cerrarSesion() {
+    menuAbierto = false;
+    sesion.cerrarSesion();
+    onAbrirAcceso();
+  }
 </script>
 
-<header class="hd">
-  <h1>{moduloActual?.titulo ?? cabecera.titulo}</h1>
-  <!--
-    El nombre del RESTAURANTE, no uno escrito en el código.
-    Manda la ficha que capturó el local; si está vacía, la licencia firmada. Sin
-    licencia todavía no hay restaurante, y el chip no se enseña.
-  -->
-  {#if nombreDelLocal}
+<svelte:window ononline={() => (enLinea = true)} onoffline={() => (enLinea = false)} />
+
+<!--
+  EN TELÉFONO, LA BARRA ES DE ICONOS (pedido de Gonzalo, 24-sep-2026).
+
+  Con los rótulos completos solo cabían el módulo y el local, y el usuario y
+  «Cerrar sesión» quedaban fuera de la pantalla. En teléfono van el icono del
+  módulo, el semáforo del enlace y el gafete del usuario. El nombre del local
+  se muda al menú de las tres rayas, y «Cerrar sesión» al menú del gafete.
+-->
+<header class="hd" class:telefono={orientacion.telefono}>
+  {#if orientacion.telefono && moduloActual}
+    <h1 class="modulo-icono" title={moduloActual.titulo}>
+      <Icono nombre={moduloActual.icono} tam={28} />
+      <span class="solo-lector">{moduloActual.titulo}</span>
+    </h1>
+  {:else}
+    <h1>{moduloActual?.titulo ?? cabecera.titulo}</h1>
+  {/if}
+  {#if nombreDelLocal && !orientacion.telefono}
     <span class="chip">{nombreDelLocal}</span>
   {/if}
-  {#if enVenta}
+  <!-- En teléfono, la barra de pasos de Venta ya dice qué mesa se atiende. -->
+  {#if enVenta && !orientacion.telefono}
     <span class="chip acento">Mesa {pos.nombreMesaActiva}</span>
   {/if}
   <!--
@@ -67,25 +106,65 @@
     terminal no tiene por qué ver un aviso permanente de algo que no usa.
   -->
   {#if sync.configurado}
-    <span class="chip enlace {sync.estado}" title={sync.detalle}>
-      <span class="punto"></span>{sync.etiqueta}
-    </span>
+    {#if orientacion.telefono}
+      <!-- Sin rótulo, el texto queda a un toque: el color dice el qué; esto, el porqué. -->
+      <div class="enlace-tel">
+        <button
+          class="circulo {colorEnlace}"
+          aria-label="Conexión: {textoEnlace}"
+          aria-expanded={detalleEnlace}
+          onclick={() => (detalleEnlace = !detalleEnlace)}
+        >
+          <span class="punto"></span>
+        </button>
+        {#if detalleEnlace}
+          <div class="velo" role="presentation" onclick={() => (detalleEnlace = false)}></div>
+          <div class="globo" role="status">
+            <b>{textoEnlace}</b>
+            {#if !enLinea}
+              <span>Este teléfono no tiene red. Lo que hagas se guarda en él y se envía al volver la conexión.</span>
+            {:else if sync.detalle}
+              <span>{sync.detalle}</span>
+            {/if}
+          </div>
+        {/if}
+      </div>
+    {:else}
+      <span class="chip enlace {sync.estado}" title={sync.detalle}>
+        <span class="punto"></span>{sync.etiqueta}
+      </span>
+    {/if}
   {/if}
   <span class="sp"></span>
 
   <div class="usuario">
-    <button class="avatar" onclick={() => (menuAbierto = !menuAbierto)} aria-expanded={menuAbierto}>
-      <span class="av">{usuario?.iniciales ?? "?"}</span>
-      <span class="quien">
-        <b>{usuario?.nombre ?? "Sin sesión"}</b>
-        <small>{usuario?.puesto ?? ""}</small>
-      </span>
-      <span class="flecha">▾</span>
+    <button
+      class="avatar"
+      onclick={() => (menuAbierto = !menuAbierto)}
+      aria-expanded={menuAbierto}
+      aria-label={orientacion.telefono ? `Usuario: ${usuario?.nombre ?? "sin sesión"}` : undefined}
+    >
+      {#if orientacion.telefono}
+        <Icono nombre="personal" tam={28} />
+      {:else}
+        <span class="av">{usuario?.iniciales ?? "?"}</span>
+        <span class="quien">
+          <b>{usuario?.nombre ?? "Sin sesión"}</b>
+          <small>{usuario?.puesto ?? ""}</small>
+        </span>
+        <span class="flecha">▾</span>
+      {/if}
     </button>
 
     {#if menuAbierto}
       <div class="velo" role="presentation" onclick={() => (menuAbierto = false)}></div>
       <div class="menu">
+        {#if orientacion.telefono}
+          <div class="yo">
+            <b>{usuario?.nombre ?? "Sin sesión"}</b>
+            {#if usuario?.puesto}<small>{usuario.puesto}</small>{/if}
+          </div>
+        {/if}
         <button onclick={() => { menuAbierto = false; cambiandoClave = true; }}>
           Cambiar mi {esPin ? "PIN" : "contraseña"}
           <!--
@@ -95,9 +174,10 @@
           -->
           {#if sesion.debeCambiarCredencial}<span class="pendiente">pendiente</span>{/if}
         </button>
-        <button onclick={() => { menuAbierto = false; onAbrirAcceso(); }}>
-          Cambiar de usuario
-        </button>
+        <!--
+          Aquí iba «Cambiar de usuario». Se quitó (Gonzalo, 24-sep-2026): era
+          cerrar sesión y entrar con otro, o sea el mismo botón con otro nombre.
+        -->
         {#if sesion.puedeVer("admin.usuario.editar")}
           <button onclick={() => irA("administracion", "usuarios")}>Usuarios y permisos</button>
         {/if}
@@ -122,6 +202,9 @@
             </div>
           {/if}
         {/if}
+        {#if orientacion.telefono}
+          <button class="cerrar" onclick={cerrarSesion}>Cerrar sesión</button>
+        {/if}
       </div>
     {/if}
   </div>
@@ -138,13 +221,12 @@
     No se pierde nada al salir: cada comanda, cada pago y cada checada ya están
     guardados en el log del dispositivo en el momento en que ocurrieron. Las
     mesas abiertas siguen abiertas para el que entre después.
+
+    En teléfono no hay sitio en la barra y va al final del menú del gafete.
   -->
-  <button
-    class="salir"
-    onclick={() => { menuAbierto = false; sesion.cerrarSesion(); onAbrirAcceso(); }}
-  >
-    Cerrar sesión
-  </button>
+  {#if !orientacion.telefono}
+    <button class="salir" onclick={cerrarSesion}>Cerrar sesión</button>
+  {/if}
 </header>
 
 {#if cambiandoClave}
@@ -340,5 +422,104 @@
   .salir:hover {
     border-color: var(--peligro);
     color: var(--peligro);
+  }
+
+  /* --- Teléfono ----------------------------------------------------------- */
+
+  .hd.telefono {
+    gap: 0.5rem;
+    padding-right: 0.75rem;
+  }
+  .modulo-icono {
+    display: flex;
+    align-items: center;
+  }
+  .solo-lector {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
+  }
+  .enlace-tel {
+    position: relative;
+  }
+  /* El mismo gris del óvalo de computadora, hecho círculo. */
+  .circulo {
+    width: 2.4rem;
+    height: 2.4rem;
+    border-radius: 50%;
+    background: #eef1ed;
+    display: grid;
+    place-items: center;
+  }
+  .circulo .punto {
+    width: 0.9rem;
+    height: 0.9rem;
+    border-radius: 50%;
+  }
+  /* Colores intensos a propósito: se leen de reojo, a un brazo de distancia. */
+  .circulo.verde .punto {
+    background: #1ec41e;
+    box-shadow: 0 0 0 3px rgba(30, 196, 30, 0.28);
+  }
+  .circulo.amarillo .punto {
+    background: #ffc400;
+    box-shadow: 0 0 0 3px rgba(255, 196, 0, 0.32);
+  }
+  .circulo.rojo .punto {
+    background: #ff1f1f;
+    box-shadow: 0 0 0 3px rgba(255, 31, 31, 0.28);
+  }
+  .globo {
+    position: absolute;
+    left: 0;
+    top: calc(100% + 0.4rem);
+    z-index: 20;
+    width: max-content;
+    max-width: min(16rem, calc(100vw - 5rem));
+    background: #fff;
+    border: 1px solid var(--borde);
+    border-radius: var(--r-md);
+    box-shadow: var(--sombra-lg);
+    padding: 0.6rem 0.75rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.2rem;
+    font-size: 0.8rem;
+    line-height: 1.4;
+    color: var(--gris);
+  }
+  .globo b {
+    font-size: 0.88rem;
+    color: var(--pizarra);
+  }
+  .hd.telefono .avatar {
+    padding: 0.35rem;
+  }
+  .yo {
+    display: flex;
+    flex-direction: column;
+    padding: 0.55rem 0.7rem 0.6rem;
+    margin-bottom: 0.2rem;
+    border-bottom: 1px solid var(--borde);
+    line-height: 1.25;
+  }
+  .yo b {
+    font-size: 0.92rem;
+    font-weight: 600;
+    color: var(--pizarra);
+  }
+  .yo small {
+    font-size: 0.74rem;
+    color: var(--gris);
+  }
+  .menu .cerrar {
+    margin-top: 0.2rem;
+    border-top: 1px solid var(--borde);
+    border-radius: 0 0 var(--r-sm) var(--r-sm);
+    color: var(--peligro);
+    font-weight: 600;
   }
 </style>

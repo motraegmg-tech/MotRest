@@ -30,6 +30,20 @@ export const ANCHO_ANGOSTO = 900;
 const CONSULTA = `(orientation: portrait), (max-width: ${ANCHO_ANGOSTO}px)`;
 
 /**
+ * ¿Es un TELÉFONO? (pedido de Gonzalo, 24-sep-2026)
+ *
+ * Aparte de la postura: una tableta de pie también es «vertical», pero en ella
+ * la barra superior cabe entera. En un teléfono no cabía más que el módulo y el
+ * local, y el usuario y «Cerrar sesión» quedaban fuera de la pantalla.
+ *
+ * El ancho es el mismo corte que ya usa Venta para su flujo por pasos (767 px).
+ * La segunda condición es el teléfono ACOSTADO: pasa de ese ancho pero tiene
+ * muy poco alto, y `pointer: coarse` evita que una ventana baja de escritorio
+ * cuente como teléfono.
+ */
+const CONSULTA_TELEFONO = "(max-width: 767px), (max-height: 500px) and (pointer: coarse)";
+
+/**
  * ¿Hay navegador debajo?
  *
  * Las pruebas corren en Node sin `window`, y el store se instancia al importar
@@ -47,7 +61,14 @@ class Orientacion {
   /** El menú desplegado por encima del contenido. Solo aplica en vertical. */
   menuAbierto = $state(false);
 
+  /** true = teléfono: la barra superior se reduce a iconos. */
+  telefono = $state(hayVentana() ? window.matchMedia(CONSULTA_TELEFONO).matches : false);
+
   private lista: MediaQueryList | null = null;
+  private listaTelefono: MediaQueryList | null = null;
+  private alCambiarTelefono = (e: MediaQueryListEvent | MediaQueryList): void => {
+    this.telefono = e.matches;
+  };
   private alCambiar = (e: MediaQueryListEvent | MediaQueryList): void => {
     this.vertical = e.matches;
     /*
@@ -66,9 +87,15 @@ class Orientacion {
     this.vertical = this.lista.matches;
     this.lista.addEventListener("change", this.alCambiar);
 
+    this.listaTelefono = window.matchMedia(CONSULTA_TELEFONO);
+    this.telefono = this.listaTelefono.matches;
+    this.listaTelefono.addEventListener("change", this.alCambiarTelefono);
+
     return () => {
       this.lista?.removeEventListener("change", this.alCambiar);
       this.lista = null;
+      this.listaTelefono?.removeEventListener("change", this.alCambiarTelefono);
+      this.listaTelefono = null;
     };
   }
 

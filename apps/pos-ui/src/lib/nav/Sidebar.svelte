@@ -11,11 +11,14 @@
   import { rutas } from "./rutas.svelte";
   import { actualizaciones } from "../actualizaciones.svelte";
   import Icono from "../Icono.svelte";
+  import { nombreDelLocal as leerNombreDelLocal } from "../nombre-del-local";
+  import { orientacion } from "./orientacion.svelte";
   import { sesion } from "../sesion/sesion.svelte";
   import { revelar } from "../subir";
   import { VERSION_MOTREST } from "../version";
 
   const visibles = $derived(MODULOS.filter((m) => sesion.puedeVer(m.permiso)));
+  const nombreDelLocal = $derived(leerNombreDelLocal());
 
   /* Pedido de Gonzalo: solo quien decide sobre el sistema del local. */
   const puedeBuscarActualizacion = $derived(
@@ -84,6 +87,18 @@
     muestra las propinas del local o solo las de quien está en sesión.
   -->
   <PropinasAcumuladas />
+
+  <!--
+    En teléfono, el nombre del local vive aquí y no en la barra superior, que
+    se quedó en iconos para que cupieran el usuario y el enlace (Gonzalo,
+    24-sep-2026). En computadora y tableta sigue arriba, en su óvalo.
+  -->
+  {#if orientacion.telefono && nombreDelLocal}
+    <div class="local">
+      <span>Restaurante</span>
+      <b>{nombreDelLocal}</b>
+    </div>
+  {/if}
 
   <!--
     EL AVISO QUE SE QUEDA PUESTO (pedido de Gonzalo).
@@ -221,6 +236,30 @@
   .seccion.on {
     color: var(--acento);
     font-weight: 600;
+  }
+  /* Mismo bloque que Propinas, justo debajo, para que se lean como una pareja. */
+  .local {
+    margin-top: 0.75rem;
+    padding: 0.7rem 0.9rem;
+    border-radius: var(--r-md);
+    background: rgba(255, 255, 255, 0.05);
+    display: flex;
+    flex-direction: column;
+    gap: 0.15rem;
+  }
+  .local span {
+    font-size: 0.68rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--acento);
+  }
+  .local b {
+    font-family: var(--font-titulo);
+    font-size: 0.95rem;
+    font-weight: 600;
+    color: #fff;
+    overflow-wrap: anywhere;
   }
   /*
    * El punto naranja pulsa despacio. Es el único elemento animado del menú a
