@@ -797,6 +797,33 @@ export class EnlaceSupabase implements EnlaceConMotrae, NubeDeAutofactura {
     };
   }
 
+  /**
+   * Cambia la contraseña web del restaurante con el pase de ESTE Hub (1.6.0).
+   *
+   * Es el camino de la caja: el propietario ya entró con su PIN y el Hub es de
+   * confianza. La envoltura y el sobre para Central llegan hechos; la función
+   * de la nube solo los guarda, cambia la contraseña y cierra las sesiones.
+   */
+  async cambiarContrasenaWeb(cuerpo: {
+    contrasena: string;
+    envoltura: unknown;
+    sobre_para_central: unknown;
+  }): Promise<{ ok: true } | { ok: false; error: string }> {
+    if (!this.cliente || !this.dentro) return { ok: false, error: "La caja no tiene conexión con la nube ahora mismo." };
+    const { data, error } = await this.cliente.functions.invoke("cambiar-contrasena-web", { body: cuerpo });
+    if (error) {
+      let mensaje = "No se pudo cambiar la contraseña.";
+      try {
+        const detalle = (await (error as { context?: Response }).context?.json()) as { error?: string } | undefined;
+        if (detalle?.error) mensaje = detalle.error;
+      } catch {
+        /* se queda el mensaje genérico */
+      }
+      return { ok: false, error: mensaje };
+    }
+    return (data as { ok?: boolean } | null)?.ok ? { ok: true } : { ok: false, error: "La nube no confirmó el cambio." };
+  }
+
   desconectar(): void {
     this.cerradoAProposito = true;
     if (this.temporizador) clearTimeout(this.temporizador);

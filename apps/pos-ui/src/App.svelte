@@ -29,6 +29,7 @@
   import Catalogo from "./lib/modulos/admin/Catalogo.svelte";
   import Hub from "./lib/modulos/admin/Hub.svelte";
   import Licencia from "./lib/modulos/admin/Licencia.svelte";
+  import AccesoPorInternet from "./lib/modulos/admin/AccesoPorInternet.svelte";
   import Impresoras from "./lib/modulos/admin/Impresoras.svelte";
   import Salones from "./lib/modulos/admin/Salones.svelte";
   import Socios from "./lib/modulos/admin/Socios.svelte";
@@ -288,6 +289,8 @@
         <Hub />
       {:else if seccion === "licencia"}
         <Licencia />
+      {:else if seccion === "acceso-web"}
+        <AccesoPorInternet />
       {:else}
         <Usuarios />
       {/if}

@@ -28,6 +28,12 @@ export interface SeccionModulo {
    * antes de escribir nada. Esto es para que no estorbe.
    */
   soloMotrae?: boolean;
+  /**
+   * Solo si la licencia abre el restaurante a internet (1.6.0) y quien entra es
+   * el propietario o el soporte de MOTRAE: es la contraseña con la que se entra
+   * al restaurante desde cualquier parte.
+   */
+  soloConAccesoWeb?: boolean;
 }
 
 export interface EntradaModulo {
@@ -284,6 +290,13 @@ export const MODULOS: EntradaModulo[] = [
       { clave: "impresoras", titulo: "Impresoras", icono: "impresoras", permiso: "admin.dispositivo.aprobar" },
       { clave: "socios", titulo: "Socios", icono: "socios", permiso: "admin.socio.editar" },
       { clave: "hub", titulo: "Hub del local", icono: "hub", permiso: "admin.dispositivo.aprobar" },
+      {
+        clave: "acceso-web",
+        titulo: "Acceso por internet",
+        icono: "sincronizado",
+        permiso: "admin.dispositivo.aprobar",
+        soloConAccesoWeb: true,
+      },
       {
         clave: "licencia",
         titulo: "Licencia del local",

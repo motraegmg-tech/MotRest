@@ -231,6 +231,60 @@ class StoreAccesoWeb {
   }
 
   /**
+   * El propietario cambia la contraseña web desde la web (1.6.0).
+   *
+   * Se hace aquí porque aquí está la clave remota: se envuelve con la nueva
+   * contraseña, y la nueva se sella para el buzón de Central —cuya pública viaja
+   * firmada en la licencia— para que Gonzalo la siga viendo. La nube guarda las
+   * dos cosas y no puede abrir ninguna. Pide la contraseña ACTUAL: una tableta
+   * olvidada con la sesión abierta no basta para dejar fuera al dueño.
+   *
+   * Al terminar se vuelve a entrar con la nueva: la nube cerró todas las
+   * sesiones, incluida esta.
+   */
+  async cambiarContrasena(
+    actual: string,
+    nueva: string,
+    buzonCentral: string | undefined,
+  ): Promise<{ ok: true } | { ok: false; error: string }> {
+    const r = this.restaurante;
+    if (!r || !this.claveRemota) return { ok: false, error: "Esta página no ha entrado a ningún restaurante." };
+    const { cerrarSobre, contrasenaWebAceptable, envolverClaveRemota } = await import("@motrest/dominio");
+    const aceptable = contrasenaWebAceptable(nueva);
+    if (!aceptable.ok) return aceptable;
+    if (!buzonCentral) {
+      return { ok: false, error: "La licencia de tu restaurante no permite cambiarla desde aquí. Pídesela a MOTRAE." };
+    }
+    try {
+      const { nube, direccionNube, llavePublicable } = await import("./nube");
+      const { data } = await nube().auth.getSession();
+      const pase = data.session?.access_token;
+      if (!pase) return { ok: false, error: "Tu sesión terminó. Sal y vuelve a entrar." };
+
+      const respuesta = await fetch(`${direccionNube()}/functions/v1/cambiar-contrasena-web`, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          apikey: llavePublicable(),
+          authorization: `Bearer ${pase}`,
+        },
+        body: JSON.stringify({
+          contrasena: nueva,
+          contrasena_actual: actual,
+          envoltura: await envolverClaveRemota(this.claveRemota, nueva),
+          sobre_para_central: await cerrarSobre(buzonCentral, nueva),
+        }),
+      });
+      const cuerpo = (await respuesta.json().catch(() => ({}))) as { error?: string };
+      if (!respuesta.ok) return { ok: false, error: cuerpo.error ?? "No se pudo cambiar la contraseña." };
+    } catch {
+      return { ok: false, error: "No hay conexión con la nube de MotRest. Inténtalo de nuevo." };
+    }
+    await this.entrar(r.clave, nueva);
+    return { ok: true };
+  }
+
+  /**
    * La licencia completa de un restaurante en nube, verificada aquí mismo.
    *
    * En la red del salón la da la caja por `/licencia`. En nube no hay caja: se

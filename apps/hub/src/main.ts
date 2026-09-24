@@ -81,6 +81,7 @@ import type {
   OrigenSecreto,
   SecretoAccesoWeb,
 } from "@motrest/dominio";
+import { cerrarSobre, contrasenaWebAceptable, envolverClaveRemota } from "@motrest/dominio";
 import {
   CLAVE_AUTOFACTURA_ESTADO,
   cifrar,
@@ -926,6 +927,27 @@ async function recibirAccesoWeb(dato: SecretoAccesoWeb): Promise<ResultadoSecret
   return { ok: true, aplicado: true };
 }
 
+/** El propietario cambia la contraseña web desde la caja (modalidad «ambas»). */
+async function cambiarContrasenaWebDesdeLaCaja(nueva: string): Promise<{ ok: true } | { ok: false; error: string }> {
+  const aceptable = contrasenaWebAceptable(nueva);
+  if (!aceptable.ok) return aceptable;
+  const buzon = licencia?.buzonCentral;
+  if (!licencia?.abreTunelWeb || !buzon) {
+    return { ok: false, error: "Este restaurante no tiene acceso por internet en su licencia." };
+  }
+  const acceso = await almacen.estado.cargar<AccesoWebGuardado>(CLAVE_ACCESO_WEB);
+  if (!acceso) return { ok: false, error: "Falta la llave del túnel: pide a MOTRAE que la reenvíe desde Central." };
+  if (!(enlaceNube instanceof EnlaceSupabase)) return { ok: false, error: "La caja no está enlazada con la nube." };
+
+  const r = await enlaceNube.cambiarContrasenaWeb({
+    contrasena: nueva,
+    envoltura: await envolverClaveRemota(acceso.clave_remota, nueva),
+    sobre_para_central: await cerrarSobre(buzon, nueva),
+  });
+  if (r.ok) registrar("info", "El propietario cambió la contraseña web del restaurante desde la caja.");
+  return r;
+}
+
 function desmontarTunelWeb(motivo: string): void {
   tunelWeb?.cerrarTodas(motivo);
   tunelWeb = null;
@@ -1547,6 +1569,36 @@ function atenderInterno(peticion: IncomingMessage, respuesta: ServerResponse): v
    * Solo desde este mismo equipo: es una decisión sobre ESTA computadora, y
    * nadie en la wifi del local tiene por qué poder tocar qué arranca en la caja.
    */
+  /*
+   * La contraseña web del restaurante (1.6.0), desde la caja.
+   *
+   * Solo desde este mismo equipo, como la licencia: la pantalla que lo pide solo
+   * la ve el propietario (o el soporte de MOTRAE), y una tableta del salón no
+   * tiene por qué poder cambiar cómo se entra al restaurante desde internet.
+   */
+  if (url.pathname === "/acceso-web/contrasena") {
+    if (!esLocal) {
+      json(403, { error: "Solo se cambia desde la caja o desde la web" });
+      return;
+    }
+    if (!esOrigenDelHub(peticion.headers.origin, seguro, autoridad)) {
+      json(403, { error: "Origen no autorizado" });
+      return;
+    }
+    if (peticion.method !== "POST") {
+      json(405, { error: "Usa POST" });
+      return;
+    }
+    void leerCuerpo(peticion, 4096)
+      .then(async (crudo) => {
+        const { contrasena } = JSON.parse(crudo.toString("utf8") || "{}") as { contrasena?: unknown };
+        const r = await cambiarContrasenaWebDesdeLaCaja(typeof contrasena === "string" ? contrasena : "");
+        json(r.ok ? 200 : 400, r);
+      })
+      .catch(() => json(400, { ok: false, error: "Petición ilegible" }));
+    return;
+  }
+
   if (url.pathname === "/arranque-automatico") {
     if (!esLocal) {
       json(403, { error: "Solo se configura desde el propio equipo" });

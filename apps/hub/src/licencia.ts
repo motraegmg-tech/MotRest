@@ -258,4 +258,9 @@ export class GestorLicencia {
   get abreTunelWeb(): boolean {
     return this.verificada && this.licencia?.web?.modalidad === "ambas";
   }
+
+  /** La pública del buzón de Central, de una licencia VERIFICADA. */
+  get buzonCentral(): string | null {
+    return this.verificada ? (this.licencia?.web?.buzon_central ?? null) : null;
+  }
 }
