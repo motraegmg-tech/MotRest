@@ -50,6 +50,7 @@ Cada local tiene una **modalidad**, que se elige en Central y viaja firmada en l
 | Pulso nube | `43bbd94` | `ServidorNube` sube el pulso al entrar y al recibir `caja_cerrada`, solo con campos seguros |
 | Arreglo | `efe7780` | La entrada se salía por la derecha en teléfonos. Verificado con capturas a 390 y 768 px, y con una entrada fallida contra la nube real («Clave o contraseña incorrecta») |
 | 3 · Central | `16e5797` | `configurarAccesoWeb`, `regenerarContrasenaWeb`, `fijarContrasenaWeb`, `verContrasenaWeb`, `enviarAccesoWebAlHub`, `recogerContrasenasDelRestaurante`; panel `AccesoWeb.svelte` en la ficha, modalidad en el Alta, distintivo Nube/Web, dirección de la web en Llaves |
+| Encender Local en la Nube | *(este commit, 24-sep)* | Para locales ya contratados: botón en la ficha de Restaurantes → `EncenderNube.svelte` → `central.encenderLocalEnLaNube` (modalidad «ambas» con la contraseña escrita y la licencia reemitida **con el mismo vencimiento y bloqueo**). `configurarAccesoWeb` acepta `contrasena`. Arreglo: los diálogos Alta, Editar y Vencimiento se cortaban por arriba cuando no cabían (`align-items: center` en un contenedor desplazable) → `flex-start` + `margin: auto 0` en la tarjeta |
 
 ## Falta (en este orden) — actualizado tras `4e25f8e`
 

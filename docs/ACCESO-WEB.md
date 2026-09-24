@@ -327,12 +327,33 @@ Requisitos:
 
 Pasos:
 
-1. **Editar datos → Acceso por internet → Ambas**, revisa la clave → **Aplicar**.
-   - Central crea el usuario web, deja la envoltura en `accesos_web` y manda la **llave
-     del túnel** al buzón del Hub.
-   - Si sale el aviso «La llave del túnel no llegó todavía al Hub», pulsa
-     **Reenviar la llave del túnel al Hub** cuando el local tenga pulso.
-2. **Emite la licencia.** El Hub la recibe sola y abre el túnel.
+1. En **Restaurantes**, abre la ficha del local y pulsa **Encender Local en la Nube**.
+   Solo aparece si el local está activo, tiene licencia y está en modalidad «app».
+   - Escribe la **clave** (o pulsa «Sugerir») y la **contraseña** dos veces (o pulsa
+     «Generar una»). Luego pulsa **Encender en la nube**.
+   - Central, en un solo paso:
+     - crea el usuario web y deja la envoltura en `accesos_web`;
+     - manda la **llave del túnel** al buzón del Hub;
+     - **vuelve a emitir la licencia con el mismo vencimiento y bloqueo** que ya
+       tenía, ahora con el bloque `web` en «ambas». La licencia llega sola a la caja.
+   - Al terminar enseña la dirección, la clave y la contraseña, y el botón **Copiar
+     mensaje para el cliente**.
+   - Avisos posibles:
+     - la caja nunca dio pulso;
+     - la caja tiene una versión anterior a la 1.6.0;
+     - la licencia hubo que pegarla a mano;
+     - la llave del túnel no llegó. En este caso, en **Editar datos → Acceso por
+       internet**, pulsa **Reenviar la llave del túnel al Hub** cuando el local tenga
+       pulso.
+   - Se niega si la licencia está vencida: primero hay que renovarla.
+   - Después, el botón pasa a decir **Nube encendida** y abre la ficha, donde se ve y
+     se cambia la contraseña.
+   - Otra forma de hacerlo: **Editar datos → Acceso por internet → Ambas → Aplicar** y
+     después **emitir la licencia** a mano.
+2. **Los datos no se copian a ninguna parte.** La web lee y escribe en el Hub de la caja
+   a través del túnel, así que lo que ve es la caja **en vivo** y lo que hace en la web
+   lo recibe la caja. La otra cara es que, si la computadora está apagada o sin
+   internet, la web dice que el restaurante no está conectado.
 3. **Comprueba en la computadora del restaurante:** abre el registro del día,
    `%LOCALAPPDATA%\MotRest\datos\registro\hub-AAAA-MM-DD.log`. Deben aparecer estas
    dos líneas:

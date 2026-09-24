@@ -16,6 +16,7 @@
   import type { ActualizacionReportada } from "@motrest/dominio";
   import Alta from "./Alta.svelte";
   import EditarLocal from "./EditarLocal.svelte";
+  import EncenderNube from "./EncenderNube.svelte";
   import Vencimiento from "./Vencimiento.svelte";
   import Cobros from "./Cobros.svelte";
   import Facturacion from "./Facturacion.svelte";
@@ -61,6 +62,8 @@
 
   let dandoAlta = $state(false);
   let editando = $state(false);
+  /** «Encender Local en la Nube» abierto (1.6.0). */
+  let encendiendoNube = $state(false);
   let cambiandoVencimiento = $state(false);
   let confirmandoCorte = $state(false);
   let aviso = $state("");
@@ -338,6 +341,18 @@
         </div>
         <div class="acciones-ficha">
           <button class="editar" onclick={() => (editando = true)}>Editar datos</button>
+          <!--
+            LA NUBE, PARA UN LOCAL YA CONTRATADO (1.6.0). Solo si trabaja con su
+            computadora y ya tiene licencia: la modalidad viaja dentro de ella.
+            Encendida, el botón lleva a su acceso web (clave y contraseña).
+          -->
+          {#if cliente.activo && cliente.licencia && (cliente.modalidad ?? "app") === "app"}
+            <button class="nube" onclick={() => (encendiendoNube = true)}>Encender Local en la Nube</button>
+          {:else if cliente.modalidad === "ambas"}
+            <button class="nube encendida" onclick={() => (editando = true)} title="Ver su clave y contraseña">
+              Nube encendida
+            </button>
+          {/if}
           {#if cliente.activo}
             <button class="editar" onclick={() => (cambiandoVencimiento = true)}>
               Cambiar vencimiento…
@@ -684,6 +699,10 @@
   />
 {/if}
 
+{#if encendiendoNube && cliente}
+  <EncenderNube {cliente} onCerrar={() => (encendiendoNube = false)} />
+{/if}
+
 {#if editando && cliente}
   <EditarLocal
     {cliente}
@@ -901,6 +920,22 @@
     display: flex;
     gap: 0.5rem;
     align-items: center;
+  }
+  .nube {
+    flex: none;
+    font: inherit;
+    font-size: 0.85rem;
+    font-weight: 600;
+    padding: 0.6rem 1rem;
+    border: 1px solid var(--acento);
+    border-radius: var(--r-sm);
+    background: var(--blanco);
+    color: var(--acento);
+    cursor: pointer;
+  }
+  .nube.encendida {
+    border-color: var(--borde);
+    color: var(--pizarra);
   }
   .renovar {
     flex: none;

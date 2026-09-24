@@ -241,13 +241,20 @@
     inset: 0;
     z-index: 60;
     display: flex;
-    align-items: center;
+    /*
+     * NO se centra con align-items: una tarjeta más alta que la ventana se
+     * salía por ARRIBA, fuera de la zona desplazable, y no había forma de ver
+     * su principio (el Alta en pantallas bajas, 24-sep-2026). Centra el
+     * `margin: auto` de la tarjeta, que se vuelve 0 cuando no cabe.
+     */
+    align-items: flex-start;
     justify-content: center;
     padding: 1.5rem;
     background: rgba(20, 24, 26, 0.5);
     overflow-y: auto;
   }
   .tarjeta {
+    margin: auto 0;
     width: min(30rem, 100%);
     background: var(--blanco);
     border-radius: var(--r-lg);

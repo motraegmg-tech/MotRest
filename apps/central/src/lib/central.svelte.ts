@@ -3408,7 +3408,11 @@ export class StoreCentral {
    */
   async configurarAccesoWeb(
     sucursalId: string,
-    cambios: { modalidad: ModalidadLocal; clave?: string },
+    /**
+     * `contrasena`: la que escribió Gonzalo. Sin ella se conserva la vigente o,
+     * la primera vez, se genera una.
+     */
+    cambios: { modalidad: ModalidadLocal; clave?: string; contrasena?: string },
   ): Promise<ResultadoAccesoWeb> {
     const cliente = this.clientes.find((c) => c.id === sucursalId);
     if (!cliente) return { ok: false, error: "No existe ese local" };
@@ -3448,8 +3452,16 @@ export class StoreCentral {
 
     const previo = this.protegidos.accesos_web?.[sucursalId];
     const claveRemota = previo?.clave_remota ?? generarClaveRemota();
-    const contrasena = previo?.contrasena ?? generarContrasenaWeb();
-    const version = previo?.version ?? 1;
+    if (cambios.contrasena !== undefined) {
+      const aceptable = contrasenaWebAceptable(cambios.contrasena);
+      if (!aceptable.ok) return aceptable;
+    }
+    const contrasena = cambios.contrasena ?? previo?.contrasena ?? generarContrasenaWeb();
+    /*
+     * Otra contraseña = otra versión: el Hub la ve subir y corta las sesiones
+     * web que entraron con la anterior.
+     */
+    const version = previo ? previo.version + (contrasena !== previo.contrasena ? 1 : 0) : 1;
 
     const usuario = await this.usuarioWeb(sucursalId, contrasena);
     if (!usuario.ok) return usuario;
@@ -3498,12 +3510,23 @@ export class StoreCentral {
           contrasena,
           version,
           usuario_id: usuario.usuario_id,
-          ...(previo?.cambiada_por_restaurante_ts ? { cambiada_por_restaurante_ts: previo.cambiada_por_restaurante_ts } : {}),
+          // La nota «la cambió el propietario» solo vale si la contraseña sigue siendo esa.
+          ...(previo?.cambiada_por_restaurante_ts && previo.contrasena === contrasena
+            ? { cambiada_por_restaurante_ts: previo.cambiada_por_restaurante_ts }
+            : {}),
         },
       },
     });
     if (!guardado.ok) return guardado;
     this.actualizar(sucursalId, { modalidad: cambios.modalidad, clave_web: clave });
+
+    // Contraseña distinta a la que había: fuera las sesiones que entraron con la vieja.
+    if (previo && previo.contrasena !== contrasena) {
+      await this.enNube("/rest/v1/rpc/cerrar_sesiones_web", {
+        metodo: "POST",
+        cuerpo: JSON.stringify({ p_usuario: usuario.usuario_id }),
+      });
+    }
 
     const avisos: string[] = [];
     if (cambios.modalidad !== actual) {
@@ -3520,6 +3543,90 @@ export class StoreCentral {
    * Le manda al Hub la clave remota, en su sobre. Sin ella el Hub no puede
    * descifrar lo que llega por el túnel. Se puede repetir sin daño.
    */
+  /**
+   * «Encender Local en la Nube» (pedido de Gonzalo, 24-sep-2026).
+   *
+   * Para un restaurante YA CONTRATADO que trabaja con su computadora: le abre la
+   * entrada por la web sin mover sus datos. La caja sigue siendo la dueña de
+   * todo; la web ve en vivo lo que pasa en ella a través del túnel (modalidad
+   * «ambas»). Hace en un solo paso lo que a mano eran tres:
+   *
+   * 1. crea el acceso web con la clave y la contraseña que eligió Gonzalo;
+   * 2. le manda a la caja la llave del túnel, en su sobre;
+   * 3. vuelve a emitir su licencia CON EL MISMO VENCIMIENTO —la modalidad viaja
+   *    firmada dentro de ella—: encender la nube no es cobrar ni regalar días.
+   *
+   * Dice, sin frenar, lo que todavía impediría conectar: una caja anterior a la
+   * 1.6.0 (no sabe abrir el túnel) o que nunca haya dado señal.
+   */
+  async encenderLocalEnLaNube(
+    sucursalId: string,
+    datos: { clave: string; contrasena: string },
+  ): Promise<
+    | { ok: true; clave: string; contrasena: string; avisos: string[]; entrega?: EntregaLicencia }
+    | { ok: false; error: string }
+  > {
+    const cliente = this.clientes.find((c) => c.id === sucursalId);
+    if (!cliente) return { ok: false, error: "No existe ese local" };
+    if (!cliente.activo) return { ok: false, error: "Este restaurante está dado de baja." };
+    const licencia = cliente.licencia;
+    if (!licencia) {
+      return { ok: false, error: "Primero emite su licencia: el acceso por internet viaja dentro de ella." };
+    }
+    if (licencia.vence_ts <= Date.now()) {
+      return { ok: false, error: "Su licencia está vencida. Renuévala primero y después enciende la nube." };
+    }
+    if ((cliente.modalidad ?? "app") === "nube") {
+      return { ok: false, error: "Este restaurante ya vive en la nube, sin computadora." };
+    }
+
+    const acceso = await this.configurarAccesoWeb(sucursalId, {
+      modalidad: "ambas",
+      clave: datos.clave,
+      contrasena: datos.contrasena,
+    });
+    if (!acceso.ok) return acceso;
+
+    /*
+     * Reemitir SIN tocar el vencimiento ni el bloqueo que ya tuviera. Si fuera
+     * un local con el servicio cortado, seguiría cortado: encender la nube no
+     * es la forma de reabrirle.
+     */
+    const emitida = await this.emitir(sucursalId, {
+      vence_ts: licencia.vence_ts,
+      gracia_dias: licencia.gracia_dias,
+      ...(licencia.bloqueo_inmediato ? { bloqueo_inmediato: true } : {}),
+      ...(licencia.bloqueo_maximo_ts !== undefined ? { bloqueo_maximo_ts: licencia.bloqueo_maximo_ts } : {}),
+    });
+    if (!emitida.ok) {
+      return {
+        ok: false,
+        error: `El acceso quedó creado, pero no se pudo reemitir su licencia: ${emitida.error} Emítela a mano.`,
+      };
+    }
+
+    const avisos = [...acceso.avisos.filter((a) => !a.startsWith("Emite la licencia"))];
+    const pulso = this.pulsoDe(sucursalId);
+    if (!pulso) {
+      avisos.push("Su caja nunca ha dado señal a la nube: la web no podrá conectarse hasta que la caja esté enlazada.");
+    } else if (compararVersiones(pulso.version, "1.6.0") < 0) {
+      avisos.push(
+        `Su caja tiene MotRest ${pulso.version}. El túnel lo abre la 1.6.0: hasta que se actualice, la web dirá que el restaurante no está conectado.`,
+      );
+    }
+    if (emitida.entrega === "a_mano") {
+      avisos.push("La licencia no se pudo dejar en la nube: pégala en la caja a mano (Administración → Licencia del local).");
+    }
+
+    return {
+      ok: true,
+      clave: this.estadoAccesoWeb(sucursalId).clave ?? datos.clave,
+      contrasena: datos.contrasena,
+      avisos,
+      ...(emitida.entrega ? { entrega: emitida.entrega } : {}),
+    };
+  }
+
   async enviarAccesoWebAlHub(sucursalId: string): Promise<Resultado> {
     const previo = this.protegidos.accesos_web?.[sucursalId];
     if (!previo) return { ok: false, error: "Este restaurante no tiene acceso web" };

@@ -235,3 +235,61 @@ describe("la contraseña", () => {
     expect(central.verContrasenaWeb(id)).toBe(antes);
   });
 });
+
+describe("Encender Local en la Nube (restaurante ya contratado)", () => {
+  async function contratado() {
+    const id = await altaRodizio();
+    const primera = await central.emitir(id);
+    return { id, vence: primera.licencia!.vence_ts };
+  }
+
+  it("enciende en «ambas» con la contraseña elegida y reemite con el MISMO vencimiento", async () => {
+    const { id, vence } = await contratado();
+    const r = await central.encenderLocalEnLaNube(id, { clave: "rodizio", contrasena: "pizza de la casa" });
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.clave).toBe("RODIZIO");
+    expect(central.verContrasenaWeb(id)).toBe("pizza de la casa");
+
+    const cliente = central.clientes.find((c) => c.id === id)!;
+    expect(cliente.modalidad).toBe("ambas");
+    expect(cliente.licencia!.vence_ts).toBe(vence);
+    expect(modalidadDe(cliente.licencia)).toBe("ambas");
+
+    // La licencia fue a la nube (licencias_pendientes) y la fila del acceso se creó en «ambas».
+    expect(llamadas.some((l) => l.ruta.startsWith("/rest/v1/licencias_pendientes"))).toBe(true);
+    const fila = cuerpoDe((l) => l.ruta.startsWith("/rest/v1/accesos_web?on_conflict"));
+    expect(fila.modalidad).toBe("ambas");
+    expect(await desenvolverClaveRemota(fila.envoltura, "pizza de la casa")).not.toBeNull();
+  });
+
+  it("sin licencia emitida no enciende: la modalidad viaja dentro de ella", async () => {
+    const id = await altaRodizio();
+    const r = await central.encenderLocalEnLaNube(id, { clave: "RODIZIO", contrasena: "pizza de la casa" });
+    expect(r.ok).toBe(false);
+  });
+
+  it("rechaza una contraseña floja antes de tocar la nube", async () => {
+    const { id } = await contratado();
+    llamadas = [];
+    const r = await central.encenderLocalEnLaNube(id, { clave: "RODIZIO", contrasena: "corta" });
+    expect(r.ok).toBe(false);
+    expect(llamadas.some((l) => l.ruta.includes("accesos_web"))).toBe(false);
+  });
+
+  it("avisa si la caja nunca dio señal (no sabe si tiene la 1.6.0)", async () => {
+    const { id } = await contratado();
+    const r = await central.encenderLocalEnLaNube(id, { clave: "RODIZIO", contrasena: "pizza de la casa" });
+    expect(r.ok && r.avisos.some((a) => /nunca ha dado señal/.test(a))).toBe(true);
+  });
+
+  it("cambiar la contraseña al volver a encender sube la versión y corta sesiones", async () => {
+    const { id } = await contratado();
+    await central.encenderLocalEnLaNube(id, { clave: "RODIZIO", contrasena: "pizza de la casa" });
+    llamadas = [];
+    const r = await central.configurarAccesoWeb(id, { modalidad: "ambas", contrasena: "otra pizza distinta" });
+    expect(r.ok).toBe(true);
+    expect(central.estadoAccesoWeb(id).version).toBe(2);
+    expect(llamadas.some((l) => l.ruta === "/rest/v1/rpc/cerrar_sesiones_web")).toBe(true);
+  });
+});
