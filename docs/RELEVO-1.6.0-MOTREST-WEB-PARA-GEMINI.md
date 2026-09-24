@@ -218,3 +218,22 @@ prueba lo tiene **en caliente**, en `%LOCALAPPDATA%\MotRest\pos`, con respaldo e
     (ahora 1.6.1).
   - La 1.5.7 se publicó con la URL de GitHub tanto en la nube como en el manifiesto, y la
     1.6.1 va igual (etiqueta `1.6.1`, sin `v`).
+
+### 1.6.1 PUBLICADA (24-sep-2026, 03:10) — comprobado por Claude
+
+- **GitHub:** el release `1.6.1` es Latest, con el `.exe` y `motrest.json`.
+  - La URL de descarga da 200, con 27,455,624 bytes y el SHA-256 correcto.
+  - La firma del manifiesto verifica con la pública de actualizaciones, y falla si se
+    altera un dato.
+  - La etiqueta se creó apuntando a `main` (`e97e79a`) y **se movió a `4a30777`**,
+    que es el código de la versión. El release y sus archivos no cambiaron.
+- **Nube:** la fila `versiones` 1.6.1 está en el canal estable, con la URL y el SHA de
+  GitHub y las notas completas (2,536 caracteres).
+  - `asignaciones` pone **los tres locales en 1.6.1**.
+- **Pendiente:**
+  - **Rodizio** (1.5.3) y **Tortas Fc** (1.5.6) solo revisan el canal cada 12 h con la
+    caja prendida (defecto de ≤1.5.6), así que pueden no ver el aviso.
+  - Opciones: dejar la caja 12 h encendida, o instalar a mano. A Rodizio se le puede
+    instalar por SSH, que exige estar en su red y con la caja prendida.
+  - El 24-sep a las 03:15 su caja estaba apagada.
+  - Al llegar a Rodizio, revisar también `datos\registro` (bucle de EPIPE de la 1.5.x).
