@@ -190,3 +190,31 @@ prueba lo tiene **en caliente**, en `%LOCALAPPDATA%\MotRest\pos`, con respaldo e
 2. Instalar sobre la 1.6.0 de la máquina de prueba y verificar sobre la app instalada
    que `/salud` dice 1.6.1.
 3. Publicar el release y el manifiesto **solo con el visto bueno de Gonzalo**.
+
+### Compilación 1.6.1 (24-sep-2026, 03:01): hecha, NO publicada
+
+- **Instalador:** `C:\motrest-build\release\bundle\nsis\MotRest_1.6.1_x64-setup.exe`
+  - SHA-256 `869d4afdc2a93480ee97496e23a615ba8a338d6af4990decfe56ef7603110d79`, 27,455,624 bytes.
+  - Compilado desde el commit `4a30777`.
+  - El Hub empaquetado lleva la versión 1.6.1, el repositorio `motraegmg-tech/MotRest`
+    y las dos llaves públicas.
+- **Suites:** dominio 1422, protocolo-sync 95, impresión 141, Hub 570 (+2 omitidas),
+  POS 421, Central 154.
+- **Instalado con `/S` sobre la 1.6.0 de la máquina de prueba.**
+  - `/salud` reporta 1.6.1, con la secuencia 1011 intacta, la licencia activa, un solo
+    Hub, el enlace con la nube y el túnel abierto.
+  - Respaldo previo en `Escritorio\datos-motrest-antes-de-1.6.1.zip`.
+- **Ensayo del viernes contra la app instalada: superado**, con 39 de 39 ventas.
+- **Paquete para Gonzalo:** `Escritorio\MotRest 1.6.1 para publicar\` con el `.exe`,
+  `NOTAS-1.6.1.txt` y `PASOS-PARA-PUBLICAR.txt`.
+  - Las notas son **acumuladas desde la 1.5.7** (2,536 caracteres), porque ningún local
+    llegó a instalar la 1.5.7 y la 1.6.0 no se publicó.
+  - Sustituyen a la propuesta de la sección anterior.
+- **Estado del canal antes de publicar:**
+  - la nube tiene hasta la 1.5.7;
+  - Rodizio, Tortas Fc y Prueba están **fijados en 1.5.7** en `asignaciones`, y hay que
+    marcar los tres al publicar;
+  - los pulsos dicen que Rodizio corre la 1.5.3, Tortas Fc la 1.5.6 y Prueba la 1.6.0
+    (ahora 1.6.1).
+  - La 1.5.7 se publicó con la URL de GitHub tanto en la nube como en el manifiesto, y la
+    1.6.1 va igual (etiqueta `1.6.1`, sin `v`).
