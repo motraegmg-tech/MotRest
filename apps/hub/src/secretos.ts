@@ -33,6 +33,7 @@ import {
   abrirSobre,
   esPublicaDeSobre,
   esSecreto,
+  esSecretoAccesoWeb,
   generarParDeSobre,
   llaveFacturapiValida,
   normalizarContrasenaGmail,
@@ -43,6 +44,7 @@ import {
   type OrigenSecreto,
   type ParDeSobre,
   type Secreto,
+  type SecretoAccesoWeb,
 } from "@motrest/dominio";
 import type { DatosOrganizacion, PruebaDeLlave } from "./fiscal/facturapi.js";
 
@@ -97,6 +99,12 @@ export interface OpcionesSecretos {
   probarFacturapi: (llave: string) => Promise<PruebaDeLlave>;
   /** Se avisa tras aplicar un cambio: para barrer la cola, reportar el pulso… */
   alCambiar?: (clase: ClaseSecreto) => void;
+  /**
+   * La clave remota del túnel de la web (1.6.0). Llega en el mismo buzón pero
+   * no es un secreto de FacturAPI ni de Gmail: se entrega tal cual a quien la
+   * guarda y abre el túnel. Sin esto, el sobre se rechaza con un motivo claro.
+   */
+  alRecibirAccesoWeb?: (dato: SecretoAccesoWeb) => Promise<ResultadoSecreto>;
   registrar?: (nivel: "info" | "aviso" | "error", mensaje: string) => void;
   ahora?: () => number;
 }
@@ -510,6 +518,20 @@ export class SecretosDelHub {
       dato = JSON.parse(claro);
     } catch {
       return { ok: false, aplicado: false, problema: "El contenido del sobre no es válido." };
+    }
+    /*
+     * El acceso web (1.6.0) va aparte: no se valida como una llave de
+     * facturación ni se enseña en ningún semáforo. Se comprueba que sea de
+     * ESTE local, igual que todo lo demás, y se entrega.
+     */
+    if (esSecretoAccesoWeb(dato)) {
+      if (dato.sucursal_id !== this.opciones.sucursal()) {
+        return { ok: false, aplicado: false, problema: "El acceso web que llegó es de otro restaurante." };
+      }
+      if (!this.opciones.alRecibirAccesoWeb) {
+        return { ok: false, aplicado: false, problema: "Este Hub no sabe abrir el túnel de la web." };
+      }
+      return this.opciones.alRecibirAccesoWeb(dato);
     }
     if (!esSecreto(dato)) {
       return {

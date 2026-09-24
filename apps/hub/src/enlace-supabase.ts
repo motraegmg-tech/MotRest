@@ -28,6 +28,7 @@
  */
 import { createClient, type RealtimeChannel, type SupabaseClient } from "@supabase/supabase-js";
 import WebSocket from "ws";
+import { EVENTO_TUNEL, canalTunelDe, type SobreTunel } from "@motrest/protocolo-sync";
 import type { Aviso } from "./avisos.js";
 import type { EnlaceConMotrae, MensajeDelComensal, OpcionesNube } from "./enlace-motrae.js";
 import type {
@@ -732,6 +733,68 @@ export class EnlaceSupabase implements EnlaceConMotrae, NubeDeAutofactura {
     const espera = Math.min(REINTENTO_BASE_MS * 2 ** (this.intentos - 1), REINTENTO_MAX_MS);
     if (this.temporizador) clearTimeout(this.temporizador);
     this.temporizador = setTimeout(() => void this.entrar(), espera);
+  }
+
+  // --- El túnel de la web (modalidad «ambas», 1.6.0) ------------------------------------
+
+  /**
+   * Abre el canal PRIVADO del túnel y escucha el acceso web de este local.
+   *
+   * Privado de verdad: Realtime solo deja entrar a `tunel:<sucursal>` a este
+   * Hub y a la sesión web de este restaurante (políticas en
+   * `realtime.messages`). Lo que viaja ya va cifrado con la clave remota; esta
+   * es la segunda cerradura, no la primera.
+   *
+   * Se vuelve a llamar cada vez que el enlace reconecta: un canal de una
+   * conexión caída no revive solo. Devuelve null si no hay enlace.
+   */
+  async abrirCanalTunel(
+    alSobre: (payload: unknown) => void,
+    alCambiarAcceso: (acceso: { version: number; activo: boolean }) => void,
+  ): Promise<{ enviar: (sobre: SobreTunel) => void; cerrar: () => void; acceso: { version: number; activo: boolean } | null } | null> {
+    const cliente = this.cliente;
+    if (!cliente || !this.dentro) return null;
+    const sucursal = this.opciones.sucursal_id;
+
+    const { data } = await cliente.from("accesos_web").select("version, activo").maybeSingle();
+    const fila = data as { version?: unknown; activo?: unknown } | null;
+    const acceso =
+      fila && typeof fila.version === "number" ? { version: fila.version, activo: fila.activo === true } : null;
+
+    await cliente.realtime.setAuth();
+    const tunel = cliente
+      .channel(canalTunelDe(sucursal), { config: { private: true, broadcast: { self: false, ack: false } } })
+      .on("broadcast", { event: EVENTO_TUNEL }, ({ payload }) => alSobre(payload))
+      .subscribe((estado) => {
+        if (estado === "CHANNEL_ERROR" || estado === "TIMED_OUT") {
+          this.opciones.registrar("aviso", `El túnel de la web no pudo abrirse (${estado}).`);
+        }
+      });
+
+    const vigilancia = cliente
+      .channel(`acceso-web-${sucursal}`)
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "accesos_web", filter: `sucursal_id=eq.${sucursal}` },
+        (carga) => {
+          const nueva = carga.new as { version?: unknown; activo?: unknown } | null;
+          if (nueva && typeof nueva.version === "number") {
+            alCambiarAcceso({ version: nueva.version, activo: nueva.activo === true });
+          }
+        },
+      )
+      .subscribe();
+
+    return {
+      acceso,
+      enviar: (sobre) => {
+        void tunel.send({ type: "broadcast", event: EVENTO_TUNEL, payload: sobre });
+      },
+      cerrar: () => {
+        void cliente.removeChannel(tunel);
+        void cliente.removeChannel(vigilancia);
+      },
+    };
   }
 
   desconectar(): void {

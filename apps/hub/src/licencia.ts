@@ -248,4 +248,14 @@ export class GestorLicencia {
   get enlaceNube() {
     return this.verificada ? (this.licencia?.nube ?? null) : null;
   }
+
+  /**
+   * ¿La licencia VERIFICADA abre el túnel de la web? (modalidad «ambas», 1.6.0)
+   *
+   * Solo de una licencia firmada: sin eso, cualquiera que dejara un archivo en
+   * la carpeta podría abrir el Hub a internet.
+   */
+  get abreTunelWeb(): boolean {
+    return this.verificada && this.licencia?.web?.modalidad === "ambas";
+  }
 }

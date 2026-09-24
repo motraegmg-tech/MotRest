@@ -79,6 +79,7 @@ import type {
   MenuLocal,
   EstadoSecretos,
   OrigenSecreto,
+  SecretoAccesoWeb,
 } from "@motrest/dominio";
 import {
   CLAVE_AUTOFACTURA_ESTADO,
@@ -88,6 +89,7 @@ import {
   derivarSecretoPortal,
   descifrar,
   generarClaveLocal,
+  LATIDO_MS,
   type Catalogo,
   type ClavesCanal,
   type MensajeCliente,
@@ -130,7 +132,9 @@ import {
   SecretosDelHub,
   type AlmacenDeSecretos,
   type FacturapiGuardada,
+  type ResultadoSecreto,
 } from "./secretos.js";
+import { TunelRemoto } from "./tunel-remoto.js";
 import { enviarARed } from "./impresion/transporte-red.js";
 import {
   enviarAUsb,
@@ -883,8 +887,115 @@ const secretos = new SecretosDelHub({
   sucursal: () => sucursalDelLocal(),
   probarFacturapi: (llave) => probarLlaveFacturapi(llave),
   alCambiar: (clase) => alCambiarSecreto(clase),
+  alRecibirAccesoWeb: (dato) => recibirAccesoWeb(dato),
   registrar,
 });
+
+// --- El túnel de la web (modalidad «ambas», 1.6.0) -----------------------------------------
+//
+// Con la licencia en «ambas» y la clave remota que manda Central, el Hub abre un
+// canal privado en la nube por el que los navegadores del restaurante llegan a
+// él desde cualquier parte. Cada uno entra como terminal REMOTA —nunca como la
+// caja—. Si la licencia no lo dice, o falta la llave, no se abre nada.
+
+const CLAVE_ACCESO_WEB = "acceso_web";
+
+interface AccesoWebGuardado {
+  clave_remota: string;
+  version: number;
+  emitido_ts: number;
+}
+
+let tunelWeb: TunelRemoto | null = null;
+let canalTunelWeb: { cerrar: () => void } | null = null;
+let latidoTunelWeb: ReturnType<typeof setInterval> | null = null;
+
+/** La clave remota que llegó de Central en su sobre. */
+async function recibirAccesoWeb(dato: SecretoAccesoWeb): Promise<ResultadoSecreto> {
+  const previo = await almacen.estado.cargar<AccesoWebGuardado>(CLAVE_ACCESO_WEB);
+  if (previo && previo.emitido_ts > dato.emitido_ts) {
+    return { ok: true, aplicado: false, problema: "Este Hub ya tenía una llave del túnel más reciente." };
+  }
+  await almacen.estado.guardar(CLAVE_ACCESO_WEB, {
+    clave_remota: dato.clave_remota,
+    version: dato.version,
+    emitido_ts: dato.emitido_ts,
+  } satisfies AccesoWebGuardado);
+  registrar("info", "Llegó de MOTRAE la llave del túnel de la web.");
+  void montarTunelWeb();
+  return { ok: true, aplicado: true };
+}
+
+function desmontarTunelWeb(motivo: string): void {
+  tunelWeb?.cerrarTodas(motivo);
+  tunelWeb = null;
+  canalTunelWeb?.cerrar();
+  canalTunelWeb = null;
+  if (latidoTunelWeb) clearInterval(latidoTunelWeb);
+  latidoTunelWeb = null;
+}
+
+/**
+ * Abre (o reabre) el túnel. Se llama al conectar con la nube, al instalar una
+ * licencia y al llegar la llave: cualquiera de las tres cosas puede ser la que
+ * faltaba. Reabrir corta las sesiones web de ese momento; vuelven solas.
+ */
+async function montarTunelWeb(): Promise<void> {
+  desmontarTunelWeb("El restaurante reabrió su conexión.");
+  if (!licencia?.abreTunelWeb) return;
+  if (!(enlaceNube instanceof EnlaceSupabase) || !enlaceNube.conectado()) return;
+
+  const acceso = await almacen.estado.cargar<AccesoWebGuardado>(CLAVE_ACCESO_WEB);
+  if (!acceso) {
+    registrar(
+      "aviso",
+      "La licencia abre el restaurante a la web, pero falta la llave del túnel. " +
+        "Se reenvía desde Central → ficha del restaurante → «Reenviar la llave del túnel al Hub».",
+    );
+    return;
+  }
+
+  let claves: ClavesCanal;
+  try {
+    claves = await derivarClaves(acceso.clave_remota, "hub");
+  } catch {
+    registrar("error", "La llave del túnel de la web no tiene la forma esperada; pide a MOTRAE que la reenvíe.");
+    return;
+  }
+
+  let canal: Awaited<ReturnType<EnlaceSupabase["abrirCanalTunel"]>> = null;
+  let versionVista: number | null = null;
+  const tunel = new TunelRemoto({ hub, claves, enviar: (sobre) => canal?.enviar(sobre), registrar });
+
+  canal = await enlaceNube.abrirCanalTunel(
+    (payload) => tunel.recibir(payload),
+    (cambio) => {
+      if (!cambio.activo) {
+        desmontarTunelWeb("El acceso por internet de este restaurante se apagó.");
+        registrar("aviso", "MOTRAE apagó el acceso por internet de este restaurante: túnel cerrado.");
+        return;
+      }
+      // Otra versión = otra contraseña: fuera todos, que entren con la nueva.
+      if (versionVista !== null && cambio.version !== versionVista) {
+        tunel.cerrarTodas("La contraseña del restaurante cambió. Vuelve a entrar.");
+      }
+      versionVista = cambio.version;
+    },
+  );
+  if (!canal) return;
+  if (canal.acceso && !canal.acceso.activo) {
+    canal.cerrar();
+    registrar("aviso", "La licencia abre la web, pero el acceso está apagado en la nube: túnel sin abrir.");
+    return;
+  }
+  versionVista = canal.acceso?.version ?? null;
+
+  tunelWeb = tunel;
+  canalTunelWeb = canal;
+  latidoTunelWeb = setInterval(() => tunel.latir(), LATIDO_MS);
+  latidoTunelWeb.unref?.();
+  registrar("info", "Túnel de la web abierto: este restaurante se puede usar desde internet.");
+}
 
 /** Con qué nombre se anota el timbre: las pruebas se dicen, para que nadie las confunda. */
 function nombreFacturapi(): string {
@@ -3528,6 +3639,8 @@ async function reconsiderarEnlaceDeNube(esperaAntesDeCerrar = 0): Promise<void> 
       hayQueVolverAReconsiderar = false;
       await unaVueltaDeEnlace(esperaAntesDeCerrar);
     } while (hayQueVolverAReconsiderar);
+    // La licencia nueva puede abrir o cerrar la web (modalidad «ambas»).
+    await montarTunelWeb();
   } catch (causa) {
     registrar("error", `No se pudo revisar el enlace con MOTRAE: ${String(causa)}`);
   } finally {
@@ -3689,6 +3802,8 @@ async function montarEnlaceDeNube(): Promise<void> {
       void autofactura.sincronizar();
       // La revisión del arranque corrió sin enlace y salió vacía: esta es la que cuenta.
       void revisarCanalDeActualizaciones();
+      // El túnel de la web vive dentro de este enlace: si reconectó, se reabre.
+      void montarTunelWeb();
     },
     alLlegarSolicitudDeFactura: (fila: { id: string; orden_id: string; sobre: unknown }) =>
       void autofactura.recibir(fila),

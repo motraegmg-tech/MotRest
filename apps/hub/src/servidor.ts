@@ -68,6 +68,11 @@ interface Sesion {
   sucursal_id: ID;
   saludado: boolean;
   esLocal: boolean;
+  /**
+   * Llegó por el túnel de la web (1.6.0), no por la red del salón. Nunca es
+   * `esLocal`: lo exclusivo de la caja sigue siendo de la caja.
+   */
+  remoto: boolean;
 }
 
 export interface OpcionesHub {
@@ -350,14 +355,28 @@ export class Hub {
     return this.log.seqActual;
   }
 
-  conectar(conexion: Conexion, esLocal = false): void {
+  /**
+   * `remoto` = la sesión llegó por el túnel de la web (modalidad «ambas»). Se
+   * aprueba sola la PRIMERA vez —la credencial ya fue la contraseña del
+   * restaurante y la clave remota—, queda anotada como «Web» y se puede revocar
+   * desde Terminales como cualquier otra. Nunca puede ser `esLocal` a la vez.
+   */
+  conectar(conexion: Conexion, esLocal = false, remoto = false): void {
     this.sesiones.set(conexion.id, {
       conexion,
       device_id: "",
       sucursal_id: "",
       saludado: false,
-      esLocal,
+      esLocal: esLocal && !remoto,
+      remoto,
     });
+  }
+
+  /** Cuántas sesiones llegaron por el túnel de la web. */
+  sesionesRemotas(): number {
+    let n = 0;
+    for (const s of this.sesiones.values()) if (s.remoto) n += 1;
+    return n;
   }
 
   desconectar(conexionId: string): void {
@@ -747,8 +766,8 @@ export class Hub {
      */
     let dispositivo = this.log.dispositivo(mensaje.device_id);
     if (!dispositivo) {
-      dispositivo = this.log.registrarDispositivo(mensaje.device_id, "");
-      if (this.log.dispositivos().length === 1 || sesion.esLocal) {
+      dispositivo = this.log.registrarDispositivo(mensaje.device_id, "", sesion.remoto ? "Web" : undefined);
+      if (this.log.dispositivos().length === 1 || sesion.esLocal || sesion.remoto) {
         this.log.aprobarDispositivo(mensaje.device_id);
         dispositivo = this.log.dispositivo(mensaje.device_id)!;
         this.anotar(

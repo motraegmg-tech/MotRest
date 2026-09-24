@@ -245,6 +245,75 @@ describe("recibir de Central", () => {
   });
 });
 
+/*
+ * El acceso web (1.6.0) llega por el mismo buzón pero no es una llave de
+ * facturación: se entrega a quien abre el túnel, sin tocar FacturAPI ni Gmail.
+ */
+describe("la llave del túnel de la web", () => {
+  const CLAVE_REMOTA = "A".repeat(43);
+  const accesoWeb = (extra: Record<string, unknown> = {}) => ({
+    clase: "acceso_web",
+    sucursal_id: SUC,
+    emitido_ts: 2_000,
+    origen: "central",
+    clave_remota: CLAVE_REMOTA,
+    version: 1,
+    ...extra,
+  });
+
+  function conTunel(entregados: unknown[]): SecretosDelHub {
+    return new SecretosDelHub({
+      almacen,
+      rutaPar: join(carpeta, "sobre-hub.json"),
+      sucursal: () => SUC,
+      probarFacturapi: (llave) => probarLlaveFacturapi(llave, { fetch: api.fetch }),
+      alCambiar: (clase) => cambios.push(clase),
+      alRecibirAccesoWeb: async (dato) => {
+        entregados.push(dato);
+        return { ok: true, aplicado: true };
+      },
+      registrar: (_n, m) => bitacora.push(m),
+    });
+  }
+
+  it("se entrega a quien abre el túnel, sin tocar FacturAPI ni Gmail", async () => {
+    const entregados: unknown[] = [];
+    const s = conTunel(entregados);
+    await s.cargar();
+    const r = await s.recibirDeLaNube({
+      clase: "acceso_web",
+      sobre: await cerrarSobre(s.llavePublica(), JSON.stringify(accesoWeb())),
+    });
+    expect(r).toEqual({ ok: true, aplicado: true });
+    expect(entregados).toEqual([accesoWeb()]);
+    expect(cambios).toEqual([]);
+    expect(s.estado().facturapi.configurada).toBe(false);
+  });
+
+  it("la de otro restaurante se rechaza", async () => {
+    const entregados: unknown[] = [];
+    const s = conTunel(entregados);
+    await s.cargar();
+    const r = await s.recibirDeLaNube({
+      clase: "acceso_web",
+      sobre: await cerrarSobre(s.llavePublica(), JSON.stringify(accesoWeb({ sucursal_id: "suc-otro" }))),
+    });
+    expect(r.ok).toBe(false);
+    expect(entregados).toEqual([]);
+  });
+
+  it("un Hub sin túnel lo dice en vez de tragárselo", async () => {
+    const s = nuevos();
+    await s.cargar();
+    const r = await s.recibirDeLaNube({
+      clase: "acceso_web",
+      sobre: await cerrarSobre(s.llavePublica(), JSON.stringify(accesoWeb())),
+    });
+    expect(r.ok).toBe(false);
+    expect(r.problema).toMatch(/túnel/);
+  });
+});
+
 describe("guardar desde la caja", () => {
   it("la llave se prueba ANTES de guardarse; sin red, se dice a quien la pegó", async () => {
     const s = nuevos();
