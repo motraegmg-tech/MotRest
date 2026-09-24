@@ -23,6 +23,29 @@
   import { prepararLogo, recalcularLogo } from "../../logo-ticket";
   import { respaldo } from "../../respaldo.svelte";
   import VistaPreviaTicket from "../../VistaPreviaTicket.svelte";
+  import { accesoWeb } from "../../web/acceso-web.svelte";
+  import { viasDisponibles, type ViaNavegador } from "../../web/impresoras-del-dispositivo";
+  import { obtenerDeviceId } from "../../presentacion";
+  import { revelar } from "../../subir";
+
+  /*
+   * IMPRESORAS DE ESTE DISPOSITIVO (MotRest en la web, 1.6.0). En la web no hay
+   * Hub que mande a las impresoras: si el equipo tiene una conectada por USB o
+   * Bluetooth, se da de alta aquí y la usa él. Solo se ofrecen las vías que
+   * este navegador tiene de verdad.
+   */
+  const enLaWeb = accesoWeb.restaurante !== null;
+  const vias = viasDisponibles();
+  const ESTE_EQUIPO = obtenerDeviceId();
+  let errorDispositivo = $state("");
+  /** La que se acaba de dar de alta: nace al final de la lista y hay que llevar la vista a ella. */
+  let recienAgregada = $state("");
+  async function agregarDelDispositivo(via: ViaNavegador) {
+    errorDispositivo = "";
+    const r = await impresion.agregarDelDispositivo(via);
+    if (!r.ok && r.error) errorDispositivo = r.error;
+    if (r.ok && r.id) recienAgregada = r.id;
+  }
 
   let nueva = $state("");
   let manual = $state(false);
@@ -715,6 +738,27 @@
       necesita su dirección IP; una <b>USB</b> necesita estar instalada en
       Windows y elegirse en la lista. Las demás terminales solo previsualizan.
     </p>
+  {:else if enLaWeb}
+    <section class="tarjeta">
+      <h2>Impresoras de este dispositivo</h2>
+      <p class="nota">
+        Si este equipo tiene una impresora de tickets conectada, dala de alta aquí y los tickets saldrán en
+        ella. El cajón de dinero se abre con la impresora, como en la caja.
+      </p>
+      <div class="alta">
+        {#if vias.usb}<button class="principal" onclick={() => agregarDelDispositivo("usb")}>Impresora USB</button>{/if}
+        {#if vias.serial}<button onclick={() => agregarDelDispositivo("serial")}>Puerto serie o Bluetooth emparejado</button>{/if}
+        {#if vias.bluetooth}<button onclick={() => agregarDelDispositivo("bluetooth")}>Impresora Bluetooth</button>{/if}
+        {#if vias.sistema}<button onclick={() => agregarDelDispositivo("sistema")}>Impresora del sistema (AirPrint)</button>{/if}
+      </div>
+      {#if !vias.usb && !vias.serial && !vias.bluetooth}
+        <p class="nota aviso">
+          Este navegador solo puede imprimir con el cuadro de imprimir del sistema: en iPad y iPhone, Safari no
+          deja usar impresoras USB ni Bluetooth, ni abrir el cajón. En una computadora o un Android, usa Chrome.
+        </p>
+      {/if}
+      {#if errorDispositivo}<p class="nota aviso">{errorDispositivo}</p>{/if}
+    </section>
   {:else}
     <p class="nota aviso">
       Esta terminal <b>no puede imprimir en papel</b>: solo la caja —el equipo
@@ -725,9 +769,17 @@
 
   {#each impresion.impresoras as imp (imp.id)}
     <section class="tarjeta" class:inactiva={!imp.activa}>
+      {#if imp.id === recienAgregada}<span use:revelar={imp.id}></span>{/if}
       <div class="cab">
         <b>{imp.nombre}</b>
-        <span class="tipo">{imp.conexion} · {imp.ancho} col</span>
+        <span class="tipo">
+          {#if imp.conexion === "dispositivo"}
+            {imp.equipo === ESTE_EQUIPO ? "este dispositivo" : "otro dispositivo"} · {imp.navegador}
+          {:else}
+            {imp.conexion}
+          {/if}
+          · {imp.ancho} col
+        </span>
         <span class="sp"></span>
         {#if puedeEditar}
           <button onclick={() => impresion.prueba(imp.id)}>Página de prueba</button>
@@ -758,6 +810,9 @@
               <option value="red">Red (9100)</option>
               <option value="usb">USB</option>
               <option value="bluetooth">Bluetooth</option>
+              {#if imp.conexion === "dispositivo"}
+                <option value="dispositivo">Conectada al dispositivo</option>
+              {/if}
             </select>
           </label>
           {#if imp.conexion === "red"}

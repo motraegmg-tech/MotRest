@@ -50,6 +50,8 @@ import type { Almacen } from "@motrest/protocolo-sync";
 import QRCode from "qrcode";
 import { local } from "./local.svelte";
 import { VERSION_MOTREST } from "./version";
+import { obtenerDeviceId } from "./presentacion";
+import { TransporteDispositivo, elegirAparato, type ViaNavegador } from "./web/impresoras-del-dispositivo";
 
 function conMatrizQr(datos: DatosPrecuenta): DatosPrecuenta {
   return {
@@ -231,7 +233,11 @@ class StoreImpresion {
    * aplica —una terminal de la red, o una impresora que no es de red—, el
    * simulado. La cola toma el primer transporte cuyo `puede()` diga que sí.
    */
-  private cola = new ColaImpresion([new TransporteHub(), this.transporte], (t) => {
+  /*
+   * El orden importa: el Hub primero (la caja), después lo conectado a ESTE
+   * dispositivo (la web, 1.6.0), y al final el simulado que hace de papel.
+   */
+  private cola = new ColaImpresion([new TransporteHub(), new TransporteDispositivo(() => obtenerDeviceId()), this.transporte], (t) => {
     this.trabajos = [...t];
   });
 
@@ -491,6 +497,47 @@ class StoreImpresion {
 
   // --- Configuración ------------------------------------------------------------------
 
+  /**
+   * Las impresoras que ESTE equipo puede usar, con las suyas primero.
+   *
+   * Una impresora conectada a otro dispositivo (modalidad nube: cada tableta con
+   * la suya) no le sirve a este: se quita. Y si este tiene una propia para la
+   * misma área, gana la propia sobre las de la red.
+   */
+  paraEsteEquipo(): Impresora[] {
+    const yo = obtenerDeviceId();
+    const utiles = this.impresoras.filter((i) => i.conexion !== "dispositivo" || i.equipo === yo);
+    return [...utiles.filter((i) => i.conexion === "dispositivo"), ...utiles.filter((i) => i.conexion !== "dispositivo")];
+  }
+
+  /**
+   * Da de alta una impresora conectada a este dispositivo. Se llama desde un
+   * toque: el navegador exige que sea la persona quien elija el aparato.
+   */
+  async agregarDelDispositivo(via: ViaNavegador): Promise<{ ok: boolean; id?: ID; error?: string }> {
+    const elegido = await elegirAparato(via);
+    if (!elegido.ok) return { ok: false, ...(elegido.error ? { error: elegido.error } : {}) };
+    const id = idCorto("imp");
+    this.impresoras = [
+      ...this.impresoras,
+      {
+        id,
+        nombre: elegido.nombre,
+        conexion: "dispositivo",
+        navegador: via,
+        equipo: obtenerDeviceId(),
+        reconocer: elegido.reconocer,
+        ancho: 42,
+        areas: ["caja"],
+        corta: via !== "sistema",
+        cajon: false,
+        activa: true,
+      },
+    ];
+    await this.guardar();
+    return { ok: true, id };
+  }
+
   actualizar(impresoraId: ID, cambios: Partial<Impresora>): void {
     this.impresoras = this.impresoras.map((i) =>
       i.id === impresoraId ? { ...i, ...cambios } : i,
@@ -551,7 +598,7 @@ class StoreImpresion {
     let impresas = 0;
     for (const [estacion, renglones] of porEstacion) {
       if (renglones.length === 0) continue;
-      const impresora = impresoraPara(this.impresoras, estacion);
+      const impresora = impresoraPara(this.paraEsteEquipo(), estacion);
       if (!impresora) continue;
 
       const ticket = comandaCocina(
@@ -573,7 +620,7 @@ class StoreImpresion {
    */
   precuenta(entrada: DatosPrecuenta): boolean {
     const datos = { ...entrada, version: VERSION_MOTREST };
-    const impresora = impresoraPara(this.impresoras, "caja");
+    const impresora = impresoraPara(this.paraEsteEquipo(), "caja");
     if (!impresora) {
       this.vistaPrevia = { titulo: `Cuenta ${datos.folio}`, texto: precuenta(datos).aTexto() };
       return false;
@@ -612,7 +659,7 @@ class StoreImpresion {
    * caja con la llave.
    */
   abrirCajon(motivo: string): boolean {
-    const impresora = impresoraPara(this.impresoras, "caja");
+    const impresora = impresoraPara(this.paraEsteEquipo(), "caja");
     if (!impresora?.cajon) return false;
 
     /*
@@ -640,7 +687,7 @@ class StoreImpresion {
 
   ticket(entrada: DatosTicket): boolean {
     const datos = { ...entrada, version: VERSION_MOTREST };
-    const impresora = impresoraPara(this.impresoras, "caja");
+    const impresora = impresoraPara(this.paraEsteEquipo(), "caja");
     if (!impresora) {
       this.vistaPrevia = { titulo: `Ticket ${datos.folio}`, texto: ticketVenta(datos).aTexto() };
       return false;
@@ -654,7 +701,7 @@ class StoreImpresion {
   /** Copia simplificada que se queda en el restaurante después del cobro. */
   ticketInterno(entrada: DatosTicketInterno): boolean {
     const datos = { ...entrada, version: VERSION_MOTREST };
-    const impresora = impresoraPara(this.impresoras, "caja");
+    const impresora = impresoraPara(this.paraEsteEquipo(), "caja");
     if (!impresora) {
       this.vistaPrevia = {
         titulo: `Ticket interno ${datos.folio}`,
@@ -676,7 +723,7 @@ class StoreImpresion {
    * demás, si no hay impresora se deja en la vista previa y la caja sigue.
    */
   factura(rep: RepresentacionImpresa, folio: string): boolean {
-    const impresora = impresoraPara(this.impresoras, "caja");
+    const impresora = impresoraPara(this.paraEsteEquipo(), "caja");
     if (!impresora) {
       this.vistaPrevia = {
         titulo: `Factura ${folio}`,
@@ -693,7 +740,7 @@ class StoreImpresion {
   /** Sella el corte y lo imprime. El sello se calcula una sola vez. */
   async corte(cifras: CifrasCorte, datos: Omit<DatosCorte, "sello">): Promise<string> {
     const sello = await sellarCorte(cifras);
-    const impresora = impresoraPara(this.impresoras, "caja");
+    const impresora = impresoraPara(this.paraEsteEquipo(), "caja");
     const ticket = corteCaja(
       { ...datos, sello, version: VERSION_MOTREST },
       impresora?.ancho ?? 42,
@@ -712,7 +759,7 @@ class StoreImpresion {
    * falta. Sellarlo daría a entender que sustituye a la firma del cajero.
    */
   cortePorFechas(datos: DatosCortePeriodo): void {
-    const impresora = impresoraPara(this.impresoras, "caja");
+    const impresora = impresoraPara(this.paraEsteEquipo(), "caja");
     const ticket = cortePeriodo({ ...datos, version: VERSION_MOTREST }, impresora?.ancho ?? 42);
     const titulo = `Corte ${new Date(datos.desde).toLocaleDateString("es-MX")}`;
 

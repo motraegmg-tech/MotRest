@@ -16,7 +16,15 @@
 import type { ID } from "@motrest/dominio";
 import type { AnchoPapel } from "./plantillas.js";
 
-export type TipoConexion = "red" | "usb" | "bluetooth";
+/**
+ * `dispositivo` (1.6.0): la impresora cuelga de ESTE dispositivo y no del Hub
+ * —un navegador en modalidad nube, con la impresora por USB o Bluetooth, o el
+ * diálogo de impresión del sistema—. Solo la usa el equipo al que está conectada.
+ */
+export type TipoConexion = "red" | "usb" | "bluetooth" | "dispositivo";
+
+/** Cómo habla el navegador con una impresora propia. */
+export type EnlaceNavegador = "serial" | "usb" | "bluetooth" | "sistema";
 
 export interface Impresora {
   id: ID;
@@ -42,6 +50,14 @@ export interface Impresora {
   /** Cómo imprime QR: comando nativo o imagen para firmware antiguo. */
   modo_qr?: "nativo" | "imagen";
   activa: boolean;
+  /**
+   * Solo con `conexion: "dispositivo"`: a qué equipo está conectada, cómo se
+   * habla con ella y cómo reconocerla entre las que el navegador ya tiene
+   * permitidas (fabricante y producto USB, o el id Bluetooth).
+   */
+  equipo?: ID;
+  navegador?: EnlaceNavegador;
+  reconocer?: { vendor?: number; producto?: number; bluetooth?: string; baudios?: number };
 }
 
 export type TipoDocumento =
@@ -162,7 +178,11 @@ export interface Transporte {
    */
   simulado?: boolean;
   puede(impresora: Impresora): boolean;
-  enviar(impresora: Impresora, datos: Uint8Array): Promise<ResultadoEnvio>;
+  /**
+   * `trabajo` va de más, para el transporte que no manda bytes sino texto —el
+   * diálogo de impresión del sistema (AirPrint en un iPad)—.
+   */
+  enviar(impresora: Impresora, datos: Uint8Array, trabajo?: TrabajoImpresion): Promise<ResultadoEnvio>;
 }
 
 /**
@@ -341,7 +361,7 @@ export class ColaImpresion {
         }
 
         this.marcar(trabajo.id, "imprimiendo");
-        const resultado = await transporte.enviar(impresora, trabajo.datos);
+        const resultado = await transporte.enviar(impresora, trabajo.datos, trabajo);
 
         if (resultado.ok) {
           // `simulado` viaja hasta la pantalla: es la diferencia entre «salió en
