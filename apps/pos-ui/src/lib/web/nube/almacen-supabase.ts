@@ -6,7 +6,7 @@
  * seguridad —confiar en el filtro sería confiar en el cliente—.
  */
 import type { SupabaseClient } from "@supabase/supabase-js";
-import type { AlmacenNube, FilaDocumentoNube, FilaEventoNube } from "./servidor-nube";
+import type { AlmacenNube, FilaDocumentoNube, FilaEventoNube, PulsoNube } from "./servidor-nube";
 
 export class AlmacenSupabase implements AlmacenNube {
   constructor(
@@ -62,6 +62,11 @@ export class AlmacenSupabase implements AlmacenNube {
     });
     if (error) throw new Error(error.message);
     return data === true;
+  }
+
+  async reportarPulso(pulso: PulsoNube): Promise<void> {
+    const { error } = await this.cliente.from("pulsos").upsert(pulso, { onConflict: "sucursal_id" });
+    if (error) throw new Error(error.message);
   }
 
   async licencia(): Promise<unknown | null> {

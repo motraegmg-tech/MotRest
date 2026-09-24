@@ -26,6 +26,7 @@ import {
   type AlmacenNube,
   type FilaDocumentoNube,
   type FilaEventoNube,
+  type PulsoNube,
 } from "../web/nube/servidor-nube";
 
 const SUC = "suc-la-nube";
@@ -35,6 +36,7 @@ class NubeEnMemoria implements AlmacenNube {
   filas: FilaEventoNube[] = [];
   docs = new Map<string, { version: bigint; sobre: string }>();
   lic: unknown = null;
+  pulsos: PulsoNube[] = [];
   alEvento: (() => void)[] = [];
   alDocumento: ((f: FilaDocumentoNube) => void)[] = [];
   private seq = 0;
@@ -67,6 +69,9 @@ class NubeEnMemoria implements AlmacenNube {
   }
   async licencia() {
     return this.lic;
+  }
+  async reportarPulso(p: PulsoNube) {
+    this.pulsos.push(p);
   }
 }
 
@@ -161,6 +166,25 @@ const esperar = async (condicion: () => boolean, ms = 3000) => {
 };
 
 describe("modo nube: el Hub en el navegador", () => {
+  it("reporta el pulso al entrar y, al cerrar la caja, con las cifras del corte", async () => {
+    const nube = new NubeEnMemoria();
+    const clave = generarClaveRemota();
+    const a = await dispositivo(nube, clave, "caja-web");
+    await esperar(() => a.estado() === "sincronizado" && nube.pulsos.length === 1);
+    expect(nube.pulsos[0]).toMatchObject({ sucursal_id: SUC, plataforma: "web", eventos: 0 });
+    expect(nube.pulsos[0]).not.toHaveProperty("ventas_dia");
+
+    const cierre = { ...evento("caja-web", "caja_cerrada"), resumen: { total_vendido: 1_234_500, cuentas_cerradas: 37 } };
+    await a.almacen.eventos.anexar([cierre as unknown as EventoBase]);
+    await a.cliente.empujar();
+    await esperar(() => nube.pulsos.length === 2);
+    expect(nube.pulsos[1]).toMatchObject({ ventas_dia: 1_234_500, cuentas_dia: 37, eventos: 1 });
+    // El pulso no lleva nada más del negocio que esos dos totales.
+    expect(Object.keys(nube.pulsos[1]!).sort()).toEqual(
+      ["cuentas_dia", "eventos", "plataforma", "sucursal_id", "ventas_dia", "version"],
+    );
+  });
+
   it("lo que vende una tableta le llega a la otra, con su seq", async () => {
     const nube = new NubeEnMemoria();
     const clave = generarClaveRemota();

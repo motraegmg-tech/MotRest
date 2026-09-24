@@ -60,6 +60,21 @@ export interface AlmacenNube {
   publicarDocumento(llave: string, version: string, sobre: string): Promise<boolean>;
   /** La licencia firmada de este local, tal cual la dejó Central. */
   licencia(): Promise<unknown | null>;
+  /**
+   * El pulso para Central. SOLO campos seguros: un upsert de fila entera se cae
+   * completo por un campo mal formado, y el local saldría «nunca reportó».
+   */
+  reportarPulso(pulso: PulsoNube): Promise<void>;
+}
+
+/** Lo que un restaurante en nube le cuenta a Central. La hora la pone la base. */
+export interface PulsoNube {
+  sucursal_id: string;
+  version: string;
+  plataforma: "web";
+  eventos: number;
+  ventas_dia?: number;
+  cuentas_dia?: number;
 }
 
 export interface OpcionesServidorNube {
@@ -70,6 +85,8 @@ export interface OpcionesServidorNube {
   /** La llave con que se cifra lo guardado (`derivarLlaveDatosNube`). */
   datos: CryptoKey;
   verificarLicencia: (licencia: Licencia) => Promise<boolean>;
+  /** La versión de MotRest de esta página, para el pulso. */
+  version?: string;
   /** Manda al cliente un mensaje ya cifrado. */
   entregar: (crudo: string) => void;
   /** Algo que conviene enseñar en pantalla (sin datos del negocio). */
@@ -246,6 +263,26 @@ export class ServidorNube {
       datos: { licencia: licencia ? licenciaParaTerminales(licencia) : null, verificada },
     });
     await this.enviar({ tipo: "catalogo", catalogos });
+    await this.pulso();
+  }
+
+  /**
+   * El pulso a Central: al entrar, y al cerrar la caja con las cifras del corte
+   * —lo mismo que reporta un Hub con su último `caja_cerrada`—. Nunca tumba
+   * nada: es información para MOTRAE, no para el restaurante.
+   */
+  private async pulso(corte?: { ventas: number; cuentas: number }): Promise<void> {
+    try {
+      await this.o.almacen.reportarPulso({
+        sucursal_id: this.o.sucursal_id,
+        version: this.o.version ?? "web",
+        plataforma: "web",
+        eventos: await this.o.almacen.seqActual(),
+        ...(corte ? { ventas_dia: corte.ventas, cuentas_dia: corte.cuentas } : {}),
+      });
+    } catch (causa) {
+      console.warn("No se pudo reportar el pulso del restaurante", causa);
+    }
   }
 
   private async ingerir(eventos: readonly unknown[]): Promise<void> {
@@ -264,6 +301,16 @@ export class ServidorNube {
       acks.push(...(await this.o.almacen.empujar(filas)));
     }
     if (acks.length > 0) await this.enviar({ tipo: "acks", acks });
+
+    const cierre = [...validos].reverse().find((e) => e.tipo === "caja_cerrada") as
+      | (EventoBase & { resumen?: { total_vendido?: number; cuentas_cerradas?: number } })
+      | undefined;
+    if (cierre) {
+      await this.pulso({
+        ventas: Math.trunc(cierre.resumen?.total_vendido ?? 0),
+        cuentas: Math.trunc(cierre.resumen?.cuentas_cerradas ?? 0),
+      });
+    }
   }
 
   private async entregarDesde(desde: number, limite: number): Promise<void> {

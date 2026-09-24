@@ -11,6 +11,7 @@ import { verificarLicencia } from "@motrest/dominio";
 import { derivarClaves, derivarLlaveDatosNube, type SocketLike } from "@motrest/protocolo-sync";
 import { AlmacenSupabase } from "./almacen-supabase";
 import { ServidorNube, type FilaDocumentoNube } from "./servidor-nube";
+import { VERSION_MOTREST } from "../../version";
 
 /** La pública de licencias de MOTRAE, que se incrusta al compilar la web. */
 function llaveDeLicencias(): string {
@@ -47,6 +48,7 @@ export class SocketNube implements SocketLike {
     const servidor = new ServidorNube({
       almacen: new AlmacenSupabase(this.cliente, this.sucursalId),
       sucursal_id: this.sucursalId,
+      version: VERSION_MOTREST,
       canal,
       datos,
       verificarLicencia: async (l) => (llave ? verificarLicencia(l, this.sucursalId, llave) : false),
