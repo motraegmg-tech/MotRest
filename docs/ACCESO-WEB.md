@@ -110,8 +110,15 @@ En **Settings** del proyecto:
   - **Root Directory → Include files outside the root directory in the Build Step:
     activado.** Viene activado; si se apaga, la compilación falla porque la web usa
     `packages/*` y lee la versión de `apps/hub/package.json`.
-- **Git → Production Branch**: déjala en `main`. Mientras tanto, cada push a
-  `feature/motrest-web` genera un despliegue de vista previa.
+- **Git → Production Branch → `feature/motrest-web`** mientras se prueba la 1.6.0
+  (decisión del 23-sep-2026).
+  - `main` **no tiene la web**. Si producción compila `main`, sale el POS de la
+    caja, que abre en «Bienvenido» y pide crear el responsable de un restaurante que
+    no existe.
+  - Al fusionar la 1.6.0 con `main` (paso 4.4), se devuelve esta opción a `main`.
+  - Desde el commit `2c9f5da`, si Vercel intenta compilar sin la web, el despliegue
+    **falla** con el mensaje «En Vercel la web se compila con `pnpm run build:web`…»,
+    en vez de publicar la pantalla equivocada.
 - **Deployment Protection**:
   - La **Vercel Authentication** protege las vistas previas: un restaurante no podrá
     abrirlas. Para probar con un teléfono sin sesión de Vercel, usa la dirección de
@@ -250,8 +257,10 @@ no dar nada por bueno hasta verlo en la app instalada.
 
 ### 4.4 Fusionar con main
 
-Cuando la 1.6.0 esté probada, abre el pull request de `feature/motrest-web` hacia
-`main`. Al fusionar, Vercel publica la web en producción sola.
+Cuando la 1.6.0 esté probada:
+
+1. Abre el pull request de `feature/motrest-web` hacia `main` y fusiónalo.
+2. En Vercel → Settings → Git, devuelve **Production Branch** a `main`.
 
 ---
 
@@ -420,6 +429,8 @@ dispositivos cuentan con que solo crece.
 |---|---|---|
 | El build de Vercel falla en *Install* con un error de pnpm | Vercel usa su pnpm y no el 9.15.0 | Añade `ENABLE_EXPERIMENTAL_COREPACK=1` (2.1) y vuelve a desplegar |
 | El build falla con «Cannot find module» de `@motrest/...` o de `apps/hub/package.json` | No se incluyen los archivos de fuera de `apps/pos-ui` | Activa *Include files outside the root directory* (2.2) |
+| Sale «Bienvenido» y pide crear la cuenta del responsable, sin haber pedido clave del restaurante | Vercel publicó una rama sin la web (`main`) o compiló con `vite build` a secas | Production Branch → `feature/motrest-web` (2.2), sin Build Command sobrescrito, y **Redeploy** |
+| El despliegue falla con «En Vercel la web se compila con `pnpm run build:web`» | El Root Directory no es `apps/pos-ui`, o hay un Build Command sobrescrito en el tablero | Corrígelo en Settings → Build and Deployment y vuelve a desplegar |
 | La web pide iniciar sesión en Vercel | Deployment Protection en una vista previa | Usa la dirección de producción o apaga la protección (2.2) |
 | «Clave o contraseña incorrecta» con los datos buenos | Acceso apagado (modalidad «app») o contraseña cambiada por el propietario | Mira `accesos_web.activo` y usa **Ver** en Central |
 | «Demasiados intentos» | 10 fallos en una hora con esa clave, o 30 desde esa red | Espera, o borra la fila en `intentos_entrada` |
