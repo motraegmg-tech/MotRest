@@ -144,3 +144,49 @@ Cada local tiene una **modalidad**, que se elige en Central y viaja firmada en l
     mismo.
 - **Había dos Hubs corriendo a la vez** (uno del arranque de Windows y otro huérfano de
   la ventana). Se cerraron los dos antes de instalar.
+
+## Versión 1.6.1 (24-sep-2026): preparada, sin compilar ni publicar
+
+La versión ya dice 1.6.1 en los dos archivos donde vive: `apps/hub/package.json` y
+`apps/escritorio/src-tauri/tauri.conf.json`. **MotRest Central sigue en su propia
+versión, 1.4.6**. Central no viaja por el canal: se recompila su `.exe` y se sustituye
+en `%LOCALAPPDATA%\MotRest Central\`.
+
+### Qué trae (commits desde `2c18975`)
+
+| Commit | Qué |
+|---|---|
+| `ac9a062` | Central: botón **«Encender Local en la Nube»** para restaurantes ya contratados. Pasa el local a «ambas», manda la llave del túnel y reemite la licencia con el mismo vencimiento. Además, los diálogos Alta, Editar y Vencimiento ya no se cortan por arriba. |
+| `5353a49`, `f875f59` | Web: «Entra a tu restaurante» queda lado a lado también en ventanas bajas, y el ejemplo de la clave es «MI-RESTAURANTE». |
+| `3567c46` | Finanzas: «Corte por fechas» con el estilo de sus tarjetas hermanas. |
+| `c78b3fa` | Venta: el plano del salón ya no se aplasta. El menú de la izquierda ya no desplaza de lado. |
+| `1d2eb5b`, `5d5d054`, `7c51e63` | Teléfono: la barra superior se reduce a iconos (ver el detalle abajo). **«Cambiar de usuario» se eliminó en todas partes.** |
+
+Detalle de la barra superior en teléfono:
+
+- el icono del módulo en lugar de su nombre;
+- el semáforo del enlace: verde, amarillo o rojo, y al tocarlo se vuelve la palabra
+  durante 3 segundos;
+- la silueta del usuario en naranja, con «Cerrar sesión» dentro de su menú;
+- el nombre del local, en el menú de las tres rayas.
+
+La web ya tiene todo esto publicado en `motrest.vercel.app`. La caja de la máquina de
+prueba lo tiene **en caliente**, en `%LOCALAPPDATA%\MotRest\pos`, con respaldo en
+`pos-respaldo-2026-09-24`. Su Hub sigue reportando 1.6.0 hasta que se instale la 1.6.1.
+
+### Notas para el canal (propuesta)
+
+> **MotRest 1.6.1**
+> - En el teléfono, la barra de arriba se vuelve de iconos: el módulo, un punto de
+>   color para la conexión (tócalo para leerla) y tu usuario, con «Cerrar sesión»
+>   dentro. El nombre del restaurante pasa al menú de las tres rayas.
+> - Se quitó «Cambiar de usuario»: para entrar con otra persona, usa «Cerrar sesión».
+> - El plano del salón ya no se aplasta en pantallas bajas.
+> - «Corte por fechas» tiene el mismo diseño que el resto de Finanzas.
+
+### Para compilar y publicar
+
+1. Compilar con la receta de la sección «Compilación 1.6.0», cambiando 1.6.0 por 1.6.1.
+2. Instalar sobre la 1.6.0 de la máquina de prueba y verificar sobre la app instalada
+   que `/salud` dice 1.6.1.
+3. Publicar el release y el manifiesto **solo con el visto bueno de Gonzalo**.
