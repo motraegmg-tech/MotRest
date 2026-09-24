@@ -51,7 +51,7 @@
         class="clave"
         bind:value={clave}
         oninput={() => (clave = clave.toUpperCase())}
-        placeholder="Ej. RODIZIO"
+        placeholder="Ej. MI-RESTAURANTE"
         autocomplete="username"
         autocapitalize="characters"
         spellcheck="false"
