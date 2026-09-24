@@ -73,10 +73,27 @@
 
   const dias = $derived(Math.round((hasta - desde) / DIA));
 
-  function atajo(diasAtras: number, cuantos: number) {
+  function rangoDe(diasAtras: number, cuantos: number): [string, string] {
     const fin = inicioDelDia(Date.now()) - diasAtras * DIA;
-    desdeTexto = aTextoFecha(fin - (cuantos - 1) * DIA);
-    hastaTexto = aTextoFecha(fin);
+    return [aTextoFecha(fin - (cuantos - 1) * DIA), aTextoFecha(fin)];
+  }
+
+  const ATAJOS: { etiqueta: string; diasAtras: number; cuantos: number }[] = [
+    { etiqueta: "Hoy", diasAtras: 0, cuantos: 1 },
+    { etiqueta: "Ayer", diasAtras: 1, cuantos: 1 },
+    { etiqueta: "Hace 2 días", diasAtras: 2, cuantos: 1 },
+    { etiqueta: "Últimos 3 días", diasAtras: 0, cuantos: 3 },
+    { etiqueta: "Últimos 7 días", diasAtras: 0, cuantos: 7 },
+  ];
+
+  function atajo(diasAtras: number, cuantos: number) {
+    [desdeTexto, hastaTexto] = rangoDe(diasAtras, cuantos);
+  }
+
+  /** El atajo encendido es el que coincide con las fechas, se hayan elegido como se hayan elegido. */
+  function esActivo(diasAtras: number, cuantos: number): boolean {
+    const [d, h] = rangoDe(diasAtras, cuantos);
+    return d === desdeTexto && h === hastaTexto;
   }
 
   function nombreDe(cajeroId: string): string {
@@ -104,11 +121,14 @@
     </div>
 
     <div class="atajos">
-      <button class="mini" onclick={() => atajo(0, 1)}>Hoy</button>
-      <button class="mini" onclick={() => atajo(1, 1)}>Ayer</button>
-      <button class="mini" onclick={() => atajo(2, 1)}>Hace 2 días</button>
-      <button class="mini" onclick={() => atajo(0, 3)}>Últimos 3 días</button>
-      <button class="mini" onclick={() => atajo(0, 7)}>Últimos 7 días</button>
+      {#each ATAJOS as a (a.etiqueta)}
+        <button
+          class="mini"
+          class:on={esActivo(a.diasAtras, a.cuantos)}
+          aria-pressed={esActivo(a.diasAtras, a.cuantos)}
+          onclick={() => atajo(a.diasAtras, a.cuantos)}>{a.etiqueta}</button
+        >
+      {/each}
     </div>
 
     <div class="rango">
@@ -229,6 +249,71 @@
 {/if}
 
 <style>
+  /*
+   * Lo mismo que las tarjetas hermanas de Finanzas. Sus estilos viven dentro de
+   * Finanzas.svelte y en Svelte no cruzan a este componente: sin copiarlos, el
+   * corte salía sin márgenes, con los atajos como texto suelto (24-sep-2026).
+   */
+  .tarjeta {
+    padding: 1.1rem 1.25rem;
+  }
+  .cabecera-tarjeta {
+    margin-bottom: 0.85rem;
+  }
+  h2 {
+    font-size: 1.1rem;
+    font-weight: 600;
+  }
+  .sub {
+    margin-top: 0.25rem;
+    font-size: 0.9rem;
+    color: var(--gris);
+    max-width: 42rem;
+  }
+  .mini {
+    border: 1.5px solid var(--borde);
+    border-radius: var(--r-sm);
+    padding: 0.3rem 0.65rem;
+    font-size: 0.78rem;
+    font-weight: 600;
+    color: var(--pizarra);
+    background: #fff;
+    flex: none;
+  }
+  .mini:hover {
+    border-color: var(--acento);
+    color: var(--acento-texto);
+  }
+  .mini.on {
+    background: var(--acento);
+    border-color: var(--acento);
+    color: var(--sobre-acento);
+  }
+  .principal {
+    background: var(--acento);
+    color: var(--sobre-acento);
+    border-radius: var(--r-md);
+    padding: 0.6rem 1.1rem;
+    font-family: var(--font-titulo);
+    font-weight: 600;
+  }
+  .rango input {
+    padding: 0.6rem 0.75rem;
+    border: 1.5px solid var(--borde);
+    border-radius: var(--r-sm);
+    font-size: 0.9rem;
+    font-family: var(--font-cuerpo);
+    background: #fff;
+    color: var(--pizarra);
+  }
+  .rango input:focus {
+    outline: none;
+    border-color: var(--acento);
+  }
+  .aviso-error {
+    font-size: 0.84rem;
+    color: var(--peligro);
+  }
   .atajos {
     display: flex;
     flex-wrap: wrap;
@@ -248,6 +333,7 @@
   }
   .rango span {
     font-size: 0.76rem;
+    font-weight: 600;
     color: var(--gris);
   }
   .cifras {
@@ -274,16 +360,16 @@
     color: var(--gris);
   }
   .renglon.total {
-    border-top: 1px solid var(--linea, #e3e3e3);
+    border-top: 1px solid var(--borde);
     font-weight: 600;
   }
   .renglon.destacado {
-    border-top: 2px solid var(--linea, #e3e3e3);
+    border-top: 2px solid var(--borde);
     font-size: 1rem;
     font-weight: 700;
   }
   .renglon.mal b {
-    color: #b3261e;
+    color: var(--peligro);
   }
   .nota,
   .vacio {
@@ -310,6 +396,12 @@
   }
   .previa {
     margin-top: 0.8rem;
+  }
+  .previa summary {
+    cursor: pointer;
+    font-size: 0.82rem;
+    font-weight: 600;
+    color: var(--acento-texto);
   }
   .previa pre {
     font-family: ui-monospace, monospace;
