@@ -109,7 +109,8 @@
     z-index: 51;
     inset: 0;
     display: flex;
-    align-items: center;
+    /* `safe`: si la ventana es más baja que el formulario, empieza arriba en vez de cortarse. */
+    align-items: safe center;
     justify-content: center;
     gap: clamp(2rem, 8vw, 7rem);
     padding: 2rem clamp(1rem, 6vw, 5rem);
@@ -136,7 +137,21 @@
     gap: 0.9rem;
     min-width: 0;
   }
-  @media (max-width: 899px), (max-height: 620px) {
+  /*
+   * Ventana baja pero ancha (una laptop con zoom, 24-sep-2026): se queda lado a
+   * lado, con el logo más chico. Antes también se apilaba por la altura, y
+   * Gonzalo lo veía todo en una columna en su computadora.
+   */
+  @media (min-width: 700px) and (max-height: 620px) {
+    .logo {
+      max-width: 16rem;
+    }
+    .lado-acceso {
+      gap: 0.6rem;
+    }
+  }
+  /* Solo en pantallas angostas (teléfonos) se apila. */
+  @media (max-width: 699px) {
     .panel {
       flex-direction: column;
       /* En columna se arranca por arriba: centrado, el teclado del teléfono
