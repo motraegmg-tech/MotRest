@@ -43,29 +43,32 @@ Cada local tiene una **modalidad**, que se elige en Central y viaja firmada en l
 |---|---|---|
 | 1 · Dominio | `62d1a86` | `acceso-web.ts` (modalidad, clave, contraseña, clave remota envuelta), bloque `web` en `Licencia`, `SecretoAccesoWeb` (aparte de FacturAPI y Gmail), `derivarLlaveDatosNube`, `protocolo-sync/src/tunel.ts` (fragmenta a 60 KB, ordena, late, cierra ante un hueco) |
 | 2 · Supabase | `4c33e1c` | Migraciones `20260923191018_acceso_web` y `…191035_documentos_nube_con_rls`, **ya aplicadas** en `ixttslqbbwqfcqjmttyg`. Edge Functions `entrar-restaurante` (sin JWT, frena por clave y por red, respuesta única) y `cambiar-contrasena-web`, **ya desplegadas**. Se renombraron 4 migraciones viejas a la versión que registró la base. |
+| 4+6 · POS web | `b8186c3` | `EntradaRestaurante.svelte`, `lib/web/acceso-web.svelte.ts` (entrar → desenvolver clave remota → `setSession` → **recargar**), `SocketTunel`, `lib/web/nube/` (`ServidorNube` = el protocolo del Hub en el navegador, `AlmacenSupabase`, `SocketNube`), «Salir de <restaurante>» en el menú del avatar, `sesion.usarFuenteDeLicencia`, `sync.usarDestinoWeb`. `vite build --mode web` → `dist-web/` (valores públicos por defecto en `vite.config.ts`). `apps/pos-ui/vercel.json`. Migraciones `…192600` y `…192611`: los eventos en nube SOLO entran por `empujar_eventos_nube` (SECURITY DEFINER) con `pg_advisory_xact_lock` por restaurante, para que `seq` no tenga huecos visibles |
+| 5 · Hub | `4e25f8e` | `tunel-remoto.ts`, `servidor.conectar(c, esLocal, remoto)` (web aprobada sola la 1.ª vez, nombre «Web», revocable), `secretos` desvía `acceso_web`, `GestorLicencia.abreTunelWeb`, `EnlaceSupabase.abrirCanalTunel`, `montarTunelWeb()` en main (al conectar, al instalar licencia, al llegar la llave) |
 | 3 · Central | `16e5797` | `configurarAccesoWeb`, `regenerarContrasenaWeb`, `fijarContrasenaWeb`, `verContrasenaWeb`, `enviarAccesoWebAlHub`, `recogerContrasenasDelRestaurante`; panel `AccesoWeb.svelte` en la ficha, modalidad en el Alta, distintivo Nube/Web, dirección de la web en Llaves |
 
-## Falta (en este orden)
+## Falta (en este orden) — actualizado tras `4e25f8e`
 
-4. **POS: «Entra a tu restaurante».**
+4. ~~POS: «Entra a tu restaurante»~~ HECHO.
    - `esWeb()` a partir de `VITE_MOTREST_WEB`.
    - `EntradaRestaurante.svelte`, con el diseño de `Acceso.svelte`.
    - Sesión con supabase-js a partir de lo que devuelve `entrar-restaurante`.
    - «Salir de este restaurante» borra el IndexedDB.
-5. **Túnel.**
+5. ~~Túnel~~ HECHO, salvo:
    - `SocketTunel implements SocketLike` en el POS.
    - `TunelRemoto` en `apps/hub/src/enlace-supabase.ts`: canal privado,
      `hub.conectar(conexion, "remoto")`, etiqueta «Web», como mucho 10 sesiones.
    - El Hub escucha `accesos_web` (versión y activo) para cortar sesiones.
    - Clase `acceso_web` en `secretos.ts` del Hub (desviar antes de `esSecreto`).
-   - Mensaje `foto` en el protocolo.
-6. **Modo nube.**
+   - **PENDIENTE:** mensaje `foto` en el protocolo (hoy la web en «ambas» no ve fotos de producto: se piden al Hub por `fetch` del mismo origen).
+6. ~~Modo nube~~ HECHO, salvo:
    - `SocketNube` en `apps/pos-ui/src/lib/web/nube/`.
    - Responde `hola`/`push`/`pull`/`catalogo`/`credenciales` contra
      `empujar_eventos_nube`, `eventos_nube`, `publicar_documento_nube` y
      `documentos_nube`.
    - Licencia leída de `licencias_pendientes` y verificada en el navegador.
-   - Pulso al cerrar caja.
+   - **PENDIENTE:** pulso al cerrar caja (política ya existe en la base).
+   - **PENDIENTE:** fotos en el bucket `fotos_nube`.
 7. **Impresoras del dispositivo:** Web Serial, WebUSB, Web Bluetooth y `window.print`
    (AirPrint en iOS).
 8. **Cambio de contraseña desde el restaurante** (Admin → «Acceso por internet»,
@@ -79,6 +82,9 @@ Cada local tiene una **modalidad**, que se elige en Central y viaja firmada en l
   marca de tiempo; hay que renombrar el archivo del repo para que coincidan.
 - **`Modalidad` ya existía** en `ventas/kiosco.ts`. La del acceso web se llama
   `ModalidadLocal`.
+- **La pública de licencias** para la web está en `apps/pos-ui/vite.config.ts`. Es la primera literal `MCowBQYDK2VwAyEA…` de `apps/hub/dist-sea/hub.cjs`; la segunda verifica `docs/motrest.json` y por eso es la de actualizaciones. Sin ella, un restaurante en nube saldría con la licencia «sin verificar» y BLOQUEADO.
+- **Error ya corregido que no debe repetirse:** la migración `…192600` le quitó a `authenticated` el INSERT sobre `eventos_nube` mientras la función seguía siendo SECURITY INVOKER. Estuvo roto 11 s antes de `…192611`, sin clientes. Quien toque ese GRANT tiene que mirar la función.
+- **`cat > archivo` sin heredoc cuelga el Bash** (espera la entrada estándar). Pon `< /dev/null` en vitest y compañía.
 - **Los `.svelte` de Central tienen CRLF.** Un `replace` de varias líneas con `\n`
   no encuentra nada: usa el editor o normaliza los finales de línea antes.
 - **En esta máquina no hay Python.** Para ediciones con script, usa `node -e`.
