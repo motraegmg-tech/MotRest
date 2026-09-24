@@ -136,6 +136,7 @@ import {
   type ResultadoSecreto,
 } from "./secretos.js";
 import { TunelRemoto } from "./tunel-remoto.js";
+import { archivoDelRegistro, esConsolaRota, type EstadoRegistro } from "./registro.js";
 import { enviarARed } from "./impresion/transporte-red.js";
 import {
   enviarAUsb,
@@ -603,6 +604,25 @@ const RUTA_REGISTRO = join(dirname(RUTA_DB), "registro");
 const MAX_REGISTRO_BYTES = 5 * 1024 * 1024;
 /** Cuántos días se conservan. Pasado esto, un incidente ya se investigó o no. */
 const DIAS_REGISTRO = 30;
+/** La parte del registro en la que se está escribiendo. Ver `registro.ts`. */
+const estadoRegistro: EstadoRegistro = { dia: "", parte: 0 };
+
+/**
+ * ¿Sigue habiendo alguien al otro lado de la consola?
+ *
+ * El Hub lo lanza la ventana de MotRest con la salida conectada a ella. Si esa
+ * ventana se cierra, escribir en consola da EPIPE. Antes, ese EPIPE subía como
+ * excepción, se anotaba con `registrar`, que volvía a escribir en consola, que
+ * volvía a dar EPIPE: un bucle de ~350 renglones por segundo (23-sep-2026, 49
+ * minutos, un millón de archivos). Al primer error de consola se deja de
+ * escribir en ella; el archivo del registro sigue igual.
+ */
+let consolaViva = true;
+for (const flujo of [process.stdout, process.stderr]) {
+  flujo?.on?.("error", () => {
+    consolaViva = false;
+  });
+}
 
 /**
  * El registro del Hub.
@@ -634,19 +654,27 @@ function registrar(nivel: "info" | "aviso" | "error", mensaje: string): void {
   const prefijo = nivel === "error" ? "ERROR" : nivel === "aviso" ? "AVISO" : "INFO ";
   const linea = `${marca} ${prefijo} ${mensaje}`;
 
-  if (nivel === "error") console.error(linea);
-  else console.log(linea);
+  if (consolaViva) {
+    try {
+      if (nivel === "error") console.error(linea);
+      else console.log(linea);
+    } catch {
+      consolaViva = false;
+    }
+  }
 
   try {
     mkdirSync(RUTA_REGISTRO, { recursive: true });
-    const archivo = join(RUTA_REGISTRO, `hub-${marca.slice(0, 10)}.log`);
-
-    // Rotación por tamaño DENTRO del día: un local con mucho movimiento no debe
-    // dejar un archivo de cientos de megas que nadie puede abrir.
-    let destino = archivo;
-    if (existsSync(archivo) && statSync(archivo).size > MAX_REGISTRO_BYTES) {
-      destino = join(RUTA_REGISTRO, `hub-${marca.slice(0, 10)}-${ahora.getTime()}.log`);
-    }
+    // Rotación por tamaño DENTRO del día, por partes numeradas: un local con
+    // mucho movimiento no debe dejar un archivo de cientos de megas, ni —como
+    // pasó— un archivo por renglón.
+    const destino = archivoDelRegistro(
+      RUTA_REGISTRO,
+      marca.slice(0, 10),
+      estadoRegistro,
+      MAX_REGISTRO_BYTES,
+      (ruta) => (existsSync(ruta) ? statSync(ruta).size : null),
+    );
 
     appendFileSync(destino, `${linea}\n`, { encoding: "utf8", mode: 0o600 });
   } catch {
@@ -4183,6 +4211,17 @@ process.on("SIGTERM", () => apagar("SIGTERM"));
  * degrada en silencio, que es peor que uno que se muere.
  */
 process.on("uncaughtException", (causa) => {
+  /*
+   * La consola rota no es un fallo del Hub: se anota UNA vez y se deja de
+   * escribir en ella. Anotarla cada vez era justo lo que alimentaba el bucle.
+   */
+  if (esConsolaRota(causa)) {
+    if (consolaViva) {
+      consolaViva = false;
+      registrar("aviso", "Se cerró la consola que lanzó al Hub; se sigue anotando solo en el archivo.");
+    }
+    return;
+  }
   registrar("error", `Excepción no capturada (el Hub sigue): ${causa.stack ?? String(causa)}`);
 });
 process.on("unhandledRejection", (causa) => {
