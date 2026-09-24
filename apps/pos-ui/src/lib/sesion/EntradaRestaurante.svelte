@@ -139,10 +139,22 @@
   @media (max-width: 899px), (max-height: 620px) {
     .panel {
       flex-direction: column;
+      /* En columna se arranca por arriba: centrado, el teclado del teléfono
+         taparía los campos y no habría cómo llegar a ellos. */
+      justify-content: flex-start;
       gap: 1.25rem;
     }
     .lado-marca {
       flex: none;
+    }
+    /*
+     * En columna la base de 24rem se aplicaba al ALTO, y el ancho quedaba al
+     * del contenido: los campos se salían por la derecha en un teléfono.
+     */
+    .lado-acceso {
+      flex: none;
+      width: 100%;
+      max-width: 22rem;
     }
     .logo {
       max-width: min(11rem, 40vw);
@@ -165,6 +177,8 @@
   }
   .clave {
     width: 100%;
+    min-width: 0;
+    box-sizing: border-box;
     padding: 0.85rem 1rem;
     border-radius: var(--r-md);
     border: 1.5px solid rgba(255, 255, 255, 0.2);
