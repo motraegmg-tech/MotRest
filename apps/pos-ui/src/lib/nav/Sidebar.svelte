@@ -137,6 +137,14 @@
     flex-direction: column;
     padding: 1.5rem 1rem;
     overflow-y: auto;
+    /*
+     * `overflow-y: auto` enciende también el horizontal. Con la barra de un
+     * navegador de Windows restando ~15 px, «Administración» ya no cabía y
+     * salía una barra horizontal debajo del menú (web, 24-sep-2026).
+     */
+    overflow-x: hidden;
+    scrollbar-width: thin;
+    scrollbar-color: rgba(255, 255, 255, 0.18) transparent;
   }
   .logo {
     font-family: var(--font-titulo);
@@ -175,6 +183,10 @@
   }
   .txt {
     flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
   .fase {
     font-family: var(--font-titulo);

@@ -516,6 +516,14 @@
   .lienzo-caja {
     overflow-x: auto;
     margin-top: 0.5rem;
+    /*
+     * Que NO se encoja. Con `overflow` propio, un hijo de columna flexible
+     * pierde su alto mínimo y el navegador lo aplastaba para caber: en la web,
+     * con la barra de direcciones y el zoom restando alto, el plano quedaba en
+     * una franja de dos filas con barras propias (24-sep-2026). Si falta alto,
+     * se desplaza la columna del salón entera, que para eso lo tiene.
+     */
+    flex: none;
   }
   .lienzo {
     --celda: 2.9rem;
@@ -572,6 +580,8 @@
     color: var(--gris);
     padding: 0.2rem;
     cursor: pointer;
+    /* Para que el rótulo se adapte al ancho de CADA mesa (ver @container abajo). */
+    container-type: inline-size;
     transition:
       transform 0.08s ease,
       box-shadow 0.12s ease,
@@ -620,6 +630,16 @@
     font-weight: 500;
     line-height: 1;
     text-align: center;
+  }
+  /*
+   * En una mesa angosta el icono y «en servicio» no caben juntos y el texto
+   * salía partido («en servici»). Se queda el texto: el color de la mesa y la
+   * leyenda de abajo ya dicen lo mismo que el icono.
+   */
+  @container (max-width: 4.6rem) {
+    .mesa small :global(svg) {
+      display: none;
+    }
   }
   .mesa.ocupada {
     background: #fdeae8;
